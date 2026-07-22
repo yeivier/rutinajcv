@@ -14,6 +14,8 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
+const BUILD = "v3";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+
 const P = {
   bg: "#12100E",
   s1: "#1B1815",
@@ -413,7 +415,25 @@ const GlossaryBody = ({ focusId }) => {
 /* ============================================================
    Adjuntos
    ============================================================ */
-const MAX_VIDEO_BYTES = 20 * 1024 * 1024; // ~20 MB por video
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // 50 MB por video (límite del bucket)
+const SB_PROJECT = "https://vzenlmcbftopyjzcltxa.supabase.co";
+const SB_BUCKET = "forja-media";
+
+/* Sube un archivo al bucket de Supabase Storage y devuelve su URL pública.
+   Los videos ya no viajan como texto dentro de la base: pesaban demasiado. */
+async function uploadToBucket(file) {
+  const ext = (file.name && file.name.includes(".") ? file.name.split(".").pop() : "")
+    .toLowerCase().replace(/[^a-z0-9]/g, "") || (file.type === "video/quicktime" ? "mov" : "mp4");
+  const path = `${new Date().toISOString().slice(0, 10)}/${uid()}.${ext}`;
+  const r = await fetch(`${SB_PROJECT}/storage/v1/object/${SB_BUCKET}/${path}`, {
+    method: "POST",
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "x-upsert": "true",
+               "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!r.ok) throw new Error(`storage ${r.status}`);
+  return `${SB_PROJECT}/storage/v1/object/public/${SB_BUCKET}/${path}`;
+}
 
 function readFileDataUrl(file) {
   return new Promise((res, rej) => {
@@ -495,7 +515,7 @@ const ImageViewer = ({ src, onClose }) => {
 
 // mode: "photo" | "video" | "both"
 // capture: true = abre la cámara del celular directo (grabar); false = elegir de galería
-const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", capture }) => {
+const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", capture, iconOnly }) => {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const cb = onAttached || onAdd;
@@ -514,11 +534,22 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", captu
             const id = uid();
             if (f.type && f.type.startsWith("video")) {
               if (f.size > MAX_VIDEO_BYTES) {
-                throw new Error(`El video pesa ${(f.size / 1048576).toFixed(1)} MB. Máximo 20 MB. Recorta o graba a menor resolución. Para videos largos, mejor sube a YouTube/Drive y pega el link.`);
+                throw new Error(`El video pesa ${(f.size / 1048576).toFixed(1)} MB. Máximo 50 MB. Recorta o graba a menor resolución. Para videos largos, mejor sube a YouTube/Drive y pega el link.`);
               }
-              const dataUrl = await readFileDataUrl(f);
-              const poster = await videoPoster(dataUrl);
-              const ok = await sSet(`attach:${id}`, { dataUrl, poster, kind: "video", date: todayISO() });
+              const objUrl = URL.createObjectURL(f);
+              const poster = await videoPoster(objUrl);
+              let src = null;
+              try {
+                src = await uploadToBucket(f);           // 1º: almacenamiento de archivos
+              } catch (upErr) {
+                if (f.size > 3.5 * 1024 * 1024) {        // 2º: respaldo en la base, solo si es liviano
+                  URL.revokeObjectURL(objUrl);
+                  throw new Error("No se pudo subir el video al almacenamiento. Revisa la conexión e inténtalo de nuevo.");
+                }
+                src = await readFileDataUrl(f);
+              }
+              URL.revokeObjectURL(objUrl);
+              const ok = await sSet(`attach:${id}`, { dataUrl: src, poster, kind: "video", date: todayISO() });
               if (!ok) throw new Error("No se pudo guardar el video. Revisa la conexión.");
             } else {
               const dataUrl = await compressImage(f);
@@ -529,9 +560,17 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", captu
           } catch (err) { onError && onError(err.message); }
           finally { setBusy(false); }
         }} />
-      <Btn kind="line" small disabled={busy} onClick={() => ref.current && ref.current.click()}>
-        <Icon size={14} /> {busy ? "Subiendo…" : text}
-      </Btn>
+      {iconOnly ? (
+        <button disabled={busy} title={text} onClick={() => ref.current && ref.current.click()}
+          style={{ width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+            background: P.s3, border: `1px solid ${P.line}`, color: busy ? P.ember : P.dim, flexShrink: 0 }}>
+          {busy ? <span style={{ fontSize: 10, fontWeight: 700 }}>…</span> : <Icon size={15} />}
+        </button>
+      ) : (
+        <Btn kind="line" small disabled={busy} onClick={() => ref.current && ref.current.click()}>
+          <Icon size={14} /> {busy ? "Subiendo…" : text}
+        </Btn>
+      )}
     </>
   );
 };
@@ -677,6 +716,16 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
               </button>
             )}
           </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <AttachButton iconOnly mode="photo" onError={onAttachError}
+              onAttached={(aid) => onPatch({ attachIds: [...(set.attachIds || []), aid] })} />
+            <AttachButton iconOnly mode="video" onError={onAttachError}
+              onAttached={(aid) => onPatch({ attachIds: [...(set.attachIds || []), aid] })} />
+            {(set.attachIds || []).map((aid) => (
+              <AttachThumb key={aid} id={aid} size={34} onOpen={onOpenImg}
+                onRemove={() => onPatch({ attachIds: (set.attachIds || []).filter((x) => x !== aid) })} />
+            ))}
+          </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <button onClick={() => setShowCmt((v) => !v)} title="Comentario de la serie"
@@ -718,18 +767,6 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
         <div style={{ marginTop: 7, paddingLeft: 37 }}>
           <Inp placeholder={`Comentario de la serie ${idx + 1} (queda en tu historial)`} value={set.comment}
             onChange={(e) => onPatch({ comment: e.target.value })} style={{ fontSize: 13.5 }} />
-          <div style={{ display: "flex", gap: 7, alignItems: "center", marginTop: 7, flexWrap: "wrap" }}>
-            <AttachButton mode="photo" onAttached={(id) => onPatch({ attachIds: [...(set.attachIds || []), id] })} onError={onAttachError} />
-            <AttachButton mode="video" onAttached={(id) => onPatch({ attachIds: [...(set.attachIds || []), id] })} onError={onAttachError} />
-            {(set.attachIds || []).length > 0 && (
-              <div style={{ display: "flex", gap: 5, overflowX: "auto", flex: 1, minWidth: 0 }}>
-                {(set.attachIds || []).map((id) => (
-                  <AttachThumb key={id} id={id} size={44} onOpen={onOpenImg}
-                    onRemove={() => onPatch({ attachIds: (set.attachIds || []).filter((x) => x !== id) })} />
-                ))}
-              </div>
-            )}
-          </div>
         </div>
       )}
       {timer && <InlineRest timer={timer} onAdjust={onAdjustRest} onDismiss={onDismissRest} />}
@@ -845,20 +882,25 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   const [timer, setTimer] = useState(null);
   const [viewImg, setViewImg] = useState(null);
   const [previewDay, setPreviewDay] = useState(null);
+  const [browsing, setBrowsing] = useState(false);   // ver la rutina aunque haya sesión abierta
+  const [confirmSwitch, setConfirmSwitch] = useState(null);
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(iv); }, []);
 
   const startSession = (day) => {
     const snap = {
       id: uid(), dayId: day.id, dayName: day.name, startedAt: todayISO(),
+      attachIds: [],
       exs: day.exs.map((ex) => ({ ...ex, comment: "", attachIds: [],
         sets: ex.sets.map((s) => ({ ...s, weight: "", reps: "", rir: "", done: false, comment: "", drops: [] })) })),
     };
     setActive(snap); saveActive(snap);
-    setPreviewDay(null);
+    setPreviewDay(null); setBrowsing(false);
   };
 
-  if (!active && previewDay) {
+  const listMode = !active || browsing;
+
+  if (listMode && previewDay) {
     const d = previewDay;
     const totalSeries = d.exs.reduce((a, e) => a + e.sets.length, 0);
     return (
@@ -889,18 +931,44 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
           </Card>
         ))}
         <div style={{ position: "sticky", bottom: 96, marginTop: 18, display: "flex", gap: 8 }}>
-          <Btn kind="line" onClick={() => setPreviewDay(null)} style={{ flex: 1 }}><X size={16} /> Salir sin iniciar</Btn>
-          <Btn kind="ember" onClick={() => startSession(d)} style={{ flex: 2 }}><Play size={16} /> Iniciar entrenamiento</Btn>
+          {active ? (
+            <>
+              <Btn kind="line" onClick={() => { setPreviewDay(null); setBrowsing(false); }} style={{ flex: 1 }}>
+                <ChevronLeft size={16} /> Volver a mi sesión
+              </Btn>
+              <Btn kind="ember" onClick={() => setConfirmSwitch(d)} style={{ flex: 2 }}>
+                <Play size={16} /> Empezar esta
+              </Btn>
+            </>
+          ) : (
+            <>
+              <Btn kind="line" onClick={() => setPreviewDay(null)} style={{ flex: 1 }}><X size={16} /> Salir sin iniciar</Btn>
+              <Btn kind="ember" onClick={() => startSession(d)} style={{ flex: 2 }}><Play size={16} /> Iniciar entrenamiento</Btn>
+            </>
+          )}
         </div>
+        <Confirm open={!!confirmSwitch} danger title="Ya tienes una sesión en curso"
+          body={`Se descartará «${active ? active.dayName : ""}» con todo lo que lleves registrado y empezará «${confirmSwitch ? confirmSwitch.name : ""}». Esta acción no se puede deshacer.`}
+          okLabel="Descartar y empezar" onCancel={() => setConfirmSwitch(null)}
+          onOk={() => { const day = confirmSwitch; setConfirmSwitch(null); discardSession(); startSession(day); }} />
       </div>
     );
   }
 
-  if (!active) {
+  if (listMode) {
     return (
       <div style={{ padding: "18px 16px 30px" }}>
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Entrenar</h1>
         <div style={{ color: P.dim, fontSize: 14, marginBottom: 16 }}>Toca un día para ver los ejercicios. Solo cuando aprietes «Iniciar entrenamiento» se creará la sesión y empezarán los cronómetros.</div>
+        {active && (
+          <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.ember}66`, background: `linear-gradient(160deg, rgba(255,107,44,.10), ${P.s1})` }}>
+            <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>Sesión en curso: {active.dayName}</div>
+            <div style={{ fontSize: 12.5, color: P.dim, marginBottom: 10 }}>Estás mirando la rutina. Tu registro sigue guardado tal como lo dejaste.</div>
+            <Btn kind="ember" small onClick={() => { setPreviewDay(null); setBrowsing(false); }} style={{ width: "100%" }}>
+              <Play size={15} /> Volver a mi sesión
+            </Btn>
+          </Card>
+        )}
         {plan.days.length === 0 ? (
           <Empty icon={Dumbbell} title="Aún no hay rutina" body="Tu coach todavía no carga días de entrenamiento. Pídele que entre en modo Coach y arme el plan." />
         ) : plan.days.map((d, i) => {
@@ -979,7 +1047,12 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
               </span>
             </div>
           </div>
-          <Btn kind="ember" small onClick={() => setConfirmFinish(true)}>Terminar</Btn>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+            <Btn kind="line" small onClick={() => { setBrowsing(true); setPreviewDay(null); }} title="Ver la rutina completa">
+              <ClipboardList size={14} /> Rutina
+            </Btn>
+            <Btn kind="ember" small onClick={() => setConfirmFinish(true)}>Terminar</Btn>
+          </div>
         </div>
         <div style={{ height: 5, background: P.s2, borderRadius: 3, marginTop: 8, overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${totalSets ? (doneSets / totalSets) * 100 : 0}%`,
@@ -988,6 +1061,26 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
       </div>
 
       <div style={{ padding: "14px 14px 0" }}>
+        <Card style={{ padding: "11px 12px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 130 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>Video y fotos de la sesión</div>
+              <div style={{ fontSize: 11.5, color: P.faint, marginTop: 1 }}>Lo general del día: cómo te sentiste, el ambiente, un resumen</div>
+            </div>
+            <AttachButton mode="photo" onError={toast}
+              onAttached={(aid) => patch((a) => { a.attachIds = [...(a.attachIds || []), aid]; return a; })} />
+            <AttachButton mode="video" onError={toast}
+              onAttached={(aid) => patch((a) => { a.attachIds = [...(a.attachIds || []), aid]; return a; })} />
+          </div>
+          {(active.attachIds || []).length > 0 && (
+            <div style={{ display: "flex", gap: 7, marginTop: 10, overflowX: "auto" }}>
+              {(active.attachIds || []).map((aid) => (
+                <AttachThumb key={aid} id={aid} size={54} onOpen={setViewImg}
+                  onRemove={() => patch((a) => { a.attachIds = (a.attachIds || []).filter((x) => x !== aid); return a; })} />
+              ))}
+            </div>
+          )}
+        </Card>
         {active.exs.map((ex, ei) => (
           <SessionExercise key={ex.id} ex={ex} exIdx={ei} history={history}
             onPatchEx={(p) => patchEx(ei, p)} onPatchSet={(si, p) => patchSet(ei, si, p)}
@@ -1144,6 +1237,14 @@ const SessionDetailSheet = ({ session, onClose, history, onOpenImg }) => (
         <div style={{ fontSize: 13, color: P.dim, marginBottom: 12 }}>
           {fmtDateFull(session.date)} · {session.durationMin} min · {Math.round(session.volume).toLocaleString("es-CL")} kg totales
         </div>
+        {(session.attachIds || []).length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Video y fotos de la sesión</div>
+            <div style={{ display: "flex", gap: 7, overflowX: "auto" }}>
+              {(session.attachIds || []).map((aid) => <AttachThumb key={aid} id={aid} size={62} onOpen={onOpenImg} />)}
+            </div>
+          </div>
+        )}
         {session.exs.map((e) => {
           const entry = (history.byEx[e.exId] || []).find((en) => en.sessionId === session.id);
           if (!entry) return null;
@@ -2839,7 +2940,8 @@ const App = () => {
         sets: ex.sets, comment: ex.comment || "", attachIds: ex.attachIds || [] });
       recordedExs.push({ exId: ex.id, name: ex.name });
     });
-    h.sessions.push({ id: a.id, date, dayId: a.dayId, dayName: a.dayName, durationMin, volume, setsDone, setsTotal, prs, hasComments, exs: recordedExs });
+    if ((a.attachIds || []).length > 0) hasComments = true;
+    h.sessions.push({ id: a.id, date, dayId: a.dayId, dayName: a.dayName, durationMin, volume, setsDone, setsTotal, prs, hasComments, exs: recordedExs, attachIds: a.attachIds || [] });
     setHistory(h);
     sSet(`forja-history:${sidRef.current}`, h).then(() => force((x) => x + 1));
     activeRef.current = null; setActive(null); setSavedAt("");
@@ -2914,7 +3016,7 @@ const App = () => {
             </div>
             <div style={{ minWidth: 0, textAlign: "left" }}>
               <div style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>{currentStudent?.name || "—"}</div>
-              <div style={{ fontSize: 10.5, color: P.faint, textTransform: "uppercase", letterSpacing: ".06em" }}>modo {mode} · cambiar</div>
+              <div style={{ fontSize: 10.5, color: P.faint, textTransform: "uppercase", letterSpacing: ".06em" }}>modo {mode} · cambiar · {BUILD}</div>
             </div>
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
