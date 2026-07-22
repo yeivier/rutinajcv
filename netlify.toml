@@ -5,3 +5,20 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# El HTML nunca se cachea: así el navegador siempre pide la versión actual
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# El bundle se revalida siempre; el ?v= decide cuándo se baja de nuevo
+[[headers]]
+  for = "/bundle.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
