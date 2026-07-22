@@ -413,7 +413,7 @@ const GlossaryBody = ({ focusId }) => {
 /* ============================================================
    Adjuntos
    ============================================================ */
-const MAX_VIDEO_BYTES = 9 * 1024 * 1024; // ~9 MB por video
+const MAX_VIDEO_BYTES = 20 * 1024 * 1024; // ~20 MB por video
 
 function readFileDataUrl(file) {
   return new Promise((res, rej) => {
@@ -494,7 +494,8 @@ const ImageViewer = ({ src, onClose }) => {
 };
 
 // mode: "photo" | "video" | "both"
-const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo" }) => {
+// capture: true = abre la cámara del celular directo (grabar); false = elegir de galería
+const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", capture }) => {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const cb = onAttached || onAdd;
@@ -503,7 +504,7 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo" }) => 
   const text = label || (mode === "video" ? "Video" : mode === "both" ? "Foto/video" : "Foto");
   return (
     <>
-      <input ref={ref} type="file" accept={accept} style={{ display: "none" }}
+      <input ref={ref} type="file" accept={accept} {...(capture ? { capture: mode === "video" ? "user" : "environment" } : {})} style={{ display: "none" }}
         onChange={async (e) => {
           const f = e.target.files && e.target.files[0];
           e.target.value = "";
@@ -513,16 +514,16 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo" }) => 
             const id = uid();
             if (f.type && f.type.startsWith("video")) {
               if (f.size > MAX_VIDEO_BYTES) {
-                throw new Error(`El video pesa ${(f.size / 1048576).toFixed(1)} MB. Máximo 9 MB: recórtalo o baja la calidad de grabación.`);
+                throw new Error(`El video pesa ${(f.size / 1048576).toFixed(1)} MB. Máximo 20 MB. Recorta o graba a menor resolución. Para videos largos, mejor sube a YouTube/Drive y pega el link.`);
               }
               const dataUrl = await readFileDataUrl(f);
               const poster = await videoPoster(dataUrl);
               const ok = await sSet(`attach:${id}`, { dataUrl, poster, kind: "video", date: todayISO() });
-              if (!ok) throw new Error("No se pudo guardar el video en el servidor. Revisa la conexión.");
+              if (!ok) throw new Error("No se pudo guardar el video. Revisa la conexión.");
             } else {
               const dataUrl = await compressImage(f);
               const ok = await sSet(`attach:${id}`, { dataUrl, kind: "image", date: todayISO() });
-              if (!ok) throw new Error("No se pudo guardar la foto en el servidor. Revisa la conexión.");
+              if (!ok) throw new Error("No se pudo guardar la foto. Revisa la conexión.");
             }
             cb && cb(id);
           } catch (err) { onError && onError(err.message); }
@@ -620,7 +621,7 @@ const InlineRest = ({ timer, onAdjust, onDismiss }) => {
 /* ============================================================
    Fila de serie — la pieza central
    ============================================================ */
-const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpenImg, restSec, timer, onStartRest, onAdjustRest, onDismissRest }) => {
+const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpenImg, onAttachError, restSec, timer, onStartRest, onAdjustRest, onDismissRest }) => {
   const [showCmt, setShowCmt] = useState(false);
   const done = set.done;
   const inp = (field, ph, w) => (
@@ -717,6 +718,18 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
         <div style={{ marginTop: 7, paddingLeft: 37 }}>
           <Inp placeholder={`Comentario de la serie ${idx + 1} (queda en tu historial)`} value={set.comment}
             onChange={(e) => onPatch({ comment: e.target.value })} style={{ fontSize: 13.5 }} />
+          <div style={{ display: "flex", gap: 7, alignItems: "center", marginTop: 7, flexWrap: "wrap" }}>
+            <AttachButton mode="photo" onAttached={(id) => onPatch({ attachIds: [...(set.attachIds || []), id] })} onError={onAttachError} />
+            <AttachButton mode="video" onAttached={(id) => onPatch({ attachIds: [...(set.attachIds || []), id] })} onError={onAttachError} />
+            {(set.attachIds || []).length > 0 && (
+              <div style={{ display: "flex", gap: 5, overflowX: "auto", flex: 1, minWidth: 0 }}>
+                {(set.attachIds || []).map((id) => (
+                  <AttachThumb key={id} id={id} size={44} onOpen={onOpenImg}
+                    onRemove={() => onPatch({ attachIds: (set.attachIds || []).filter((x) => x !== id) })} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
       {timer && <InlineRest timer={timer} onAdjust={onAdjustRest} onDismiss={onDismissRest} />}
@@ -780,7 +793,8 @@ const SessionExercise = ({ ex, exIdx, history, onPatchEx, onPatchSet, onSetDone,
               <History size={14} /> Historial y notas{entries.length ? ` (${entries.length})` : ""}
             </Btn>
             {ex.video && <Btn kind="line" small onClick={() => window.open(ex.video, "_blank")}><Video size={14} /> Ver técnica</Btn>}
-            <AttachButton mode="both" onAttached={(id) => onPatchEx({ attachIds: [...(ex.attachIds || []), id] })} onError={onError} />
+            <AttachButton mode="photo" onAttached={(id) => onPatchEx({ attachIds: [...(ex.attachIds || []), id] })} onError={onError} />
+            <AttachButton mode="video" onAttached={(id) => onPatchEx({ attachIds: [...(ex.attachIds || []), id] })} onError={onError} />
           </div>
 
           {(ex.coachAttachIds || []).length > 0 && (
@@ -799,11 +813,12 @@ const SessionExercise = ({ ex, exIdx, history, onPatchEx, onPatchSet, onSetDone,
               onStartRest={() => onStartRest(exIdx, si)}
               onAdjustRest={onAdjustRest}
               onDismissRest={onDismissRest}
+              onOpenImg={onOpenImg} onAttachError={onError}
               last={lastEntry && lastEntry.sets[si] && lastEntry.sets[si].done ? lastEntry.sets[si] : null}
               suggest={suggestFor(s)}
               onPatch={(patch) => onPatchSet(si, patch)}
               onToggleDone={() => onSetDone(si)}
-              onInfo={onInfo} onOpenImg={onOpenImg} />
+              onInfo={onInfo} />
           ))}
 
           {(ex.attachIds || []).length > 0 && (
@@ -1261,11 +1276,14 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
           </Card>
           <Card style={{ padding: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontSize: 12, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Fotos de progreso ({history.bodyPhotos.length})</div>
-              <AttachButton onError={setErr} label="Subir" onAttached={(id) => { const h = structuredClone(history); h.bodyPhotos.push({ id, date: todayISO() }); saveHistory(h); }} />
+              <div style={{ fontSize: 12, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Progreso: fotos y videos ({history.bodyPhotos.length})</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <AttachButton mode="photo" onError={setErr} onAttached={(id) => { const h = structuredClone(history); h.bodyPhotos.push({ id, date: todayISO() }); saveHistory(h); }} />
+                <AttachButton mode="video" onError={setErr} onAttached={(id) => { const h = structuredClone(history); h.bodyPhotos.push({ id, date: todayISO() }); saveHistory(h); }} />
+              </div>
             </div>
             {history.bodyPhotos.length === 0 ? (
-              <div style={{ fontSize: 13, color: P.faint }}>Sube una foto cada 2–4 semanas, con la misma luz y pose, para comparar tu recomposición. Puedes subir todas las que necesites.</div>
+              <div style={{ fontSize: 13, color: P.faint }}>Sube una foto o video cada 2–4 semanas, con la misma luz y pose, para comparar tu recomposición. Sin límite de cantidad.</div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
                 {[...history.bodyPhotos].reverse().map((p) => (
