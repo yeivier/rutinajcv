@@ -1493,10 +1493,252 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo }) => {
   );
 };
 
-const RoutineTab = ({ plan, savePlan, onInfo }) => {
+/* ============================================================
+   Importador de rutina desde archivo (usa Claude API)
+   ============================================================ */
+const ImportRoutineSheet = ({ open, onClose, plan, savePlan, toast }) => {
+  const [apiKey, setApiKey] = useState("");
+  const [step, setStep] = useState("input");
+  const [text, setText] = useState("");
+  const [file, setFile] = useState(null);
+  const [fileB64, setFileB64] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => { if (open) sGet("forja-ai-key").then((k) => k && setApiKey(k)); }, [open]);
+
+  const reset = () => { setStep("input"); setText(""); setFile(null); setFileB64(null); setPreview(null); setErr(""); };
+  const close = () => { onClose(); setTimeout(reset, 300); };
+
+  const handleFile = async (f) => {
+    if (!f) return;
+    if (f.size > 30 * 1024 * 1024) { setErr("El archivo pesa más de 30 MB, muy grande para procesar."); return; }
+    setErr("");
+    try {
+      const dataUrl = await readFileDataUrl(f);
+      const b64 = dataUrl.split(",")[1];
+      setFile({ name: f.name, type: f.type || (f.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg"), size: f.size });
+      setFileB64(b64);
+    } catch (e) { setErr("No se pudo leer el archivo."); }
+  };
+
+  const analyze = async () => {
+    if (!apiKey) { setErr("Falta configurar la API key de Anthropic. Ve a la pestaña IA."); return; }
+    if (!text.trim() && !fileB64) { setErr("Sube un archivo o pega el texto de la rutina."); return; }
+    setStep("analyzing"); setErr("");
+
+    const systemPrompt = `Eres un asistente que extrae rutinas de entrenamiento estructuradas.
+Analiza el contenido y devuelve SOLO JSON válido, sin markdown ni texto extra, con esta estructura:
+{
+  "days": [
+    {
+      "name": "Nombre del día (ej: Entrenamiento A, Push, Piernas...)",
+      "exs": [
+        {
+          "name": "Nombre del ejercicio",
+          "muscle": "Uno de: Pecho, Espalda, Hombro, Bíceps, Tríceps, Cuádriceps, Femoral, Glúteo, Pantorrilla, Abdomen, Antebrazo, Trapecio, Otro",
+          "rest": 90,
+          "notes": "Indicaciones técnicas si las hay",
+          "sets": [{ "type": "normal", "repsT": "8-10", "rirT": "2" }]
+        }
+      ]
+    }
+  ]
+}
+
+REGLAS ESTRICTAS:
+- "type" solo puede ser: "warmup", "normal", "top", "backoff", "drop", "restpause", "amrap"
+- "repsT" es string ("8-10", "12", "AMRAP")
+- "rirT" es string con número o vacío
+- IE (Intensidad del Esfuerzo, escala 1-10) convertir a RIR: IE 10 → RIR "0", IE 9 → RIR "1", IE 8 → RIR "2", IE 7 → RIR "3", IE 6 → RIR "4"
+- Si hay reps distintas por serie ("10-12 / 8-10 / 6-8"), crea una entrada en "sets" por cada una
+- "rest": segundos (120 compuestos, 90 aislados si no está especificado)
+- Traduce nombres al español si el original está en portugués o inglés
+- No inventes ejercicios que no estén en el documento`;
+
+    const content = [];
+    if (fileB64 && file) {
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      content.push({
+        type: isPdf ? "document" : "image",
+        source: { type: "base64", media_type: isPdf ? "application/pdf" : (file.type || "image/jpeg"), data: fileB64 },
+      });
+    }
+    if (text.trim()) content.push({ type: "text", text: text.trim() });
+    if (content.length === 0) content.push({ type: "text", text: "Extrae la rutina del archivo adjunto." });
+
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: "claude-opus-4-6",
+          max_tokens: 6000,
+          system: systemPrompt,
+          messages: [{ role: "user", content }],
+        }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`Error ${r.status}: ${t.slice(0, 300)}`);
+      }
+      const data = await r.json();
+      const rawText = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("La IA no devolvió JSON. Prueba pegar el texto en vez de subir el archivo.");
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!parsed.days || !Array.isArray(parsed.days) || parsed.days.length === 0) throw new Error("No se detectaron días en la rutina.");
+      setPreview(parsed);
+      setStep("preview");
+    } catch (e) {
+      setErr(e.message || "Error al analizar");
+      setStep("input");
+    }
+  };
+
+  const applyDays = (mode) => {
+    if (!preview) return;
+    const newDays = preview.days.map((d) => ({
+      id: uid(),
+      name: d.name || "Día sin nombre",
+      exs: (d.exs || []).map((e) => ({
+        id: uid(),
+        name: e.name || "Ejercicio",
+        muscle: e.muscle || "Otro",
+        rest: +e.rest || 90,
+        notes: e.notes || "",
+        video: "",
+        superset: "",
+        coachAttachIds: [],
+        attachIds: [],
+        sets: ((e.sets && e.sets.length) ? e.sets : [{ type: "normal", repsT: "8-10", rirT: "" }]).map((s) => ({
+          id: uid(),
+          type: ["warmup", "normal", "top", "backoff", "drop", "restpause", "amrap"].includes(s.type) ? s.type : "normal",
+          repsT: String(s.repsT || "8-10"),
+          rirT: s.rirT != null ? String(s.rirT) : "",
+          pct: 15,
+        })),
+      })),
+    }));
+    const p = structuredClone(plan);
+    if (mode === "replace") p.days = newDays;
+    else p.days = [...p.days, ...newDays];
+    p.updatedAt = todayISO();
+    savePlan(p);
+    if (toast) toast(`✓ Rutina importada: ${newDays.length} día${newDays.length !== 1 ? "s" : ""}, ${newDays.reduce((a, d) => a + d.exs.length, 0)} ejercicios`);
+    close();
+  };
+
+  return (
+    <Sheet open={open} onClose={close} title="Importar rutina desde archivo" tall>
+      {!apiKey && (
+        <Card style={{ padding: 12, marginBottom: 12, borderColor: `${P.ember}66`, background: `${P.ember}0A` }}>
+          <div style={{ fontSize: 13, color: P.dim, lineHeight: 1.5 }}>
+            <b style={{ color: P.ember2 }}>Falta la API key.</b> Para usar el importador con IA, primero configura tu API key de Anthropic en la pestaña <b>IA</b> del modo Coach.
+          </div>
+        </Card>
+      )}
+
+      {step === "input" && (
+        <>
+          <div style={{ fontSize: 13.5, color: P.dim, marginBottom: 14, lineHeight: 1.5 }}>
+            Sube un PDF, foto o pega el texto de la rutina. La IA la analiza y crea los días y ejercicios automáticamente. Puedes reemplazar el plan actual o añadir estos días al final.
+          </div>
+
+          <Field label="Subir archivo (PDF, foto o screenshot)">
+            <label style={{ display: "block", padding: "16px 12px", background: P.s2, border: `2px dashed ${P.line}`, borderRadius: 12, textAlign: "center", cursor: "pointer" }}>
+              <input type="file" accept="application/pdf,image/*" style={{ display: "none" }}
+                onChange={(e) => handleFile(e.target.files && e.target.files[0])} />
+              <Upload size={22} color={P.faint} style={{ margin: "0 auto 6px", display: "block" }} />
+              <div style={{ fontSize: 13, color: P.dim }}>Toca para elegir archivo</div>
+              <div style={{ fontSize: 11.5, color: P.faint, marginTop: 3 }}>PDF, JPG, PNG · hasta 30 MB</div>
+            </label>
+            {file && <div style={{ fontSize: 12.5, color: P.green, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+              <Check size={14} /> {file.name} ({(file.size / 1024).toFixed(0)} KB)
+              <button onClick={() => { setFile(null); setFileB64(null); }} style={{ color: P.faint, marginLeft: "auto" }}><X size={13} /></button>
+            </div>}
+          </Field>
+
+          <div style={{ textAlign: "center", padding: "6px 0", color: P.faint, fontSize: 11, fontWeight: 700, letterSpacing: ".1em" }}>— O TAMBIÉN —</div>
+
+          <Field label="Pegar texto de la rutina">
+            <Txt rows={6} placeholder="Ej:&#10;Día A - Push&#10;Press banca 4x8-10 RIR 2&#10;Press militar 3x10-12&#10;..." value={text} onChange={(e) => setText(e.target.value)} />
+          </Field>
+
+          {err && <div style={{ padding: "10px 12px", borderRadius: 8, background: `${P.red}22`, border: `1px solid ${P.red}55`, fontSize: 12.5, color: P.red, marginBottom: 10, lineHeight: 1.4 }}>{err}</div>}
+
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <Btn kind="line" onClick={close} style={{ flex: 1 }}>Cancelar</Btn>
+            <Btn kind="ember" disabled={!apiKey || (!text.trim() && !fileB64)} onClick={analyze} style={{ flex: 2 }}>
+              <Sparkles size={15} /> Analizar con IA
+            </Btn>
+          </div>
+        </>
+      )}
+
+      {step === "analyzing" && (
+        <div style={{ padding: "48px 20px", textAlign: "center" }}>
+          <div className="pulse"><Sparkles size={36} color={P.ember} /></div>
+          <div style={{ marginTop: 16, fontWeight: 700, fontSize: 15 }}>Analizando la rutina…</div>
+          <div style={{ marginTop: 8, fontSize: 12.5, color: P.dim, lineHeight: 1.5 }}>Esto puede tardar entre 15 y 45 segundos según el tamaño del archivo.</div>
+        </div>
+      )}
+
+      {step === "preview" && preview && (
+        <>
+          <Card style={{ padding: "12px 14px", marginBottom: 12, background: `${P.green}0F`, borderColor: `${P.green}44` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <Check size={16} color={P.green} />
+              <div style={{ fontWeight: 700, fontSize: 14 }}>Análisis completo</div>
+            </div>
+            <div style={{ fontSize: 13, color: P.dim }}>
+              <b>{preview.days.length} día{preview.days.length !== 1 ? "s" : ""}</b> · <b>{preview.days.reduce((a, d) => a + (d.exs || []).length, 0)} ejercicios</b> · <b>{preview.days.reduce((a, d) => a + (d.exs || []).reduce((b, e) => b + (e.sets || []).length, 0), 0)} series</b>
+            </div>
+          </Card>
+
+          {preview.days.map((d, i) => (
+            <Card key={i} style={{ padding: "11px 13px", marginBottom: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 14.5 }}>{d.name}</div>
+              <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>{(d.exs || []).length} ejercicios</div>
+              <div style={{ marginTop: 7 }}>
+                {(d.exs || []).map((e, ei) => (
+                  <div key={ei} style={{ fontSize: 12.5, color: P.dim, padding: "3px 0", display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>• {e.name}</span>
+                    <span style={{ color: P.faint, flexShrink: 0 }}>{(e.sets || []).length}s · {e.muscle}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ))}
+
+          <div style={{ fontSize: 12, color: P.faint, marginTop: 10, marginBottom: 10, lineHeight: 1.5 }}>
+            Puedes deshacer con el botón «Deshacer» si algo salió mal.
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <Btn kind="line" onClick={() => { setStep("input"); setPreview(null); }} style={{ flex: 1 }}>Reintentar</Btn>
+            <Btn kind="line" onClick={() => applyDays("append")} style={{ flex: 1.4 }}>
+              <Plus size={14} /> Añadir al plan
+            </Btn>
+            <Btn kind="ember" onClick={() => applyDays("replace")} style={{ flex: 1.4 }}>
+              <RotateCcw size={14} /> Reemplazar plan
+            </Btn>
+          </div>
+        </>
+      )}
+    </Sheet>
+  );
+};
+
+const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   const [openDay, setOpenDay] = useState(null);
   const [editEx, setEditEx] = useState(null); // {dayId, ex}
   const [del, setDel] = useState(null); // {type:'day'|'ex', dayId, exId, name}
+  const [importOpen, setImportOpen] = useState(false);
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const move = (arr, i, dir) => { const j = i + dir; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; };
 
@@ -1504,6 +1746,23 @@ const RoutineTab = ({ plan, savePlan, onInfo }) => {
     <div style={{ padding: "18px 16px 30px" }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Rutina</h1>
       <div style={{ color: P.dim, fontSize: 14, marginBottom: 14 }}>Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante.</div>
+
+      <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(140deg, ${P.ember}18, ${P.s1})`, borderColor: `${P.ember}55` }}>
+        <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 11 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 11, background: `${P.ember}22`, border: `1px solid ${P.ember}55`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Sparkles size={20} color={P.ember} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14.5 }}>Importar rutina con IA</div>
+            <div style={{ fontSize: 12, color: P.dim, marginTop: 2, lineHeight: 1.35 }}>Sube un PDF, foto o pega el texto. Claude arma los días y ejercicios solo.</div>
+          </div>
+          <ChevronRight size={18} color={P.faint} />
+        </button>
+      </Card>
+
+      {plan.days.length === 0 && (
+        <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
+      )}
 
       {plan.days.map((d, di) => (
         <Card key={d.id} style={{ marginBottom: 12, overflow: "hidden" }}>
@@ -1555,6 +1814,7 @@ const RoutineTab = ({ plan, savePlan, onInfo }) => {
         onCancel={() => setDel(null)}
         onOk={() => { mut((p) => { if (del.type === "day") p.days = p.days.filter((x) => x.id !== del.dayId);
           else { const day = p.days.find((x) => x.id === del.dayId); day.exs = day.exs.filter((x) => x.id !== del.exId); } }); setDel(null); }} />
+      <ImportRoutineSheet open={importOpen} onClose={() => setImportOpen(false)} plan={plan} savePlan={savePlan} toast={toast} />
     </div>
   );
 };
@@ -2689,7 +2949,7 @@ const App = () => {
             <Btn kind="line" small onClick={() => setConfirmReset(true)} style={{ color: P.red }}><Trash2 size={13} /> Vaciar plan</Btn>
           </div>
         )}
-        {mode === "coach" && tab === "rutina" && <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} />}
+        {mode === "coach" && tab === "rutina" && <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} />}
         {mode === "coach" && tab === "agenda" && <ScheduleEditor plan={plan} savePlan={savePlan} />}
         {mode === "coach" && tab === "nutricion" && <NutritionEditor plan={plan} savePlan={savePlan} />}
         {mode === "coach" && tab === "ia" && <NutriAITab plan={plan} savePlan={savePlan} currentStudent={currentStudent} />}
