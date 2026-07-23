@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v4";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v5";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -1850,8 +1850,22 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   const [editEx, setEditEx] = useState(null); // {dayId, ex}
   const [del, setDel] = useState(null); // {type:'day'|'ex', dayId, exId, name}
   const [importOpen, setImportOpen] = useState(false);
+  const [copiedEx, setCopiedEx] = useState(null);
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const move = (arr, i, dir) => { const j = i + dir; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; };
+  const copyExercise = (ex) => {
+    setCopiedEx(structuredClone(ex));
+    if (toast) toast(`✓ «${ex.name}» copiado con todas sus indicaciones`);
+  };
+  const pasteExercise = (dayId) => {
+    if (!copiedEx) return;
+    const pasted = structuredClone(copiedEx);
+    pasted.id = uid();
+    delete pasted.isNew;
+    pasted.sets = (pasted.sets || []).map((s) => ({ ...s, id: uid() }));
+    mut((p) => p.days.find((day) => day.id === dayId).exs.push(pasted));
+    if (toast) toast(`✓ «${pasted.name}» pegado con series, indicaciones y adjuntos`);
+  };
 
   return (
     <div style={{ padding: "18px 16px 30px" }}>
@@ -1900,13 +1914,20 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                   </button>
                   <button onClick={() => mut((p) => move(p.days[di].exs, ei, -1))} style={{ padding: 5, color: P.faint }}><ArrowUp size={14} /></button>
                   <button onClick={() => mut((p) => move(p.days[di].exs, ei, +1))} style={{ padding: 5, color: P.faint }}><ArrowDown size={14} /></button>
-                  <button onClick={() => mut((p) => { const c = structuredClone(e); c.id = uid(); c.sets.forEach((s) => (s.id = uid())); p.days[di].exs.splice(ei + 1, 0, c); })} style={{ padding: 5, color: P.faint }}><Copy size={14} /></button>
+                  <button onClick={() => copyExercise(e)} title="Copiar ejercicio completo" aria-label={`Copiar ${e.name}`} style={{ padding: 5, color: P.faint }}><Copy size={14} /></button>
                   <button onClick={() => setDel({ type: "ex", dayId: d.id, exId: e.id, name: e.name })} style={{ padding: 5, color: P.faint }}><Trash2 size={14} /></button>
                 </div>
               ))}
-              <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] } })} style={{ width: "100%" }}>
-                <Plus size={15} /> Añadir ejercicio
-              </Btn>
+              <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] } })} style={{ flex: 1, minWidth: 150 }}>
+                  <Plus size={15} /> Añadir ejercicio
+                </Btn>
+                {copiedEx && (
+                  <Btn kind="line" small onClick={() => pasteExercise(d.id)} style={{ flex: 1.25, minWidth: 170 }}>
+                    <ClipboardList size={15} /> Pegar «{copiedEx.name}»
+                  </Btn>
+                )}
+              </div>
             </div>
           )}
         </Card>
