@@ -1,5 +1,9 @@
 [build]
+  command = "echo 'Static site ready; no build step required'"
   publish = "."
+
+[build.environment]
+  NETLIFY_NEXT_PLUGIN_SKIP = "true"
 
 [[redirects]]
   from = "/*"
