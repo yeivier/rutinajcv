@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v3";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v4";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -179,8 +179,16 @@ function compressImage(file, maxDim = 1280, quality = 0.72) {
 }
 
 /* ---------------- Programa del alumno ---------------- */
-const SEED_VERSION = 2;
+const SEED_VERSION = 3;
 const ROSTER_VERSION = 1;
+const TRAINING_B_VIDEOS = [
+  "https://youtu.be/PkdWebUdlbE",
+  "https://youtu.be/jUKNrZoG0v4",
+  "https://youtu.be/ft2qWxrJyYA",
+  "https://youtu.be/5BYEIP_KBY8",
+  "https://youtu.be/uMO6qc4wyQw",
+  "https://youtu.be/5pEG7Cj0-0Y",
+];
 const sets = (arr) => arr.map(([type, repsT, rirT, pct]) => ({ id: uid(), type, repsT, rirT: rirT ?? "", pct: pct ?? 15 }));
 const emptyPlan = () => ({ days: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], updatedAt: todayISO() });
 function seedPlan() {
@@ -200,12 +208,12 @@ function seedPlan() {
         ex("Extensión de Tríceps en Poleas Cruzadas", "Tríceps", 90, "", "", "", sets([n("10-12","0"), n("8-10","0")])),
       ]},
       { id: uid(), name: "Entrenamiento B", exs: [
-        ex("Jalón Prono", "Espalda", 120, "", "", "", sets([n("10-12","0"), n("8-10","0")])),
-        ex("Jalón Unilateral Neutro/Supino", "Espalda", 120, "", "El «/» son opciones: agarre neutro o supino.", "", sets([n("10-12","0"), n("8-10","0")])),
-        ex("Remo en máquina tipo T con apoyo en el pecho", "Espalda", 120, "", "Sin impulso lumbar; pausa de 1 s atrás.", "", sets([n("10-12","0"), n("8-10","0")])),
-        ex("Pullover en Polea", "Espalda", 90, "", "Brazos casi rectos, siente el estiramiento del dorsal.", "", sets([n("10-12","0"), n("8-10","0")])),
-        ex("Remo Bajo con Triángulo", "Espalda", 120, "", "", "", sets([n("10-12","0"), n("8-10","0")])),
-        ex("Aperturas inversas en polea", "Hombro", 90, "", "Deltoides posterior.", "", sets([n("10-12","0"), n("10-12","0"), n("10-12","0")])),
+        ex("Jalón Prono", "Espalda", 120, "", "", TRAINING_B_VIDEOS[0], sets([n("10-12","0"), n("8-10","0")])),
+        ex("Jalón Unilateral Neutro/Supino", "Espalda", 120, "", "El «/» son opciones: agarre neutro o supino.", TRAINING_B_VIDEOS[1], sets([n("10-12","0"), n("8-10","0")])),
+        ex("Remo en máquina tipo T con apoyo en el pecho", "Espalda", 120, "", "Sin impulso lumbar; pausa de 1 s atrás.", TRAINING_B_VIDEOS[2], sets([n("10-12","0"), n("8-10","0")])),
+        ex("Pullover en Polea", "Espalda", 90, "", "Brazos casi rectos, siente el estiramiento del dorsal.", TRAINING_B_VIDEOS[3], sets([n("10-12","0"), n("8-10","0")])),
+        ex("Remo Bajo con Triángulo", "Espalda", 120, "", "", TRAINING_B_VIDEOS[4], sets([n("10-12","0"), n("8-10","0")])),
+        ex("Aperturas inversas en polea", "Hombro", 90, "", "Deltoides posterior.", TRAINING_B_VIDEOS[5], sets([n("10-12","0"), n("10-12","0"), n("10-12","0")])),
         ex("Curl Scott en Máquina", "Bíceps", 90, "", "", "", sets([n("10-12","0"), n("8-10","0")])),
       ]},
       { id: uid(), name: "Entrenamiento C", exs: [
@@ -277,7 +285,9 @@ const GlobalStyle = () => (
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body { margin: 0; }
-    .fj { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; color: ${P.text}; font-variant-numeric: tabular-nums; }
+    html, body, #root { min-height: 100%; min-height: 100dvh; }
+    body { overflow-x: hidden; overscroll-behavior: none; }
+    .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; color: ${P.text}; font-variant-numeric: tabular-nums; }
     .fj h1,.fj h2,.fj .disp { font-family: 'Barlow Condensed','Inter',ui-sans-serif,sans-serif; letter-spacing: .04em; }
     .fj input, .fj textarea, .fj select {
       background: ${P.s3}; border: 1px solid ${P.line}; color: ${P.text};
@@ -333,15 +343,15 @@ const TypeBadge = ({ type, onInfo, big }) => {
 const Sheet = ({ open, onClose, title, children, tall }) => {
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
       <div className="sheetIn" onClick={(e) => e.stopPropagation()}
         style={{ background: P.s1, borderTop: `1px solid ${P.line}`, borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 520,
-          maxHeight: tall ? "95vh" : "82vh", minHeight: "60vh", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
+          maxHeight: tall ? "calc(100dvh - env(safe-area-inset-top) - 8px)" : "82dvh", minHeight: "60dvh", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px", paddingTop: "max(14px, env(safe-area-inset-top))", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
           <h2 className="disp" style={{ margin: 0, fontSize: 20, textTransform: "uppercase" }}>{title}</h2>
           <button onClick={onClose} style={{ color: P.dim, padding: 6 }}><X size={20} /></button>
         </div>
-        <div style={{ overflowY: "auto", padding: "14px 18px 28px", flex: 1, minHeight: 0 }}>{children}</div>
+        <div style={{ overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "14px 18px calc(28px + env(safe-area-inset-bottom))", flex: 1, minHeight: 0 }}>{children}</div>
       </div>
     </div>
   );
@@ -1553,7 +1563,7 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo }) => {
   const [attachErr, setAttachErr] = useState("");
   const [preview, setPreview] = useState(null);
   useEffect(() => { setD(ex); setAttachErr(""); }, [ex]);
-  if (!ex) return null;
+  if (!ex || !d) return null;
   const set = (p) => setD((x) => ({ ...x, ...p }));
   return (
     <Sheet open={!!ex} onClose={onClose} title={ex.isNew ? "Nuevo ejercicio" : "Editar ejercicio"} tall>
@@ -1568,7 +1578,7 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo }) => {
       <Field label="Series"><SetsEditor sets={d.sets} onChange={(sets) => set({ sets })} onInfo={onInfo} exRest={d.rest} /></Field>
       <Field label="Indicaciones técnicas (las verá el alumno en cada sesión)"><Txt value={d.notes} placeholder="Ej: agarre neutro, controla 3 s la bajada, pausa de 1 s abajo…" onChange={(e) => set({ notes: e.target.value })} /></Field>
       <Field label="Video de técnica (link opcional)"><Inp value={d.video} placeholder="https://youtube.com/…" onChange={(e) => set({ video: e.target.value })} /></Field>
-      <Field label="Videos y fotos de demostración" hint="Se suben a la plataforma y el alumno los ve dentro del ejercicio. Videos hasta 9 MB.">
+      <Field label="Videos y fotos de demostración" hint="Se suben a la plataforma y el alumno los ve dentro del ejercicio. Videos hasta 50 MB.">
         <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
           <AttachButton mode="photo" onError={setAttachErr} onAdd={(id) => set({ coachAttachIds: [...(d.coachAttachIds || []), id] })} />
           <AttachButton mode="video" onError={setAttachErr} onAdd={(id) => set({ coachAttachIds: [...(d.coachAttachIds || []), id] })} />
@@ -2783,6 +2793,16 @@ const App = () => {
     // Migración: planes viejos sin schedule/events
     if (!p.schedule) p.schedule = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
     if (!p.events) p.events = [];
+    if ((p.seedVersion || 0) < SEED_VERSION) {
+      const trainingB = (p.days || []).find((day) => day.name === "Entrenamiento B");
+      if (trainingB) {
+        TRAINING_B_VIDEOS.forEach((video, index) => {
+          if (trainingB.exs[index]) trainingB.exs[index].video = video;
+        });
+      }
+      p.seedVersion = SEED_VERSION;
+      await sSet(`forja-plan:${id}`, p);
+    }
     let h = await sGet(`forja-history:${id}`); if (!h) h = emptyHistory();
     const a = await sGet(`forja-active:${id}`);
     return { p, h, a: a || null };
@@ -3006,10 +3026,10 @@ const App = () => {
   }
 
   return (
-    <div className="fj" style={{ minHeight: "100vh", background: P.bg }}>
+    <div className="fj" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bg }}>
       <GlobalStyle />
-      <div style={{ maxWidth: 520, margin: "0 auto", paddingBottom: 96 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 14px 0" }}>
+      <div style={{ maxWidth: 520, margin: "0 auto", paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "calc(10px + env(safe-area-inset-top)) 14px 0" }}>
           <button onClick={() => setReady(false)} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
             <div className="disp" style={{ width: 30, height: 30, borderRadius: 9, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2, fontSize: 15, flexShrink: 0 }}>
               {(currentStudent?.name || "?").slice(0, 1).toUpperCase()}
