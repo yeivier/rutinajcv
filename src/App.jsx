@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v5";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v6";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -179,7 +179,7 @@ function compressImage(file, maxDim = 1280, quality = 0.72) {
 }
 
 /* ---------------- Programa del alumno ---------------- */
-const SEED_VERSION = 3;
+const SEED_VERSION = 4;
 const ROSTER_VERSION = 1;
 const TRAINING_B_VIDEOS = [
   "https://youtu.be/PkdWebUdlbE",
@@ -190,6 +190,124 @@ const TRAINING_B_VIDEOS = [
   "https://youtu.be/5pEG7Cj0-0Y",
 ];
 const sets = (arr) => arr.map(([type, repsT, rirT, pct]) => ({ id: uid(), type, repsT, rirT: rirT ?? "", pct: pct ?? 15 }));
+
+/* ---------------- Rutinas (agrupación de los días) ----------------
+   Cada día del plan lleva una etiqueta `routine`. Los días que ya estaban
+   cargados quedan en la Rutina A (no se toca nada de su contenido) y la
+   Rutina B es el bloque nuevo del documento «Entrenamiento Jose Miguel Posada».
+   Un día sin etiqueta se considera Rutina A. */
+const ROUTINE_A = "A";
+const ROUTINE_B = "B";
+const ROUTINE_META = {
+  A: { note: "Todo lo que ya estaba cargado, tal cual" },
+  B: { note: "Empujes · Tirones · Pierna, dos vueltas" },
+};
+const routineOf = (day) => (day && day.routine) || ROUTINE_A;
+const routineLabel = (key) => `Rutina ${key}`;
+const routineNote = (key) => (ROUTINE_META[key] ? ROUTINE_META[key].note : "");
+
+// Agrupa los días respetando el orden en que aparecen en el plan
+const groupDaysByRoutine = (days) => {
+  const order = [];
+  const byKey = new Map();
+  (days || []).forEach((d, i) => {
+    const key = routineOf(d);
+    if (!byKey.has(key)) { byKey.set(key, []); order.push(key); }
+    byKey.get(key).push({ day: d, index: i });
+  });
+  return order.map((key) => {
+    const items = byKey.get(key);
+    return {
+      key,
+      label: routineLabel(key),
+      note: routineNote(key),
+      days: items.map((it) => it.day),
+      items,
+      exCount: items.reduce((a, it) => a + it.day.exs.length, 0),
+      setCount: items.reduce((a, it) => a + it.day.exs.reduce((b, e) => b + e.sets.length, 0), 0),
+    };
+  });
+};
+
+// Siguiente letra libre para una rutina nueva (A, B, C…)
+const nextRoutineKey = (days) => {
+  const used = new Set((days || []).map(routineOf));
+  for (let i = 0; i < 26; i++) {
+    const k = String.fromCharCode(65 + i);
+    if (!used.has(k)) return k;
+  }
+  return String((days || []).length + 1);
+};
+
+/* Rutina B — transcripción literal del documento J2 («Entrenamiento Jose Miguel Posada») */
+function routineBDays() {
+  const ex = (name, muscle, rest, ss, notes, s) => ({ id: uid(), name, muscle, rest, superset: ss || "", notes: notes || "", video: "", sets: s });
+  const n = (reps, rir) => ["normal", reps, rir];
+  const rp = (reps, rir) => ["restpause", reps, rir];
+  const dr = (reps, rir) => ["drop", reps, rir];
+  const am = (reps, rir) => ["amrap", reps, rir];
+  const day = (name, exs) => ({ id: uid(), name, routine: ROUTINE_B, exs });
+  return [
+    day("Empujes 1", [
+      ex("Press Inclinado con Agarre Neutro", "Pecho", 120, "", "Tras la última serie, un rest-pause: descansa 10 s y vuelve al fallo con el mismo peso.", sets([n("6-10", "1"), n("11-14", "0"), rp("Al fallo", "0")])),
+      ex("Press de Banca Plano con Barra", "Pecho", 120, "", "", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Crucifix Lateral", "Pecho", 90, "", "", sets([n("6-9", "0"), n("10-14", "0"), n("10-14", "0")])),
+      ex("Cruce de Polea Ascendente Bilateral", "Pecho", 90, "", "Después de las dos series, dos drop-sets: el primero con concéntricas de 5 s hasta RIR 0; el segundo con concéntricas explosivas y excéntricas de 5 s, hasta el fallo concéntrico.", sets([n("6-10", "1"), n("11-14", "0"), dr("Al fallo", "0"), dr("Al fallo", "0")])),
+      ex("Elevación Lateral con Mancuernas en Banco Inclinado", "Hombro", 90, "", "Después de la última serie, repeticiones parciales hasta el fallo.", sets([n("10-12", ""), am("12-16", "0")])),
+      ex("Press Militar en Máquina", "Hombro", 120, "", "", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Extensión de Tríceps Unilateral en Polea (hombro en flexión)", "Tríceps", 90, "", "Deja la polea detrás de tu espalda, a la altura de la oreja, con el hombro en flexión. Una mano por vez.", sets([n("10-12", "0"), n("10-12", "0"), n("10-12", "0")])),
+    ]),
+    day("Tirones 1", [
+      ex("Jansen Row con Mancuernas en Banco Inclinado", "Espalda", 120, "", "", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Remo con Barra en Multipower Dead Stop", "Espalda", 120, "", "Cada repetición arranca desde el suelo, sin rebote.", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Máquina Pull Down", "Espalda", 120, "", "", sets([n("6-10", "1"), n("11-14", "1-0"), n("11-14", "1-0")])),
+      ex("Remo en Polea Sentado con Agarre Supino", "Espalda", 120, "", "", sets([n("6-10", "1"), n("11-14", "1-0"), n("11-14", "1-0")])),
+      ex("Rack Pull", "Espalda", 120, "", "", sets([n("8-10", "2"), n("8-10", "2")])),
+      ex("Encogimiento con Mancuernas en Banco Ligeramente Inclinado", "Espalda", 90, "", "", sets([n("8", "1-0"), n("8", "1-0")])),
+      ex("Curl Bayesian con Cuerda y Agarre Neutro", "Bíceps", 90, "", "", sets([n("8-10", "0"), n("11-14", "0")])),
+      ex("Curl Predicador", "Bíceps", 90, "", "", sets([n("6-9", "0"), n("10-14", "0")])),
+    ]),
+    day("Pierna 1", [
+      ex("Aductor en Máquina", "Glúteo", 90, "", "", sets([n("6-10", "0"), n("11-14", "0")])),
+      ex("Extensión de Cuádriceps", "Cuádriceps", 90, "", "", sets([n("6-10", "0"), n("11-14", "0")])),
+      ex("Prensa Inclinada", "Cuádriceps", 120, "", "", sets([n("6-10", "1"), n("11-16", "0")])),
+      ex("Sentadilla Pendular o Frontal", "Cuádriceps", 120, "", "El «o» son opciones: pendular o frontal, la que prefieras.", sets([n("8-10", "1"), n("6-8", "")])),
+      ex("Femoral Sentado", "Femoral", 120, "Peso Muerto Rumano", "Superserie con peso muerto rumano: al terminar, pasa al rumano sin descanso.", sets([n("6-10", "1"), n("11-16", "0")])),
+      ex("Peso Muerto Rumano", "Femoral", 120, "Femoral Sentado", "Segunda parte de la superserie con femoral sentado.", sets([n("10-12", ""), n("10-12", "")])),
+      ex("Gemelo de Pie", "Gemelo", 90, "", "", sets([n("12-15", "0"), n("12-15", "0"), n("12-15", "0")])),
+    ]),
+    day("Empujes 2", [
+      ex("Press Tras Nuca en Multipower", "Hombro", 120, "", "", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Elevación Lateral en Polea con Muñequera", "Hombro", 90, "", "Coloca la polea a la altura de donde cae la mano y trabaja con muñequera.", sets([n("11-14", "0"), n("11-14", "0")])),
+      ex("Contractora", "Pecho", 90, "", "", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Fondos", "Pecho", 120, "", "La segunda serie es con peso corporal hasta el fallo.", sets([n("6-9", ""), am("Al fallo", "0")])),
+      ex("Press Neutro Inclinado Convergente", "Pecho", 120, "", "", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Elevación Lateral Parcial Sentado con Mancuernas", "Hombro", 90, "", "Repeticiones parciales hasta el fallo total en las dos series.", sets([am("Fallo total", "0"), am("Fallo total", "0")])),
+      ex("Press de Tríceps con Dead Stop en Multipower", "Tríceps", 120, "", "Cada repetición arranca desde los topes, sin rebote.", sets([n("6-10", "1"), n("11-14", "1")])),
+      ex("Extensión de Tríceps con Polea por Encima de la Cabeza", "Tríceps", 90, "", "", sets([n("6-10", "1"), n("11-14", "0"), n("11-14", "0")])),
+    ]),
+    day("Tirones 2", [
+      ex("Remo T con Agarre Prono", "Espalda", 120, "", "", sets([n("6-10", "1"), n("11-14", "")])),
+      ex("Seal Row", "Espalda", 120, "", "", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Jalón al Pecho con Agarre Neutro Amplio", "Espalda", 120, "", "Agarre más amplio que el ancho biacromial y cadera en anteversión.", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Pull Over de Pie con Polea", "Espalda", 90, "", "", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Pájaro en Máquina Contractora", "Hombro", 90, "", "Deltoides posterior.", sets([n("6-10", "1"), n("11-14", "0"), n("11-14", "0")])),
+      ex("Curl de Bíceps Alterno con Mancuernas", "Bíceps", 90, "", "", sets([n("6-10", "1"), n("11-14", "0"), n("11-14", "0")])),
+      ex("Curl de Bíceps Concentrado a un Brazo", "Bíceps", 90, "", "", sets([n("11-14", "0"), n("11-14", "0"), n("11-14", "0")])),
+    ]),
+    day("Pierna 2", [
+      ex("Peso Muerto Rumano con Barra", "Femoral", 120, "", "", sets([n("6-10", "1"), n("11-14", "1")])),
+      ex("Zancadas en Multipower", "Cuádriceps", 120, "", "", sets([n("6-10", "1"), n("11-14", "0")])),
+      ex("Hip Thrust", "Glúteo", 120, "", "", sets([n("6-8", "1"), n("6-8", "1")])),
+      ex("Femoral Sentado", "Femoral", 90, "", "", sets([n("6-10", "0"), n("11-14", "0")])),
+      ex("Prensa con Pies Arriba de la Plataforma y Abiertos", "Glúteo", 120, "", "", sets([n("6-10", "1"), n("11-14", "1")])),
+      ex("Extensión de Cuádriceps", "Cuádriceps", 90, "Sentadilla Sissy", "Superserie con sentadilla sissy: al terminar, pasa a la sissy sin descanso.", sets([n("15+", "0"), n("15+", "0")])),
+      ex("Sentadilla Sissy", "Cuádriceps", 90, "Extensión de Cuádriceps", "Peso corporal hasta el fallo, con la cadera en extensión. Segunda parte de la superserie.", sets([am("Al fallo", "0"), am("Al fallo", "0")])),
+      ex("Gemelo de Pie", "Gemelo", 90, "", "", sets([n("12-14", "0"), n("12-14", "0"), n("12-14", "0")])),
+    ]),
+  ];
+}
+
 const emptyPlan = () => ({ days: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], updatedAt: todayISO() });
 function seedPlan() {
   const ex = (name, muscle, rest, ss, notes, video, s) => ({ id: uid(), name, muscle, rest, superset: ss || "", notes: notes || "", video: video || "", sets: s });
@@ -269,10 +387,12 @@ function seedPlan() {
 }
 
 // Envuelve seedPlan asignando el schedule con los IDs reales de los días A-E
+// y añade la Rutina B (documento J2) a continuación de la Rutina A.
 function seedPlanWithSchedule() {
   const p = seedPlan();
   const [A, B, C, D, E] = p.days.map((d) => d.id);
   p.schedule = { mon: A, tue: B, wed: C, thu: null, fri: D, sat: E, sun: null };
+  p.days = p.days.map((d) => ({ ...d, routine: routineOf(d) })).concat(routineBDays());
   return p;
 }
 const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos: [] });
@@ -894,8 +1014,18 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   const [previewDay, setPreviewDay] = useState(null);
   const [browsing, setBrowsing] = useState(false);   // ver la rutina aunque haya sesión abierta
   const [confirmSwitch, setConfirmSwitch] = useState(null);
+  const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(iv); }, []);
+
+  const routineGroups = useMemo(() => groupDaysByRoutine(plan.days), [plan.days]);
+  const toggleRoutine = (key) => setOpenRoutines((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]));
+  // Si hay sesión en curso, la rutina a la que pertenece se muestra ya desplegada
+  const activeRoutine = active ? (plan.days.find((d) => d.id === active.dayId) || {}).routine || null : null;
+  useEffect(() => {
+    if (!activeRoutine) return;
+    setOpenRoutines((o) => (o.includes(activeRoutine) ? o : [...o, activeRoutine]));
+  }, [activeRoutine]);
 
   const startSession = (day) => {
     const snap = {
@@ -918,6 +1048,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <button onClick={() => setPreviewDay(null)} style={{ display: "flex", alignItems: "center", gap: 6, color: P.faint, fontSize: 13.5, marginBottom: 12, padding: "4px 0" }}>
           <ChevronLeft size={17} /> Volver a la lista
         </button>
+        <div style={{ fontSize: 11.5, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 3 }}>{routineLabel(routineOf(d))}</div>
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "0 0 4px" }}>{d.name}</h1>
         <div style={{ color: P.dim, fontSize: 14, marginBottom: 14 }}>{d.exs.length} ejercicios · {totalSeries} series efectivas. Aún no se ha creado sesión: revisa lo que toca y arranca cuando estés listo.</div>
         {d.exs.map((e, ei) => (
@@ -969,7 +1100,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     return (
       <div style={{ padding: "18px 16px 30px" }}>
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Entrenar</h1>
-        <div style={{ color: P.dim, fontSize: 14, marginBottom: 16 }}>Toca un día para ver los ejercicios. Solo cuando aprietes «Iniciar entrenamiento» se creará la sesión y empezarán los cronómetros.</div>
+        <div style={{ color: P.dim, fontSize: 14, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego un día para ver los ejercicios. Solo cuando aprietes «Iniciar entrenamiento» se creará la sesión y empezarán los cronómetros.</div>
         {active && (
           <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.ember}66`, background: `linear-gradient(160deg, rgba(255,107,44,.10), ${P.s1})` }}>
             <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>Sesión en curso: {active.dayName}</div>
@@ -981,22 +1112,48 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         )}
         {plan.days.length === 0 ? (
           <Empty icon={Dumbbell} title="Aún no hay rutina" body="Tu coach todavía no carga días de entrenamiento. Pídele que entre en modo Coach y arme el plan." />
-        ) : plan.days.map((d, i) => {
-          const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
+        ) : routineGroups.map((g) => {
+          const open = openRoutines.includes(g.key);
           return (
-            <Card key={d.id} style={{ marginBottom: 10 }}>
-              <button onClick={() => setPreviewDay(d)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+            <Card key={g.key} style={{ marginBottom: 12, overflow: "hidden",
+              borderColor: open ? `${P.ember}55` : P.line,
+              background: open ? `linear-gradient(160deg, ${P.ember}12, ${P.s1})` : P.s1 }}>
+              <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
+                style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
                 <div className="disp" style={{ width: 38, height: 38, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: `linear-gradient(140deg, ${P.ember}22, ${P.ember}0A)`, border: `1px solid ${P.ember}44`, color: P.ember, fontSize: 18, fontWeight: 700 }}>{i + 1}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15.5 }}>{d.name}</div>
+                  background: `linear-gradient(140deg, ${P.ember}22, ${P.ember}0A)`, border: `1px solid ${P.ember}44`, color: P.ember, fontSize: 18, fontWeight: 700, flexShrink: 0 }}>{g.key}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="disp" style={{ fontWeight: 700, fontSize: 18, textTransform: "uppercase" }}>{g.label}</div>
                   <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2 }}>
-                    {d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series
-                    {lastDone ? ` · última vez ${fmtDate(lastDone.date)}` : " · nunca realizada"}
+                    {g.days.length} entrenamiento{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series
                   </div>
+                  {g.note && <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2, lineHeight: 1.35 }}>{g.note}</div>}
                 </div>
-                <ChevronRight size={18} color={P.faint} />
+                {open ? <ChevronUp size={19} color={P.ember} /> : <ChevronDown size={19} color={P.faint} />}
               </button>
+              {open && (
+                <div style={{ padding: "0 12px 12px" }}>
+                  {g.days.map((d, i) => {
+                    const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
+                    return (
+                      <Card key={d.id} style={{ marginBottom: 10, background: P.s2 }}>
+                        <button onClick={() => setPreviewDay(d)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+                          <div className="disp" style={{ width: 38, height: 38, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
+                            background: `linear-gradient(140deg, ${P.ember}22, ${P.ember}0A)`, border: `1px solid ${P.ember}44`, color: P.ember, fontSize: 18, fontWeight: 700 }}>{i + 1}</div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 700, fontSize: 15.5 }}>{d.name}</div>
+                            <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2 }}>
+                              {d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series
+                              {lastDone ? ` · última vez ${fmtDate(lastDone.date)}` : " · nunca realizada"}
+                            </div>
+                          </div>
+                          <ChevronRight size={18} color={P.faint} />
+                        </button>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
             </Card>
           );
         })}
@@ -1149,7 +1306,14 @@ const TodayTab = ({ plan, history, active, goTrain, role }) => {
   let suggested = plan.days[0];
   if (lastSession) {
     const i = plan.days.findIndex((d) => d.id === lastSession.dayId);
-    suggested = plan.days[(i + 1) % Math.max(plan.days.length, 1)] || plan.days[0];
+    // El siguiente día se busca dentro de la misma rutina que la última sesión
+    if (i >= 0) {
+      const sameRoutine = plan.days.filter((d) => routineOf(d) === routineOf(plan.days[i]));
+      const j = sameRoutine.findIndex((d) => d.id === lastSession.dayId);
+      suggested = sameRoutine[(j + 1) % sameRoutine.length] || plan.days[0];
+    } else {
+      suggested = plan.days[0];
+    }
   }
   return (
     <div style={{ padding: "18px 16px 30px" }}>
@@ -1166,7 +1330,7 @@ const TodayTab = ({ plan, history, active, goTrain, role }) => {
         </Card>
       ) : suggested ? (
         <Card style={{ padding: 16, marginBottom: 14 }}>
-          <div style={{ fontSize: 12, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>Te toca</div>
+          <div style={{ fontSize: 12, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>Te toca · {routineLabel(routineOf(suggested))}</div>
           <div className="disp" style={{ fontSize: 21, fontWeight: 700, marginBottom: 3 }}>{suggested.name}</div>
           <div style={{ fontSize: 13, color: P.faint, marginBottom: 12 }}>{suggested.exs.length} ejercicios · {suggested.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
           <Btn kind="ember" onClick={goTrain} style={{ width: "100%" }}><Play size={16} /> Empezar a entrenar</Btn>
@@ -1737,11 +1901,13 @@ REGLAS ESTRICTAS:
       })),
     }));
     const p = structuredClone(plan);
-    if (mode === "replace") p.days = newDays;
-    else p.days = [...p.days, ...newDays];
+    const routine = mode === "replace" ? ROUTINE_A : nextRoutineKey(p.days);
+    const tagged = newDays.map((d) => ({ ...d, routine }));
+    if (mode === "replace") p.days = tagged;
+    else p.days = [...p.days, ...tagged];
     p.updatedAt = todayISO();
     savePlan(p);
-    if (toast) toast(`✓ Rutina importada: ${newDays.length} día${newDays.length !== 1 ? "s" : ""}, ${newDays.reduce((a, d) => a + d.exs.length, 0)} ejercicios`);
+    if (toast) toast(`✓ Importada como ${routineLabel(routine)}: ${newDays.length} día${newDays.length !== 1 ? "s" : ""}, ${newDays.reduce((a, d) => a + d.exs.length, 0)} ejercicios`);
     close();
   };
 
@@ -1853,6 +2019,14 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   const [copiedEx, setCopiedEx] = useState(null);
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const move = (arr, i, dir) => { const j = i + dir; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; };
+  // Reordenar días sin sacarlos de su rutina
+  const moveDay = (p, di, dir) => {
+    const key = routineOf(p.days[di]);
+    let j = di + dir;
+    while (j >= 0 && j < p.days.length && routineOf(p.days[j]) !== key) j += dir;
+    if (j < 0 || j >= p.days.length) return;
+    [p.days[di], p.days[j]] = [p.days[j], p.days[di]];
+  };
   const copyExercise = (ex) => {
     setCopiedEx(structuredClone(ex));
     if (toast) toast(`✓ «${ex.name}» copiado con todas sus indicaciones`);
@@ -1889,52 +2063,68 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
         <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
       )}
 
-      {plan.days.map((d, di) => (
-        <Card key={d.id} style={{ marginBottom: 12, overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "11px 12px" }}>
-            <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</div>
-              <div style={{ fontSize: 12, color: P.faint }}>{d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
-            </button>
-            <button onClick={() => move && mut((p) => move(p.days, di, -1))} style={{ padding: 6, color: P.faint }}><ArrowUp size={15} /></button>
-            <button onClick={() => mut((p) => move(p.days, di, +1))} style={{ padding: 6, color: P.faint }}><ArrowDown size={15} /></button>
-            <button onClick={() => { const name = prompt("Nombre del día:", d.name); if (name) mut((p) => { p.days[di].name = name; }); }} style={{ padding: 6, color: P.faint }}><PencilLine size={15} /></button>
-            <button onClick={() => setDel({ type: "day", dayId: d.id, name: d.name })} style={{ padding: 6, color: P.faint }}><Trash2 size={15} /></button>
-            <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ padding: 6, color: P.faint }}>{openDay === d.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
+      {groupDaysByRoutine(plan.days).map((g) => (
+        <div key={g.key} style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${P.line}` }}>
+            <div className="disp" style={{ fontSize: 17, fontWeight: 700, textTransform: "uppercase", color: P.ember2 }}>{g.label}</div>
+            <div style={{ fontSize: 11.5, color: P.faint }}>{g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series</div>
           </div>
-          {openDay === d.id && (
-            <div style={{ padding: "0 12px 12px" }}>
-              {d.exs.map((e, ei) => (
-                <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 11, padding: "9px 10px", marginBottom: 6 }}>
-                  <button onClick={() => setEditEx({ dayId: d.id, ex: structuredClone(e) })} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</div>
-                    <div style={{ fontSize: 11.5, color: P.faint, display: "flex", gap: 5, flexWrap: "wrap", marginTop: 2 }}>
-                      {e.sets.map((s) => <TypeBadge key={s.id} type={s.type} />)}
-                    </div>
-                  </button>
-                  <button onClick={() => mut((p) => move(p.days[di].exs, ei, -1))} style={{ padding: 5, color: P.faint }}><ArrowUp size={14} /></button>
-                  <button onClick={() => mut((p) => move(p.days[di].exs, ei, +1))} style={{ padding: 5, color: P.faint }}><ArrowDown size={14} /></button>
-                  <button onClick={() => copyExercise(e)} title="Copiar ejercicio completo" aria-label={`Copiar ${e.name}`} style={{ padding: 5, color: P.faint }}><Copy size={14} /></button>
-                  <button onClick={() => setDel({ type: "ex", dayId: d.id, exId: e.id, name: e.name })} style={{ padding: 5, color: P.faint }}><Trash2 size={14} /></button>
-                </div>
-              ))}
-              <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] } })} style={{ flex: 1, minWidth: 150 }}>
-                  <Plus size={15} /> Añadir ejercicio
-                </Btn>
-                {copiedEx && (
-                  <Btn kind="line" small onClick={() => pasteExercise(d.id)} style={{ flex: 1.25, minWidth: 170 }}>
-                    <ClipboardList size={15} /> Pegar «{copiedEx.name}»
-                  </Btn>
-                )}
+          {g.items.map(({ day: d, index: di }) => (
+            <Card key={d.id} style={{ marginBottom: 12, overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "11px 12px" }}>
+                <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</div>
+                  <div style={{ fontSize: 12, color: P.faint }}>{d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
+                </button>
+                <button onClick={() => mut((p) => moveDay(p, di, -1))} style={{ padding: 6, color: P.faint }}><ArrowUp size={15} /></button>
+                <button onClick={() => mut((p) => moveDay(p, di, +1))} style={{ padding: 6, color: P.faint }}><ArrowDown size={15} /></button>
+                <button onClick={() => { const name = prompt("Nombre del día:", d.name); if (name) mut((p) => { p.days[di].name = name; }); }} style={{ padding: 6, color: P.faint }}><PencilLine size={15} /></button>
+                <button onClick={() => setDel({ type: "day", dayId: d.id, name: d.name })} style={{ padding: 6, color: P.faint }}><Trash2 size={15} /></button>
+                <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ padding: 6, color: P.faint }}>{openDay === d.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
               </div>
-            </div>
-          )}
-        </Card>
+              {openDay === d.id && (
+                <div style={{ padding: "0 12px 12px" }}>
+                  {d.exs.map((e, ei) => (
+                    <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 11, padding: "9px 10px", marginBottom: 6 }}>
+                      <button onClick={() => setEditEx({ dayId: d.id, ex: structuredClone(e) })} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</div>
+                        <div style={{ fontSize: 11.5, color: P.faint, display: "flex", gap: 5, flexWrap: "wrap", marginTop: 2 }}>
+                          {e.sets.map((s) => <TypeBadge key={s.id} type={s.type} />)}
+                        </div>
+                      </button>
+                      <button onClick={() => mut((p) => move(p.days[di].exs, ei, -1))} style={{ padding: 5, color: P.faint }}><ArrowUp size={14} /></button>
+                      <button onClick={() => mut((p) => move(p.days[di].exs, ei, +1))} style={{ padding: 5, color: P.faint }}><ArrowDown size={14} /></button>
+                      <button onClick={() => copyExercise(e)} title="Copiar ejercicio completo" aria-label={`Copiar ${e.name}`} style={{ padding: 5, color: P.faint }}><Copy size={14} /></button>
+                      <button onClick={() => setDel({ type: "ex", dayId: d.id, exId: e.id, name: e.name })} style={{ padding: 5, color: P.faint }}><Trash2 size={14} /></button>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                    <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] } })} style={{ flex: 1, minWidth: 150 }}>
+                      <Plus size={15} /> Añadir ejercicio
+                    </Btn>
+                    {copiedEx && (
+                      <Btn kind="line" small onClick={() => pasteExercise(d.id)} style={{ flex: 1.25, minWidth: 170 }}>
+                        <ClipboardList size={15} /> Pegar «{copiedEx.name}»
+                      </Btn>
+                    )}
+                  </div>
+                </div>
+              )}
+            </Card>
+          ))}
+          <Btn kind="ember" onClick={() => mut((p) => {
+            const at = p.days.reduce((last, day, i) => (routineOf(day) === g.key ? i + 1 : last), p.days.length);
+            p.days.splice(at, 0, { id: uid(), name: `Día ${g.days.length + 1}`, routine: g.key, exs: [] });
+          })} style={{ width: "100%" }}>
+            <Plus size={16} /> Añadir día a la {g.label}
+          </Btn>
+        </div>
       ))}
-      <Btn kind="ember" onClick={() => mut((p) => p.days.push({ id: uid(), name: `Día ${p.days.length + 1}`, exs: [] }))} style={{ width: "100%" }}>
-        <Plus size={16} /> Añadir día de entrenamiento
-      </Btn>
+      {plan.days.length === 0 && (
+        <Btn kind="ember" onClick={() => mut((p) => p.days.push({ id: uid(), name: "Día 1", routine: ROUTINE_A, exs: [] }))} style={{ width: "100%" }}>
+          <Plus size={16} /> Añadir día de entrenamiento
+        </Btn>
+      )}
 
       <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo}
         onSave={(exd) => { const { isNew, ...clean } = exd; mut((p) => { const day = p.days.find((x) => x.id === editEx.dayId);
@@ -2279,7 +2469,7 @@ DATOS DEL ALUMNO ACTUAL:
 - Plan actual (kcal/proteína/carbos/grasas): ${plan.nutrition.kcal || "?"} / ${plan.nutrition.p || "?"}g / ${plan.nutrition.c || "?"}g / ${plan.nutrition.f || "?"}g
 - Notas del plan: ${plan.nutrition.notes || "sin notas"}
 - Comidas configuradas: ${(plan.nutrition.meals || []).length}
-- Rutina: ${plan.days.length} días de entrenamiento, ${plan.days.reduce((a, d) => a + d.exs.length, 0)} ejercicios totales.
+- Rutina: ${plan.days.length} días de entrenamiento, ${plan.days.reduce((a, d) => a + d.exs.length, 0)} ejercicios totales, repartidos en ${groupDaysByRoutine(plan.days).map((g) => `${g.label} (${g.days.length} días)`).join(", ") || "ninguna rutina"}.
 
 TU ROL:
 - Ayudar al coach a diseñar planes nutricionales adaptados al objetivo del alumno (volumen, definición, mantención, recomposición).
@@ -2606,7 +2796,11 @@ const ScheduleEditor = ({ plan, savePlan }) => {
             <select value={plan.schedule?.[k] || ""} onChange={(e) => mut((p) => { if (!p.schedule) p.schedule = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }; p.schedule[k] = e.target.value || null; })}
               style={{ flex: 1, padding: "9px 8px", fontSize: 13.5 }}>
               <option value="">Descanso</option>
-              {plan.days.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              {groupDaysByRoutine(plan.days).map((g) => (
+                <optgroup key={g.key} label={g.label}>
+                  {g.days.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </optgroup>
+              ))}
             </select>
           </div>
         ))}
@@ -2820,6 +3014,12 @@ const App = () => {
         TRAINING_B_VIDEOS.forEach((video, index) => {
           if (trainingB.exs[index]) trainingB.exs[index].video = video;
         });
+      }
+      // Todo lo que ya estaba cargado pasa a la Rutina A tal cual está (solo se etiqueta)
+      (p.days || []).forEach((day) => { if (!day.routine) day.routine = ROUTINE_A; });
+      // La Rutina B (documento J2) se añade una sola vez, sin tocar la Rutina A
+      if ((p.days || []).length && !p.days.some((day) => day.routine === ROUTINE_B)) {
+        p.days = [...p.days, ...routineBDays()];
       }
       p.seedVersion = SEED_VERSION;
       await sSet(`forja-plan:${id}`, p);
