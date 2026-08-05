@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v6";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v7";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -114,6 +114,51 @@ async function sDel(key, shared = true) {
   try {
     await fetch(`${SB_URL}?key=eq.${encodeURIComponent(key)}`, { method: "DELETE", headers: SB_H });
   } catch (e) { /* fire-and-forget */ }
+}
+
+/* ---------------- Claude API (llamada directa desde el navegador) ----------------
+   "Load failed" / "Failed to fetch" son errores de red del propio navegador (no
+   llegó a haber respuesta HTTP): caídas de wifi/datos, un bloqueador de anuncios,
+   una VPN o un DNS privado interceptando api.anthropic.com, etc. Reintentamos una
+   vez esos casos (suelen ser blips pasajeros) y si igual falla, damos un mensaje
+   claro en vez del texto crudo del navegador. */
+async function callClaudeAPI(apiKey, body, { timeoutMs = 60000, retries = 1 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify(body),
+      });
+      clearTimeout(timer);
+      if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        let msg = `Error ${r.status}: ${txt.slice(0, 300)}`;
+        try { const j = JSON.parse(txt); if (j && j.error && j.error.message) msg = j.error.message; } catch {}
+        if (r.status === 401) msg = "La API key de Anthropic es inválida o fue revocada. Revísala en la pestaña IA.";
+        else if (r.status === 429) msg = "Se alcanzó el límite de uso de tu cuenta de Anthropic. Intenta de nuevo en unos minutos.";
+        else if (r.status >= 500 && attempt < retries) continue; // error del servidor: reintenta una vez
+        throw new Error(msg);
+      }
+      return await r.json();
+    } catch (e) {
+      clearTimeout(timer);
+      const isAbort = e.name === "AbortError";
+      const isNetwork = isAbort || e instanceof TypeError; // fetch nunca llegó a tener respuesta
+      if (isNetwork && attempt < retries) continue;
+      if (isAbort) throw new Error("La IA tardó demasiado en responder. Revisa tu conexión e inténtalo de nuevo.");
+      if (isNetwork) throw new Error("No se pudo conectar con la IA de Anthropic. Revisa tu conexión a internet; si usas un bloqueador de anuncios, VPN o DNS privado, puede estar bloqueando api.anthropic.com.");
+      throw e;
+    }
+  }
 }
 
 /* ---------------- Utilidades ---------------- */
@@ -1843,26 +1888,12 @@ REGLAS ESTRICTAS:
     if (content.length === 0) content.push({ type: "text", text: "Extrae la rutina del archivo adjunto." });
 
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-opus-4-6",
-          max_tokens: 6000,
-          system: systemPrompt,
-          messages: [{ role: "user", content }],
-        }),
+      const data = await callClaudeAPI(apiKey, {
+        model: "claude-opus-4-6",
+        max_tokens: 6000,
+        system: systemPrompt,
+        messages: [{ role: "user", content }],
       });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`Error ${r.status}: ${t.slice(0, 300)}`);
-      }
-      const data = await r.json();
       const rawText = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("La IA no devolvió JSON. Prueba pegar el texto en vez de subir el archivo.");
@@ -2493,26 +2524,12 @@ REGLAS:
     const nextMsgs = [...messages, { role: "user", content: text }];
     setMessages(nextMsgs); setInput(""); setBusy(true);
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-opus-4-6",
-          max_tokens: 1200,
-          system: systemPrompt,
-          messages: nextMsgs.map((m) => ({ role: m.role, content: m.content })),
-        }),
+      const data = await callClaudeAPI(apiKey, {
+        model: "claude-opus-4-6",
+        max_tokens: 1200,
+        system: systemPrompt,
+        messages: nextMsgs.map((m) => ({ role: m.role, content: m.content })),
       });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`Error ${r.status}: ${t.slice(0, 200)}`);
-      }
-      const data = await r.json();
       const answer = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n") || "(sin respuesta)";
       setMessages([...nextMsgs, { role: "assistant", content: answer }]);
     } catch (e) {
