@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v7";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v8";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -117,15 +117,19 @@ async function sDel(key, shared = true) {
 }
 
 /* ---------------- Claude API (llamada directa desde el navegador) ----------------
+   Usamos streaming (SSE): la respuesta llega por partes, así un análisis largo
+   (por ej. un plan de 12 meses) no se corta por un timeout fijo. El timeout es
+   "por inactividad": solo salta si dejan de llegar datos durante idleMs.
+
    "Load failed" / "Failed to fetch" son errores de red del propio navegador (no
    llegó a haber respuesta HTTP): caídas de wifi/datos, un bloqueador de anuncios,
-   una VPN o un DNS privado interceptando api.anthropic.com, etc. Reintentamos una
-   vez esos casos (suelen ser blips pasajeros) y si igual falla, damos un mensaje
-   claro en vez del texto crudo del navegador. */
-async function callClaudeAPI(apiKey, body, { timeoutMs = 60000, retries = 1 } = {}) {
+   una VPN o un DNS privado interceptando api.anthropic.com. Reintentamos una vez
+   esos casos y damos un mensaje claro en vez del texto crudo del navegador. */
+async function callClaudeAPI(apiKey, body, { idleMs = 90000, retries = 1 } = {}) {
   for (let attempt = 0; ; attempt++) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let timer = setTimeout(() => ctrl.abort(), idleMs);
+    const bump = () => { clearTimeout(timer); timer = setTimeout(() => ctrl.abort(), idleMs); };
     try {
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -136,10 +140,10 @@ async function callClaudeAPI(apiKey, body, { timeoutMs = 60000, retries = 1 } = 
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-direct-browser-access": "true",
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, stream: true }),
       });
-      clearTimeout(timer);
       if (!r.ok) {
+        clearTimeout(timer);
         const txt = await r.text().catch(() => "");
         let msg = `Error ${r.status}: ${txt.slice(0, 300)}`;
         try { const j = JSON.parse(txt); if (j && j.error && j.error.message) msg = j.error.message; } catch {}
@@ -148,17 +152,75 @@ async function callClaudeAPI(apiKey, body, { timeoutMs = 60000, retries = 1 } = 
         else if (r.status >= 500 && attempt < retries) continue; // error del servidor: reintenta una vez
         throw new Error(msg);
       }
-      return await r.json();
+      // Lee el stream SSE y arma el texto de la respuesta a partir de los deltas.
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "", text = "", stopReason = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bump();
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop(); // deja la última línea (posiblemente incompleta) en el buffer
+        for (const line of lines) {
+          const l = line.trim();
+          if (!l.startsWith("data:")) continue;
+          const payload = l.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          let ev;
+          try { ev = JSON.parse(payload); } catch { continue; }
+          if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") text += ev.delta.text;
+          else if (ev.type === "message_delta" && ev.delta && ev.delta.stop_reason) stopReason = ev.delta.stop_reason;
+          else if (ev.type === "error") throw new Error(ev.error && ev.error.message ? ev.error.message : "La IA devolvió un error durante el análisis.");
+        }
+      }
+      clearTimeout(timer);
+      return { content: [{ type: "text", text }], stop_reason: stopReason };
     } catch (e) {
       clearTimeout(timer);
+      if (e && e.message && e.message.startsWith("Error ")) throw e; // errores HTTP/API ya formateados
       const isAbort = e.name === "AbortError";
       const isNetwork = isAbort || e instanceof TypeError; // fetch nunca llegó a tener respuesta
       if (isNetwork && attempt < retries) continue;
-      if (isAbort) throw new Error("La IA tardó demasiado en responder. Revisa tu conexión e inténtalo de nuevo.");
+      if (isAbort) throw new Error("La IA tardó demasiado en responder. Revisa tu conexión e inténtalo de nuevo (los archivos muy grandes pueden tardar).");
       if (isNetwork) throw new Error("No se pudo conectar con la IA de Anthropic. Revisa tu conexión a internet; si usas un bloqueador de anuncios, VPN o DNS privado, puede estar bloqueando api.anthropic.com.");
       throw e;
     }
   }
+}
+
+/* Recupera un objeto de rutina de un texto que quizá venga truncado (respuesta
+   cortada por límite de tokens). Primero intenta el JSON completo; si falla,
+   rescata todos los días completos que alcanzaron a cerrarse. */
+function parseRoutineJSON(rawText) {
+  const match = rawText.match(/\{[\s\S]*\}/);
+  if (match) {
+    try { return { data: JSON.parse(match[0]), truncated: false }; } catch {}
+  }
+  // Recuperación: junta los objetos de día ({...}) completos y bien formados.
+  const start = rawText.indexOf('"days"');
+  if (start === -1) return null;
+  const arrStart = rawText.indexOf("[", start);
+  if (arrStart === -1) return null;
+  const days = [];
+  let i = arrStart + 1;
+  while (i < rawText.length) {
+    while (i < rawText.length && rawText[i] !== "{") i++;
+    if (i >= rawText.length) break;
+    let depth = 0, inStr = false, esc = false, objStart = i;
+    for (; i < rawText.length; i++) {
+      const c = rawText[i];
+      if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true;
+      else if (c === "{") depth++;
+      else if (c === "}") { depth--; if (depth === 0) { i++; break; } }
+    }
+    if (depth !== 0) break; // objeto incompleto: se cortó acá
+    try { days.push(JSON.parse(rawText.slice(objStart, i))); } catch {}
+  }
+  if (!days.length) return null;
+  return { data: { days }, truncated: true };
 }
 
 /* ---------------- Utilidades ---------------- */
@@ -1890,17 +1952,18 @@ REGLAS ESTRICTAS:
     try {
       const data = await callClaudeAPI(apiKey, {
         model: "claude-opus-4-6",
-        max_tokens: 6000,
+        max_tokens: 32000,
         system: systemPrompt,
         messages: [{ role: "user", content }],
       });
       const rawText = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("La IA no devolvió JSON. Prueba pegar el texto en vez de subir el archivo.");
-      const parsed = JSON.parse(jsonMatch[0]);
+      const result = parseRoutineJSON(rawText);
+      if (!result) throw new Error("La IA no devolvió una rutina legible. Prueba pegar el texto, o sube el archivo por partes (por ej. un mes a la vez).");
+      const parsed = result.data;
       if (!parsed.days || !Array.isArray(parsed.days) || parsed.days.length === 0) throw new Error("No se detectaron días en la rutina.");
       setPreview(parsed);
       setStep("preview");
+      if (result.truncated && toast) toast(`⚠ La rutina era muy larga y se recuperaron ${parsed.days.length} días. Revisa que estén todos.`);
     } catch (e) {
       setErr(e.message || "Error al analizar");
       setStep("input");
