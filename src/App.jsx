@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v7";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v8";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -353,7 +353,7 @@ function routineBDays() {
   ];
 }
 
-const emptyPlan = () => ({ days: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], updatedAt: todayISO() });
+const emptyPlan = () => ({ days: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], athlete: emptyAthlete(), updatedAt: todayISO() });
 function seedPlan() {
   const ex = (name, muscle, rest, ss, notes, video, s) => ({ id: uid(), name, muscle, rest, superset: ss || "", notes: notes || "", video: video || "", sets: s });
   const n = (reps, rir) => ["normal", reps, rir];
@@ -441,6 +441,174 @@ function seedPlanWithSchedule() {
   return p;
 }
 const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos: [] });
+
+/* ============================================================
+   Base de conocimiento de culturismo
+   Datos de referencia que usa el agente de IA y que también se
+   muestran en pantalla (sirven aunque no haya API key configurada).
+   Son rangos orientativos de la literatura de hipertrofia, no dogma:
+   el punto de partida se ajusta siempre con la respuesta del atleta.
+   ============================================================ */
+
+// Series efectivas por grupo muscular y semana.
+// MEV = mínimo para estimular · MAV = rango donde se progresa mejor · MRV = techo recuperable.
+const BB_VOLUME_REF = {
+  Pecho:      { mev: 8,  mav: [12, 20], mrv: 22, freq: "2×/sem" },
+  Espalda:    { mev: 10, mav: [14, 22], mrv: 25, freq: "2-3×/sem" },
+  Hombro:     { mev: 8,  mav: [16, 24], mrv: 26, freq: "2-3×/sem" },
+  Bíceps:     { mev: 6,  mav: [10, 18], mrv: 20, freq: "2-3×/sem" },
+  Tríceps:    { mev: 6,  mav: [10, 18], mrv: 20, freq: "2-3×/sem" },
+  Cuádriceps: { mev: 8,  mav: [12, 18], mrv: 20, freq: "2×/sem" },
+  Femoral:    { mev: 6,  mav: [10, 16], mrv: 18, freq: "2×/sem" },
+  Glúteo:     { mev: 4,  mav: [8, 16],  mrv: 18, freq: "2×/sem" },
+  Gemelo:     { mev: 6,  mav: [10, 16], mrv: 20, freq: "2-3×/sem" },
+  Core:       { mev: 4,  mav: [8, 16],  mrv: 20, freq: "2-3×/sem" },
+  Antebrazo:  { mev: 2,  mav: [6, 12],  mrv: 16, freq: "2×/sem" },
+};
+
+// Fases de un ciclo de culturismo
+const BB_PHASES = [
+  { id: "volumen", label: "Volumen (lean bulk)", kcal: "+10 a +20 % sobre mantención",
+    rate: "+0,25 a +0,5 % del peso corporal por semana", prot: "1,6–2,2 g/kg",
+    note: "Ganar más rápido no da más músculo: solo más grasa que después hay que perder. Progresión de carga como métrica principal." },
+  { id: "definicion", label: "Definición (cutting)", kcal: "−15 a −25 % bajo mantención",
+    rate: "−0,5 a −1 % del peso corporal por semana", prot: "2,0–2,6 g/kg",
+    note: "Mantener la intensidad (kg en barra) y recortar volumen antes que intensidad. Cardio como herramienta, no como castigo." },
+  { id: "mantencion", label: "Mantención / recomposición", kcal: "≈ mantención (±5 %)",
+    rate: "Peso estable ±0,25 %", prot: "1,8–2,4 g/kg",
+    note: "Fase útil tras una definición larga: restaurar hormonas, rendimiento y adherencia antes del siguiente bloque." },
+  { id: "prep", label: "Preparación a competencia", kcal: "Déficit escalonado, ajustado semanalmente",
+    rate: "−0,5 a −0,7 % semanal, más lento al final", prot: "2,2–2,8 g/kg",
+    note: "16–24 semanas según el punto de partida. Nunca dejar la puesta a punto para las últimas 4 semanas." },
+];
+
+// Categorías de competencia (federaciones tipo IFBB/NPC)
+const BB_CATEGORIES = [
+  { id: "bikini", label: "Bikini", focus: "Glúteo y deltoide redondeado, cintura estrecha, espalda con forma pero sin densidad excesiva." },
+  { id: "wellness", label: "Wellness", focus: "Tren inferior dominante (cuádriceps y glúteo) sobre un tren superior más contenido." },
+  { id: "figure", label: "Figure", focus: "Forma en V: dorsal ancho, hombro redondo, cintura marcada, piernas trabajadas sin exceso." },
+  { id: "wphysique", label: "Women's Physique", focus: "Más densidad y separación muscular que Figure, con poses de culturismo." },
+  { id: "mensphysique", label: "Men's Physique", focus: "Hombro-dorsal-cintura. No se juzgan piernas: prioridad a deltoide lateral, dorsal ancho y abdomen." },
+  { id: "classic", label: "Classic Physique", focus: "Estética clásica con límite de peso por estatura: cintura fina, pecho y muslo completos, sin sobredimensión." },
+  { id: "open", label: "Bodybuilding Open", focus: "Densidad, tamaño y condición máximos, simetría y detalle en todos los grupos." },
+];
+
+// Puesta a punto de la última semana
+const BB_PEAK_WEEK = [
+  "Llegar a semana −1 ya en condición: la peak week afina, no arregla una definición incompleta.",
+  "Mantener sodio y agua estables toda la semana; los cortes agresivos aplanan más de lo que secan.",
+  "Bajar volumen de entrenamiento ~50 % y eliminar excéntricas duras desde 5–7 días antes.",
+  "Carga de carbohidratos progresiva 2–3 días antes, ajustada por aspecto visual, no por planilla fija.",
+  "Ensayar posing a diario: la condición se muestra, y el posing gasta menos glucógeno si está automatizado.",
+  "Nada nuevo en semana de competencia: ni suplementos, ni comidas, ni bronceado sin probar.",
+];
+
+// Suplementación ordenada por peso de la evidencia
+const BB_SUPPS = [
+  { tier: "Evidencia sólida", items: [
+    "Creatina monohidrato · 3–5 g/día, todos los días, con o sin carga.",
+    "Proteína en polvo · herramienta para llegar a 1,6–2,2 g/kg, no un suplemento mágico.",
+    "Cafeína · 3–6 mg/kg unos 45–60 min antes; cuidar el sueño y ciclar para no perder efecto.",
+    "Beta-alanina · 3–6 g/día, útil en series largas (60–240 s de esfuerzo).",
+  ]},
+  { tier: "Evidencia moderada / contextual", items: [
+    "Citrulina malato · 6–8 g pre-entreno, efecto pequeño sobre repeticiones.",
+    "Vitamina D · solo si hay déficit confirmado por análisis.",
+    "Omega-3 · útil si la ingesta de pescado es baja.",
+    "Electrolitos y multivitamínico · relevantes en definiciones prolongadas.",
+  ]},
+  { tier: "Poca o nula evidencia", items: [
+    "BCAA/EAA aislados cuando ya se cubre la proteína diaria.",
+    "«Boosters» de testosterona y quemadores de grasa.",
+    "Glutamina para hipertrofia en personas sanas.",
+  ]},
+];
+
+// Cómo diagnosticar un estancamiento antes de cambiar la rutina
+const BB_PLATEAU = [
+  "¿Hay adherencia real? Sesiones completadas y series registradas antes que cualquier rediseño.",
+  "¿Hay superávit/déficit acorde a la fase? Sin energía no hay progresión de carga.",
+  "¿Duerme 7–9 h? El sueño es la variable de recuperación más subestimada.",
+  "¿El RIR anotado es honesto? Un RIR 2 declarado que en realidad es RIR 5 explica la mayoría de los estancamientos.",
+  "¿El volumen está por encima del MRV? Más series no compensan una recuperación desbordada: probar deload.",
+  "¿La técnica cambió al subir carga? Rango incompleto = estímulo menor aunque el número suba.",
+];
+
+const emptyAthlete = () => ({
+  sex: "", age: "", height: "", weight: "", bf: "", years: "", level: "intermedio",
+  phase: "volumen", category: "", compDate: "", weakPoints: [], injuries: "",
+  daysWeek: "", sessionMin: "", equipment: "", notes: "",
+});
+
+/* Convierte los días que devuelve la IA (o el importador) al formato interno del plan */
+function daysFromAIJson(rawDays) {
+  return (rawDays || []).map((d) => ({
+    id: uid(),
+    name: d.name || "Día sin nombre",
+    exs: (d.exs || []).map((e) => ({
+      id: uid(),
+      name: e.name || "Ejercicio",
+      muscle: e.muscle || "Otro",
+      rest: +e.rest || 90,
+      notes: e.notes || "",
+      video: "",
+      superset: e.superset || "",
+      coachAttachIds: [],
+      attachIds: [],
+      sets: ((e.sets && e.sets.length) ? e.sets : [{ type: "normal", repsT: "8-10", rirT: "" }]).map((s) => ({
+        id: uid(),
+        type: ["warmup", "normal", "top", "backoff", "drop", "restpause", "amrap"].includes(s.type) ? s.type : "normal",
+        repsT: String(s.repsT || "8-10"),
+        rirT: s.rirT != null ? String(s.rirT) : "",
+        pct: 15,
+      })),
+    })),
+  }));
+}
+
+/* Series efectivas por grupo muscular.
+   Si el plan tiene cronograma semanal, cuenta lo que realmente toca cada semana;
+   si no, cuenta una vuelta completa a la rutina. */
+function volumeByMuscle(plan) {
+  const perMuscle = {};
+  const add = (day) => {
+    (day.exs || []).forEach((ex) => {
+      const eff = (ex.sets || []).filter((s) => s.type !== "warmup").length;
+      if (!eff) return;
+      const m = ex.muscle || "Otro";
+      perMuscle[m] = (perMuscle[m] || 0) + eff;
+    });
+  };
+  const sched = plan.schedule || {};
+  const scheduledIds = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((k) => sched[k]).filter(Boolean);
+  let basis = "semana";
+  if (scheduledIds.length) {
+    scheduledIds.forEach((id) => {
+      const day = (plan.days || []).find((d) => d.id === id);
+      if (day) add(day);
+    });
+  } else {
+    basis = "ciclo";
+    (plan.days || []).forEach(add);
+  }
+  const rows = Object.entries(perMuscle)
+    .map(([muscle, sets]) => {
+      const ref = BB_VOLUME_REF[muscle];
+      let status = "sin referencia";
+      if (ref) {
+        if (sets < ref.mev) status = "bajo";
+        else if (sets < ref.mav[0]) status = "mínimo";
+        else if (sets <= ref.mav[1]) status = "óptimo";
+        else if (sets <= ref.mrv) status = "alto";
+        else status = "sobre MRV";
+      }
+      return { muscle, sets, ref, status };
+    })
+    .sort((a, b) => b.sets - a.sets);
+  return { basis, rows, total: rows.reduce((a, r) => a + r.sets, 0) };
+}
+
+const VOL_COLORS = { bajo: P.red, mínimo: P.ember2, óptimo: P.green, alto: P.ember2, "sobre MRV": P.red, "sin referencia": P.faint };
 
 /* ============================================================
    Átomos de interfaz
@@ -1909,28 +2077,7 @@ REGLAS ESTRICTAS:
 
   const applyDays = (mode) => {
     if (!preview) return;
-    const newDays = preview.days.map((d) => ({
-      id: uid(),
-      name: d.name || "Día sin nombre",
-      exs: (d.exs || []).map((e) => ({
-        id: uid(),
-        name: e.name || "Ejercicio",
-        muscle: e.muscle || "Otro",
-        rest: +e.rest || 90,
-        notes: e.notes || "",
-        video: "",
-        superset: "",
-        coachAttachIds: [],
-        attachIds: [],
-        sets: ((e.sets && e.sets.length) ? e.sets : [{ type: "normal", repsT: "8-10", rirT: "" }]).map((s) => ({
-          id: uid(),
-          type: ["warmup", "normal", "top", "backoff", "drop", "restpause", "amrap"].includes(s.type) ? s.type : "normal",
-          repsT: String(s.repsT || "8-10"),
-          rirT: s.rirT != null ? String(s.rirT) : "",
-          pct: 15,
-        })),
-      })),
-    }));
+    const newDays = daysFromAIJson(preview.days);
     const p = structuredClone(plan);
     const routine = mode === "replace" ? ROUTINE_A : nextRoutineKey(p.days);
     const tagged = newDays.map((d) => ({ ...d, routine }));
@@ -2643,6 +2790,738 @@ REGLAS:
   );
 };
 
+/* ============================================================
+   Agente de culturismo profesional
+   Un entrenador experto que conoce al alumno: su rutina, su
+   historial de cargas, su volumen por grupo muscular, su peso y
+   su fase. Puede responder, analizar y proponer cambios de
+   rutina o de macros que el coach aplica con un botón.
+   ============================================================ */
+const AI_MODEL = "claude-opus-4-6";
+
+const BB_SPECIALTIES = [
+  {
+    id: "general", label: "Coach jefe", Icon: Flame,
+    focus: "Responde como el entrenador principal: mira el caso completo (entrenamiento, nutrición, recuperación y contexto de vida) y prioriza qué mover primero.",
+    sugg: [
+      "Revisa el plan completo de este alumno y dime las 3 cosas que cambiarías primero.",
+      "¿El plan actual encaja con la fase y el objetivo que tiene cargado?",
+      "Arma el plan de las próximas 8 semanas con objetivos por bloque.",
+    ],
+  },
+  {
+    id: "hipertrofia", label: "Hipertrofia", Icon: Dumbbell,
+    focus: "Céntrate en los determinantes de hipertrofia: volumen efectivo por grupo muscular, proximidad al fallo, rango de repeticiones, frecuencia, tensión en estiramiento y sobrecarga progresiva.",
+    sugg: [
+      "Analiza el volumen semanal por grupo muscular y dime qué está bajo el MEV o sobre el MRV.",
+      "El pecho no responde. ¿Qué cambio de volumen, frecuencia o selección propones?",
+      "¿Cómo debería progresar cargas semana a semana en este mesociclo?",
+    ],
+  },
+  {
+    id: "tecnica", label: "Técnica", Icon: Video,
+    focus: "Céntrate en biomecánica y ejecución: posiciones articulares, curva de resistencia, rango efectivo, tensión en estiramiento, errores frecuentes y señales de una serie mal ejecutada.",
+    sugg: [
+      "Explica la técnica óptima del remo con barra y los 3 errores más comunes.",
+      "¿Qué variantes de press dan más tensión en estiramiento para pecho?",
+      "¿Cómo corrijo que en la elevación lateral trabaje más el trapecio que el deltoide?",
+    ],
+  },
+  {
+    id: "periodizacion", label: "Periodización", Icon: Calendar,
+    focus: "Céntrate en la estructura temporal: mesociclos, progresión de volumen e intensidad, acumulación de fatiga, deloads, especialización de puntos débiles y transición entre fases.",
+    sugg: [
+      "Diseña un mesociclo de 5 semanas con progresión de volumen y deload final.",
+      "¿Cuándo toca deload según el historial de sesiones y los RIR registrados?",
+      "Quiero un bloque de especialización de hombro sin perder el resto.",
+    ],
+  },
+  {
+    id: "nutricion", label: "Nutrición", Icon: Utensils,
+    focus: "Céntrate en nutrición aplicada al culturismo: calorías por fase, reparto de macros, timing, adherencia, refeeds y diet breaks, y ajuste por velocidad de cambio de peso.",
+    sugg: [
+      "Calcula calorías y macros para la fase actual y propón el reparto de comidas.",
+      "Lleva 3 semanas sin bajar de peso en definición. ¿Qué ajusto?",
+      "¿Cuándo conviene un refeed o un diet break en esta prep?",
+    ],
+  },
+  {
+    id: "suplementacion", label: "Suplementos", Icon: Zap,
+    focus: "Céntrate en suplementación jerarquizada por evidencia, con dosis y momento de toma. Sé explícito cuando algo no tiene respaldo y no lo recomiendes solo porque es popular.",
+    sugg: [
+      "¿Qué suplementos valen la pena en esta fase y en qué dosis?",
+      "¿Creatina en definición: mantengo, subo o corto antes de competir?",
+      "Revisa esta lista de suplementos y dime cuáles sobran.",
+    ],
+  },
+  {
+    id: "competicion", label: "Competición", Icon: Award,
+    focus: "Céntrate en preparación a competencia: elección de categoría, timeline de prep, control de condición, peak week, posing y logística de tarima.",
+    sugg: [
+      "¿Cuántas semanas de prep necesita según el punto de partida actual?",
+      "Arma la peak week día por día para la categoría objetivo.",
+      "¿Qué poses debería trabajar para disimular los puntos débiles?",
+    ],
+  },
+  {
+    id: "lesiones", label: "Dolor / lesión", Icon: AlertTriangle,
+    focus: "Céntrate en manejo de molestias en el gimnasio: modificar rango, ángulo, carga y selección para seguir entrenando alrededor del dolor. Deriva a profesional de salud ante señales de alarma.",
+    sugg: [
+      "Le molesta el hombro en press plano. ¿Qué sustituyo sin perder estímulo de pecho?",
+      "Dolor lumbar tras peso muerto: ¿cómo reestructuro la sesión de pierna?",
+      "¿Qué señales indican que hay que parar y derivar al médico?",
+    ],
+  },
+  {
+    id: "analisis", label: "Análisis", Icon: TrendingUp,
+    focus: "Céntrate en leer los datos reales del alumno: tonelaje, PRs, adherencia, evolución del peso corporal y series completadas. Cita los números concretos del historial en tu respuesta.",
+    sugg: [
+      "Analiza el historial de sesiones y dime si está progresando de verdad.",
+      "¿Qué ejercicios están estancados y cuáles siguen subiendo?",
+      "Revisa la adherencia: ¿está completando las series planificadas?",
+    ],
+  },
+];
+
+/* Bloques de acción que el agente puede devolver para que el coach los aplique */
+const BB_ACTION_RE = /```forja-(rutina|nutricion)\s*([\s\S]*?)```/g;
+function parseAIActions(text) {
+  const actions = [];
+  const clean = text.replace(BB_ACTION_RE, (whole, kind, body) => {
+    try {
+      actions.push({ kind, data: JSON.parse(body.trim()) });
+      return "";
+    } catch { return whole; }
+  });
+  return { clean: clean.replace(/\n{3,}/g, "\n\n").trim(), actions };
+}
+
+/* Todo lo que el agente sabe del alumno, en texto plano */
+function buildAthleteContext({ plan, history, athlete, student }) {
+  const a = athlete || emptyAthlete();
+  const vol = volumeByMuscle(plan);
+  const sessions = history.sessions || [];
+  const recent = sessions.slice(-8);
+  const bw = history.bodyweight || [];
+  const bwFirst = bw[0], bwLast = bw[bw.length - 1];
+  const phase = BB_PHASES.find((p) => p.id === a.phase);
+  const cat = BB_CATEGORIES.find((c) => c.id === a.category);
+
+  const routineTxt = groupDaysByRoutine(plan.days).map((g) => {
+    const days = g.items.map(({ day }) => {
+      const exs = day.exs.map((ex) => {
+        const eff = ex.sets.filter((s) => s.type !== "warmup");
+        const detalle = eff.map((s) => `${SET_TYPES[s.type]?.short || s.type} ${s.repsT}${s.rirT ? ` @RIR ${s.rirT}` : ""}`).join(" | ");
+        return `    · ${ex.name} [${ex.muscle}] — ${eff.length} series efectivas: ${detalle}${ex.superset ? ` (superserie con ${ex.superset})` : ""}`;
+      }).join("\n");
+      return `  ${day.name} (${day.exs.length} ejercicios):\n${exs || "    (sin ejercicios)"}`;
+    }).join("\n");
+    return `${g.label} — ${g.note || "sin nota"}\n${days}`;
+  }).join("\n\n") || "El plan no tiene días cargados.";
+
+  const schedTxt = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((k, i) => {
+    const label = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"][i];
+    const id = plan.schedule && plan.schedule[k];
+    const day = id && (plan.days || []).find((d) => d.id === id);
+    return `${label}: ${day ? day.name : "descanso"}`;
+  }).join(" · ");
+
+  const volTxt = vol.rows.length
+    ? vol.rows.map((r) => `  · ${r.muscle}: ${r.sets} series/${vol.basis}${r.ref ? ` (MEV ${r.ref.mev} · MAV ${r.ref.mav[0]}-${r.ref.mav[1]} · MRV ${r.ref.mrv}) → ${r.status}` : ""}`).join("\n")
+    : "  (sin series cargadas)";
+
+  const sessTxt = recent.length
+    ? recent.map((s) => `  · ${fmtDate(s.date)} — ${s.dayName}: ${s.setsDone}/${s.setsTotal} series, ${Math.round(s.volume)} kg de tonelaje, ${s.durationMin} min${s.prs.length ? `, PR: ${s.prs.join("; ")}` : ""}`).join("\n")
+    : "  (todavía no registra sesiones)";
+
+  const bwTxt = bw.length
+    ? `${bw.slice(-6).map((b) => `${fmtDate(b.date)}: ${kg(b.kg)} kg`).join(" · ")}${bw.length > 1 ? ` → variación total ${kg(bwLast.kg - bwFirst.kg)} kg desde ${fmtDate(bwFirst.date)}` : ""}`
+    : "sin registros de peso corporal";
+
+  const instrTxt = (plan.instructions || []).length
+    ? (plan.instructions || []).map((it) => `  · ${it.title}: ${it.body}`).join("\n")
+    : "  (sin indicaciones cargadas)";
+
+  return `FICHA DEL ATLETA
+- Nombre: ${student?.name || "sin especificar"}
+- Sexo: ${a.sex || "no indicado"} · Edad: ${a.age || "?"} · Estatura: ${a.height || "?"} cm · Peso: ${a.weight || "?"} kg · % graso estimado: ${a.bf || "?"}
+- Años entrenando: ${a.years || "?"} · Nivel: ${a.level || "?"}
+- Fase actual: ${phase ? `${phase.label} (${phase.kcal}, ritmo ${phase.rate}, proteína ${phase.prot})` : a.phase || "no definida"}
+- Categoría objetivo: ${cat ? `${cat.label} — ${cat.focus}` : a.category || "no compite / no definida"}
+- Fecha de competencia: ${a.compDate || "sin fecha"}
+- Puntos débiles declarados: ${(a.weakPoints || []).join(", ") || "ninguno declarado"}
+- Lesiones o limitaciones: ${a.injuries || "ninguna declarada"}
+- Disponibilidad: ${a.daysWeek || "?"} días/semana · ${a.sessionMin || "?"} min por sesión
+- Equipamiento: ${a.equipment || "no indicado"}
+- Notas del coach: ${a.notes || "sin notas"}
+
+CRONOGRAMA SEMANAL
+${schedTxt}
+
+VOLUMEN ACTUAL POR GRUPO MUSCULAR (series efectivas por ${vol.basis}, total ${vol.total})
+${volTxt}
+
+RUTINA COMPLETA
+${routineTxt}
+
+NUTRICIÓN CARGADA EN EL PLAN
+- ${plan.nutrition.kcal || "?"} kcal · P ${plan.nutrition.p || "?"} g · C ${plan.nutrition.c || "?"} g · G ${plan.nutrition.f || "?"} g
+- Comidas configuradas: ${(plan.nutrition.meals || []).length}
+- Notas: ${plan.nutrition.notes || "sin notas"}
+
+HISTORIAL (${sessions.length} sesiones registradas en total)
+Últimas sesiones:
+${sessTxt}
+Peso corporal: ${bwTxt}
+
+INDICACIONES GENERALES DEL PLAN
+${instrTxt}`;
+}
+
+function buildBBSystemPrompt(ctx, specialty) {
+  const spec = BB_SPECIALTIES.find((s) => s.id === specialty) || BB_SPECIALTIES[0];
+  return `Eres un entrenador de culturismo profesional integrado en FORJA, la plataforma con la que un coach gestiona a sus alumnos. Tienes el nivel de un preparador con años dirigiendo atletas de físico en competencia y dominas la literatura científica de hipertrofia. Hablas con el coach, no con el alumno.
+
+DOMINIO TÉCNICO QUE MANEJAS
+1. Hipertrofia: tensión mecánica como estímulo principal, series efectivas cerca del fallo (RIR 0-4), rango de 5 a 30 repeticiones útil si la proximidad al fallo es suficiente, importancia de la tensión en posición de estiramiento, rango completo y control excéntrico.
+2. Volumen: MEV, MAV y MRV por grupo muscular; el volumen productivo sube a lo largo del mesociclo y se recorta en el deload. Referencias por semana: ${Object.entries(BB_VOLUME_REF).map(([m, r]) => `${m} ${r.mev}/${r.mav[0]}-${r.mav[1]}/${r.mrv}`).join(", ")} (MEV/MAV/MRV en series efectivas).
+3. Frecuencia y distribución: 2-3 estímulos por grupo y semana funcionan mejor que 1 cuando el volumen es alto; organización full body, torso-pierna, push-pull-legs o híbridos según disponibilidad.
+4. Progresión: sobrecarga progresiva en carga, repeticiones o series, con doble progresión como método base; el RIR guía la intensidad real.
+5. Técnicas de intensidad: top set + back-off, drop sets, rest-pause, series mioreps, parciales en estiramiento y superseries. Todas suben fatiga por unidad de estímulo: se dosifican, casi siempre en aislamientos y al final del ejercicio.
+6. Periodización: mesociclos de 4 a 8 semanas con acumulación progresiva y deload; bloques de especialización para puntos débiles reduciendo el volumen del resto; transición ordenada entre volumen, mantención y definición.
+7. Biomecánica y selección de ejercicios: curvas de resistencia, ángulos, torque articular, criterios para elegir entre libre, máquina o polea, y sustituciones equivalentes cuando hay dolor o falta de material.
+8. Nutrición de culturismo: ${BB_PHASES.map((p) => `${p.label} → ${p.kcal}, ritmo ${p.rate}, proteína ${p.prot}`).join(" | ")}. Reparto de comidas, distribución proteica, timing perientrenamiento, refeeds y diet breaks, manejo del hambre y la adherencia.
+9. Suplementación por evidencia: creatina monohidrato 3-5 g/día, cafeína 3-6 mg/kg, proteína en polvo como herramienta, beta-alanina 3-6 g/día, citrulina 6-8 g. Evidencia pobre: BCAA con proteína suficiente, boosters de testosterona, quemadores.
+10. Recuperación: sueño de 7-9 h como variable crítica, manejo de estrés, señales de fatiga sistémica y local, cuándo un deload es obligatorio.
+11. Competencia: categorías (${BB_CATEGORIES.map((c) => c.label).join(", ")}), timeline de prep de 16 a 24 semanas según punto de partida, control semanal de condición, peak week, posing y presentación.
+12. Diagnóstico de estancamientos: antes de rediseñar nada, revisar adherencia, energía disponible, sueño, honestidad del RIR, volumen sobre MRV y calidad técnica.
+
+LÍMITES INNEGOCIABLES
+- No indicas, dosificas ni programas esteroides anabolizantes, hormonas, SARMs, diuréticos ni ninguna sustancia de prescripción o dopante. Si te lo piden, dilo con claridad y deriva a un médico especializado; puedes hablar de riesgos generales y de la importancia del control médico.
+- No eres médico ni nutricionista clínico: ante patología, medicación, embarazo, trastorno de la conducta alimentaria, menores de edad o dolor con señales de alarma (dolor nocturno, pérdida de fuerza, hormigueo, inflamación marcada), deriva al profesional correspondiente.
+- No inventas datos del alumno. Si falta información clave para responder bien, pídela antes de dar el plan.
+
+CÓMO RESPONDES
+- Español de Chile, tono directo de entrenador: sin relleno, sin motivación vacía.
+- Concreto y accionable: números, series, repeticiones, RIR, gramos, semanas. Nada de "depende" sin una recomendación.
+- Cita los datos reales del alumno cuando apoyen tu razonamiento (volumen actual, PRs, tonelaje, peso corporal).
+- Máximo 6 párrafos cortos o una lista breve. Si el tema es grande, entrega lo esencial y ofrece profundizar.
+- Explica el porqué fisiológico en una línea cuando cambie una decisión, no como clase teórica.
+
+ESPECIALIDAD ACTIVA EN ESTA CONSULTA: ${spec.label}. ${spec.focus}
+
+ACCIONES QUE PUEDES EJECUTAR
+Cuando el coach te pida crear o modificar días de entrenamiento, además de explicarlo, incluye al final un bloque exactamente así (se convierte en un botón para aplicarlo al plan):
+\`\`\`forja-rutina
+{"titulo":"Nombre corto del bloque","days":[{"name":"Empujes 1","exs":[{"name":"Press inclinado con mancuernas","muscle":"Pecho","rest":120,"notes":"Indicación técnica breve","sets":[{"type":"normal","repsT":"6-10","rirT":"1"},{"type":"normal","repsT":"10-12","rirT":"0"}]}]}]}
+\`\`\`
+Reglas del bloque: "muscle" debe ser uno de ${MUSCLES.join(", ")}; "type" solo puede ser warmup, normal, top, backoff, drop, restpause o amrap; "repsT" y "rirT" son strings; "rest" en segundos.
+
+Cuando propongas calorías y macros concretos, incluye también:
+\`\`\`forja-nutricion
+{"kcal":3000,"p":200,"c":330,"f":80,"notes":"Resumen breve de la pauta"}
+\`\`\`
+No uses estos bloques si el coach solo pregunta algo teórico: son para cambios que quiere aplicar.
+
+${ctx}`;
+}
+
+/* ---- Ficha del atleta ---- */
+const AthleteForm = ({ plan, savePlan }) => {
+  const a = plan.athlete || emptyAthlete();
+  const set = (k, v) => {
+    const p = structuredClone(plan);
+    if (!p.athlete) p.athlete = emptyAthlete();
+    p.athlete[k] = v;
+    p.updatedAt = todayISO();
+    savePlan(p);
+  };
+  const toggleWeak = (m) => {
+    const cur = a.weakPoints || [];
+    set("weakPoints", cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m]);
+  };
+  return (
+    <div>
+      <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 14, lineHeight: 1.5 }}>
+        Todo lo que cargues acá viaja con cada consulta al agente. Mientras más completa esté la ficha, menos preguntas te hará y más específicas serán sus respuestas.
+      </div>
+
+      <Card style={{ padding: "13px 14px", marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Datos básicos</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Field label="Sexo"><select value={a.sex} onChange={(e) => set("sex", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
+            <option value="">—</option><option value="hombre">Hombre</option><option value="mujer">Mujer</option>
+          </select></Field>
+          <Field label="Edad"><Inp type="number" inputMode="numeric" value={a.age} onChange={(e) => set("age", e.target.value)} placeholder="27" /></Field>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Field label="Estatura (cm)"><Inp type="number" inputMode="decimal" value={a.height} onChange={(e) => set("height", e.target.value)} placeholder="177" /></Field>
+          <Field label="Peso (kg)"><Inp type="number" inputMode="decimal" value={a.weight} onChange={(e) => set("weight", e.target.value)} placeholder="90" /></Field>
+          <Field label="% graso"><Inp value={a.bf} onChange={(e) => set("bf", e.target.value)} placeholder="14" /></Field>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Field label="Años entrenando"><Inp type="number" inputMode="numeric" value={a.years} onChange={(e) => set("years", e.target.value)} placeholder="5" /></Field>
+          <Field label="Nivel"><select value={a.level} onChange={(e) => set("level", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
+            <option value="principiante">Principiante</option><option value="intermedio">Intermedio</option>
+            <option value="avanzado">Avanzado</option><option value="competidor">Competidor</option>
+          </select></Field>
+        </div>
+      </Card>
+
+      <Card style={{ padding: "13px 14px", marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Objetivo</div>
+        <Field label="Fase actual" hint={BB_PHASES.find((p) => p.id === a.phase)?.note}>
+          <select value={a.phase} onChange={(e) => set("phase", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
+            {BB_PHASES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Categoría objetivo" hint={BB_CATEGORIES.find((c) => c.id === a.category)?.focus}>
+          <select value={a.category} onChange={(e) => set("category", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
+            <option value="">No compite / sin definir</option>
+            {BB_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Fecha de competencia"><Inp type="date" value={a.compDate} onChange={(e) => set("compDate", e.target.value)} /></Field>
+        <Field label="Puntos débiles" hint="Los grupos que el agente priorizará al proponer volumen o especializaciones.">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {MUSCLES.filter((m) => m !== "Otro").map((m) => {
+              const on = (a.weakPoints || []).includes(m);
+              return (
+                <button key={m} onClick={() => toggleWeak(m)} style={{ padding: "6px 10px", borderRadius: 9, fontSize: 12.5, fontWeight: 600,
+                  background: on ? `${P.ember}22` : P.s2, border: `1px solid ${on ? `${P.ember}66` : P.line}`, color: on ? P.ember2 : P.dim }}>{m}</button>
+              );
+            })}
+          </div>
+        </Field>
+      </Card>
+
+      <Card style={{ padding: "13px 14px", marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Contexto y limitaciones</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Field label="Días/semana"><Inp type="number" inputMode="numeric" value={a.daysWeek} onChange={(e) => set("daysWeek", e.target.value)} placeholder="5" /></Field>
+          <Field label="Min/sesión"><Inp type="number" inputMode="numeric" value={a.sessionMin} onChange={(e) => set("sessionMin", e.target.value)} placeholder="75" /></Field>
+        </div>
+        <Field label="Lesiones o molestias"><Txt rows={2} value={a.injuries} onChange={(e) => set("injuries", e.target.value)} placeholder="Ej: pinzamiento de hombro derecho en press por encima de la cabeza." /></Field>
+        <Field label="Equipamiento disponible"><Txt rows={2} value={a.equipment} onChange={(e) => set("equipment", e.target.value)} placeholder="Ej: gimnasio completo, sin prensa horizontal ni hack." /></Field>
+        <Field label="Notas del coach"><Txt rows={3} value={a.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Cualquier cosa relevante: trabajo por turnos, historial de dietas, adherencia, etc." /></Field>
+      </Card>
+    </div>
+  );
+};
+
+/* ---- Volumen por grupo muscular ---- */
+const VolumePanel = ({ plan }) => {
+  const vol = useMemo(() => volumeByMuscle(plan), [plan]);
+  if (!vol.rows.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Carga la rutina del alumno para ver el volumen efectivo por grupo muscular." />;
+  const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
+  return (
+    <div>
+      <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 12, lineHeight: 1.5 }}>
+        Series efectivas (sin contar aproximaciones) por <b>{vol.basis === "semana" ? "semana según el cronograma" : "vuelta completa a la rutina"}</b>. Total: {vol.total} series.
+        {vol.basis === "ciclo" && " Asigna los días en la pestaña Agenda para verlo en base semanal."}
+      </div>
+      {vol.rows.map((r) => (
+        <Card key={r.muscle} style={{ padding: "11px 13px", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{r.muscle}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: P.text }}>{r.sets} series</div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em",
+              color: VOL_COLORS[r.status], background: `${VOL_COLORS[r.status]}1E`, border: `1px solid ${VOL_COLORS[r.status]}55`,
+              borderRadius: 7, padding: "2px 7px" }}>{r.status}</div>
+          </div>
+          <div style={{ position: "relative", height: 8, background: P.s3, borderRadius: 5, overflow: "hidden" }}>
+            {r.ref && (
+              <div style={{ position: "absolute", left: `${(r.ref.mav[0] / max) * 100}%`, width: `${((r.ref.mav[1] - r.ref.mav[0]) / max) * 100}%`,
+                top: 0, bottom: 0, background: `${P.green}33` }} />
+            )}
+            <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(100, (r.sets / max) * 100)}%`,
+              background: VOL_COLORS[r.status], opacity: .85, borderRadius: 5 }} />
+          </div>
+          {r.ref && (
+            <div style={{ fontSize: 11.5, color: P.faint, marginTop: 6 }}>
+              MEV {r.ref.mev} · zona óptima {r.ref.mav[0]}–{r.ref.mav[1]} · MRV {r.ref.mrv} · frecuencia sugerida {r.ref.freq}
+            </div>
+          )}
+        </Card>
+      ))}
+    </div>
+  );
+};
+
+/* ---- Base de conocimiento consultable ---- */
+const KnowledgePanel = () => {
+  const [open, setOpen] = useState("fases");
+  const Section = ({ id, title, children }) => (
+    <Card style={{ padding: 0, marginBottom: 9, overflow: "hidden" }}>
+      <button onClick={() => setOpen(open === id ? "" : id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "13px 14px", textAlign: "left" }}>
+        <div style={{ flex: 1, fontWeight: 700, fontSize: 14.5, color: P.text }}>{title}</div>
+        {open === id ? <ChevronUp size={17} color={P.faint} /> : <ChevronDown size={17} color={P.faint} />}
+      </button>
+      {open === id && <div style={{ padding: "0 14px 14px", fontSize: 13.5, color: P.dim, lineHeight: 1.55 }}>{children}</div>}
+    </Card>
+  );
+  const Li = ({ children }) => <div style={{ display: "flex", gap: 7, marginBottom: 6 }}><span style={{ color: P.ember, flexShrink: 0 }}>·</span><span>{children}</span></div>;
+  return (
+    <div>
+      <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 12, lineHeight: 1.5 }}>
+        Las referencias con las que razona el agente. Están disponibles aunque no tengas API key configurada.
+      </div>
+
+      <Section id="fases" title="Fases: calorías, ritmo y proteína">
+        {BB_PHASES.map((p) => (
+          <div key={p.id} style={{ marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, color: P.text, marginBottom: 3 }}>{p.label}</div>
+            <div style={{ fontSize: 13 }}>{p.kcal} · ritmo {p.rate} · proteína {p.prot}</div>
+            <div style={{ fontSize: 12.5, color: P.faint, marginTop: 3 }}>{p.note}</div>
+          </div>
+        ))}
+      </Section>
+
+      <Section id="volumen" title="Volumen semanal por grupo muscular">
+        <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 8 }}>Series efectivas por semana. MEV: mínimo para estimular. Zona óptima: donde se progresa mejor. MRV: techo que se puede recuperar.</div>
+        {Object.entries(BB_VOLUME_REF).map(([m, r]) => (
+          <div key={m} style={{ display: "flex", gap: 8, fontSize: 13, padding: "4px 0", borderBottom: `1px solid ${P.line}55` }}>
+            <div style={{ flex: 1, color: P.text, fontWeight: 600 }}>{m}</div>
+            <div>{r.mev} / <b style={{ color: P.green }}>{r.mav[0]}–{r.mav[1]}</b> / {r.mrv}</div>
+            <div style={{ color: P.faint, width: 62, textAlign: "right" }}>{r.freq}</div>
+          </div>
+        ))}
+      </Section>
+
+      <Section id="categorias" title="Categorías de competencia">
+        {BB_CATEGORIES.map((c) => (
+          <div key={c.id} style={{ marginBottom: 9 }}>
+            <div style={{ fontWeight: 700, color: P.text }}>{c.label}</div>
+            <div style={{ fontSize: 13 }}>{c.focus}</div>
+          </div>
+        ))}
+      </Section>
+
+      <Section id="peak" title="Peak week: reglas que no se rompen">
+        {BB_PEAK_WEEK.map((t, i) => <Li key={i}>{t}</Li>)}
+      </Section>
+
+      <Section id="supps" title="Suplementación por evidencia">
+        {BB_SUPPS.map((g) => (
+          <div key={g.tier} style={{ marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, color: P.text, marginBottom: 4 }}>{g.tier}</div>
+            {g.items.map((t, i) => <Li key={i}>{t}</Li>)}
+          </div>
+        ))}
+      </Section>
+
+      <Section id="plateau" title="Estancamiento: qué revisar antes de cambiar la rutina">
+        {BB_PLATEAU.map((t, i) => <Li key={i}>{t}</Li>)}
+      </Section>
+
+      <Card style={{ padding: "12px 14px", marginTop: 12, borderColor: `${P.red}44`, background: `${P.red}0C` }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+          <AlertTriangle size={16} color={P.red} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ fontSize: 12.5, color: P.dim, lineHeight: 1.5 }}>
+            El agente no indica ni dosifica esteroides, hormonas, SARMs ni diuréticos, y no reemplaza a un médico ni a un nutricionista clínico. Ante patologías, medicación o dolor con señales de alarma, deriva al profesional correspondiente.
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+/* ---- Chat del agente ---- */
+const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onNeedKey, toast }) => {
+  const sid = currentStudent?.id;
+  const [messages, setMessages] = useState([]);
+  const [loadedFor, setLoadedFor] = useState(null);
+  const [input, setInput] = useState("");
+  const [specialty, setSpecialty] = useState("general");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [applied, setApplied] = useState({});
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (!sid) return;
+    let alive = true;
+    (async () => {
+      const saved = await sGet(`forja-bb-chat:${sid}`);
+      if (!alive) return;
+      setMessages(Array.isArray(saved) ? saved : []);
+      setLoadedFor(sid);
+    })();
+    return () => { alive = false; };
+  }, [sid]);
+
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy]);
+
+  const persist = (msgs) => { if (sid) sSet(`forja-bb-chat:${sid}`, msgs); };
+
+  const spec = BB_SPECIALTIES.find((s) => s.id === specialty) || BB_SPECIALTIES[0];
+
+  const send = async (preset) => {
+    const text = (preset != null ? preset : input).trim();
+    if (!text || busy) return;
+    if (!apiKey) { setErr("Configura primero tu API key de Anthropic."); onNeedKey && onNeedKey(); return; }
+    setErr("");
+    const nextMsgs = [...messages, { role: "user", content: text }];
+    setMessages(nextMsgs); setInput(""); setBusy(true);
+    try {
+      const ctx = buildAthleteContext({ plan, history, athlete: plan.athlete, student: currentStudent });
+      const data = await callClaudeAPI(apiKey, {
+        model: AI_MODEL,
+        max_tokens: 3000,
+        system: buildBBSystemPrompt(ctx, specialty),
+        messages: nextMsgs.map((m) => ({ role: m.role, content: m.content })),
+      }, { timeoutMs: 90000 });
+      const answer = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n") || "(sin respuesta)";
+      const final = [...nextMsgs, { role: "assistant", content: answer }];
+      setMessages(final); persist(final);
+    } catch (e) {
+      setErr(e.message || "Error de conexión");
+    } finally { setBusy(false); }
+  };
+
+  const applyRoutine = (data, key, mode) => {
+    const newDays = daysFromAIJson(data.days);
+    if (!newDays.length) { toast && toast("El bloque no traía días válidos."); return; }
+    const p = structuredClone(plan);
+    const routine = mode === "replace" ? ROUTINE_A : nextRoutineKey(p.days);
+    const tagged = newDays.map((d) => ({ ...d, routine }));
+    p.days = mode === "replace" ? tagged : [...p.days, ...tagged];
+    p.updatedAt = todayISO();
+    savePlan(p);
+    setApplied((a) => ({ ...a, [key]: true }));
+    toast && toast(`✓ ${routineLabel(routine)}: ${newDays.length} día${newDays.length !== 1 ? "s" : ""}, ${newDays.reduce((acc, d) => acc + d.exs.length, 0)} ejercicios`);
+  };
+
+  const applyNutrition = (data, key) => {
+    const p = structuredClone(plan);
+    if (data.kcal != null) p.nutrition.kcal = +data.kcal || 0;
+    if (data.p != null) p.nutrition.p = +data.p || 0;
+    if (data.c != null) p.nutrition.c = +data.c || 0;
+    if (data.f != null) p.nutrition.f = +data.f || 0;
+    if (data.notes) p.nutrition.notes = data.notes;
+    p.updatedAt = todayISO();
+    savePlan(p);
+    setApplied((a) => ({ ...a, [key]: true }));
+    toast && toast("✓ Macros aplicados al plan nutricional");
+  };
+
+  const clearChat = () => { setMessages([]); setApplied({}); persist([]); };
+
+  if (sid && loadedFor !== sid) return <div style={{ padding: 30, textAlign: "center", color: P.faint }}>Cargando conversación…</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 10, WebkitOverflowScrolling: "touch" }}>
+        {BB_SPECIALTIES.map(({ id, label, Icon }) => {
+          const on = specialty === id;
+          return (
+            <button key={id} onClick={() => setSpecialty(id)} style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
+              padding: "7px 11px", borderRadius: 10, fontSize: 12.5, fontWeight: 600,
+              background: on ? `${P.ember}1F` : P.s2, border: `1px solid ${on ? `${P.ember}66` : P.line}`, color: on ? P.ember2 : P.dim }}>
+              <Icon size={13} /> {label}
+            </button>
+          );
+        })}
+      </div>
+      {messages.length === 0 && <div style={{ fontSize: 12.5, color: P.faint, lineHeight: 1.45, marginBottom: 12 }}>{spec.focus}</div>}
+
+      {messages.length === 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Consultas frecuentes de {spec.label.toLowerCase()}</div>
+          {spec.sugg.map((s, i) => (
+            <button key={i} onClick={() => (apiKey ? send(s) : setInput(s))} style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px",
+              background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, marginBottom: 6, fontSize: 13, color: P.dim, lineHeight: 1.4 }}>
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div ref={scrollRef} style={{ maxHeight: "52vh", overflowY: "auto", marginBottom: 12, WebkitOverflowScrolling: "touch" }}>
+        {messages.map((m, i) => {
+          if (m.role === "user") {
+            return (
+              <div key={i} style={{ marginBottom: 10, display: "flex", justifyContent: "flex-end" }}>
+                <div style={{ maxWidth: "85%", padding: "10px 13px", borderRadius: 14, background: `${P.ember}22`,
+                  border: `1px solid ${P.ember}55`, fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{m.content}</div>
+              </div>
+            );
+          }
+          const { clean, actions } = parseAIActions(m.content);
+          return (
+            <div key={i} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex" }}>
+                <div style={{ maxWidth: "92%", padding: "10px 13px", borderRadius: 14, background: P.s2,
+                  border: `1px solid ${P.line}`, fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{clean || "(sin texto)"}</div>
+              </div>
+              {actions.map((act, j) => {
+                const key = `${i}-${j}`;
+                const done = applied[key];
+                if (act.kind === "rutina") {
+                  const days = act.data.days || [];
+                  const exCount = days.reduce((a, d) => a + (d.exs || []).length, 0);
+                  return (
+                    <Card key={key} style={{ padding: "12px 13px", marginTop: 8, borderColor: `${P.ember}55`, background: `${P.ember}0A` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+                        <ClipboardList size={15} color={P.ember2} />
+                        <div style={{ fontWeight: 700, fontSize: 13.5, flex: 1 }}>{act.data.titulo || "Bloque de entrenamiento"}</div>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: P.dim, marginBottom: 9, lineHeight: 1.45 }}>
+                        {days.length} día{days.length !== 1 ? "s" : ""} · {exCount} ejercicios: {days.map((d) => d.name).join(" · ")}
+                      </div>
+                      {done ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: P.green }}><Check size={14} /> Aplicado al plan</div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                          <Btn kind="ember" small onClick={() => applyRoutine(act.data, key, "append")}><Plus size={13} /> Añadir como rutina nueva</Btn>
+                          <Btn kind="line" small onClick={() => applyRoutine(act.data, key, "replace")}><RotateCcw size={13} /> Reemplazar plan</Btn>
+                        </div>
+                      )}
+                    </Card>
+                  );
+                }
+                const d = act.data;
+                return (
+                  <Card key={key} style={{ padding: "12px 13px", marginTop: 8, borderColor: `${P.green}55`, background: `${P.green}0A` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+                      <Utensils size={15} color={P.green} />
+                      <div style={{ fontWeight: 700, fontSize: 13.5, flex: 1 }}>Pauta nutricional propuesta</div>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: P.dim, marginBottom: 9, lineHeight: 1.45 }}>
+                      {d.kcal} kcal · P {d.p} g · C {d.c} g · G {d.f} g{d.notes ? ` — ${d.notes}` : ""}
+                    </div>
+                    {done ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: P.green }}><Check size={14} /> Aplicado al plan</div>
+                    ) : (
+                      <Btn kind="green" small onClick={() => applyNutrition(d, key)}><Check size={13} /> Aplicar al plan nutricional</Btn>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+          );
+        })}
+        {busy && (
+          <div style={{ marginBottom: 10, display: "flex" }}>
+            <div style={{ padding: "10px 13px", borderRadius: 14, background: P.s2, border: `1px solid ${P.line}`, fontSize: 13.5, color: P.dim }}>
+              <span className="pulse">Analizando el caso…</span>
+            </div>
+          </div>
+        )}
+        {err && <div style={{ padding: "10px 13px", borderRadius: 10, background: `${P.red}22`, border: `1px solid ${P.red}55`, fontSize: 12.5, color: P.red, marginBottom: 8 }}>{err}</div>}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        <textarea rows={2} placeholder={apiKey ? `Pregunta de ${spec.label.toLowerCase()}…` : "Configura la API key primero"} disabled={busy}
+          value={input} onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+          style={{ flex: 1, padding: "10px 12px", fontSize: 14, minWidth: 0, resize: "none" }} />
+        <Btn kind="ember" disabled={!input.trim() || busy} onClick={() => send()} style={{ padding: "12px 14px", minWidth: 0 }}>
+          <Send size={16} />
+        </Btn>
+      </div>
+
+      {messages.length > 0 && (
+        <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <Btn kind="line" small onClick={clearChat}><Trash2 size={12} /> Reiniciar conversación</Btn>
+          <div style={{ fontSize: 11.5, color: P.faint, alignSelf: "center" }}>La conversación se guarda por alumno.</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ---- Pestaña IA: agente de culturismo + nutrición ---- */
+const AITab = ({ plan, savePlan, history, currentStudent, toast }) => {
+  const [sub, setSub] = useState("agente");
+  const [apiKey, setApiKey] = useState("");
+  const [draftKey, setDraftKey] = useState("");
+  const [keyLoaded, setKeyLoaded] = useState(false);
+  const [showKeyEdit, setShowKeyEdit] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const k = await sGet("forja-ai-key");
+      if (k) { setApiKey(k); setDraftKey(k); }
+      setKeyLoaded(true);
+    })();
+  }, []);
+
+  const saveKey = async () => {
+    const k = draftKey.trim();
+    await sSet("forja-ai-key", k);
+    setApiKey(k); setShowKeyEdit(false);
+  };
+
+  if (!keyLoaded) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando…</div>;
+  if (sub === "nutricion") {
+    return (
+      <div>
+        <div style={{ padding: "18px 16px 0" }}><SubNav sub={sub} setSub={setSub} /></div>
+        <NutriAITab plan={plan} savePlan={savePlan} currentStudent={currentStudent} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "18px 16px 30px" }}>
+      <SubNav sub={sub} setSub={setSub} />
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <Flame size={22} color={P.ember} />
+        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Coach IA</h1>
+      </div>
+      <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 12, lineHeight: 1.5 }}>
+        Entrenador de culturismo profesional con el caso completo de <b>{currentStudent?.name || "este alumno"}</b> a la vista: ficha, rutina, volumen por músculo, historial de cargas y nutrición. Puede proponer cambios y los aplicas con un botón.
+      </div>
+
+      {(!apiKey || showKeyEdit) && (
+        <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.ember}66` }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            <AlertTriangle size={16} color={P.ember2} />
+            <div style={{ fontWeight: 700, fontSize: 14 }}>Configura tu API key de Anthropic</div>
+          </div>
+          <div style={{ fontSize: 12.5, color: P.dim, lineHeight: 1.5, marginBottom: 10 }}>
+            Consigue una API key en <b>console.anthropic.com</b> → Settings → API Keys. Se guarda en tu Supabase y se usa tanto para este agente como para el importador de rutinas y la IA de nutrición.
+            <br /><br />
+            <b>Aviso técnico:</b> por limitaciones del navegador la key viaja desde tu equipo hacia la API de Anthropic. Úsala solo para este uso y revócala si sospechas filtración.
+          </div>
+          <Inp type="password" placeholder="sk-ant-…" value={draftKey} onChange={(e) => setDraftKey(e.target.value)} />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            {showKeyEdit && <Btn kind="line" onClick={() => { setDraftKey(apiKey); setShowKeyEdit(false); }} style={{ flex: 1 }}>Cancelar</Btn>}
+            <Btn kind="ember" disabled={!draftKey.trim()} onClick={saveKey} style={{ flex: 2 }}>Guardar API key</Btn>
+          </div>
+        </Card>
+      )}
+      {apiKey && !showKeyEdit && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, fontSize: 12, color: P.faint }}>
+          <Check size={14} color={P.green} /> API key configurada
+          <button onClick={() => setShowKeyEdit(true)} style={{ color: P.ember, marginLeft: 6, fontSize: 12 }}>cambiar</button>
+        </div>
+      )}
+
+      {sub === "agente" && (
+        <BodybuildingChat plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent}
+          apiKey={apiKey} onNeedKey={() => setShowKeyEdit(true)} toast={toast} />
+      )}
+      {sub === "ficha" && <AthleteForm plan={plan} savePlan={savePlan} />}
+      {sub === "volumen" && <VolumePanel plan={plan} />}
+      {sub === "saber" && <KnowledgePanel />}
+    </div>
+  );
+};
+
+const SubNav = ({ sub, setSub }) => (
+  <div style={{ display: "flex", gap: 5, overflowX: "auto", marginBottom: 14, WebkitOverflowScrolling: "touch" }}>
+    {[["agente", "Agente"], ["ficha", "Ficha"], ["volumen", "Volumen"], ["saber", "Saber"], ["nutricion", "Nutrición"]].map(([id, label]) => {
+      const on = sub === id;
+      return (
+        <button key={id} onClick={() => setSub(id)} style={{ flexShrink: 0, padding: "7px 13px", borderRadius: 10, fontSize: 13, fontWeight: 600,
+          background: on ? P.s3 : "transparent", border: `1px solid ${on ? P.line : "transparent"}`, color: on ? P.text : P.faint }}>{label}</button>
+      );
+    })}
+  </div>
+);
 
 const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const DAY_LABELS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
@@ -3025,6 +3904,8 @@ const App = () => {
     // Migración: planes viejos sin schedule/events
     if (!p.schedule) p.schedule = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
     if (!p.events) p.events = [];
+    // Migración: planes viejos sin ficha del atleta (la usa el agente de culturismo)
+    if (!p.athlete) p.athlete = emptyAthlete();
     if ((p.seedVersion || 0) < SEED_VERSION) {
       const trainingB = (p.days || []).find((day) => day.name === "Entrenamiento B");
       if (trainingB) {
@@ -3312,7 +4193,9 @@ const App = () => {
         {mode === "coach" && tab === "rutina" && <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} />}
         {mode === "coach" && tab === "agenda" && <ScheduleEditor plan={plan} savePlan={savePlan} />}
         {mode === "coach" && tab === "nutricion" && <NutritionEditor plan={plan} savePlan={savePlan} />}
-        {mode === "coach" && tab === "ia" && <NutriAITab plan={plan} savePlan={savePlan} currentStudent={currentStudent} />}
+        {mode === "coach" && tab === "ia" && (
+          <AITab plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast} />
+        )}
         {mode === "coach" && tab === "indicaciones" && <InstructionsEditor plan={plan} savePlan={savePlan} />}
         {mode === "coach" && tab === "actividad" && <ActivityTab plan={plan} history={history} />}
         {tab === "timer" && <TimerTab />}
