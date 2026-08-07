@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v12";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v13";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -2721,6 +2721,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   const [importOpen, setImportOpen] = useState(false);
   const [copiedEx, setCopiedEx] = useState(null);
   const [copiedDay, setCopiedDay] = useState(null);
+  // Reordenar los días arrastrando: mantén pulsado ~400 ms sobre un día y
+  // suéltalo sobre otro. Si el destino está en otra rutina, adopta esa rutina.
+  const [dragging, setDragging] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+  const dragRef = useRef({ holdTimer: null, activated: false, blockClick: false, startX: 0, startY: 0 });
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const move = (arr, i, dir) => { const j = i + dir; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; };
   // Reordenar días sin sacarlos de su rutina
@@ -2744,6 +2749,71 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     mut((p) => p.days.find((day) => day.id === dayId).exs.push(pasted));
     if (toast) toast(`✓ «${pasted.name}» pegado con series, indicaciones y adjuntos`);
   };
+  const startDrag = (dayId, e) => {
+    const st = dragRef.current;
+    clearTimeout(st.holdTimer);
+    st.activated = false;
+    st.startX = e.clientX; st.startY = e.clientY;
+    st.holdTimer = setTimeout(() => {
+      st.activated = true;
+      setDragging(dayId);
+      try { navigator.vibrate && navigator.vibrate(25); } catch {}
+    }, 380);
+  };
+  const cancelPress = (e) => {
+    const st = dragRef.current;
+    // Si el usuario mueve el dedo más de 8 px antes de activarse, no era mantener pulsado
+    if (e && st.holdTimer && !st.activated) {
+      const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
+      if (dx > 8 || dy > 8) clearTimeout(st.holdTimer);
+    }
+  };
+  const endDrag = () => {
+    const st = dragRef.current;
+    clearTimeout(st.holdTimer);
+    if (dragging) {
+      st.blockClick = true;   // se limpia en el próximo clickCapture de la tarjeta
+      if (dragOver && dragOver !== dragging) {
+        mut((p) => {
+          const from = p.days.findIndex((d) => d.id === dragging);
+          const to = p.days.findIndex((d) => d.id === dragOver);
+          if (from < 0 || to < 0 || from === to) return;
+          const [moved] = p.days.splice(from, 1);
+          const insertAt = to > from ? to - 1 : to;
+          const dest = p.days[insertAt];
+          if (dest && dest.routine !== moved.routine) moved.routine = dest.routine;
+          p.days.splice(insertAt, 0, moved);
+        });
+      }
+    }
+    st.activated = false;
+    setDragging(null); setDragOver(null);
+  };
+  // Mientras arrastras, los eventos van al documento (así funciona aunque el
+  // dedo salga de la tarjeta original), y el scroll queda bloqueado.
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const card = el && el.closest && el.closest("[data-day-card]");
+      const overId = card ? card.getAttribute("data-day-card") : null;
+      setDragOver((prev) => (prev === overId ? prev : overId));
+      e.preventDefault();
+    };
+    const up = () => endDrag();
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [dragging, dragOver]);
+
   // Vuelca todos los ejercicios del día copiado dentro de otro día ya existente.
   // Cada ejercicio y cada serie se clonan con ids nuevos para no compartir estado
   // con el día original.
@@ -2817,7 +2887,20 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
             <div style={{ fontSize: 11.5, color: P.faint }}>{g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series</div>
           </div>
           {g.items.map(({ day: d, index: di }) => (
-            <Card key={d.id} style={{ marginBottom: 12, overflow: "hidden" }}>
+            <Card key={d.id}
+              data-day-card={d.id}
+              onPointerDown={(e) => startDrag(d.id, e)}
+              onPointerMove={cancelPress}
+              onPointerUp={() => { const st = dragRef.current; if (!dragging) clearTimeout(st.holdTimer); }}
+              onPointerCancel={() => { const st = dragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
+              onClickCapture={(e) => { if (dragRef.current.blockClick) { e.stopPropagation(); e.preventDefault(); dragRef.current.blockClick = false; } }}
+              style={{ marginBottom: 12, overflow: "hidden",
+                opacity: dragging === d.id ? 0.55 : 1,
+                borderColor: dragging === d.id ? P.ember : (dragOver === d.id && dragging ? P.ember2 : P.line),
+                boxShadow: dragging === d.id ? "0 10px 22px rgba(0,0,0,.5)" : "none",
+                transform: dragging === d.id ? "scale(.985)" : "none",
+                transition: "border-color .12s ease, opacity .12s ease, transform .12s ease",
+                touchAction: dragging ? "none" : "auto" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "11px 12px" }}>
                 <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</div>
