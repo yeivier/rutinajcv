@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v9";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v10";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -224,6 +224,31 @@ function parseRoutineJSON(rawText) {
 }
 
 /* ---------------- Utilidades ---------------- */
+/* Los campos numéricos aceptan coma o punto como separador decimal: ambos
+   significan lo mismo. `num` normaliza a número para cálculos (0 si no hay
+   nada válido) y `stepNumeric` sube o baja el valor respetando los decimales
+   que ya tiene escritos: 2,5 → 2,6 · 2.89 → 2.90 · 2,9 → 3,0 · 10 → 11. */
+const num = (v) => {
+  const n = parseFloat(String(v ?? "").replace(",", "."));
+  return isFinite(n) ? n : 0;
+};
+
+function stepNumeric(raw, dir) {
+  const s = String(raw ?? "").trim();
+  if (s === "") return dir > 0 ? "1" : "0";
+  const sep = s.includes(",") ? "," : ".";
+  const norm = s.replace(",", ".");
+  const n = parseFloat(norm);
+  if (!isFinite(n)) return dir > 0 ? "1" : "0";
+  const dot = norm.indexOf(".");
+  const decimals = dot === -1 ? 0 : norm.length - dot - 1;
+  const factor = Math.pow(10, decimals);
+  // Se opera con enteros para no arrastrar el error de coma flotante (0.1 + 0.2)
+  const next = Math.max(0, Math.round(n * factor) + dir);
+  const out = (next / factor).toFixed(decimals);
+  return sep === "," ? out.replace(".", ",") : out;
+}
+
 const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
 const todayISO = () => new Date().toISOString();
 const fmtDate = (iso) => {
@@ -709,7 +734,9 @@ const Card = ({ children, style, onClick }) => (
   <div onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: 16, ...style }}>{children}</div>
 );
 
-const Btn = ({ children, kind = "ghost", onClick, style, disabled, small }) => {
+// `rest` deja pasar title, aria-label y demás: sin eso, un botón que solo
+// lleva icono se queda sin nombre accesible.
+const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...rest }) => {
   const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
     borderRadius: 12, fontWeight: 600, fontSize: small ? 13 : 15,
     padding: small ? "7px 12px" : "12px 18px", opacity: disabled ? 0.45 : 1, transition: "filter .15s" };
@@ -720,7 +747,7 @@ const Btn = ({ children, kind = "ghost", onClick, style, disabled, small }) => {
     green: { background: "rgba(99,214,140,.14)", border: `1px solid rgba(99,214,140,.4)`, color: P.green },
     red:   { background: "rgba(229,72,77,.12)", border: `1px solid rgba(229,72,77,.4)`, color: P.red },
   };
-  return <button disabled={disabled} onClick={onClick} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
+  return <button {...rest} disabled={disabled} onClick={onClick} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
 };
 
 const TypeBadge = ({ type, onInfo, big }) => {
@@ -1280,6 +1307,405 @@ const SessionExercise = ({ ex, exIdx, history, onPatchEx, onPatchSet, onSetDone,
 /* ============================================================
    Temporizador de descanso flotante
    ============================================================ */
+/* ============================================================
+   FOCUS MODE — una sola pantalla, un solo ejercicio
+   Pensado para registrar con el mínimo número de toques cuando
+   vas apurado o no quieres distraerte con la lista completa.
+   La pantalla de entrenamiento normal sigue intacta.
+   ============================================================ */
+
+// Campo numérico grande: acepta coma o punto, flechas para subir/bajar
+// respetando los decimales escritos, y una X para vaciarlo de un toque.
+const FocusField = ({ label, value, placeholder, onChange, onClear }) => (
+  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 4, height: 14 }}>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".07em", color: P.faint, textTransform: "uppercase" }}>{label}</span>
+      {value !== "" && (
+        <button onClick={onClear} aria-label={`Borrar ${label}`} title={`Borrar ${label}`}
+          style={{ color: P.faint, lineHeight: 0, padding: 1 }}><X size={11} strokeWidth={3} /></button>
+      )}
+    </div>
+    <button onClick={() => onChange(stepNumeric(value, +1))} aria-label={`Subir ${label}`}
+      style={{ width: "100%", padding: "3px 0", color: P.dim, background: P.s3, border: `1px solid ${P.line}`, borderRadius: "9px 9px 0 0" }}>
+      <ChevronUp size={20} strokeWidth={2.5} />
+    </button>
+    <input type="text" inputMode="decimal" enterKeyHint="done" placeholder={placeholder} value={value}
+      onChange={(e) => onChange(e.target.value.replace(/[^0-9.,]/g, ""))}
+      style={{ width: "100%", padding: "9px 2px", textAlign: "center", fontWeight: 700, fontSize: 20,
+        background: value !== "" ? "rgba(99,214,140,.08)" : P.s2,
+        borderColor: value !== "" ? "rgba(99,214,140,.35)" : P.line, borderRadius: 0 }} />
+    <button onClick={() => onChange(stepNumeric(value, -1))} aria-label={`Bajar ${label}`}
+      style={{ width: "100%", padding: "3px 0", color: P.dim, background: P.s3, border: `1px solid ${P.line}`, borderRadius: "0 0 9px 9px" }}>
+      <ChevronDown size={20} strokeWidth={2.5} />
+    </button>
+  </div>
+);
+
+const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storageOK, savedAt }) => {
+  const [exIdx, setExIdx] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [peek, setPeek] = useState(null);          // {mode:"name"|"full"} → siguiente ejercicio
+  const [instr, setInstr] = useState(null);        // {pinned:boolean} → nota del coach
+  const [cmtIdx, setCmtIdx] = useState(null);      // serie con el comentario abierto
+  const [rests, setRests] = useState({});          // {"ei-si": timestamp de inicio del descanso}
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+  const [confirmFinish, setConfirmFinish] = useState(false);
+  const peekTimer = useRef(null);
+  const instrTimer = useRef(null);
+  const cmtTimer = useRef(null);
+  const holdTimer = useRef(null);
+  const heldRef = useRef(false);
+  const touchRef = useRef(null);
+  const cmtRef = useRef(null);
+  const prefilled = useRef({});
+
+  useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
+  useEffect(() => () => { [peekTimer, instrTimer, cmtTimer, holdTimer].forEach((t) => clearTimeout(t.current)); }, []);
+
+  const exs = active.exs;
+  const ex = exs[Math.min(exIdx, exs.length - 1)];
+  const nextEx = exs[exIdx + 1] || null;
+  const totalSets = exs.reduce((a, e) => a + e.sets.length, 0);
+  const doneSets = exs.reduce((a, e) => a + e.sets.filter((s) => s.done).length, 0);
+  const pct = totalSets ? (doneSets / totalSets) * 100 : 0;
+  const elapsed = Math.max(0, Math.floor((now - new Date(active.startedAt).getTime()) / 1000));
+
+  // Al entrar a un ejercicio, las series vacías se rellenan con lo último que
+  // registraste en ESE ejercicio, para no tener que teclear lo mismo cada vez.
+  useEffect(() => {
+    if (!ex || prefilled.current[ex.id]) return;
+    prefilled.current[ex.id] = true;
+    const entries = history.byEx[ex.id] || [];
+    const lastEntry = entries.length ? entries[entries.length - 1] : null;
+    if (!lastEntry) return;
+    const val = (v) => (v !== "" && v != null ? String(v) : null);
+    const fills = ex.sets.map((s, si) => {
+      if (s.weight !== "" || s.reps !== "" || s.rir !== "") return null;
+      const prev = (lastEntry.sets || [])[si];
+      if (!prev) return null;
+      const f = {};
+      if (val(prev.weight)) f.weight = val(prev.weight);
+      if (val(prev.reps)) f.reps = val(prev.reps);
+      if (val(prev.rir)) f.rir = val(prev.rir);
+      return Object.keys(f).length ? f : null;
+    });
+    if (!fills.some(Boolean)) return;
+    // Una sola escritura para todas las series: si se hicieran varias seguidas,
+    // cada una partiría de la misma copia y solo sobreviviría la última.
+    patch((a) => {
+      fills.forEach((f, si) => { if (f) Object.assign(a.exs[exIdx].sets[si], f); });
+      return a;
+    });
+  }, [exIdx, ex && ex.id]);
+
+  const go = (dir) => {
+    const next = exIdx + dir;
+    if (next < 0 || next >= exs.length) return;
+    setCmtIdx(null); setInstr(null); setPeek(null);
+    setExIdx(next);
+  };
+
+  /* --- Nota del coach: un toque la muestra 6 s, mantener pulsado la fija --- */
+  const showInstr = (pinned) => {
+    clearTimeout(instrTimer.current);
+    setInstr({ pinned });
+    if (!pinned) instrTimer.current = setTimeout(() => setInstr(null), 6000);
+  };
+  const hideInstr = () => { clearTimeout(instrTimer.current); setInstr(null); };
+
+  /* --- Barra de progreso: toque = nombre del siguiente · mantener = nombre + indicación --- */
+  const showPeek = (mode, ms) => {
+    clearTimeout(peekTimer.current);
+    setPeek({ mode });
+    peekTimer.current = setTimeout(() => setPeek(null), ms);
+  };
+  const barDown = () => {
+    heldRef.current = false;
+    holdTimer.current = setTimeout(() => { heldRef.current = true; showPeek("full", 12000); }, 380);
+  };
+  const barUp = () => {
+    clearTimeout(holdTimer.current);
+    if (heldRef.current) { showPeek("full", 6000); return; }   // al soltar, deja leer 6 s más
+    showPeek("name", 4000);
+  };
+
+  /* --- Comentario de la serie: se guarda mientras escribes, sin botón guardar --- */
+  const openCmt = (si) => {
+    setCmtIdx(si);
+    clearTimeout(cmtTimer.current);
+    cmtTimer.current = setTimeout(() => setCmtIdx(null), 10000);
+    setTimeout(() => cmtRef.current && cmtRef.current.focus(), 30);
+  };
+  const touchCmt = () => {
+    clearTimeout(cmtTimer.current);
+    cmtTimer.current = setTimeout(() => setCmtIdx(null), 10000);
+  };
+
+  /* --- Borrados con deshacer/rehacer --- */
+  const record = (si, before, after) => {
+    setUndoStack((s) => [...s.slice(-40), { ei: exIdx, si, before, after }]);
+    setRedoStack([]);
+  };
+  const clearField = (si, field) => {
+    const s = ex.sets[si];
+    if (s[field] === "") return;
+    record(si, { [field]: s[field] }, { [field]: "" });
+    patchSet(exIdx, si, { [field]: "" });
+  };
+  const clearSet = (si) => {
+    const s = ex.sets[si];
+    if (s.weight === "" && s.reps === "" && s.rir === "") return;
+    record(si, { weight: s.weight, reps: s.reps, rir: s.rir }, { weight: "", reps: "", rir: "" });
+    patchSet(exIdx, si, { weight: "", reps: "", rir: "" });
+  };
+  const undo = () => {
+    const a = undoStack[undoStack.length - 1];
+    if (!a) return;
+    patchSet(a.ei, a.si, a.before);
+    setUndoStack((s) => s.slice(0, -1));
+    setRedoStack((s) => [...s, a]);
+  };
+  const redo = () => {
+    const a = redoStack[redoStack.length - 1];
+    if (!a) return;
+    patchSet(a.ei, a.si, a.after);
+    setRedoStack((s) => s.slice(0, -1));
+    setUndoStack((s) => [...s, a]);
+  };
+
+  const restKey = (si) => `${exIdx}-${si}`;
+  const toggleRest = (si) => {
+    const k = restKey(si);
+    setRests((r) => (r[k] ? { ...r, [k]: null } : { ...r, [k]: Date.now() }));
+  };
+
+  const setVal = (si, field, v) => patchSet(exIdx, si, { [field]: v });
+
+  // Navegación como en las historias: tocar el tercio derecho avanza y el
+  // izquierdo retrocede. Los toques sobre un control (casillas, botones,
+  // comentario) se respetan y no cambian de ejercicio.
+  const tapNav = (e) => {
+    if (e.target.closest && e.target.closest("input, textarea, button, a, [data-keep]")) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    if (x > r.width * 0.66) go(1);
+    else if (x < r.width * 0.34) go(-1);
+  };
+
+  return (
+    <div
+      // Un toque en cualquier punto fuera del cuadro cierra el comentario.
+      // Lo escrito ya está guardado: no hace falta pulsar guardar.
+      onClickCapture={(e) => {
+        if (cmtIdx === null) return;
+        if (e.target.closest && e.target.closest("[data-cmt]")) return;
+        setCmtIdx(null);
+      }}
+      style={{ position: "fixed", inset: 0, zIndex: 90, background: P.bg, display: "flex", flexDirection: "column",
+        paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)", overscrollBehavior: "contain" }}>
+
+      {/* Cabecera: tiempo, posición y salidas */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px 8px", flexShrink: 0 }}>
+        <button onClick={onExit} aria-label="Salir del focus mode"
+          style={{ padding: 7, color: P.faint, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10 }}>
+          <X size={17} />
+        </button>
+        <div className="disp" style={{ fontSize: 25, fontWeight: 700, color: P.text, letterSpacing: ".02em" }}>{bigTime(elapsed)}</div>
+        <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.2 }}>
+          {exIdx + 1}/{exs.length}<br />{doneSets}/{totalSets} series
+        </div>
+        <div style={{ flex: 1 }} />
+        <span title={storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado"}
+          style={{ width: 7, height: 7, borderRadius: 4, background: storageOK ? P.green : P.red, flexShrink: 0 }} />
+        <Btn kind="ember" small onClick={() => setConfirmFinish(true)}>Terminar</Btn>
+      </div>
+
+      {/* Barra de progreso de la sesión */}
+      <div onPointerDown={barDown} onPointerUp={barUp} onPointerLeave={() => clearTimeout(holdTimer.current)}
+        role="button" aria-label="Progreso de la sesión: toca para ver el siguiente ejercicio, mantén pulsado para ver también su indicación"
+        style={{ padding: "10px 12px 12px", flexShrink: 0, cursor: "pointer", touchAction: "manipulation" }}>
+        <div style={{ height: 9, background: P.s2, borderRadius: 5, overflow: "hidden", border: `1px solid ${P.line}` }}>
+          <div style={{ height: "100%", width: `${pct}%`, borderRadius: 5,
+            background: `linear-gradient(90deg, ${P.ember}, ${P.ember2})`, transition: "width .35s ease" }} />
+        </div>
+        {exIdx === 0 && !peek && (
+          <div style={{ fontSize: 10.5, color: P.faint, textAlign: "center", marginTop: 5, lineHeight: 1.3 }}>
+            Toca la barra para ver el siguiente ejercicio · mantén pulsado para leer su indicación
+          </div>
+        )}
+      </div>
+
+      {/* Zona reservada para los avisos: crece y encoge, nunca tapa el contenido */}
+      <div style={{ flexShrink: 0, padding: "0 12px",
+        maxHeight: peek ? 190 : 0, opacity: peek ? 1 : 0, overflow: "hidden",
+        transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
+        {peek && (
+          <div style={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12, padding: "9px 11px", marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".07em", color: P.faint, textTransform: "uppercase", marginBottom: 3 }}>
+              {nextEx ? "Siguiente ejercicio" : "Último ejercicio"}
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: P.text, lineHeight: 1.3 }}>
+              {nextEx ? nextEx.name : "Este es el último de la sesión"}
+            </div>
+            {peek.mode === "full" && nextEx && nextEx.notes && (
+              <div style={{ fontSize: 12.5, color: P.ember2, lineHeight: 1.45, marginTop: 5,
+                maxHeight: 108, overflowY: "auto" }}>{nextEx.notes}</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Cuerpo: solo el ejercicio actual */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", position: "relative", padding: "0 30px 16px" }}
+        onClick={tapNav}
+        onTouchStart={(e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY }; }}
+        onTouchEnd={(e) => {
+          const st = touchRef.current; if (!st) return;
+          const t = e.changedTouches[0];
+          const dx = t.clientX - st.x, dy = t.clientY - st.y;
+          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
+          touchRef.current = null;
+        }}>
+
+        {/* Franjas de los bordes, siempre libres de controles: derecha avanza, izquierda retrocede */}
+        <div onClick={() => go(-1)} aria-hidden style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 30, zIndex: 3 }} />
+        <div onClick={() => go(1)} aria-hidden style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 30, zIndex: 3 }} />
+
+        <div style={{ position: "relative", zIndex: 2 }}>
+          {/* Nombre del ejercicio + acceso a la indicación del coach */}
+          <div style={{ padding: "2px 0 4px" }}>
+            <div style={{ fontSize: 11, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>
+              {ex.muscle}{ex.superset ? ` · superserie con ${ex.superset}` : ""}
+            </div>
+            <div className="disp" style={{ fontSize: 23, fontWeight: 700, lineHeight: 1.15, margin: "3px 0 6px" }}>{ex.name}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                onPointerDown={() => { heldRef.current = false; holdTimer.current = setTimeout(() => { heldRef.current = true; showInstr(true); }, 380); }}
+                onPointerUp={() => { clearTimeout(holdTimer.current); if (!heldRef.current) (instr ? hideInstr() : showInstr(false)); }}
+                onPointerLeave={() => clearTimeout(holdTimer.current)}
+                disabled={!ex.notes}
+                aria-label="Indicación del coach: toca para verla 6 segundos, mantén pulsado para dejarla fija"
+                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 17,
+                  border: `1.5px solid ${ex.notes ? (instr ? P.ember : P.dim) : P.line}`, color: ex.notes ? (instr ? P.ember : P.dim) : P.line,
+                  background: instr ? `${P.ember}18` : "transparent", touchAction: "manipulation", transition: "color .15s ease, border-color .15s ease" }}>
+                <Info size={19} />
+              </button>
+              {ex.video && (
+                <a href={ex.video} target="_blank" rel="noopener noreferrer"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: P.blue, fontWeight: 600 }}>
+                  <Video size={15} /> Técnica
+                </a>
+              )}
+              <div style={{ flex: 1 }} />
+              <button onClick={undo} disabled={!undoStack.length} aria-label="Deshacer"
+                style={{ padding: 6, color: undoStack.length ? P.dim : P.line }}><Undo2 size={17} /></button>
+              <button onClick={redo} disabled={!redoStack.length} aria-label="Rehacer"
+                style={{ padding: 6, color: redoStack.length ? P.dim : P.line }}><Redo2 size={17} /></button>
+            </div>
+          </div>
+
+          {/* Indicación del coach, en su propio hueco: no se superpone a nada */}
+          <div style={{ maxHeight: instr ? 200 : 0, opacity: instr ? 1 : 0, overflow: "hidden",
+            transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
+            {instr && (
+              <div data-keep onClick={hideInstr} style={{ background: `${P.ember}12`, border: `1px solid ${P.ember}44`, borderRadius: 11,
+                padding: "9px 11px", margin: "6px 0 2px", fontSize: 12.5, color: P.ember2, lineHeight: 1.45,
+                maxHeight: 180, overflowY: "auto" }}>
+                {ex.notes}
+              </div>
+            )}
+          </div>
+
+          {/* Series */}
+          <div style={{ marginTop: 10 }}>
+            {ex.sets.map((s, si) => {
+              const started = rests[restKey(si)];
+              const restEl = started ? Math.max(0, Math.floor((now - started) / 1000)) : 0;
+              const target = (s.rest != null && s.rest !== "" ? +s.rest : (ex.rest || 0));
+              const over = target > 0 && restEl >= target;
+              return (
+                <div key={s.id} style={{ background: P.s1, border: `1px solid ${s.done ? "rgba(99,214,140,.35)" : P.line}`,
+                  borderRadius: 14, padding: "9px 10px 10px", marginBottom: 9 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
+                    <span className="disp" style={{ fontSize: 15, fontWeight: 700, color: P.text }}>S{si + 1}</span>
+                    <TypeBadge type={s.type} />
+                    <span style={{ fontSize: 11.5, color: P.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {s.repsT || "—"} reps{s.rirT !== "" ? ` @ RIR ${s.rirT}` : ""}
+                    </span>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={() => clearSet(si)} aria-label={`Borrar los datos de la serie ${si + 1}`}
+                      style={{ padding: 5, color: P.faint }}><Trash2 size={16} /></button>
+                    <button data-cmt onClick={() => (cmtIdx === si ? setCmtIdx(null) : openCmt(si))} aria-label={`Comentario de la serie ${si + 1}`}
+                      style={{ padding: 5, color: s.comment ? P.ember2 : P.faint }}>
+                      <MessageSquare size={17} fill={s.comment ? "rgba(255,184,107,.25)" : "none"} />
+                    </button>
+                    <button onClick={() => toggleRest(si)} aria-label={`Cronómetro de descanso de la serie ${si + 1}`}
+                      style={{ padding: 5, color: started ? P.ember : P.faint }}><Timer size={17} /></button>
+                    <button onClick={() => patchSet(exIdx, si, { done: !s.done })} aria-label={s.done ? "Desmarcar serie" : "Marcar serie hecha"}
+                      style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
+                        background: s.done ? P.green : P.s3, color: s.done ? "#0D2415" : P.dim, border: `1px solid ${s.done ? P.green : P.line}` }}>
+                      <Check size={17} strokeWidth={3} />
+                    </button>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 7, alignItems: "flex-start" }}>
+                    <FocusField label="Peso" value={s.weight} placeholder="kg"
+                      onChange={(v) => setVal(si, "weight", v)} onClear={() => clearField(si, "weight")} />
+                    <FocusField label="Reps" value={s.reps} placeholder={s.repsT || "reps"}
+                      onChange={(v) => setVal(si, "reps", v)} onClear={() => clearField(si, "reps")} />
+                    <FocusField label="RIR" value={s.rir} placeholder={s.rirT !== "" ? String(s.rirT) : "rir"}
+                      onChange={(v) => setVal(si, "rir", v)} onClear={() => clearField(si, "rir")} />
+                  </div>
+
+                  {started && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "6px 9px", borderRadius: 9,
+                      background: over ? "rgba(99,214,140,.10)" : `${P.ember}12`,
+                      border: `1px solid ${over ? "rgba(99,214,140,.45)" : `${P.ember}44`}` }}>
+                      <Timer size={15} color={over ? P.green : P.ember} />
+                      <span className="disp" style={{ fontSize: 19, fontWeight: 700, color: over ? P.green : P.ember }}>{bigTime(restEl)}</span>
+                      <span style={{ fontSize: 11.5, color: P.faint }}>
+                        descansando{target ? ` · objetivo ${target}s` : ""}
+                      </span>
+                      <div style={{ flex: 1 }} />
+                      <button onClick={() => toggleRest(si)} style={{ fontSize: 12, color: P.dim, fontWeight: 600, padding: "2px 4px" }}>parar</button>
+                    </div>
+                  )}
+
+                  <div data-cmt style={{ maxHeight: cmtIdx === si ? 130 : 0, opacity: cmtIdx === si ? 1 : 0, overflow: "hidden",
+                    transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
+                    <textarea ref={cmtIdx === si ? cmtRef : null} rows={2} value={s.comment || ""}
+                      placeholder={`Comentario de la serie ${si + 1}`}
+                      onChange={(e) => { setVal(si, "comment", e.target.value); touchCmt(); }}
+                      onFocus={touchCmt} onKeyDown={touchCmt}
+                      style={{ width: "100%", marginTop: 8, padding: "8px 10px", fontSize: 16, lineHeight: 1.4, resize: "none",
+                        visibility: cmtIdx === si ? "visible" : "hidden", pointerEvents: cmtIdx === si ? "auto" : "none" }} />
+                  </div>
+                  {s.comment && cmtIdx !== si && (
+                    <div data-keep onClick={() => openCmt(si)} style={{ marginTop: 7, fontSize: 12.5, color: P.dim, lineHeight: 1.4,
+                      background: P.s2, border: `1px solid ${P.line}`, borderRadius: 9, padding: "6px 9px" }}>{s.comment}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <Btn kind="line" onClick={() => go(-1)} disabled={exIdx === 0} style={{ flex: 1 }}><ChevronLeft size={17} /> Anterior</Btn>
+            <Btn kind={exIdx === exs.length - 1 ? "line" : "ember"} onClick={() => go(1)} disabled={exIdx >= exs.length - 1} style={{ flex: 2 }}>
+              Siguiente <ChevronRight size={17} />
+            </Btn>
+          </div>
+        </div>
+      </div>
+
+      <Confirm open={confirmFinish} title="Terminar sesión"
+        body={doneSets < totalSets ? `Llevas ${doneSets} de ${totalSets} series marcadas. Se guardará todo lo registrado hasta ahora.` : "¡Sesión completa! Se guardará todo en tu historial."}
+        okLabel="Terminar y guardar" onOk={() => { setConfirmFinish(false); onFinish(); }} onCancel={() => setConfirmFinish(false)} />
+    </div>
+  );
+};
+
 const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt }) => {
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -1290,6 +1716,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   const [browsing, setBrowsing] = useState(false);   // ver la rutina aunque haya sesión abierta
   const [confirmSwitch, setConfirmSwitch] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
+  const [focus, setFocus] = useState(false);              // pantalla completa de un ejercicio a la vez
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(iv); }, []);
 
@@ -1302,7 +1729,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     setOpenRoutines((o) => (o.includes(activeRoutine) ? o : [...o, activeRoutine]));
   }, [activeRoutine]);
 
-  const startSession = (day) => {
+  const startSession = (day, withFocus) => {
     const snap = {
       id: uid(), dayId: day.id, dayName: day.name, startedAt: todayISO(),
       attachIds: [],
@@ -1311,9 +1738,37 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     };
     setActive(snap); saveActive(snap);
     setPreviewDay(null); setBrowsing(false);
+    setFocus(!!withFocus);
   };
 
   const listMode = !active || browsing;
+
+  // El resumen se muestra cuando la sesión ya terminó, así que tiene que vivir
+  // fuera de la vista de sesión: al guardar, `active` pasa a null.
+  const summarySheet = (
+    <Sheet open={!!summary} onClose={() => setSummary(null)} title="Sesión guardada">
+      {summary && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+            {[["Duración", `${summary.durationMin} min`], ["Series", `${summary.setsDone}/${summary.setsTotal}`], ["Tonelaje", `${Math.round(summary.volume).toLocaleString("es-CL")} kg`]].map(([l, v]) => (
+              <Card key={l} style={{ padding: "12px 8px", textAlign: "center", background: P.s2 }}>
+                <div className="disp" style={{ fontSize: 21, fontWeight: 700, color: P.ember2 }}>{v}</div>
+                <div style={{ fontSize: 11.5, color: P.dim, marginTop: 2 }}>{l}</div>
+              </Card>
+            ))}
+          </div>
+          {summary.prs.length > 0 && (
+            <div style={{ background: "rgba(255,107,44,.08)", border: `1px solid ${P.ember}55`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: P.ember2, marginBottom: 6 }}><Award size={15} style={{ verticalAlign: -2, marginRight: 5 }} />Récords personales de peso</div>
+              {summary.prs.map((p) => <div key={p} style={{ fontSize: 14, color: P.text, padding: "2px 0" }}>• {p}</div>)}
+            </div>
+          )}
+          <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>Todo quedó en tu historial: pesos, repeticiones, RIR, comentarios y fotos. La próxima vez que hagas estos ejercicios los verás como referencia.</div>
+          <Btn kind="ember" onClick={() => setSummary(null)} style={{ width: "100%", marginTop: 16 }}>Listo</Btn>
+        </div>
+      )}
+    </Sheet>
+  );
 
   if (listMode && previewDay) {
     const d = previewDay;
@@ -1357,10 +1812,18 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
               </Btn>
             </>
           ) : (
-            <>
-              <Btn kind="line" onClick={() => setPreviewDay(null)} style={{ flex: 1 }}><X size={16} /> Salir sin iniciar</Btn>
-              <Btn kind="ember" onClick={() => startSession(d)} style={{ flex: 2 }}><Play size={16} /> Iniciar entrenamiento</Btn>
-            </>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn kind="line" onClick={() => setPreviewDay(null)} style={{ flex: 1 }}><X size={16} /> Salir sin iniciar</Btn>
+                <Btn kind="ember" onClick={() => startSession(d)} style={{ flex: 2 }}><Play size={16} /> Iniciar entrenamiento</Btn>
+              </div>
+              <Btn kind="ghost" onClick={() => startSession(d, true)} style={{ width: "100%", borderColor: `${P.ember}55` }}>
+                <Zap size={16} color={P.ember2} /> Iniciar focus mode
+              </Btn>
+              <div style={{ fontSize: 11.5, color: P.faint, textAlign: "center", lineHeight: 1.4 }}>
+                Focus mode: pantalla completa, un ejercicio a la vez. Puedes cambiar de modo en cualquier momento sin perder nada.
+              </div>
+            </div>
           )}
         </div>
         <Confirm open={!!confirmSwitch} danger title="Ya tienes una sesión en curso"
@@ -1432,6 +1895,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             </Card>
           );
         })}
+        {summarySheet}
       </div>
     );
   }
@@ -1472,16 +1936,27 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     setConfirmFinish(false);
     const res = finishSession(active);
     setTimer(null);
+    setFocus(false);
     setSummary(res);
   };
+
+  if (focus && active) {
+    return (
+      <>
+        <FocusMode active={active} history={history} patch={patch} patchSet={patchSet} storageOK={storageOK} savedAt={savedAt}
+          onExit={() => setFocus(false)} onFinish={doFinish} />
+        {summarySheet}
+      </>
+    );
+  }
 
   return (
     <div style={{ paddingBottom: 30 }}>
       <div style={{ position: "sticky", top: 0, zIndex: 40, background: `${P.bg}F2`, backdropFilter: "blur(8px)", borderBottom: `1px solid ${P.line}`, padding: "10px 16px 10px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
             <div className="disp" style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{active.dayName}</div>
-            <div style={{ fontSize: 12, color: P.dim, display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ fontSize: 12, color: P.dim, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span>{elapsedMin} min</span><span>{doneSets}/{totalSets} series</span>
               <span style={{ color: storageOK ? P.green : P.red, display: "inline-flex", alignItems: "center", gap: 4 }}>
                 <span style={{ width: 6, height: 6, borderRadius: 3, background: storageOK ? P.green : P.red }} />
@@ -1490,6 +1965,10 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+            <Btn kind="line" small onClick={() => setFocus(true)} title="Pasar al focus mode" aria-label="Pasar al focus mode"
+              style={{ padding: "7px 9px" }}>
+              <Zap size={15} />
+            </Btn>
             <Btn kind="line" small onClick={() => { setBrowsing(true); setPreviewDay(null); }} title="Ver la rutina completa">
               <ClipboardList size={14} /> Rutina
             </Btn>
@@ -1543,28 +2022,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         body="Se borrará todo lo registrado en esta sesión y no quedará en el historial. Esta acción no se puede deshacer."
         okLabel="Descartar" onOk={() => { setConfirmDiscard(false); setTimer(null); discardSession(); }} onCancel={() => setConfirmDiscard(false)} />
 
-      <Sheet open={!!summary} onClose={() => setSummary(null)} title="Sesión guardada">
-        {summary && (
-          <div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
-              {[["Duración", `${summary.durationMin} min`], ["Series", `${summary.setsDone}/${summary.setsTotal}`], ["Tonelaje", `${Math.round(summary.volume).toLocaleString("es-CL")} kg`]].map(([l, v]) => (
-                <Card key={l} style={{ padding: "12px 8px", textAlign: "center", background: P.s2 }}>
-                  <div className="disp" style={{ fontSize: 21, fontWeight: 700, color: P.ember2 }}>{v}</div>
-                  <div style={{ fontSize: 11.5, color: P.dim, marginTop: 2 }}>{l}</div>
-                </Card>
-              ))}
-            </div>
-            {summary.prs.length > 0 && (
-              <div style={{ background: "rgba(255,107,44,.08)", border: `1px solid ${P.ember}55`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
-                <div style={{ fontWeight: 700, color: P.ember2, marginBottom: 6 }}><Award size={15} style={{ verticalAlign: -2, marginRight: 5 }} />Récords personales de peso</div>
-                {summary.prs.map((p) => <div key={p} style={{ fontSize: 14, color: P.text, padding: "2px 0" }}>• {p}</div>)}
-              </div>
-            )}
-            <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>Todo quedó en tu historial: pesos, repeticiones, RIR, comentarios y fotos. La próxima vez que hagas estos ejercicios los verás como referencia.</div>
-            <Btn kind="ember" onClick={() => setSummary(null)} style={{ width: "100%", marginTop: 16 }}>Listo</Btn>
-          </div>
-        )}
-      </Sheet>
+      {summarySheet}
     </div>
   );
 };
@@ -2258,6 +2716,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   const [del, setDel] = useState(null); // {type:'day'|'ex', dayId, exId, name}
   const [importOpen, setImportOpen] = useState(false);
   const [copiedEx, setCopiedEx] = useState(null);
+  const [copiedDay, setCopiedDay] = useState(null);
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const move = (arr, i, dir) => { const j = i + dir; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; };
   // Reordenar días sin sacarlos de su rutina
@@ -2280,6 +2739,36 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     pasted.sets = (pasted.sets || []).map((s) => ({ ...s, id: uid() }));
     mut((p) => p.days.find((day) => day.id === dayId).exs.push(pasted));
     if (toast) toast(`✓ «${pasted.name}» pegado con series, indicaciones y adjuntos`);
+  };
+  // Copiar el día entero: todos sus ejercicios con series, notas, videos y adjuntos
+  const copyDay = (day) => {
+    setCopiedDay(structuredClone(day));
+    if (toast) toast(`✓ Día «${day.name}» copiado: ${day.exs.length} ejercicios con todo su contenido`);
+  };
+  // Pega el día al final de la rutina indicada. Todo se clona con ids nuevos
+  // para que editar la copia no toque el original.
+  const pasteDay = (routineKey) => {
+    if (!copiedDay) return;
+    const src = structuredClone(copiedDay);
+    const taken = new Set(plan.days.map((d) => d.name));
+    let name = src.name;
+    if (taken.has(name)) {
+      let n = 2;
+      while (taken.has(`${src.name} (${n})`)) n++;
+      name = `${src.name} (${n})`;
+    }
+    const pasted = {
+      ...src,
+      id: uid(),
+      name,
+      routine: routineKey,
+      exs: (src.exs || []).map((e) => ({ ...e, id: uid(), sets: (e.sets || []).map((s) => ({ ...s, id: uid() })) })),
+    };
+    mut((p) => {
+      const at = p.days.reduce((last, day, i) => (routineOf(day) === routineKey ? i + 1 : last), p.days.length);
+      p.days.splice(at, 0, pasted);
+    });
+    if (toast) toast(`✓ «${pasted.name}» pegado en ${routineLabel(routineKey)} con sus ${pasted.exs.length} ejercicios`);
   };
 
   return (
@@ -2319,6 +2808,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                 </button>
                 <button onClick={() => mut((p) => moveDay(p, di, -1))} style={{ padding: 6, color: P.faint }}><ArrowUp size={15} /></button>
                 <button onClick={() => mut((p) => moveDay(p, di, +1))} style={{ padding: 6, color: P.faint }}><ArrowDown size={15} /></button>
+                <button onClick={() => copyDay(d)} title="Copiar el día completo" aria-label={`Copiar el día ${d.name}`}
+                  style={{ padding: 6, color: copiedDay && copiedDay.id === d.id ? P.ember2 : P.faint }}><Copy size={15} /></button>
                 <button onClick={() => { const name = prompt("Nombre del día:", d.name); if (name) mut((p) => { p.days[di].name = name; }); }} style={{ padding: 6, color: P.faint }}><PencilLine size={15} /></button>
                 <button onClick={() => setDel({ type: "day", dayId: d.id, name: d.name })} style={{ padding: 6, color: P.faint }}><Trash2 size={15} /></button>
                 <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ padding: 6, color: P.faint }}>{openDay === d.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
@@ -2353,12 +2844,19 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
               )}
             </Card>
           ))}
-          <Btn kind="ember" onClick={() => mut((p) => {
-            const at = p.days.reduce((last, day, i) => (routineOf(day) === g.key ? i + 1 : last), p.days.length);
-            p.days.splice(at, 0, { id: uid(), name: `Día ${g.days.length + 1}`, routine: g.key, exs: [] });
-          })} style={{ width: "100%" }}>
-            <Plus size={16} /> Añadir día a la {g.label}
-          </Btn>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Btn kind="ember" onClick={() => mut((p) => {
+              const at = p.days.reduce((last, day, i) => (routineOf(day) === g.key ? i + 1 : last), p.days.length);
+              p.days.splice(at, 0, { id: uid(), name: `Día ${g.days.length + 1}`, routine: g.key, exs: [] });
+            })} style={{ flex: 1, minWidth: 180 }}>
+              <Plus size={16} /> Añadir día a la {g.label}
+            </Btn>
+            {copiedDay && (
+              <Btn kind="line" onClick={() => pasteDay(g.key)} style={{ flex: 1, minWidth: 180 }}>
+                <ClipboardList size={16} /> Pegar día «{copiedDay.name}»
+              </Btn>
+            )}
+          </div>
         </div>
       ))}
       {plan.days.length === 0 && (
@@ -4127,15 +4625,15 @@ const App = () => {
       const doneSets = ex.sets.filter((s) => s.done);
       doneSets.forEach((s) => {
         setsDone += 1;
-        volume += (parseFloat(s.weight) || 0) * (parseFloat(s.reps) || 0);
-        (s.drops || []).forEach((d) => { volume += (parseFloat(d.weight) || 0) * (parseFloat(d.reps) || 0); });
+        volume += num(s.weight) * num(s.reps);
+        (s.drops || []).forEach((d) => { volume += num(d.weight) * num(d.reps); });
         if (s.comment) hasComments = true;
       });
       if (ex.comment || (ex.attachIds || []).length > 0) hasComments = true;
       if (doneSets.length === 0 && !ex.comment && (ex.attachIds || []).length === 0) return;
       const prevMax = (h.byEx[ex.id] || []).reduce(
-        (m, en) => Math.max(m, ...en.sets.filter((s) => s.done).map((s) => parseFloat(s.weight) || 0), 0), 0);
-      const nowMax = Math.max(0, ...doneSets.map((s) => parseFloat(s.weight) || 0));
+        (m, en) => Math.max(m, ...en.sets.filter((s) => s.done).map((s) => num(s.weight)), 0), 0);
+      const nowMax = Math.max(0, ...doneSets.map((s) => num(s.weight)));
       if (nowMax > 0 && nowMax > prevMax) prs.push(`${ex.name}: ${kg(nowMax)} kg`);
       if (!h.byEx[ex.id]) h.byEx[ex.id] = [];
       h.byEx[ex.id].push({ sessionId: a.id, date, dayId: a.dayId, dayName: a.dayName, exName: ex.name,
