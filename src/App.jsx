@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v11";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v12";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -2744,6 +2744,19 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     mut((p) => p.days.find((day) => day.id === dayId).exs.push(pasted));
     if (toast) toast(`✓ «${pasted.name}» pegado con series, indicaciones y adjuntos`);
   };
+  // Vuelca todos los ejercicios del día copiado dentro de otro día ya existente.
+  // Cada ejercicio y cada serie se clonan con ids nuevos para no compartir estado
+  // con el día original.
+  const pasteDayExercises = (dayId) => {
+    if (!copiedDay) return;
+    const clones = (copiedDay.exs || []).map((e) => ({
+      ...structuredClone(e), id: uid(),
+      sets: (e.sets || []).map((s) => ({ ...structuredClone(s), id: uid() })),
+    }));
+    if (!clones.length) return;
+    mut((p) => { p.days.find((day) => day.id === dayId).exs.push(...clones); });
+    if (toast) toast(`✓ ${clones.length} ejercicio${clones.length !== 1 ? "s" : ""} de «${copiedDay.name}» añadido${clones.length !== 1 ? "s" : ""}`);
+  };
   // Copiar el día entero: todos sus ejercicios con series, notas, videos y adjuntos
   const copyDay = (day) => {
     setCopiedDay(structuredClone(day));
@@ -2841,6 +2854,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                     {copiedEx && (
                       <Btn kind="line" small onClick={() => pasteExercise(d.id)} style={{ flex: 1.25, minWidth: 170 }}>
                         <ClipboardList size={15} /> Pegar «{copiedEx.name}»
+                      </Btn>
+                    )}
+                    {copiedDay && copiedDay.id !== d.id && (copiedDay.exs || []).length > 0 && (
+                      <Btn kind="line" small onClick={() => pasteDayExercises(d.id)} style={{ flex: 1.5, minWidth: 200 }}>
+                        <ClipboardList size={15} /> Pegar {copiedDay.exs.length} ejercicios de «{copiedDay.name}»
                       </Btn>
                     )}
                   </div>
