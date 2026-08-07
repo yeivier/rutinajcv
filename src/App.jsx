@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v10";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v11";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -1801,7 +1801,11 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             </div>
           </Card>
         ))}
-        <div style={{ position: "sticky", bottom: 96, marginTop: 18, display: "flex", gap: 8 }}>
+        {/* Espaciador: la barra de acciones es sticky con fondo opaco y podría
+            tapar el último ejercicio si no dejamos hueco extra al final. */}
+        <div style={{ height: 180 }} aria-hidden />
+        <div style={{ position: "sticky", bottom: 96, marginTop: 18, display: "flex", gap: 8,
+          background: P.bg, padding: "10px 0 4px", boxShadow: `0 -14px 18px -8px ${P.bg}`, zIndex: 3 }}>
           {active ? (
             <>
               <Btn kind="line" onClick={() => { setPreviewDay(null); setBrowsing(false); }} style={{ flex: 1 }}>
