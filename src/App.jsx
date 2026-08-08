@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v13";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v14";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -815,12 +815,22 @@ const Empty = ({ icon: Icon, title, body }) => (
 );
 
 const Logo = ({ size = 26 }) => (
-  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-    <div style={{ width: size + 8, height: size + 8, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center",
+  <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 6, lineHeight: 1 }}>
+    <div style={{ width: size + 14, height: size + 14, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center",
       background: `linear-gradient(140deg, ${P.ember}, #C23E0E)`, boxShadow: "0 2px 12px rgba(255,107,44,.35)" }}>
-      <Flame size={size * 0.68} color="#1A0D05" strokeWidth={2.6} />
+      {/* Mancuerna: dos discos por lado (uno externo pequeño y otro interno grande)
+          unidos por una barra en el medio. Estilo plano, monocromo, escalable. */}
+      <svg viewBox="0 0 24 24" width={size * 0.72} height={size * 0.72} aria-hidden="true">
+        <g fill="#1A0D05">
+          <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
+          <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
+          <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
+          <rect x="16.5" y="6.6" width="2.5" height="10.8" rx="0.9" />
+          <rect x="19.5" y="8.2" width="2" height="7.6" rx="0.7" />
+        </g>
+      </svg>
     </div>
-    <div className="disp" style={{ fontSize: size, fontWeight: 700, letterSpacing: ".14em" }}>FORJA</div>
+    <div className="disp" style={{ fontSize: size * 0.72, fontWeight: 700, letterSpacing: ".18em" }}>FORJA</div>
   </div>
 );
 
