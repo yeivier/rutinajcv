@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v14";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v15";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -40,9 +40,75 @@ const SET_TYPES = {
   drop:     { label: "Drop set",     short: "DROP",color: "#E5484D", g: "dropset" },
   restpause:{ label: "Rest-pause",   short: "R-P", color: "#B583F0", g: "restpause" },
   amrap:    { label: "AMRAP",        short: "AMR", color: "#4CC9E8", g: "amrap" },
+  cluster:  { label: "Cluster set",  short: "CLU", color: "#7FD4A8", g: "cluster" },
+  vma:      { label: "VMA (iso final)", short: "VMA", color: "#F0839B", g: "vma" },
+  midiso:   { label: "Iso media + reps", short: "ISO", color: "#8AA1F0", g: "midiso" },
+  pfi:      { label: "Pre-fatiga iso", short: "PFI", color: "#E06C3E", g: "pfi" },
 };
 
 const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Otro"];
+
+// Tipos de serie que admiten porcentaje de bajada de carga
+const PCT_TYPES = ["top", "backoff", "drop"];
+const PCT_HINT = {
+  top: "Porcentaje por debajo del máximo de referencia para esta serie",
+  backoff: "Porcentaje por debajo del top set",
+  drop: "Porcentaje que se baja en cada caída del drop set",
+};
+
+/* Agrupación de ejercicios: superserie (2), triserie (3) y serie gigante (4+).
+   Los ejercicios consecutivos con el mismo `group` se ejecutan seguidos, sin
+   descanso entre ellos, y se repiten tantas veces como diga `groupRounds`. */
+const GROUP_KINDS = {
+  superset: { label: "Superserie", short: "SS", min: 2, color: "#B583F0" },
+  triset:   { label: "Triserie",   short: "TRI", min: 3, color: "#4CC9E8" },
+  giant:    { label: "Serie gigante", short: "GIG", min: 4, color: "#E8A54B" },
+};
+// Nombre según cuántos ejercicios acabaron en el grupo (2 = superserie, 3 = triserie, 4+ = gigante)
+const groupKindFor = (n) => (n >= 4 ? "giant" : n === 3 ? "triset" : "superset");
+
+/* Datos del grupo al que pertenece exs[i]: tamaño, tipo, si es el primero y
+   qué letra le toca dentro del bloque (A1, A2, A3…). */
+function exGroupInfo(exs, i) {
+  const g = exs[i] && exs[i].group;
+  if (!g) return { kind: null, first: false, size: 1, rounds: 1, linkedToNext: false, posLabel: "" };
+  let start = i, end = i;
+  while (start > 0 && exs[start - 1].group === g) start--;
+  while (end < exs.length - 1 && exs[end + 1].group === g) end++;
+  const size = end - start + 1;
+  return {
+    kind: groupKindFor(size),
+    first: i === start,
+    size,
+    rounds: exs[start].groupRounds || 1,
+    linkedToNext: i < end,
+    posLabel: `${String.fromCharCode(65 + (start % 26))}${i - start + 1}`,
+  };
+}
+
+/* Une o separa exs[i] de exs[i+1]. Si alguno ya pertenece a un bloque, se
+   fusionan en el mismo; al separar, el resto del bloque pasa a uno nuevo. */
+function toggleLink(exs, i) {
+  const a = exs[i], b = exs[i + 1];
+  if (!b) return;
+  if (a.group && a.group === b.group) {
+    // Separar: lo que va de b en adelante estrena grupo (o se queda suelto)
+    const g = a.group;
+    const tail = [];
+    for (let k = i + 1; k < exs.length && exs[k].group === g; k++) tail.push(k);
+    const rounds = exs.find((x) => x.group === g).groupRounds || 1;
+    if (tail.length >= 2) { const ng = uid(); tail.forEach((k) => { exs[k].group = ng; exs[k].groupRounds = rounds; }); }
+    else tail.forEach((k) => { delete exs[k].group; delete exs[k].groupRounds; });
+    // Si delante queda un solo ejercicio, deja de ser bloque
+    const head = exs.filter((x) => x.group === g);
+    if (head.length < 2) head.forEach((x) => { delete x.group; delete x.groupRounds; });
+    return;
+  }
+  const g = a.group || b.group || uid();
+  const rounds = a.groupRounds || b.groupRounds || 3;
+  [a, b].forEach((x) => { x.group = g; });
+  exs.forEach((x) => { if (x.group === g) x.groupRounds = rounds; });
+}
 
 /* ---------------- Glosario ---------------- */
 const GLOSSARY = [
@@ -61,6 +127,11 @@ const GLOSSARY = [
   { id:"volumen", term:"Volumen de entrenamiento", def:"Cantidad total de trabajo. La forma más usada de medirlo es el número de series efectivas por grupo muscular por semana; también se mide en kilos totales (peso × reps × series).", ej:"Espalda: 14 series efectivas/semana. FORJA calcula el tonelaje de cada sesión automáticamente." },
   { id:"sobrecarga", term:"Sobrecarga progresiva", def:"Principio central del progreso: hacer más con el tiempo — más peso, más repeticiones o más series con la misma técnica. Por eso registrar cada serie importa: sin historial no hay progresión medible.", ej:"Semana 1: 80 kg × 8. Semana 3: 80 kg × 10. Semana 4: 82,5 kg × 8." },
   { id:"mesociclo", term:"Mesociclo", def:"Bloque de entrenamiento de 4 a 8 semanas con una progresión planificada (subiendo volumen o intensidad), que normalmente termina en una descarga.", ej:"Mesociclo de 5 semanas: RIR 3 → 2 → 2 → 1 → deload." },
+  { id:"cluster", term:"Cluster set (serie en racimo)", def:"Serie partida en mini-bloques con pausas muy cortas dentro de la propia serie, para acumular repeticiones de calidad con una carga alta que en continuo no aguantarías. La pausa deja recuperar fosfocreatina sin perder la tensión del ejercicio.", ej:"Cluster 3/1/1/1 con tu peso de 5RM: 3 reps → 10-15 s de pausa (la barra descansa) → 1 rep → 10-15 s → 1 rep → 10-15 s → 1 rep. Eso es UNA serie: 6 reps con un peso de 5RM. Descanso entre clusters: 3-5 min. Úsalo en básicos (sentadilla, press, remo), 2-4 clusters por ejercicio." },
+  { id:"vma", term:"Serie de acción muscular variable (VMA)", def:"Series de trabajo en las que, nada más terminar las repeticiones, mantienes el peso quieto en el punto de mayor tensión durante un tiempo fijo. No hay descanso entre la serie y la isometría, ni entre los elementos del bloque: combina fase concéntrica, excéntrica e isométrica en un solo esfuerzo continuo.", ej:"Curl en polea: 10 reps controladas → sin soltar, aguantas a 90° durante 10 s → recién ahí descansas 90-120 s. Repite 3 rondas. Como la isometría suma mucha fatiga, baja un 10-15 % el peso que usarías normalmente." },
+  { id:"midiso", term:"Isometría en rango medio + repeticiones", def:"Empiezas la serie aguantando el peso en el punto medio del recorrido, que es donde el músculo está en máxima tensión y donde suele estar el punto de estancamiento. Cuando terminas la pausa, pasas directo a repeticiones completas hasta acabar la serie. Sube el tiempo bajo tensión y ataca justo la zona más débil.", ej:"Press inclinado: aguanta con los codos a 90° durante 15-20 s → sin soltar, 8-10 reps completas → descansa 2-3 min. 3 series. Empieza con un 60-70 % del peso habitual: la isometría inicial deja el músculo muy fatigado." },
+  { id:"pfi", term:"Isometría de pre-fatiga + máximas repeticiones", def:"Método muy exigente: primero agotas el músculo con una isometría en rango medio resistiendo el peso todo lo que puedas, hasta que ya no puedes sostener la posición; en ese momento pasas de inmediato a repeticiones completas hasta el fallo. La pre-fatiga hace que las repeticiones siguientes sean mucho más duras con menos carga.", ej:"Extensión de cuádriceps: aguanta a mitad de recorrido hasta que la pierna cede (suele caer entre 20 y 45 s) → sin soltar, repeticiones completas hasta el fallo (salen 5-10) → descansa 2-3 min. Máximo 1-2 series por ejercicio y solo al final de la sesión: la fatiga que deja es enorme." },
+  { id:"superserie2", term:"Superserie, triserie y serie gigante", def:"Bloque de 2 (superserie), 3 (triserie) o 4 o más ejercicios (serie gigante) que se hacen uno detrás de otro sin descanso entre ellos. El descanso llega solo al terminar la ronda completa, y el bloque se repite tantas rondas como indique el plan. Ahorra tiempo y sube la densidad del entrenamiento.", ej:"Triserie de hombro, 3 rondas: elevación lateral 12 reps → pájaro 12 reps → press militar 10 reps, encadenados sin parar; al terminar los tres, descansas 2 min y arrancas la siguiente ronda. Si los ejercicios comparten músculo, baja un 10-20 % la carga respecto a hacerlos sueltos." },
   { id:"deload", term:"Deload (descarga)", def:"Semana de trabajo reducido (menos series y/o menos peso, RIR alto) para disipar fatiga acumulada y llegar fresco al siguiente bloque. No es perder el tiempo: es parte del plan.", ej:"Deload: mitad de las series, 10–20 % menos de peso, todo @ RIR 4–5." },
 ];
 
@@ -440,7 +511,34 @@ function routineBDays() {
   ];
 }
 
-const emptyPlan = () => ({ days: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], athlete: emptyAthlete(), updatedAt: todayISO() });
+/* ============================================================
+   Mesociclo: el plan corre por semanas. Cada semana puede fijar
+   reps y RIR distintos por ejercicio; si no los fija, se usan los
+   del ejercicio. Una semana puede marcarse como descarga (deload).
+   ============================================================ */
+const emptyMeso = () => ({
+  weeks: [{ id: uid(), name: "Semana 1", deload: false }],
+  current: 0,
+});
+const mesoOf = (plan) => (plan && plan.meso && Array.isArray(plan.meso.weeks) && plan.meso.weeks.length ? plan.meso : emptyMeso());
+const currentWeek = (plan) => {
+  const m = mesoOf(plan);
+  return m.weeks[Math.min(m.current || 0, m.weeks.length - 1)];
+};
+/* Reps y RIR objetivo de una serie para la semana activa: si la semana tiene
+   valores propios para ese ejercicio manda la semana; si no, el del ejercicio. */
+function setTargets(ex, setIdx, week) {
+  const s = ex.sets[setIdx] || {};
+  const w = week && ex.weekly && ex.weekly[week.id];
+  const row = w && w[setIdx];
+  return {
+    repsT: row && row.repsT !== undefined && row.repsT !== "" ? row.repsT : s.repsT,
+    rirT: row && row.rirT !== undefined && row.rirT !== "" ? row.rirT : s.rirT,
+    overridden: !!(row && ((row.repsT ?? "") !== "" || (row.rirT ?? "") !== "")),
+  };
+}
+
+const emptyPlan = () => ({ days: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], athlete: emptyAthlete(), meso: emptyMeso(), updatedAt: todayISO() });
 function seedPlan() {
   const ex = (name, muscle, rest, ss, notes, video, s) => ({ id: uid(), name, muscle, rest, superset: ss || "", notes: notes || "", video: video || "", sets: s });
   const n = (reps, rir) => ["normal", reps, rir];
@@ -644,7 +742,7 @@ function daysFromAIJson(rawDays) {
       attachIds: [],
       sets: ((e.sets && e.sets.length) ? e.sets : [{ type: "normal", repsT: "8-10", rirT: "" }]).map((s) => ({
         id: uid(),
-        type: ["warmup", "normal", "top", "backoff", "drop", "restpause", "amrap"].includes(s.type) ? s.type : "normal",
+        type: Object.keys(SET_TYPES).includes(s.type) ? s.type : "normal",
         repsT: String(s.repsT || "8-10"),
         rirT: s.rirT != null ? String(s.rirT) : "",
         pct: 15,
@@ -730,8 +828,10 @@ const GlobalStyle = () => (
   `}</style>
 );
 
-const Card = ({ children, style, onClick }) => (
-  <div onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: 16, ...style }}>{children}</div>
+// `rest` deja pasar data-*, manejadores de puntero y demás: sin eso, cualquier
+// interacción que se le cuelgue a una Card se pierde en silencio.
+const Card = ({ children, style, onClick, ...rest }) => (
+  <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: 16, ...style }}>{children}</div>
 );
 
 // `rest` deja pasar title, aria-label y demás: sin eso, un botón que solo
@@ -1219,7 +1319,7 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
 /* ============================================================
    Tarjeta de ejercicio en sesión
    ============================================================ */
-const SessionExercise = ({ ex, exIdx, history, onPatchEx, onPatchSet, onSetDone, onInfo, onError, onOpenImg, timer, onStartRest, onAdjustRest, onDismissRest }) => {
+const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetDone, onInfo, onError, onOpenImg, timer, onStartRest, onAdjustRest, onDismissRest }) => {
   const [open, setOpen] = useState(exIdx === 0);
   const [hist, setHist] = useState(false);
   const entries = (history.byEx[ex.id] || []);
@@ -1249,6 +1349,11 @@ const SessionExercise = ({ ex, exIdx, history, onPatchEx, onPatchSet, onSetDone,
           <div style={{ fontWeight: 700, fontSize: 15.5, lineHeight: 1.25 }}>{ex.name}</div>
           <div style={{ fontSize: 12, color: P.faint, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
             <span>{ex.muscle}</span><span>· {ex.sets.length} series</span><span>· descanso {fmtClock(ex.rest || 120)}</span>
+            {gr && gr.kind && (
+              <span style={{ color: GROUP_KINDS[gr.kind].color, fontWeight: 700 }}>
+                · {GROUP_KINDS[gr.kind].label} {gr.posLabel} · {gr.rounds} rondas
+              </span>
+            )}
             {ex.superset && <span style={{ color: P.blue }}>· superserie</span>}
           </div>
         </div>
@@ -1375,6 +1480,7 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
 
   const exs = active.exs;
   const ex = exs[Math.min(exIdx, exs.length - 1)];
+  const gr = exGroupInfo(exs, Math.min(exIdx, exs.length - 1));
   const nextEx = exs[exIdx + 1] || null;
   const totalSets = exs.reduce((a, e) => a + e.sets.length, 0);
   const doneSets = exs.reduce((a, e) => a + e.sets.filter((s) => s.done).length, 0);
@@ -1588,6 +1694,17 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
             <div style={{ fontSize: 11, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>
               {ex.muscle}{ex.superset ? ` · superserie con ${ex.superset}` : ""}
             </div>
+            {gr.kind && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 4, padding: "3px 8px", borderRadius: 7,
+                background: `${GROUP_KINDS[gr.kind].color}1E`, border: `1px solid ${GROUP_KINDS[gr.kind].color}55` }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: GROUP_KINDS[gr.kind].color, letterSpacing: ".04em" }}>
+                  {GROUP_KINDS[gr.kind].label} {gr.posLabel}
+                </span>
+                <span style={{ fontSize: 11, color: P.dim }}>
+                  {gr.rounds} rondas · sin descanso hasta terminar el bloque
+                </span>
+              </div>
+            )}
             <div className="disp" style={{ fontSize: 23, fontWeight: 700, lineHeight: 1.15, margin: "3px 0 6px" }}>{ex.name}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button
@@ -1638,7 +1755,10 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
                 <div key={s.id} style={{ background: P.s1, border: `1px solid ${s.done ? "rgba(99,214,140,.35)" : P.line}`,
                   borderRadius: 14, padding: "9px 10px 10px", marginBottom: 9 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
-                    <span className="disp" style={{ fontSize: 15, fontWeight: 700, color: P.text }}>S{si + 1}</span>
+                    <span className="disp" style={{ fontSize: 15, fontWeight: 700, color: gr.kind ? GROUP_KINDS[gr.kind].color : P.text }}
+                      title={gr.kind ? `Ronda ${si + 1} de ${gr.rounds}` : `Serie ${si + 1}`}>
+                      {gr.kind ? `R${si + 1}` : `S${si + 1}`}
+                    </span>
                     <TypeBadge type={s.type} />
                     <span style={{ fontSize: 11.5, color: P.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {s.repsT || "—"} reps{s.rirT !== "" ? ` @ RIR ${s.rirT}` : ""}
@@ -1740,11 +1860,18 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   }, [activeRoutine]);
 
   const startSession = (day, withFocus) => {
+    // Las reps y el RIR salen de la semana en curso del mesociclo; si esa
+    // semana no fija nada para el ejercicio, se usan los del propio ejercicio.
+    const week = currentWeek(plan);
     const snap = {
       id: uid(), dayId: day.id, dayName: day.name, startedAt: todayISO(),
+      weekId: week.id, weekName: week.name, deload: !!week.deload,
       attachIds: [],
       exs: day.exs.map((ex) => ({ ...ex, comment: "", attachIds: [],
-        sets: ex.sets.map((s) => ({ ...s, weight: "", reps: "", rir: "", done: false, comment: "", drops: [] })) })),
+        sets: ex.sets.map((s, si) => {
+          const t = setTargets(ex, si, week);
+          return { ...s, repsT: t.repsT, rirT: t.rirT, weight: "", reps: "", rir: "", done: false, comment: "", drops: [] };
+        }) })),
     };
     setActive(snap); saveActive(snap);
     setPreviewDay(null); setBrowsing(false);
@@ -1791,6 +1918,16 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <div style={{ fontSize: 11.5, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 3 }}>{routineLabel(routineOf(d))}</div>
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "0 0 4px" }}>{d.name}</h1>
         <div style={{ color: P.dim, fontSize: 14, marginBottom: 14 }}>{d.exs.length} ejercicios · {totalSeries} series efectivas. Aún no se ha creado sesión: revisa lo que toca y arranca cuando estés listo.</div>
+        {mesoOf(plan).weeks.length > 1 && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 12, padding: "6px 11px", borderRadius: 9,
+            background: currentWeek(plan).deload ? "rgba(99,214,140,.12)" : `${P.blue}14`,
+            border: `1px solid ${currentWeek(plan).deload ? "rgba(99,214,140,.45)" : `${P.blue}44`}` }}>
+            <Calendar size={14} color={currentWeek(plan).deload ? P.green : P.blue} />
+            <span style={{ fontSize: 12.5, color: P.dim }}>
+              {currentWeek(plan).name}{currentWeek(plan).deload ? " · semana de descarga" : ""} — reps y RIR de esta semana
+            </span>
+          </div>
+        )}
         {d.exs.map((e, ei) => (
           <Card key={e.id} style={{ padding: "12px 13px", marginBottom: 9 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -2017,7 +2154,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
           )}
         </Card>
         {active.exs.map((ex, ei) => (
-          <SessionExercise key={ex.id} ex={ex} exIdx={ei} history={history}
+          <SessionExercise key={ex.id} ex={ex} exIdx={ei} gr={exGroupInfo(active.exs, ei)} history={history}
             onPatchEx={(p) => patchEx(ei, p)} onPatchSet={(si, p) => patchSet(ei, si, p)}
             onSetDone={(si) => toggleDone(ei, si)} onInfo={onInfo} onError={toast} onOpenImg={setViewImg}
             timer={timer} onStartRest={startRest} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} />
@@ -2424,9 +2561,10 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
               <input type="number" inputMode="numeric" placeholder={String(exRest ?? 90)} value={s.rest ?? ""} title="Descanso de esta serie en segundos (vacío = usa el del ejercicio)"
                 onChange={(e) => upd(i, { rest: e.target.value === "" ? undefined : (+e.target.value || 0) })}
                 style={{ width: 46, padding: "8px 4px", fontSize: 13, textAlign: "center" }} />
-              <input type="number" inputMode="numeric" placeholder="15" disabled={s.type !== "backoff"} value={s.type === "backoff" ? (s.pct ?? 15) : ""}
+              <input type="number" inputMode="numeric" placeholder="15" disabled={!PCT_TYPES.includes(s.type)} value={PCT_TYPES.includes(s.type) ? (s.pct ?? 15) : ""}
+                title={PCT_HINT[s.type] || "Solo para top set, back-off y drop set"}
                 onChange={(e) => upd(i, { pct: +e.target.value || 15 })}
-                style={{ width: 42, padding: "8px 4px", fontSize: 13, textAlign: "center", opacity: s.type === "backoff" ? 1 : 0.35 }} />
+                style={{ width: 42, padding: "8px 4px", fontSize: 13, textAlign: "center", opacity: PCT_TYPES.includes(s.type) ? 1 : 0.35 }} />
               <button onClick={() => setExpanded(expanded === i ? null : i)} style={{ color: hasExtras ? P.ember : P.faint, padding: 4 }} title="Nota y adjuntos de esta serie">
                 <MessageSquare size={15} />
               </button>
@@ -2462,14 +2600,16 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
         <Btn kind="line" small onClick={() => onInfo("topset")}><Info size={14} /> Tipos</Btn>
       </div>
       <div style={{ fontSize: 11.5, color: P.faint, marginTop: 6, lineHeight: 1.4 }}>
-        <b>Desc</b>: segundos de descanso de esa serie (déjalo vacío para usar el del ejercicio). <b>−%</b> solo aplica a back-offs: la app sugiere el peso desde el top set. Icono 💬: nota, video y adjuntos específicos de esa serie.
+        <b>Desc</b>: segundos de descanso de esa serie (déjalo vacío para usar el del ejercicio). <b>−%</b> aplica a
+        top set (bajada respecto al máximo de referencia), back-off (respecto al top set) y drop set (bajada de cada caída).
+        Icono 💬: nota, video y adjuntos específicos de esa serie.
       </div>
       <ImageViewer src={preview} onClose={() => setPreview(null)} />
     </div>
   );
 };
 
-const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo }) => {
+const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
   const [d, setD] = useState(ex);
   const [attachErr, setAttachErr] = useState("");
   const [preview, setPreview] = useState(null);
@@ -2504,7 +2644,43 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo }) => {
         )}
         {attachErr && <div style={{ fontSize: 11.5, color: P.red, marginTop: 7, lineHeight: 1.4 }}>{attachErr}</div>}
       </Field>
-      <Field label="En superserie con (opcional)" hint="Escribe el nombre del otro ejercicio; el descanso corre al terminar ambos.">
+      {meso && meso.weeks.length > 1 && (
+        <Field label="Objetivos por semana del mesociclo"
+          hint="Déjalo vacío para usar las reps y el RIR de arriba. Lo que escribas aquí manda en esa semana.">
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ minWidth: 330 }}>
+              <div style={{ display: "flex", gap: 6, fontSize: 10.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", padding: "0 2px 4px" }}>
+                <span style={{ width: 96 }}>Semana</span>
+                {d.sets.map((s2, i) => <span key={s2.id} style={{ flex: 1, minWidth: 92, textAlign: "center" }}>Serie {i + 1}</span>)}
+              </div>
+              {meso.weeks.map((w) => (
+                <div key={w.id} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 5 }}>
+                  <div style={{ width: 96, fontSize: 12, color: w.deload ? P.green : P.dim, fontWeight: 600,
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {w.name}{w.deload ? " ↓" : ""}
+                  </div>
+                  {d.sets.map((s2, i) => {
+                    const row = ((d.weekly || {})[w.id] || {})[i] || {};
+                    const put = (patch) => set({ weekly: { ...(d.weekly || {}),
+                      [w.id]: { ...((d.weekly || {})[w.id] || {}), [i]: { ...row, ...patch } } } });
+                    return (
+                      <div key={s2.id} style={{ flex: 1, minWidth: 92, display: "flex", gap: 4 }}>
+                        <input placeholder={s2.repsT || "reps"} value={row.repsT || ""} aria-label={`Reps de ${w.name}, serie ${i + 1}`}
+                          onChange={(e) => put({ repsT: e.target.value })}
+                          style={{ flex: 1, minWidth: 0, padding: "7px 4px", fontSize: 13, textAlign: "center" }} />
+                        <input placeholder={s2.rirT !== "" ? `RIR ${s2.rirT}` : "RIR"} value={row.rirT || ""} aria-label={`RIR de ${w.name}, serie ${i + 1}`}
+                          onChange={(e) => put({ rirT: e.target.value })}
+                          style={{ width: 40, padding: "7px 3px", fontSize: 13, textAlign: "center" }} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </Field>
+      )}
+      <Field label="En superserie con (opcional)" hint="Para bloques reales usa el clip de la lista de ejercicios: une este con el siguiente y quedan como superserie, triserie o serie gigante con sus rondas.">
         <Inp value={d.superset} placeholder="Ej: Curl martillo con mancuernas" onChange={(e) => set({ superset: e.target.value })} /></Field>
       <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
         <Btn kind="line" onClick={onClose} style={{ flex: 1 }}>Cancelar</Btn>
@@ -2569,7 +2745,7 @@ Analiza el contenido y devuelve SOLO JSON válido, sin markdown ni texto extra, 
 }
 
 REGLAS ESTRICTAS:
-- "type" solo puede ser: "warmup", "normal", "top", "backoff", "drop", "restpause", "amrap"
+- "type" solo puede ser: "warmup", "normal", "top", "backoff", "drop", "restpause", "amrap", "cluster", "vma", "midiso", "pfi"
 - "repsT" es string ("8-10", "12", "AMRAP")
 - "rirT" es string con número o vacío
 - IE (Intensidad del Esfuerzo, escala 1-10) convertir a RIR: IE 10 → RIR "0", IE 9 → RIR "1", IE 8 → RIR "2", IE 7 → RIR "3", IE 6 → RIR "4"
@@ -2724,6 +2900,79 @@ REGLAS ESTRICTAS:
   );
 };
 
+
+/* ---- Mesociclo: semanas, descarga y semana activa ---- */
+const MesoPanel = ({ plan, savePlan }) => {
+  const [open, setOpen] = useState(false);
+  const meso = mesoOf(plan);
+  const mut = (fn) => { const p = structuredClone(plan); if (!p.meso) p.meso = emptyMeso(); fn(p); p.updatedAt = todayISO(); savePlan(p); };
+  const addWeek = (deload) => mut((p) => {
+    p.meso.weeks.push({ id: uid(), name: `Semana ${p.meso.weeks.length + 1}`, deload: !!deload });
+  });
+  const delWeek = (id) => mut((p) => {
+    if (p.meso.weeks.length <= 1) return;
+    p.meso.weeks = p.meso.weeks.filter((w) => w.id !== id);
+    if (p.meso.current >= p.meso.weeks.length) p.meso.current = p.meso.weeks.length - 1;
+    // Los objetivos que tuviera esa semana dejan de tener dueño: se limpian
+    p.days.forEach((d) => d.exs.forEach((e) => { if (e.weekly) delete e.weekly[id]; }));
+  });
+  const cur = meso.weeks[Math.min(meso.current || 0, meso.weeks.length - 1)];
+  return (
+    <Card style={{ marginBottom: 14, overflow: "hidden", borderColor: `${P.blue}44` }}>
+      <button onClick={() => setOpen((v) => !v)} style={{ width: "100%", textAlign: "left", padding: "12px 14px", display: "flex", alignItems: "center", gap: 11 }}>
+        <div style={{ width: 38, height: 38, borderRadius: 11, background: `${P.blue}1E`, border: `1px solid ${P.blue}55`,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Calendar size={19} color={P.blue} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14.5 }}>Mesociclo · {meso.weeks.length} semana{meso.weeks.length !== 1 ? "s" : ""}</div>
+          <div style={{ fontSize: 12, color: P.dim, marginTop: 2 }}>
+            En curso: {cur.name}{cur.deload ? " (descarga)" : ""}
+          </div>
+        </div>
+        {open ? <ChevronUp size={18} color={P.faint} /> : <ChevronDown size={18} color={P.faint} />}
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 14px" }}>
+          <div style={{ fontSize: 12.5, color: P.dim, lineHeight: 1.45, marginBottom: 10 }}>
+            Marca la semana en curso: el alumno verá las repeticiones y el RIR de esa semana.
+            Los objetivos por semana de cada ejercicio se editan dentro del ejercicio.
+          </div>
+          {meso.weeks.map((w, i) => (
+            <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 9px", marginBottom: 6, borderRadius: 10,
+              background: i === meso.current ? `${P.ember}14` : P.s2,
+              border: `1px solid ${i === meso.current ? `${P.ember}66` : P.line}` }}>
+              <button onClick={() => mut((p) => { p.meso.current = i; })} title="Marcar como semana en curso"
+                aria-label={`Marcar ${w.name} como semana en curso`}
+                style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0,
+                  border: `2px solid ${i === meso.current ? P.ember : P.line}`,
+                  background: i === meso.current ? P.ember : "transparent" }} />
+              <input value={w.name} onChange={(e) => mut((p) => { p.meso.weeks[i].name = e.target.value; })}
+                aria-label={`Nombre de la semana ${i + 1}`}
+                style={{ flex: 1, minWidth: 0, padding: "6px 8px", fontSize: 13.5, background: "transparent", border: "none" }} />
+              <button onClick={() => mut((p) => { p.meso.weeks[i].deload = !p.meso.weeks[i].deload; })}
+                title="Marcar como semana de descarga"
+                style={{ fontSize: 11, fontWeight: 700, padding: "4px 8px", borderRadius: 7, whiteSpace: "nowrap",
+                  color: w.deload ? P.green : P.faint,
+                  background: w.deload ? "rgba(99,214,140,.14)" : "transparent",
+                  border: `1px solid ${w.deload ? "rgba(99,214,140,.45)" : P.line}` }}>
+                Descarga
+              </button>
+              {meso.weeks.length > 1 && (
+                <button onClick={() => delWeek(w.id)} aria-label={`Eliminar ${w.name}`} style={{ padding: 5, color: P.faint }}><Trash2 size={15} /></button>
+              )}
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
+            <Btn kind="line" small onClick={() => addWeek(false)} style={{ flex: 1, minWidth: 140 }}><Plus size={14} /> Añadir semana</Btn>
+            <Btn kind="line" small onClick={() => addWeek(true)} style={{ flex: 1, minWidth: 150 }}><Plus size={14} /> Semana de descarga</Btn>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+};
+
 const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   const [openDay, setOpenDay] = useState(null);
   const [editEx, setEditEx] = useState(null); // {dayId, ex}
@@ -2735,7 +2984,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   // suéltalo sobre otro. Si el destino está en otra rutina, adopta esa rutina.
   const [dragging, setDragging] = useState(null);
   const [dragOver, setDragOver] = useState(null);
-  const dragRef = useRef({ holdTimer: null, activated: false, blockClick: false, startX: 0, startY: 0 });
+  const dragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const move = (arr, i, dir) => { const j = i + dir; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; };
   // Reordenar días sin sacarlos de su rutina
@@ -2782,7 +3031,9 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     const st = dragRef.current;
     clearTimeout(st.holdTimer);
     if (dragging) {
-      st.blockClick = true;   // se limpia en el próximo clickCapture de la tarjeta
+      // Se ignora el clic que cierra el arrastre, pero solo ese: con un flag
+      // suelto, el siguiente toque en cualquier tarjeta se perdía.
+      st.blockUntil = Date.now() + 250;
       if (dragOver && dragOver !== dragging) {
         mut((p) => {
           const from = p.days.findIndex((d) => d.id === dragging);
@@ -2873,6 +3124,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Rutina</h1>
       <div style={{ color: P.dim, fontSize: 14, marginBottom: 14 }}>Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante.</div>
 
+      <MesoPanel plan={plan} savePlan={savePlan} />
+
       <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(140deg, ${P.ember}18, ${P.s1})`, borderColor: `${P.ember}55` }}>
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 11 }}>
           <div style={{ width: 40, height: 40, borderRadius: 11, background: `${P.ember}22`, border: `1px solid ${P.ember}55`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -2903,7 +3156,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
               onPointerMove={cancelPress}
               onPointerUp={() => { const st = dragRef.current; if (!dragging) clearTimeout(st.holdTimer); }}
               onPointerCancel={() => { const st = dragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
-              onClickCapture={(e) => { if (dragRef.current.blockClick) { e.stopPropagation(); e.preventDefault(); dragRef.current.blockClick = false; } }}
+              onClickCapture={(e) => { if (Date.now() < (dragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
               style={{ marginBottom: 12, overflow: "hidden",
                 opacity: dragging === d.id ? 0.55 : 1,
                 borderColor: dragging === d.id ? P.ember : (dragOver === d.id && dragging ? P.ember2 : P.line),
@@ -2926,10 +3179,33 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
               </div>
               {openDay === d.id && (
                 <div style={{ padding: "0 12px 12px" }}>
-                  {d.exs.map((e, ei) => (
-                    <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 11, padding: "9px 10px", marginBottom: 6 }}>
+                  {d.exs.map((e, ei) => {
+                    const gr = exGroupInfo(d.exs, ei);
+                    return (
+                    <div key={e.id}>
+                    {gr.first && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4, padding: "0 2px" }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
+                          color: GROUP_KINDS[gr.kind].color, background: `${GROUP_KINDS[gr.kind].color}1E`,
+                          border: `1px solid ${GROUP_KINDS[gr.kind].color}55`, borderRadius: 6, padding: "2px 6px" }}>
+                          {GROUP_KINDS[gr.kind].label} · {gr.size} ejercicios
+                        </span>
+                        <span style={{ fontSize: 11, color: P.faint }}>rondas</span>
+                        <input type="number" inputMode="numeric" min="1" value={gr.rounds}
+                          aria-label={`Rondas de la ${GROUP_KINDS[gr.kind].label.toLowerCase()}`}
+                          onChange={(ev) => { const v = Math.max(1, +ev.target.value || 1);
+                            mut((p) => p.days[di].exs.forEach((x) => { if (x.group === e.group) x.groupRounds = v; })); }}
+                          style={{ width: 46, padding: "5px 4px", fontSize: 13, textAlign: "center" }} />
+                      </div>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, background: P.s2,
+                      border: `1px solid ${gr.kind ? `${GROUP_KINDS[gr.kind].color}55` : P.line}`,
+                      borderLeft: gr.kind ? `3px solid ${GROUP_KINDS[gr.kind].color}` : `1px solid ${P.line}`,
+                      borderRadius: 11, padding: "9px 10px", marginBottom: gr.linkedToNext ? 2 : 6 }}>
                       <button onClick={() => setEditEx({ dayId: d.id, ex: structuredClone(e) })} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</div>
+                        <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {gr.kind && <span style={{ color: GROUP_KINDS[gr.kind].color, marginRight: 5 }}>{gr.posLabel}</span>}{e.name}
+                        </div>
                         <div style={{ fontSize: 11.5, color: P.faint, display: "flex", gap: 5, flexWrap: "wrap", marginTop: 2 }}>
                           {e.sets.map((s) => <TypeBadge key={s.id} type={s.type} />)}
                         </div>
@@ -2937,9 +3213,18 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                       <button onClick={() => mut((p) => move(p.days[di].exs, ei, -1))} style={{ padding: 5, color: P.faint }}><ArrowUp size={14} /></button>
                       <button onClick={() => mut((p) => move(p.days[di].exs, ei, +1))} style={{ padding: 5, color: P.faint }}><ArrowDown size={14} /></button>
                       <button onClick={() => copyExercise(e)} title="Copiar ejercicio completo" aria-label={`Copiar ${e.name}`} style={{ padding: 5, color: P.faint }}><Copy size={14} /></button>
+                      {ei < d.exs.length - 1 && (
+                        <button onClick={() => mut((p) => toggleLink(p.days[di].exs, ei))}
+                          title={gr.linkedToNext ? "Separar del siguiente" : "Unir con el siguiente (superserie)"}
+                          aria-label={gr.linkedToNext ? `Separar ${e.name} del siguiente` : `Unir ${e.name} con el siguiente en superserie`}
+                          style={{ padding: 5, color: gr.linkedToNext ? GROUP_KINDS[gr.kind || "superset"].color : P.faint }}>
+                          <Paperclip size={14} />
+                        </button>
+                      )}
                       <button onClick={() => setDel({ type: "ex", dayId: d.id, exId: e.id, name: e.name })} style={{ padding: 5, color: P.faint }}><Trash2 size={14} /></button>
                     </div>
-                  ))}
+                    </div>
+                  );})}
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                     <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] } })} style={{ flex: 1, minWidth: 150 }}>
                       <Plus size={15} /> Añadir ejercicio
@@ -2980,7 +3265,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
         </Btn>
       )}
 
-      <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo}
+      <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo} meso={mesoOf(plan)}
         onSave={(exd) => { const { isNew, ...clean } = exd; mut((p) => { const day = p.days.find((x) => x.id === editEx.dayId);
           const i = day.exs.findIndex((x) => x.id === clean.id);
           if (i >= 0) day.exs[i] = clean; else day.exs.push(clean); }); setEditEx(null); }} />
@@ -3691,7 +3976,7 @@ Cuando el coach te pida crear o modificar días de entrenamiento, además de exp
 \`\`\`forja-rutina
 {"titulo":"Nombre corto del bloque","days":[{"name":"Empujes 1","exs":[{"name":"Press inclinado con mancuernas","muscle":"Pecho","rest":120,"notes":"Indicación técnica breve","sets":[{"type":"normal","repsT":"6-10","rirT":"1"},{"type":"normal","repsT":"10-12","rirT":"0"}]}]}]}
 \`\`\`
-Reglas del bloque: "muscle" debe ser uno de ${MUSCLES.join(", ")}; "type" solo puede ser warmup, normal, top, backoff, drop, restpause o amrap; "repsT" y "rirT" son strings; "rest" en segundos.
+Reglas del bloque: "muscle" debe ser uno de ${MUSCLES.join(", ")}; "type" solo puede ser warmup, normal, top, backoff, drop, restpause, amrap, cluster, vma, midiso o pfi; "repsT" y "rirT" son strings; "rest" en segundos.
 
 Cuando propongas calorías y macros concretos, incluye también:
 \`\`\`forja-nutricion
@@ -3708,6 +3993,8 @@ const AthleteForm = ({ plan, savePlan }) => {
   const set = (k, v) => {
     const p = structuredClone(plan);
     if (!p.athlete) p.athlete = emptyAthlete();
+    // Migración: planes anteriores al mesociclo
+    if (!p.meso || !Array.isArray(p.meso.weeks) || !p.meso.weeks.length) p.meso = emptyMeso();
     p.athlete[k] = v;
     p.updatedAt = todayISO();
     savePlan(p);
