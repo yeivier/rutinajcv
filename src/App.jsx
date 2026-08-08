@@ -5,7 +5,7 @@ import {
   Camera, Check, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
-  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip
+  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical
 } from "lucide-react";
 
 /* ============================================================
@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v15";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v16";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -49,11 +49,12 @@ const SET_TYPES = {
 const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Otro"];
 
 // Tipos de serie que admiten porcentaje de bajada de carga
-const PCT_TYPES = ["top", "backoff", "drop"];
+const PCT_TYPES = ["top", "backoff", "drop", "amrap"];
 const PCT_HINT = {
   top: "Porcentaje por debajo del máximo de referencia para esta serie",
   backoff: "Porcentaje por debajo del top set",
   drop: "Porcentaje que se baja en cada caída del drop set",
+  amrap: "Porcentaje de bajada de carga para el AMRAP respecto a la serie previa",
 };
 
 /* Agrupación de ejercicios: superserie (2), triserie (3) y serie gigante (4+).
@@ -71,16 +72,21 @@ const groupKindFor = (n) => (n >= 4 ? "giant" : n === 3 ? "triset" : "superset")
    qué letra le toca dentro del bloque (A1, A2, A3…). */
 function exGroupInfo(exs, i) {
   const g = exs[i] && exs[i].group;
-  if (!g) return { kind: null, first: false, size: 1, rounds: 1, linkedToNext: false, posLabel: "" };
+  const solo = { kind: null, first: false, size: 1, rounds: 1, roundsRaw: "", linkedToNext: false, posLabel: "" };
+  if (!g) return solo;
   let start = i, end = i;
   while (start > 0 && exs[start - 1].group === g) start--;
   while (end < exs.length - 1 && exs[end + 1].group === g) end++;
   const size = end - start + 1;
+  if (size < 2) return solo;   // grupo huérfano: no es un bloque
+  const raw = exs[start].groupRounds;
+  const roundsRaw = raw === undefined || raw === null ? "" : String(raw);
   return {
     kind: groupKindFor(size),
     first: i === start,
     size,
-    rounds: exs[start].groupRounds || 1,
+    roundsRaw,                          // lo que se ve en la casilla (puede quedar vacío)
+    rounds: Math.max(1, parseInt(roundsRaw, 10) || 1),  // el valor real que se usa
     linkedToNext: i < end,
     posLabel: `${String.fromCharCode(65 + (start % 26))}${i - start + 1}`,
   };
@@ -88,6 +94,13 @@ function exGroupInfo(exs, i) {
 
 /* Une o separa exs[i] de exs[i+1]. Si alguno ya pertenece a un bloque, se
    fusionan en el mismo; al separar, el resto del bloque pasa a uno nuevo. */
+// Limpia grupos que quedaron con un solo ejercicio (huérfanos)
+function normalizeGroups(exs) {
+  const count = {};
+  exs.forEach((x) => { if (x.group) count[x.group] = (count[x.group] || 0) + 1; });
+  exs.forEach((x) => { if (x.group && count[x.group] < 2) { delete x.group; delete x.groupRounds; } });
+}
+
 function toggleLink(exs, i) {
   const a = exs[i], b = exs[i + 1];
   if (!b) return;
@@ -102,12 +115,14 @@ function toggleLink(exs, i) {
     // Si delante queda un solo ejercicio, deja de ser bloque
     const head = exs.filter((x) => x.group === g);
     if (head.length < 2) head.forEach((x) => { delete x.group; delete x.groupRounds; });
+    normalizeGroups(exs);
     return;
   }
   const g = a.group || b.group || uid();
   const rounds = a.groupRounds || b.groupRounds || 3;
   [a, b].forEach((x) => { x.group = g; });
   exs.forEach((x) => { if (x.group === g) x.groupRounds = rounds; });
+  normalizeGroups(exs);
 }
 
 /* ---------------- Glosario ---------------- */
@@ -2153,12 +2168,34 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             </div>
           )}
         </Card>
-        {active.exs.map((ex, ei) => (
-          <SessionExercise key={ex.id} ex={ex} exIdx={ei} gr={exGroupInfo(active.exs, ei)} history={history}
-            onPatchEx={(p) => patchEx(ei, p)} onPatchSet={(si, p) => patchSet(ei, si, p)}
-            onSetDone={(si) => toggleDone(ei, si)} onInfo={onInfo} onError={toast} onOpenImg={setViewImg}
-            timer={timer} onStartRest={startRest} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} />
-        ))}
+        {active.exs.map((ex, ei) => {
+          const gr = exGroupInfo(active.exs, ei);
+          const node = (
+            <SessionExercise key={ex.id} ex={ex} exIdx={ei} gr={gr} history={history}
+              onPatchEx={(p) => patchEx(ei, p)} onPatchSet={(si, p) => patchSet(ei, si, p)}
+              onSetDone={(si) => toggleDone(ei, si)} onInfo={onInfo} onError={toast} onOpenImg={setViewImg}
+              timer={timer} onStartRest={startRest} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} />
+          );
+          if (!gr.kind) return node;
+          // Cabecera del bloque justo antes del primer ejercicio del grupo, y
+          // un marco lateral del color del bloque que abarca todos sus ejercicios.
+          const col = GROUP_KINDS[gr.kind].color;
+          return (
+            <div key={"g" + ex.id} style={{ borderLeft: `3px solid ${col}`, borderRadius: 4, paddingLeft: 8, marginBottom: 2 }}>
+              {gr.first && (
+                <div style={{ background: `${col}18`, border: `1px solid ${col}55`, borderRadius: 11, padding: "9px 11px", marginBottom: 8 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: col, letterSpacing: ".03em" }}>
+                    {GROUP_KINDS[gr.kind].label} · {gr.rounds} rondas
+                  </div>
+                  <div style={{ fontSize: 12, color: P.dim, marginTop: 3, lineHeight: 1.4 }}>
+                    Haz {Array.from({ length: gr.size }, (_, k) => `${gr.posLabel[0]}${k + 1}`).join(" → ")} seguidos, sin descanso entre ellos. Al terminar los {gr.size}, descansa y repite: son {gr.rounds} rondas en total.
+                  </div>
+                </div>
+              )}
+              {node}
+            </div>
+          );
+        })}
         <Btn kind="line" onClick={() => setConfirmDiscard(true)} style={{ width: "100%", marginTop: 8, color: P.faint }}>
           <Trash2 size={15} /> Descartar sesión (no guarda nada)
         </Btn>
@@ -2601,7 +2638,7 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
       </div>
       <div style={{ fontSize: 11.5, color: P.faint, marginTop: 6, lineHeight: 1.4 }}>
         <b>Desc</b>: segundos de descanso de esa serie (déjalo vacío para usar el del ejercicio). <b>−%</b> aplica a
-        top set (bajada respecto al máximo de referencia), back-off (respecto al top set) y drop set (bajada de cada caída).
+        top set (respecto al máximo de referencia), back-off (respecto al top set), drop set (cada caída) y AMRAP.
         Icono 💬: nota, video y adjuntos específicos de esa serie.
       </div>
       <ImageViewer src={preview} onClose={() => setPreview(null)} />
@@ -2986,7 +3023,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   const [dragOver, setDragOver] = useState(null);
   const dragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
-  const move = (arr, i, dir) => { const j = i + dir; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; };
+  const move = (arr, i, dir) => { const j = i + dir; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; normalizeGroups(arr); };
   // Reordenar días sin sacarlos de su rutina
   const moveDay = (p, di, dir) => {
     const key = routineOf(p.days[di]);
@@ -3008,7 +3045,10 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     mut((p) => p.days.find((day) => day.id === dayId).exs.push(pasted));
     if (toast) toast(`✓ «${pasted.name}» pegado con series, indicaciones y adjuntos`);
   };
+  // El arrastre arranca solo desde el asa de puntos, así el resto de la
+  // tarjeta se sigue pudiendo tocar y el móvil no activa la selección de texto.
   const startDrag = (dayId, e) => {
+    e.preventDefault();
     const st = dragRef.current;
     clearTimeout(st.holdTimer);
     st.activated = false;
@@ -3017,11 +3057,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
       st.activated = true;
       setDragging(dayId);
       try { navigator.vibrate && navigator.vibrate(25); } catch {}
-    }, 380);
+    }, 220);
   };
   const cancelPress = (e) => {
     const st = dragRef.current;
-    // Si el usuario mueve el dedo más de 8 px antes de activarse, no era mantener pulsado
+    // Si el dedo se mueve más de 8 px antes de activarse, no era mantener pulsado
     if (e && st.holdTimer && !st.activated) {
       const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
       if (dx > 8 || dy > 8) clearTimeout(st.holdTimer);
@@ -3152,18 +3192,16 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
           {g.items.map(({ day: d, index: di }) => (
             <Card key={d.id}
               data-day-card={d.id}
-              onPointerDown={(e) => startDrag(d.id, e)}
-              onPointerMove={cancelPress}
-              onPointerUp={() => { const st = dragRef.current; if (!dragging) clearTimeout(st.holdTimer); }}
-              onPointerCancel={() => { const st = dragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
               onClickCapture={(e) => { if (Date.now() < (dragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
-              style={{ marginBottom: 12, overflow: "hidden",
-                opacity: dragging === d.id ? 0.55 : 1,
-                borderColor: dragging === d.id ? P.ember : (dragOver === d.id && dragging ? P.ember2 : P.line),
-                boxShadow: dragging === d.id ? "0 10px 22px rgba(0,0,0,.5)" : "none",
-                transform: dragging === d.id ? "scale(.985)" : "none",
-                transition: "border-color .12s ease, opacity .12s ease, transform .12s ease",
-                touchAction: dragging ? "none" : "auto" }}>
+              style={{ marginBottom: 12, overflow: "hidden", position: "relative",
+                // Al engancharla, la ficha se despega del fondo: sombra, leve
+                // aumento y fondo más claro. Sin marcos de color.
+                background: dragging === d.id ? P.s3 : (dragOver === d.id && dragging ? P.s2 : P.s1),
+                boxShadow: dragging === d.id ? "0 14px 30px rgba(0,0,0,.62)" : "none",
+                transform: dragging === d.id ? "scale(1.02)" : (dragOver === d.id && dragging ? "scale(.99)" : "none"),
+                zIndex: dragging === d.id ? 5 : 1,
+                transition: "background .12s ease, box-shadow .14s ease, transform .14s ease",
+                WebkitUserSelect: dragging ? "none" : "auto", userSelect: dragging ? "none" : "auto" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "11px 12px" }}>
                 <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</div>
@@ -3176,6 +3214,18 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                 <button onClick={() => { const name = prompt("Nombre del día:", d.name); if (name) mut((p) => { p.days[di].name = name; }); }} style={{ padding: 6, color: P.faint }}><PencilLine size={15} /></button>
                 <button onClick={() => setDel({ type: "day", dayId: d.id, name: d.name })} style={{ padding: 6, color: P.faint }}><Trash2 size={15} /></button>
                 <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ padding: 6, color: P.faint }}>{openDay === d.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
+                <button
+                  onPointerDown={(e) => startDrag(d.id, e)}
+                  onPointerMove={cancelPress}
+                  onPointerUp={() => { const st = dragRef.current; if (!dragging) clearTimeout(st.holdTimer); }}
+                  onPointerCancel={() => { const st = dragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  title="Mantén pulsado aquí y arrastra para mover el día"
+                  aria-label={`Mover el día ${d.name}`}
+                  style={{ padding: "6px 2px", color: dragging === d.id ? P.ember : P.faint, cursor: "grab",
+                    touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
+                  <GripVertical size={17} />
+                </button>
               </div>
               {openDay === d.id && (
                 <div style={{ padding: "0 12px 12px" }}>
@@ -3184,18 +3234,24 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                     return (
                     <div key={e.id}>
                     {gr.first && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4, padding: "0 2px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, padding: "0 2px", flexWrap: "wrap" }}>
                         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
                           color: GROUP_KINDS[gr.kind].color, background: `${GROUP_KINDS[gr.kind].color}1E`,
-                          border: `1px solid ${GROUP_KINDS[gr.kind].color}55`, borderRadius: 6, padding: "2px 6px" }}>
-                          {GROUP_KINDS[gr.kind].label} · {gr.size} ejercicios
+                          border: `1px solid ${GROUP_KINDS[gr.kind].color}55`, borderRadius: 6, padding: "2px 7px" }}>
+                          {GROUP_KINDS[gr.kind].label} · {gr.size} ejercicios seguidos
                         </span>
-                        <span style={{ fontSize: 11, color: P.faint }}>rondas</span>
-                        <input type="number" inputMode="numeric" min="1" value={gr.rounds}
+                        <span style={{ fontSize: 11.5, color: P.faint }}>rondas</span>
+                        <input type="text" inputMode="numeric" value={gr.roundsRaw}
                           aria-label={`Rondas de la ${GROUP_KINDS[gr.kind].label.toLowerCase()}`}
-                          onChange={(ev) => { const v = Math.max(1, +ev.target.value || 1);
-                            mut((p) => p.days[di].exs.forEach((x) => { if (x.group === e.group) x.groupRounds = v; })); }}
+                          placeholder="1"
+                          onChange={(ev) => { const raw = ev.target.value.replace(/[^0-9]/g, "");
+                            mut((p) => p.days[di].exs.forEach((x) => { if (x.group === e.group) x.groupRounds = raw; })); }}
                           style={{ width: 46, padding: "5px 4px", fontSize: 13, textAlign: "center" }} />
+                        <button onClick={() => mut((p) => { const grp = e.group; p.days[di].exs.forEach((x) => { if (x.group === grp) { delete x.group; delete x.groupRounds; } }); })}
+                          aria-label="Deshacer el bloque" title="Deshacer el bloque (los ejercicios quedan sueltos)"
+                          style={{ fontSize: 11, fontWeight: 600, color: P.faint, padding: "3px 7px", borderRadius: 7, border: `1px solid ${P.line}` }}>
+                          Deshacer bloque
+                        </button>
                       </div>
                     )}
                     <div style={{ display: "flex", alignItems: "center", gap: 6, background: P.s2,
@@ -3215,16 +3271,20 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                       <button onClick={() => copyExercise(e)} title="Copiar ejercicio completo" aria-label={`Copiar ${e.name}`} style={{ padding: 5, color: P.faint }}><Copy size={14} /></button>
                       {ei < d.exs.length - 1 && (
                         <button onClick={() => mut((p) => toggleLink(p.days[di].exs, ei))}
-                          title={gr.linkedToNext ? "Separar del siguiente" : "Unir con el siguiente (superserie)"}
+                          title={gr.linkedToNext ? "Separar de aquí (rompe el bloque en este punto)" : "Unir con el siguiente: forma superserie / triserie / serie gigante"}
                           aria-label={gr.linkedToNext ? `Separar ${e.name} del siguiente` : `Unir ${e.name} con el siguiente en superserie`}
-                          style={{ padding: 5, color: gr.linkedToNext ? GROUP_KINDS[gr.kind || "superset"].color : P.faint }}>
-                          <Paperclip size={14} />
+                          style={{ padding: 5, color: gr.linkedToNext ? GROUP_KINDS[gr.kind || "superset"].color : P.faint,
+                            transform: gr.linkedToNext ? "none" : "rotate(90deg)" }}>
+                          <Paperclip size={15} />
                         </button>
                       )}
                       <button onClick={() => setDel({ type: "ex", dayId: d.id, exId: e.id, name: e.name })} style={{ padding: 5, color: P.faint }}><Trash2 size={14} /></button>
                     </div>
                     </div>
                   );})}
+                  <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.4, margin: "2px 2px 8px", display: "flex", alignItems: "center", gap: 5 }}>
+                    <Paperclip size={12} /> Toca el clip de un ejercicio para unirlo con el de abajo. Dos = superserie, tres = triserie, cuatro o más = serie gigante. Une otro más para agrandar el bloque.
+                  </div>
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                     <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] } })} style={{ flex: 1, minWidth: 150 }}>
                       <Plus size={15} /> Añadir ejercicio
