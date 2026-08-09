@@ -3181,8 +3181,8 @@ REGLAS ESTRICTAS:
               <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>{(d.exs || []).length} ejercicios</div>
               <div style={{ marginTop: 7 }}>
                 {(d.exs || []).map((e, ei) => (
-                  <div key={ei} style={{ fontSize: 12.5, color: P.dim, padding: "3px 0", display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>• {e.name}</span>
+                  <div key={ei} style={{ fontSize: 12.5, color: P.dim, padding: "3px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>• {e.name}</span>
                     <span style={{ color: P.faint, flexShrink: 0 }}>{(e.sets || []).length}s · {e.muscle}</span>
                   </div>
                 ))}
@@ -3481,7 +3481,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                 WebkitUserSelect: dragging ? "none" : "auto", userSelect: dragging ? "none" : "auto" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "11px 12px" }}>
                 <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.25, overflowWrap: "anywhere" }}>{d.name}</div>
                   <div style={{ fontSize: 12, color: P.faint }}>{d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
                 </button>
                 <button onClick={() => mut((p) => moveDay(p, di, -1))} style={{ padding: 6, color: P.faint }}><ArrowUp size={15} /></button>
@@ -3536,7 +3536,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                       borderLeft: gr.kind ? `3px solid ${GROUP_KINDS[gr.kind].color}` : `1px solid ${P.line}`,
                       borderRadius: 11, padding: "9px 10px", marginBottom: gr.linkedToNext ? 2 : 6 }}>
                       <button onClick={() => setEditEx({ dayId: d.id, ex: structuredClone(e) })} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.25, overflowWrap: "anywhere" }}>
                           {gr.kind && <span style={{ color: GROUP_KINDS[gr.kind].color, marginRight: 5 }}>{gr.posLabel}</span>}{e.name}
                         </div>
                         <div style={{ fontSize: 11.5, color: P.faint, display: "flex", gap: 5, flexWrap: "wrap", marginTop: 2 }}>
