@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v16";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v17";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 const P = {
   bg: "#12100E",
@@ -129,6 +129,7 @@ function toggleLink(exs, i) {
 const GLOSSARY = [
   { id:"rir", term:"RIR (Reps In Reserve)", def:"Repeticiones que te quedan «en reserva» al terminar la serie. RIR 2 significa que paraste pudiendo hacer 2 repeticiones más con técnica correcta. Es la forma más práctica de regular el esfuerzo sin llegar siempre al fallo.", ej:"Objetivo: 8–10 reps @ RIR 2 → eliges un peso con el que llegarías al fallo alrededor de las 10–12 reps y paras en 8–10." },
   { id:"rpe", term:"RPE (esfuerzo percibido)", def:"Escala de 1 a 10 que mide qué tan dura fue la serie. Es el espejo del RIR: RPE 8 = RIR 2, RPE 9 = RIR 1, RPE 10 = fallo (RIR 0).", ej:"Si tu coach pide RPE 8, es lo mismo que dejar 2 repeticiones en reserva." },
+  { id:"abreviaturas", term:"Abreviaturas de la app (A1, A2, SS, TOP…)", def:"Cómo se leen las etiquetas cortas que aparecen en la rutina y al entrenar:\n\n• A1, A2, A3 · B1, B2…: ejercicios encadenados de un bloque. La LETRA identifica el bloque (superserie, triserie o serie gigante) y el NÚMERO el orden dentro de él. A1 → A2 → A3 se hacen seguidos, sin descanso entre ellos.\n• Ronda: una vuelta completa al bloque (hacer A1, A2 y A3 una vez). El bloque se repite tantas rondas como diga el plan; el descanso llega recién al terminar cada ronda.\n• SS = superserie (2 ejercicios) · TRI = triserie (3) · GIG = serie gigante (4 o más).\n• Tipos de serie: APR = aproximación · EF = efectiva · TOP = top set · B-O = back-off · DROP = drop set · R-P = rest-pause · AMR = AMRAP · CLU = cluster · VMA = iso final · ISO = iso media + reps · PFI = pre-fatiga iso.\n• RIR = repeticiones en reserva · RPE = esfuerzo percibido · −% = porcentaje de bajada de carga de esa serie.", ej:"«B2 · Ronda 2/3 · DROP» = segundo ejercicio del bloque B, vas en la segunda de tres rondas, y esa serie es un drop set." },
   { id:"topset", term:"Top set", def:"La serie más pesada del ejercicio en el día: una sola serie con el peso máximo planificado, normalmente cerca del fallo (RIR 0–2). Sirve para empujar la progresión de fuerza y como referencia para calcular las series siguientes.", ej:"Top set: 1 × 6–8 @ RIR 1 con 100 kg, y desde ahí se calculan los back-offs." },
   { id:"backoff", term:"Back-off set", def:"Series que se hacen después del top set bajando el peso (típicamente entre 10 % y 20 % menos) para acumular volumen de calidad con menos fatiga y mejor técnica.", ej:"Top set 100 kg → back-offs 2 × 8–10 con 85 kg (−15 %). FORJA te sugiere el peso automáticamente." },
   { id:"dropset", term:"Drop set", def:"Al terminar la serie cerca del fallo, bajas el peso de inmediato (20–30 % menos) y sigues repitiendo sin descanso. Puede tener una o varias «caídas». Genera mucho estímulo y mucha fatiga: se usa con moderación, normalmente en la última serie de ejercicios de aislamiento.", ej:"Elevaciones laterales: 12 reps con 10 kg → sin descansar, 10 reps con 7 kg → 8 reps con 5 kg." },
@@ -959,7 +960,7 @@ const GlossaryBody = ({ focusId }) => {
         <div key={g.id} data-g={g.id} style={{ padding: "14px 0", borderBottom: `1px solid ${P.line}`,
           background: focusId === g.id ? "rgba(255,107,44,.06)" : "transparent", borderRadius: 8, scrollMarginTop: 8 }}>
           <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 5, color: focusId === g.id ? P.ember2 : P.text }}>{g.term}</div>
-          <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.55 }}>{g.def}</div>
+          <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.55, whiteSpace: "pre-line" }}>{g.def}</div>
           <div style={{ fontSize: 13, color: P.faint, lineHeight: 1.5, marginTop: 7, paddingLeft: 10, borderLeft: `2px solid ${P.line}` }}>
             <span style={{ color: P.ember2, fontWeight: 600 }}>Ejemplo · </span>{g.ej}
           </div>
@@ -1472,11 +1473,11 @@ const FocusField = ({ label, value, placeholder, onChange, onClear }) => (
 );
 
 const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storageOK, savedAt }) => {
-  const [exIdx, setExIdx] = useState(0);
+  const [pageIdx, setPageIdx] = useState(0);
   const [now, setNow] = useState(Date.now());
-  const [peek, setPeek] = useState(null);          // {mode:"name"|"full"} → siguiente ejercicio
-  const [instr, setInstr] = useState(null);        // {pinned:boolean} → nota del coach
-  const [cmtIdx, setCmtIdx] = useState(null);      // serie con el comentario abierto
+  const [peek, setPeek] = useState(null);          // {mode:"name"|"full"} → siguiente página
+  const [instr, setInstr] = useState(null);        // {ei, pinned} → nota del coach de ese ejercicio
+  const [cmtKey, setCmtKey] = useState(null);      // "ei-si" de la serie con el comentario abierto
   const [rests, setRests] = useState({});          // {"ei-si": timestamp de inicio del descanso}
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
@@ -1488,59 +1489,84 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
   const heldRef = useRef(false);
   const touchRef = useRef(null);
   const cmtRef = useRef(null);
-  const prefilled = useRef({});
+  const didPrefill = useRef(false);
 
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
   useEffect(() => () => { [peekTimer, instrTimer, cmtTimer, holdTimer].forEach((t) => clearTimeout(t.current)); }, []);
 
   const exs = active.exs;
-  const ex = exs[Math.min(exIdx, exs.length - 1)];
-  const gr = exGroupInfo(exs, Math.min(exIdx, exs.length - 1));
-  const nextEx = exs[exIdx + 1] || null;
+
+  // Páginas del focus: un ejercicio suelto ocupa una página con todas sus
+  // series; una superserie/triserie/gigante ocupa una página POR RONDA, y en
+  // esa página aparecen todos los ejercicios del bloque juntos (A1, A2, A3…).
+  const pages = useMemo(() => {
+    const out = [];
+    let i = 0;
+    while (i < exs.length) {
+      const g = exs[i].group;
+      if (g) {
+        const members = [];
+        let j = i;
+        while (j < exs.length && exs[j].group === g) { members.push(j); j++; }
+        if (members.length >= 2) {
+          const info = exGroupInfo(exs, i);
+          const rounds = Math.max(1, ...members.map((m) => exs[m].sets.length));
+          for (let r = 0; r < rounds; r++) out.push({ group: true, kind: info.kind, members, roundIdx: r, rounds });
+          i = j; continue;
+        }
+      }
+      out.push({ group: false, ei: i });
+      i++;
+    }
+    return out.length ? out : [{ group: false, ei: 0 }];
+  }, [exs]);
+
+  const page = pages[Math.min(pageIdx, pages.length - 1)];
   const totalSets = exs.reduce((a, e) => a + e.sets.length, 0);
   const doneSets = exs.reduce((a, e) => a + e.sets.filter((s) => s.done).length, 0);
   const pct = totalSets ? (doneSets / totalSets) * 100 : 0;
   const elapsed = Math.max(0, Math.floor((now - new Date(active.startedAt).getTime()) / 1000));
 
-  // Al entrar a un ejercicio, las series vacías se rellenan con lo último que
-  // registraste en ESE ejercicio, para no tener que teclear lo mismo cada vez.
+  const pageName = (pg) => {
+    if (!pg) return null;
+    if (pg.group) return `${GROUP_KINDS[pg.kind].label}: ${pg.members.map((m) => exs[m].name).join(" + ")}`;
+    return exs[pg.ei].name;
+  };
+  const nextPage = pages[pageIdx + 1] || null;
+  const nextNotes = nextPage && !nextPage.group ? exs[nextPage.ei].notes : "";
+
+  // Prefill: las series vacías se rellenan una sola vez con lo último que se
+  // registró en ese ejercicio, para no teclear lo mismo cada vez.
   useEffect(() => {
-    if (!ex || prefilled.current[ex.id]) return;
-    prefilled.current[ex.id] = true;
-    const entries = history.byEx[ex.id] || [];
-    const lastEntry = entries.length ? entries[entries.length - 1] : null;
-    if (!lastEntry) return;
-    const val = (v) => (v !== "" && v != null ? String(v) : null);
-    const fills = ex.sets.map((s, si) => {
-      if (s.weight !== "" || s.reps !== "" || s.rir !== "") return null;
-      const prev = (lastEntry.sets || [])[si];
-      if (!prev) return null;
-      const f = {};
-      if (val(prev.weight)) f.weight = val(prev.weight);
-      if (val(prev.reps)) f.reps = val(prev.reps);
-      if (val(prev.rir)) f.rir = val(prev.rir);
-      return Object.keys(f).length ? f : null;
+    if (didPrefill.current) return;
+    didPrefill.current = true;
+    const clone = structuredClone(active);
+    let any = false;
+    clone.exs.forEach((exx) => {
+      const entries = history.byEx[exx.id] || [];
+      const lastEntry = entries.length ? entries[entries.length - 1] : null;
+      if (!lastEntry) return;
+      exx.sets.forEach((s, si) => {
+        if (s.weight !== "" || s.reps !== "" || s.rir !== "") return;
+        const prev = (lastEntry.sets || [])[si];
+        if (!prev) return;
+        ["weight", "reps", "rir"].forEach((k) => { if (prev[k] !== "" && prev[k] != null) { s[k] = String(prev[k]); any = true; } });
+      });
     });
-    if (!fills.some(Boolean)) return;
-    // Una sola escritura para todas las series: si se hicieran varias seguidas,
-    // cada una partiría de la misma copia y solo sobreviviría la última.
-    patch((a) => {
-      fills.forEach((f, si) => { if (f) Object.assign(a.exs[exIdx].sets[si], f); });
-      return a;
-    });
-  }, [exIdx, ex && ex.id]);
+    if (any) patch(() => clone);
+  }, []);
 
   const go = (dir) => {
-    const next = exIdx + dir;
-    if (next < 0 || next >= exs.length) return;
-    setCmtIdx(null); setInstr(null); setPeek(null);
-    setExIdx(next);
+    const next = pageIdx + dir;
+    if (next < 0 || next >= pages.length) return;
+    setCmtKey(null); setInstr(null); setPeek(null);
+    setPageIdx(next);
   };
 
   /* --- Nota del coach: un toque la muestra 6 s, mantener pulsado la fija --- */
-  const showInstr = (pinned) => {
+  const showInstr = (ei, pinned) => {
     clearTimeout(instrTimer.current);
-    setInstr({ pinned });
+    setInstr({ ei, pinned });
     if (!pinned) instrTimer.current = setTimeout(() => setInstr(null), 6000);
   };
   const hideInstr = () => { clearTimeout(instrTimer.current); setInstr(null); };
@@ -1562,33 +1588,33 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
   };
 
   /* --- Comentario de la serie: se guarda mientras escribes, sin botón guardar --- */
-  const openCmt = (si) => {
-    setCmtIdx(si);
+  const openCmt = (ck) => {
+    setCmtKey(ck);
     clearTimeout(cmtTimer.current);
-    cmtTimer.current = setTimeout(() => setCmtIdx(null), 10000);
+    cmtTimer.current = setTimeout(() => setCmtKey(null), 10000);
     setTimeout(() => cmtRef.current && cmtRef.current.focus(), 30);
   };
   const touchCmt = () => {
     clearTimeout(cmtTimer.current);
-    cmtTimer.current = setTimeout(() => setCmtIdx(null), 10000);
+    cmtTimer.current = setTimeout(() => setCmtKey(null), 10000);
   };
 
   /* --- Borrados con deshacer/rehacer --- */
-  const record = (si, before, after) => {
-    setUndoStack((s) => [...s.slice(-40), { ei: exIdx, si, before, after }]);
+  const record = (ei, si, before, after) => {
+    setUndoStack((s) => [...s.slice(-40), { ei, si, before, after }]);
     setRedoStack([]);
   };
-  const clearField = (si, field) => {
-    const s = ex.sets[si];
+  const clearField = (ei, si, field) => {
+    const s = exs[ei].sets[si];
     if (s[field] === "") return;
-    record(si, { [field]: s[field] }, { [field]: "" });
-    patchSet(exIdx, si, { [field]: "" });
+    record(ei, si, { [field]: s[field] }, { [field]: "" });
+    patchSet(ei, si, { [field]: "" });
   };
-  const clearSet = (si) => {
-    const s = ex.sets[si];
+  const clearSet = (ei, si) => {
+    const s = exs[ei].sets[si];
     if (s.weight === "" && s.reps === "" && s.rir === "") return;
-    record(si, { weight: s.weight, reps: s.reps, rir: s.rir }, { weight: "", reps: "", rir: "" });
-    patchSet(exIdx, si, { weight: "", reps: "", rir: "" });
+    record(ei, si, { weight: s.weight, reps: s.reps, rir: s.rir }, { weight: "", reps: "", rir: "" });
+    patchSet(ei, si, { weight: "", reps: "", rir: "" });
   };
   const undo = () => {
     const a = undoStack[undoStack.length - 1];
@@ -1605,17 +1631,16 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
     setUndoStack((s) => [...s, a]);
   };
 
-  const restKey = (si) => `${exIdx}-${si}`;
-  const toggleRest = (si) => {
-    const k = restKey(si);
+  const restKey = (ei, si) => `${ei}-${si}`;
+  const toggleRest = (ei, si) => {
+    const k = restKey(ei, si);
     setRests((r) => (r[k] ? { ...r, [k]: null } : { ...r, [k]: Date.now() }));
   };
 
-  const setVal = (si, field, v) => patchSet(exIdx, si, { [field]: v });
+  const setVal = (ei, si, field, v) => patchSet(ei, si, { [field]: v });
 
   // Navegación como en las historias: tocar el tercio derecho avanza y el
-  // izquierdo retrocede. Los toques sobre un control (casillas, botones,
-  // comentario) se respetan y no cambian de ejercicio.
+  // izquierdo retrocede. Los toques sobre un control se respetan.
   const tapNav = (e) => {
     if (e.target.closest && e.target.closest("input, textarea, button, a, [data-keep]")) return;
     const r = e.currentTarget.getBoundingClientRect();
@@ -1624,14 +1649,131 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
     else if (x < r.width * 0.34) go(-1);
   };
 
+  /* --- Cabecera de un ejercicio dentro de una página --- */
+  const renderExHeader = (ei, { big, posLabel, color }) => {
+    const exx = exs[ei];
+    const noteOpen = instr && instr.ei === ei;
+    return (
+      <div style={{ padding: big ? "2px 0 4px" : "8px 0 2px" }}>
+        <div style={{ fontSize: 11, color: color || P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>
+          {posLabel ? <span style={{ color }}>{posLabel} · </span> : null}{exx.muscle}
+        </div>
+        <div className="disp" style={{ fontSize: big ? 23 : 18.5, fontWeight: 700, lineHeight: 1.15, margin: "3px 0 6px" }}>{exx.name}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onPointerDown={() => { heldRef.current = false; holdTimer.current = setTimeout(() => { heldRef.current = true; showInstr(ei, true); }, 380); }}
+            onPointerUp={() => { clearTimeout(holdTimer.current); if (!heldRef.current) (noteOpen ? hideInstr() : showInstr(ei, false)); }}
+            onPointerLeave={() => clearTimeout(holdTimer.current)}
+            disabled={!exx.notes}
+            aria-label="Indicación del coach: toca para verla 6 segundos, mantén pulsado para dejarla fija"
+            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: big ? 34 : 30, height: big ? 34 : 30, borderRadius: 17,
+              border: `1.5px solid ${exx.notes ? (noteOpen ? P.ember : P.dim) : P.line}`, color: exx.notes ? (noteOpen ? P.ember : P.dim) : P.line,
+              background: noteOpen ? `${P.ember}18` : "transparent", touchAction: "manipulation", transition: "color .15s ease, border-color .15s ease" }}>
+            <Info size={big ? 19 : 17} />
+          </button>
+          {exx.video && (
+            <a href={exx.video} target="_blank" rel="noopener noreferrer"
+              style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: P.blue, fontWeight: 600 }}>
+              <Video size={15} /> Técnica
+            </a>
+          )}
+        </div>
+        <div style={{ maxHeight: noteOpen ? 200 : 0, opacity: noteOpen ? 1 : 0, overflow: "hidden",
+          transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
+          {noteOpen && (
+            <div data-keep onClick={hideInstr} style={{ background: `${P.ember}12`, border: `1px solid ${P.ember}44`, borderRadius: 11,
+              padding: "9px 11px", margin: "6px 0 2px", fontSize: 12.5, color: P.ember2, lineHeight: 1.45, maxHeight: 180, overflowY: "auto" }}>
+              {exx.notes}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  /* --- Tarjeta de una serie/ronda: casillas de peso, reps y RIR --- */
+  const renderSetCard = (ei, si, label, kindColor) => {
+    const exx = exs[ei];
+    const s = exx.sets[si];
+    if (!s) return null;
+    const ck = restKey(ei, si);
+    const started = rests[ck];
+    const restEl = started ? Math.max(0, Math.floor((now - started) / 1000)) : 0;
+    const target = (s.rest != null && s.rest !== "" ? +s.rest : (exx.rest || 0));
+    const over = target > 0 && restEl >= target;
+    return (
+      <div key={s.id} style={{ background: P.s1, border: `1px solid ${s.done ? "rgba(99,214,140,.35)" : P.line}`,
+        borderRadius: 14, padding: "9px 10px 10px", marginBottom: 9 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
+          <span className="disp" style={{ fontSize: 15, fontWeight: 700, color: kindColor || P.text }}>{label}</span>
+          <TypeBadge type={s.type} />
+          <span style={{ fontSize: 11.5, color: P.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {s.repsT || "—"} reps{s.rirT !== "" ? ` @ RIR ${s.rirT}` : ""}
+          </span>
+          <div style={{ flex: 1 }} />
+          <button onClick={() => clearSet(ei, si)} aria-label={`Borrar los datos de ${label}`}
+            style={{ padding: 5, color: P.faint }}><Trash2 size={16} /></button>
+          <button data-cmt onClick={() => (cmtKey === ck ? setCmtKey(null) : openCmt(ck))} aria-label={`Comentario de ${label}`}
+            style={{ padding: 5, color: s.comment ? P.ember2 : P.faint }}>
+            <MessageSquare size={17} fill={s.comment ? "rgba(255,184,107,.25)" : "none"} />
+          </button>
+          <button onClick={() => toggleRest(ei, si)} aria-label={`Cronómetro de descanso de ${label}`}
+            style={{ padding: 5, color: started ? P.ember : P.faint }}><Timer size={17} /></button>
+          <button onClick={() => patchSet(ei, si, { done: !s.done })} aria-label={s.done ? "Desmarcar serie" : "Marcar serie hecha"}
+            style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
+              background: s.done ? P.green : P.s3, color: s.done ? "#0D2415" : P.dim, border: `1px solid ${s.done ? P.green : P.line}` }}>
+            <Check size={17} strokeWidth={3} />
+          </button>
+        </div>
+
+        <div style={{ display: "flex", gap: 7, alignItems: "flex-start" }}>
+          <FocusField label="Peso" value={s.weight} placeholder="kg"
+            onChange={(vv) => setVal(ei, si, "weight", vv)} onClear={() => clearField(ei, si, "weight")} />
+          <FocusField label="Reps" value={s.reps} placeholder={s.repsT || "reps"}
+            onChange={(vv) => setVal(ei, si, "reps", vv)} onClear={() => clearField(ei, si, "reps")} />
+          <FocusField label="RIR" value={s.rir} placeholder={s.rirT !== "" ? String(s.rirT) : "rir"}
+            onChange={(vv) => setVal(ei, si, "rir", vv)} onClear={() => clearField(ei, si, "rir")} />
+        </div>
+
+        {started && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "6px 9px", borderRadius: 9,
+            background: over ? "rgba(99,214,140,.10)" : `${P.ember}12`,
+            border: `1px solid ${over ? "rgba(99,214,140,.45)" : `${P.ember}44`}` }}>
+            <Timer size={15} color={over ? P.green : P.ember} />
+            <span className="disp" style={{ fontSize: 19, fontWeight: 700, color: over ? P.green : P.ember }}>{bigTime(restEl)}</span>
+            <span style={{ fontSize: 11.5, color: P.faint }}>descansando{target ? ` · objetivo ${target}s` : ""}</span>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => toggleRest(ei, si)} style={{ fontSize: 12, color: P.dim, fontWeight: 600, padding: "2px 4px" }}>parar</button>
+          </div>
+        )}
+
+        <div data-cmt style={{ maxHeight: cmtKey === ck ? 130 : 0, opacity: cmtKey === ck ? 1 : 0, overflow: "hidden",
+          transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
+          <textarea ref={cmtKey === ck ? cmtRef : null} rows={2} value={s.comment || ""}
+            placeholder={`Comentario de ${label}`}
+            onChange={(e) => { setVal(ei, si, "comment", e.target.value); touchCmt(); }}
+            onFocus={touchCmt} onKeyDown={touchCmt}
+            style={{ width: "100%", marginTop: 8, padding: "8px 10px", fontSize: 16, lineHeight: 1.4, resize: "none",
+              visibility: cmtKey === ck ? "visible" : "hidden", pointerEvents: cmtKey === ck ? "auto" : "none" }} />
+        </div>
+        {s.comment && cmtKey !== ck && (
+          <div data-keep onClick={() => openCmt(ck)} style={{ marginTop: 7, fontSize: 12.5, color: P.dim, lineHeight: 1.4,
+            background: P.s2, border: `1px solid ${P.line}`, borderRadius: 9, padding: "6px 9px" }}>{s.comment}</div>
+        )}
+      </div>
+    );
+  };
+
+  const col = page.group ? GROUP_KINDS[page.kind].color : null;
+
   return (
     <div
       // Un toque en cualquier punto fuera del cuadro cierra el comentario.
       // Lo escrito ya está guardado: no hace falta pulsar guardar.
       onClickCapture={(e) => {
-        if (cmtIdx === null) return;
+        if (cmtKey === null) return;
         if (e.target.closest && e.target.closest("[data-cmt]")) return;
-        setCmtIdx(null);
+        setCmtKey(null);
       }}
       style={{ position: "fixed", inset: 0, zIndex: 90, background: P.bg, display: "flex", flexDirection: "column",
         paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)", overscrollBehavior: "contain" }}>
@@ -1644,9 +1786,13 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
         </button>
         <div className="disp" style={{ fontSize: 25, fontWeight: 700, color: P.text, letterSpacing: ".02em" }}>{bigTime(elapsed)}</div>
         <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.2 }}>
-          {exIdx + 1}/{exs.length}<br />{doneSets}/{totalSets} series
+          {pageIdx + 1}/{pages.length}<br />{doneSets}/{totalSets} series
         </div>
         <div style={{ flex: 1 }} />
+        <button onClick={undo} disabled={!undoStack.length} aria-label="Deshacer"
+          style={{ padding: 6, color: undoStack.length ? P.dim : P.line }}><Undo2 size={18} /></button>
+        <button onClick={redo} disabled={!redoStack.length} aria-label="Rehacer"
+          style={{ padding: 6, color: redoStack.length ? P.dim : P.line }}><Redo2 size={18} /></button>
         <span title={storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado"}
           style={{ width: 7, height: 7, borderRadius: 4, background: storageOK ? P.green : P.red, flexShrink: 0 }} />
         <Btn kind="ember" small onClick={() => setConfirmFinish(true)}>Terminar</Btn>
@@ -1654,15 +1800,15 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
 
       {/* Barra de progreso de la sesión */}
       <div onPointerDown={barDown} onPointerUp={barUp} onPointerLeave={() => clearTimeout(holdTimer.current)}
-        role="button" aria-label="Progreso de la sesión: toca para ver el siguiente ejercicio, mantén pulsado para ver también su indicación"
+        role="button" aria-label="Progreso de la sesión: toca para ver lo que sigue, mantén pulsado para ver también su indicación"
         style={{ padding: "10px 12px 12px", flexShrink: 0, cursor: "pointer", touchAction: "manipulation" }}>
         <div style={{ height: 9, background: P.s2, borderRadius: 5, overflow: "hidden", border: `1px solid ${P.line}` }}>
           <div style={{ height: "100%", width: `${pct}%`, borderRadius: 5,
             background: `linear-gradient(90deg, ${P.ember}, ${P.ember2})`, transition: "width .35s ease" }} />
         </div>
-        {exIdx === 0 && !peek && (
+        {pageIdx === 0 && !peek && (
           <div style={{ fontSize: 10.5, color: P.faint, textAlign: "center", marginTop: 5, lineHeight: 1.3 }}>
-            Toca la barra para ver el siguiente ejercicio · mantén pulsado para leer su indicación
+            Toca la barra para ver lo que sigue · mantén pulsado para leer su indicación
           </div>
         )}
       </div>
@@ -1674,20 +1820,20 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
         {peek && (
           <div style={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12, padding: "9px 11px", marginBottom: 8 }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".07em", color: P.faint, textTransform: "uppercase", marginBottom: 3 }}>
-              {nextEx ? "Siguiente ejercicio" : "Último ejercicio"}
+              {nextPage ? "Siguiente" : "Último"}
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: P.text, lineHeight: 1.3 }}>
-              {nextEx ? nextEx.name : "Este es el último de la sesión"}
+              {nextPage ? pageName(nextPage) : "Este es el final de la sesión"}
             </div>
-            {peek.mode === "full" && nextEx && nextEx.notes && (
+            {peek.mode === "full" && nextNotes && (
               <div style={{ fontSize: 12.5, color: P.ember2, lineHeight: 1.45, marginTop: 5,
-                maxHeight: 108, overflowY: "auto" }}>{nextEx.notes}</div>
+                maxHeight: 108, overflowY: "auto" }}>{nextNotes}</div>
             )}
           </div>
         )}
       </div>
 
-      {/* Cuerpo: solo el ejercicio actual */}
+      {/* Cuerpo: la página actual (un ejercicio suelto, o una ronda del bloque) */}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", position: "relative", padding: "0 30px 16px" }}
         onClick={tapNav}
         onTouchStart={(e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY }; }}
@@ -1704,140 +1850,46 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
         <div onClick={() => go(1)} aria-hidden style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 30, zIndex: 3 }} />
 
         <div style={{ position: "relative", zIndex: 2 }}>
-          {/* Nombre del ejercicio + acceso a la indicación del coach */}
-          <div style={{ padding: "2px 0 4px" }}>
-            <div style={{ fontSize: 11, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>
-              {ex.muscle}{ex.superset ? ` · superserie con ${ex.superset}` : ""}
-            </div>
-            {gr.kind && (
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 4, padding: "3px 8px", borderRadius: 7,
-                background: `${GROUP_KINDS[gr.kind].color}1E`, border: `1px solid ${GROUP_KINDS[gr.kind].color}55` }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: GROUP_KINDS[gr.kind].color, letterSpacing: ".04em" }}>
-                  {GROUP_KINDS[gr.kind].label} {gr.posLabel}
-                </span>
-                <span style={{ fontSize: 11, color: P.dim }}>
-                  {gr.rounds} rondas · sin descanso hasta terminar el bloque
-                </span>
-              </div>
-            )}
-            <div className="disp" style={{ fontSize: 23, fontWeight: 700, lineHeight: 1.15, margin: "3px 0 6px" }}>{ex.name}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <button
-                onPointerDown={() => { heldRef.current = false; holdTimer.current = setTimeout(() => { heldRef.current = true; showInstr(true); }, 380); }}
-                onPointerUp={() => { clearTimeout(holdTimer.current); if (!heldRef.current) (instr ? hideInstr() : showInstr(false)); }}
-                onPointerLeave={() => clearTimeout(holdTimer.current)}
-                disabled={!ex.notes}
-                aria-label="Indicación del coach: toca para verla 6 segundos, mantén pulsado para dejarla fija"
-                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 17,
-                  border: `1.5px solid ${ex.notes ? (instr ? P.ember : P.dim) : P.line}`, color: ex.notes ? (instr ? P.ember : P.dim) : P.line,
-                  background: instr ? `${P.ember}18` : "transparent", touchAction: "manipulation", transition: "color .15s ease, border-color .15s ease" }}>
-                <Info size={19} />
-              </button>
-              {ex.video && (
-                <a href={ex.video} target="_blank" rel="noopener noreferrer"
-                  style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: P.blue, fontWeight: 600 }}>
-                  <Video size={15} /> Técnica
-                </a>
-              )}
-              <div style={{ flex: 1 }} />
-              <button onClick={undo} disabled={!undoStack.length} aria-label="Deshacer"
-                style={{ padding: 6, color: undoStack.length ? P.dim : P.line }}><Undo2 size={17} /></button>
-              <button onClick={redo} disabled={!redoStack.length} aria-label="Rehacer"
-                style={{ padding: 6, color: redoStack.length ? P.dim : P.line }}><Redo2 size={17} /></button>
-            </div>
-          </div>
-
-          {/* Indicación del coach, en su propio hueco: no se superpone a nada */}
-          <div style={{ maxHeight: instr ? 200 : 0, opacity: instr ? 1 : 0, overflow: "hidden",
-            transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
-            {instr && (
-              <div data-keep onClick={hideInstr} style={{ background: `${P.ember}12`, border: `1px solid ${P.ember}44`, borderRadius: 11,
-                padding: "9px 11px", margin: "6px 0 2px", fontSize: 12.5, color: P.ember2, lineHeight: 1.45,
-                maxHeight: 180, overflowY: "auto" }}>
-                {ex.notes}
-              </div>
-            )}
-          </div>
-
-          {/* Series */}
-          <div style={{ marginTop: 10 }}>
-            {ex.sets.map((s, si) => {
-              const started = rests[restKey(si)];
-              const restEl = started ? Math.max(0, Math.floor((now - started) / 1000)) : 0;
-              const target = (s.rest != null && s.rest !== "" ? +s.rest : (ex.rest || 0));
-              const over = target > 0 && restEl >= target;
-              return (
-                <div key={s.id} style={{ background: P.s1, border: `1px solid ${s.done ? "rgba(99,214,140,.35)" : P.line}`,
-                  borderRadius: 14, padding: "9px 10px 10px", marginBottom: 9 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
-                    <span className="disp" style={{ fontSize: 15, fontWeight: 700, color: gr.kind ? GROUP_KINDS[gr.kind].color : P.text }}
-                      title={gr.kind ? `Ronda ${si + 1} de ${gr.rounds}` : `Serie ${si + 1}`}>
-                      {gr.kind ? `R${si + 1}` : `S${si + 1}`}
-                    </span>
-                    <TypeBadge type={s.type} />
-                    <span style={{ fontSize: 11.5, color: P.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {s.repsT || "—"} reps{s.rirT !== "" ? ` @ RIR ${s.rirT}` : ""}
-                    </span>
-                    <div style={{ flex: 1 }} />
-                    <button onClick={() => clearSet(si)} aria-label={`Borrar los datos de la serie ${si + 1}`}
-                      style={{ padding: 5, color: P.faint }}><Trash2 size={16} /></button>
-                    <button data-cmt onClick={() => (cmtIdx === si ? setCmtIdx(null) : openCmt(si))} aria-label={`Comentario de la serie ${si + 1}`}
-                      style={{ padding: 5, color: s.comment ? P.ember2 : P.faint }}>
-                      <MessageSquare size={17} fill={s.comment ? "rgba(255,184,107,.25)" : "none"} />
-                    </button>
-                    <button onClick={() => toggleRest(si)} aria-label={`Cronómetro de descanso de la serie ${si + 1}`}
-                      style={{ padding: 5, color: started ? P.ember : P.faint }}><Timer size={17} /></button>
-                    <button onClick={() => patchSet(exIdx, si, { done: !s.done })} aria-label={s.done ? "Desmarcar serie" : "Marcar serie hecha"}
-                      style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-                        background: s.done ? P.green : P.s3, color: s.done ? "#0D2415" : P.dim, border: `1px solid ${s.done ? P.green : P.line}` }}>
-                      <Check size={17} strokeWidth={3} />
-                    </button>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 7, alignItems: "flex-start" }}>
-                    <FocusField label="Peso" value={s.weight} placeholder="kg"
-                      onChange={(v) => setVal(si, "weight", v)} onClear={() => clearField(si, "weight")} />
-                    <FocusField label="Reps" value={s.reps} placeholder={s.repsT || "reps"}
-                      onChange={(v) => setVal(si, "reps", v)} onClear={() => clearField(si, "reps")} />
-                    <FocusField label="RIR" value={s.rir} placeholder={s.rirT !== "" ? String(s.rirT) : "rir"}
-                      onChange={(v) => setVal(si, "rir", v)} onClear={() => clearField(si, "rir")} />
-                  </div>
-
-                  {started && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "6px 9px", borderRadius: 9,
-                      background: over ? "rgba(99,214,140,.10)" : `${P.ember}12`,
-                      border: `1px solid ${over ? "rgba(99,214,140,.45)" : `${P.ember}44`}` }}>
-                      <Timer size={15} color={over ? P.green : P.ember} />
-                      <span className="disp" style={{ fontSize: 19, fontWeight: 700, color: over ? P.green : P.ember }}>{bigTime(restEl)}</span>
-                      <span style={{ fontSize: 11.5, color: P.faint }}>
-                        descansando{target ? ` · objetivo ${target}s` : ""}
-                      </span>
-                      <div style={{ flex: 1 }} />
-                      <button onClick={() => toggleRest(si)} style={{ fontSize: 12, color: P.dim, fontWeight: 600, padding: "2px 4px" }}>parar</button>
-                    </div>
-                  )}
-
-                  <div data-cmt style={{ maxHeight: cmtIdx === si ? 130 : 0, opacity: cmtIdx === si ? 1 : 0, overflow: "hidden",
-                    transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
-                    <textarea ref={cmtIdx === si ? cmtRef : null} rows={2} value={s.comment || ""}
-                      placeholder={`Comentario de la serie ${si + 1}`}
-                      onChange={(e) => { setVal(si, "comment", e.target.value); touchCmt(); }}
-                      onFocus={touchCmt} onKeyDown={touchCmt}
-                      style={{ width: "100%", marginTop: 8, padding: "8px 10px", fontSize: 16, lineHeight: 1.4, resize: "none",
-                        visibility: cmtIdx === si ? "visible" : "hidden", pointerEvents: cmtIdx === si ? "auto" : "none" }} />
-                  </div>
-                  {s.comment && cmtIdx !== si && (
-                    <div data-keep onClick={() => openCmt(si)} style={{ marginTop: 7, fontSize: 12.5, color: P.dim, lineHeight: 1.4,
-                      background: P.s2, border: `1px solid ${P.line}`, borderRadius: 9, padding: "6px 9px" }}>{s.comment}</div>
-                  )}
+          {page.group ? (
+            <>
+              {/* Cabecera del bloque: qué ronda es y cómo se hace */}
+              <div style={{ marginTop: 4, marginBottom: 4, padding: "9px 11px", borderRadius: 12,
+                background: `${col}16`, border: `1px solid ${col}55` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: col, letterSpacing: ".04em", textTransform: "uppercase" }}>
+                    {GROUP_KINDS[page.kind].label}
+                  </span>
+                  <span className="disp" style={{ fontSize: 15, fontWeight: 700, color: P.text }}>Ronda {page.roundIdx + 1}/{page.rounds}</span>
                 </div>
-              );
-            })}
-          </div>
+                <div style={{ fontSize: 11.5, color: P.dim, marginTop: 4, lineHeight: 1.4 }}>
+                  Haz {page.members.map((mi) => exGroupInfo(exs, mi).posLabel).join(" → ")} seguidos, sin descanso entre ellos.
+                  Descansa solo al terminar la ronda y desliza a la derecha para la siguiente.
+                </div>
+              </div>
+
+              {page.members.map((mi) => {
+                const s = exs[mi].sets[page.roundIdx];
+                if (!s) return null;
+                return (
+                  <div key={mi} data-keep style={{ borderLeft: `3px solid ${col}`, paddingLeft: 10, marginBottom: 6 }}>
+                    {renderExHeader(mi, { big: false, posLabel: exGroupInfo(exs, mi).posLabel, color: col })}
+                    {renderSetCard(mi, page.roundIdx, `Ronda ${page.roundIdx + 1}`, col)}
+                  </div>
+                );
+              })}
+            </>
+          ) : (
+            <>
+              {renderExHeader(page.ei, { big: true })}
+              <div style={{ marginTop: 10 }}>
+                {exs[page.ei].sets.map((s, si) => renderSetCard(page.ei, si, `S${si + 1}`, null))}
+              </div>
+            </>
+          )}
 
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-            <Btn kind="line" onClick={() => go(-1)} disabled={exIdx === 0} style={{ flex: 1 }}><ChevronLeft size={17} /> Anterior</Btn>
-            <Btn kind={exIdx === exs.length - 1 ? "line" : "ember"} onClick={() => go(1)} disabled={exIdx >= exs.length - 1} style={{ flex: 2 }}>
+            <Btn kind="line" onClick={() => go(-1)} disabled={pageIdx === 0} style={{ flex: 1 }}><ChevronLeft size={17} /> Anterior</Btn>
+            <Btn kind={pageIdx === pages.length - 1 ? "line" : "ember"} onClick={() => go(1)} disabled={pageIdx >= pages.length - 1} style={{ flex: 2 }}>
               Siguiente <ChevronRight size={17} />
             </Btn>
           </div>
@@ -2534,18 +2586,35 @@ const ExHistorySheetInline = ({ entries, onOpenImg }) => (
    ============================================================ */
 const NutritionView = ({ n }) => {
   const hasMacros = (+n.kcal || 0) > 0 || (+n.p || 0) > 0 || (+n.c || 0) > 0 || (+n.f || 0) > 0;
+  const v = macroSolve(n, n.solve || "kcal");
   return (
     <div style={{ padding: "18px 16px 30px" }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Nutrición</h1>
       {hasMacros && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 14 }}>
-          {[["kcal", n.kcal, P.ember2], ["Proteína", n.p ? `${n.p} g` : "—", P.green], ["Carbos", n.c ? `${n.c} g` : "—", P.blue], ["Grasas", n.f ? `${n.f} g` : "—", "#E8A54B"]].map(([l, v, c]) => (
+        <>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 10 }}>
+          {[["kcal", v.kcal || "—", P.ember2], ["Proteína", v.p ? `${v.p} g` : "—", P.green], ["Carbos", v.c ? `${v.c} g` : "—", P.blue], ["Grasas", v.f ? `${v.f} g` : "—", "#E8A54B"]].map(([l, val, c]) => (
             <Card key={l} style={{ padding: "11px 6px", textAlign: "center" }}>
-              <div className="disp" style={{ fontSize: 18, fontWeight: 700, color: c }}>{v || "—"}</div>
+              <div className="disp" style={{ fontSize: 18, fontWeight: 700, color: c }}>{val}</div>
               <div style={{ fontSize: 10.5, color: P.dim, marginTop: 2 }}>{l}</div>
             </Card>
           ))}
         </div>
+        {v.tot > 0 && (
+          <div style={{ padding: "10px 12px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, marginBottom: 14 }}>
+            <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", marginBottom: 8, background: P.s3 }}>
+              <div style={{ width: `${v.pctP}%`, background: P.green }} />
+              <div style={{ width: `${v.pctC}%`, background: P.blue }} />
+              <div style={{ width: `${v.pctF}%`, background: "#E8A54B" }} />
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 12px", fontSize: 11.5, color: P.dim }}>
+              <span><b style={{ color: P.green }}>Proteína</b> {v.pk} kcal ({v.pctP}%)</span>
+              <span><b style={{ color: P.blue }}>Carbos</b> {v.ck} kcal ({v.pctC}%)</span>
+              <span><b style={{ color: "#E8A54B" }}>Grasa</b> {v.fk} kcal ({v.pctF}%)</span>
+            </div>
+          </div>
+        )}
+        </>
       )}
       {n.notes && <div style={{ fontSize: 13.5, color: P.dim, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: "11px 14px", lineHeight: 1.5, marginBottom: 14 }}>{n.notes}</div>}
       {n.meals.length === 0 ? (
@@ -2598,10 +2667,10 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
               <input type="number" inputMode="numeric" placeholder={String(exRest ?? 90)} value={s.rest ?? ""} title="Descanso de esta serie en segundos (vacío = usa el del ejercicio)"
                 onChange={(e) => upd(i, { rest: e.target.value === "" ? undefined : (+e.target.value || 0) })}
                 style={{ width: 46, padding: "8px 4px", fontSize: 13, textAlign: "center" }} />
-              <input type="number" inputMode="numeric" placeholder="15" disabled={!PCT_TYPES.includes(s.type)} value={PCT_TYPES.includes(s.type) ? (s.pct ?? 15) : ""}
-                title={PCT_HINT[s.type] || "Solo para top set, back-off y drop set"}
-                onChange={(e) => upd(i, { pct: +e.target.value || 15 })}
-                style={{ width: 42, padding: "8px 4px", fontSize: 13, textAlign: "center", opacity: PCT_TYPES.includes(s.type) ? 1 : 0.35 }} />
+              <input type="number" inputMode="numeric" placeholder="15" value={s.pct ?? ""}
+                title={PCT_HINT[s.type] || "Porcentaje de bajada de carga para esta serie (libre para cualquier tipo)"}
+                onChange={(e) => upd(i, { pct: e.target.value === "" ? undefined : (+e.target.value || 0) })}
+                style={{ width: 42, padding: "8px 4px", fontSize: 13, textAlign: "center" }} />
               <button onClick={() => setExpanded(expanded === i ? null : i)} style={{ color: hasExtras ? P.ember : P.faint, padding: 4 }} title="Nota y adjuntos de esta serie">
                 <MessageSquare size={15} />
               </button>
@@ -2637,9 +2706,9 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
         <Btn kind="line" small onClick={() => onInfo("topset")}><Info size={14} /> Tipos</Btn>
       </div>
       <div style={{ fontSize: 11.5, color: P.faint, marginTop: 6, lineHeight: 1.4 }}>
-        <b>Desc</b>: segundos de descanso de esa serie (déjalo vacío para usar el del ejercicio). <b>−%</b> aplica a
-        top set (respecto al máximo de referencia), back-off (respecto al top set), drop set (cada caída) y AMRAP.
-        Icono 💬: nota, video y adjuntos específicos de esa serie.
+        <b>Desc</b>: segundos de descanso de esa serie (déjalo vacío para usar el del ejercicio). <b>−%</b> es el
+        porcentaje de bajada de carga de esa serie y está libre para cualquier tipo (top, back-off, drop, AMRAP o
+        cualquiera): déjalo vacío si no aplica. Icono 💬: nota, video y adjuntos específicos de esa serie.
       </div>
       <ImageViewer src={preview} onClose={() => setPreview(null)} />
     </div>
@@ -2664,6 +2733,26 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
         <div style={{ width: 130 }}><Field label="Descanso ejercicio (seg)"><Inp type="number" inputMode="numeric" value={d.rest} onChange={(e) => set({ rest: +e.target.value || 0 })} /></Field></div>
       </div>
       <Field label="Series"><SetsEditor sets={d.sets} onChange={(sets) => set({ sets })} onInfo={onInfo} exRest={d.rest} /></Field>
+      <Field label="Vista previa del alumno" hint="Así verá el alumno este ejercicio al entrenar. Para armar una superserie/triserie une este ejercicio con el siguiente usando el clip de la lista de ejercicios.">
+        <div style={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 11, padding: "11px 12px" }}>
+          <div style={{ fontWeight: 700, fontSize: 14.5 }}>{d.name || "Nombre del ejercicio"}</div>
+          <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>{d.muscle} · descanso {fmtClock(d.rest || 120)} · {d.sets.length} serie{d.sets.length !== 1 ? "s" : ""}</div>
+          {d.notes && <div style={{ fontSize: 12.5, color: P.ember2, marginTop: 7, lineHeight: 1.45 }}><b>Coach · </b>{d.notes}</div>}
+          <div style={{ marginTop: 9, display: "flex", flexDirection: "column", gap: 6 }}>
+            {d.sets.length === 0 && <div style={{ fontSize: 12.5, color: P.faint }}>Añade al menos una serie arriba.</div>}
+            {d.sets.map((s, si) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 9, padding: "7px 9px" }}>
+                <span className="disp" style={{ fontSize: 13, fontWeight: 700, color: P.dim, width: 26 }}>S{si + 1}</span>
+                <TypeBadge type={s.type} />
+                <span style={{ fontSize: 12.5, color: P.dim }}>
+                  {s.repsT || "—"} reps{s.rirT !== "" ? ` @ RIR ${s.rirT}` : ""}{s.pct != null && s.pct !== "" ? ` · −${s.pct}%` : ""}
+                </span>
+                {(s.coachNote || "").length > 0 && <span style={{ fontSize: 11.5, color: P.ember2 }}>· {s.coachNote}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </Field>
       <Field label="Indicaciones técnicas (las verá el alumno en cada sesión)"><Txt value={d.notes} placeholder="Ej: agarre neutro, controla 3 s la bajada, pausa de 1 s abajo…" onChange={(e) => set({ notes: e.target.value })} /></Field>
       <Field label="Video de técnica (link opcional)"><Inp value={d.video} placeholder="https://youtube.com/…" onChange={(e) => set({ video: e.target.value })} /></Field>
       <Field label="Videos y fotos de demostración" hint="Se suben a la plataforma y el alumno los ve dentro del ejercicio. Videos hasta 50 MB.">
@@ -3017,6 +3106,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   const [importOpen, setImportOpen] = useState(false);
   const [copiedEx, setCopiedEx] = useState(null);
   const [copiedDay, setCopiedDay] = useState(null);
+  const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
+  const toggleRoutine = (key) => setOpenRoutines((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]));
   // Reordenar los días arrastrando: mantén pulsado ~400 ms sobre un día y
   // suéltalo sobre otro. Si el destino está en otra rutina, adopta esa rutina.
   const [dragging, setDragging] = useState(null);
@@ -3183,12 +3274,16 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
         <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
       )}
 
-      {groupDaysByRoutine(plan.days).map((g) => (
+      {groupDaysByRoutine(plan.days).map((g) => { const open = openRoutines.includes(g.key); return (
         <div key={g.key} style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${P.line}` }}>
+          <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, marginBottom: open ? 8 : 0,
+              paddingBottom: 6, borderBottom: `1px solid ${P.line}`, textAlign: "left" }}>
             <div className="disp" style={{ fontSize: 17, fontWeight: 700, textTransform: "uppercase", color: P.ember2 }}>{g.label}</div>
-            <div style={{ fontSize: 11.5, color: P.faint }}>{g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series</div>
-          </div>
+            <div style={{ fontSize: 11.5, color: P.faint, flex: 1, minWidth: 0 }}>{g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series</div>
+            {open ? <ChevronUp size={18} color={P.ember} /> : <ChevronDown size={18} color={P.faint} />}
+          </button>
+          {open && (<>
           {g.items.map(({ day: d, index: di }) => (
             <Card key={d.id}
               data-day-card={d.id}
@@ -3317,8 +3412,9 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
               </Btn>
             )}
           </div>
+          </>)}
         </div>
-      ))}
+      );})}
       {plan.days.length === 0 && (
         <Btn kind="ember" onClick={() => mut((p) => p.days.push({ id: uid(), name: "Día 1", routine: ROUTINE_A, exs: [] }))} style={{ width: "100%" }}>
           <Plus size={16} /> Añadir día de entrenamiento
@@ -3343,20 +3439,120 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
 /* ============================================================
    MODO COACH — nutrición e indicaciones
    ============================================================ */
+// Calcula el macro que falta a partir de los otros tres. Devuelve un objeto con
+// los cuatro valores ya resueltos (kcal, p, c, f) y el reparto de calorías.
+const numN = (v) => (v === "" || v == null ? 0 : (+v || 0));
+function macroSolve(n, solve = n.solve || "kcal") {
+  const v = { p: numN(n.p), c: numN(n.c), f: numN(n.f), kcal: numN(n.kcal) };
+  if (solve === "kcal") v.kcal = Math.round(v.p * 4 + v.c * 4 + v.f * 9);
+  else if (solve === "p") v.p = Math.max(0, Math.round((v.kcal - v.c * 4 - v.f * 9) / 4));
+  else if (solve === "c") v.c = Math.max(0, Math.round((v.kcal - v.p * 4 - v.f * 9) / 4));
+  else if (solve === "f") v.f = Math.max(0, Math.round((v.kcal - v.p * 4 - v.c * 4) / 9));
+  const pk = v.p * 4, ck = v.c * 4, fk = v.f * 9, tot = pk + ck + fk;
+  return { ...v, pk, ck, fk, tot, pctP: tot ? Math.round(pk / tot * 100) : 0, pctC: tot ? Math.round(ck / tot * 100) : 0, pctF: tot ? Math.round(fk / tot * 100) : 0 };
+}
+const SOLVE_LABEL = { kcal: "Calorías (kcal)", p: "Proteína", c: "Carbohidratos", f: "Grasa" };
+const GOAL_META = { deficit: { label: "Déficit (definición)", factor: 0.8, color: P.blue }, mant: { label: "Mantención", factor: 1, color: P.green }, bulk: { label: "Volumen (bulk)", factor: 1.1, color: P.ember } };
+
 const NutritionEditor = ({ plan, savePlan }) => {
   const n = plan.nutrition;
   const mut = (fn) => { const p = structuredClone(plan); fn(p.nutrition); p.updatedAt = todayISO(); savePlan(p); };
-  const macro = (label, key, ph) => (
-    <div style={{ flex: 1 }}>
-      <div style={{ fontSize: 11, color: P.dim, fontWeight: 700, textAlign: "center", marginBottom: 4 }}>{label}</div>
-      <Inp type="number" inputMode="numeric" placeholder={ph} value={n[key] || ""} onChange={(e) => mut((x) => (x[key] = e.target.value === "" ? "" : (+e.target.value || 0)))} style={{ textAlign: "center" }} />
-    </div>
-  );
+  const solve = n.solve || "kcal";
+  const v = macroSolve(n, solve);
+  // Al editar un macro se guarda su valor y se recalcula el que resuelve la app.
+  const recalc = (x, s = x.solve || "kcal") => {
+    const r = macroSolve(x, s);
+    if (s === "kcal") x.kcal = r.kcal; else if (s === "p") x.p = r.p; else if (s === "c") x.c = r.c; else if (s === "f") x.f = r.f;
+  };
+  const setMacro = (key, val) => mut((x) => { x[key] = val === "" ? "" : (+val || 0); recalc(x); });
+  const setSolve = (s) => mut((x) => { x.solve = s; recalc(x, s); });
+  const goal = n.goal || "mant";
+  const maint = numN(n.maintenance);
+  const targetK = Math.round(maint * GOAL_META[goal].factor);
+  const estMaint = Math.round(numN((plan.athlete || {}).weight) * 33);   // estimación rápida por peso
+  const macroInput = (label, key, ph, color) => {
+    const derived = solve === key;
+    return (
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 10.5, color: derived ? P.ember2 : P.dim, fontWeight: 700, textAlign: "center", marginBottom: 4 }}>
+          {label}{derived ? " · auto" : ""}
+        </div>
+        <Inp type="number" inputMode="numeric" placeholder={ph} readOnly={derived}
+          value={derived ? v[key] : (n[key] === "" || n[key] == null ? "" : n[key])}
+          onChange={(e) => setMacro(key, e.target.value)}
+          title={derived ? "La app calcula este valor a partir de los otros tres" : ""}
+          style={{ textAlign: "center", background: derived ? P.s3 : undefined, color: derived ? P.ember2 : undefined, fontWeight: derived ? 700 : undefined, borderColor: derived ? `${P.ember}66` : undefined }} />
+      </div>
+    );
+  };
   return (
     <div style={{ padding: "18px 16px 30px" }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Nutrición</h1>
       <Card style={{ padding: 14, marginBottom: 14 }}>
-        <div style={{ display: "flex", gap: 8 }}>{macro("KCAL", "kcal", "2500")}{macro("PROT (g)", "p", "180")}{macro("CARB (g)", "c", "280")}{macro("GRASA (g)", "f", "70")}</div>
+        <div style={{ fontSize: 11, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 7 }}>Macros del plan</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: P.dim }}>Calcular automáticamente:</span>
+          <select value={solve} onChange={(e) => setSolve(e.target.value)} style={{ flex: 1, minWidth: 130, padding: "7px 8px", fontSize: 13 }}>
+            {Object.entries(SOLVE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {macroInput("KCAL", "kcal", "2500")}
+          {macroInput("PROT (g)", "p", "180")}
+          {macroInput("CARB (g)", "c", "280")}
+          {macroInput("GRASA (g)", "f", "70")}
+        </div>
+        {/* Reparto de calorías por macro */}
+        <div style={{ marginTop: 11, padding: "10px 11px", background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10 }}>
+          <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", marginBottom: 8, background: P.s3 }}>
+            <div style={{ width: `${v.pctP}%`, background: P.green }} />
+            <div style={{ width: `${v.pctC}%`, background: P.blue }} />
+            <div style={{ width: `${v.pctF}%`, background: "#E8A54B" }} />
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 12px", fontSize: 11.5, color: P.dim }}>
+            <span><b style={{ color: P.green }}>Proteína</b> {v.p} g · {v.pk} kcal ({v.pctP}%)</span>
+            <span><b style={{ color: P.blue }}>Carbos</b> {v.c} g · {v.ck} kcal ({v.pctC}%)</span>
+            <span><b style={{ color: "#E8A54B" }}>Grasa</b> {v.f} g · {v.fk} kcal ({v.pctF}%)</span>
+          </div>
+          <div style={{ fontSize: 12.5, color: P.text, fontWeight: 700, marginTop: 6 }}>Total: {v.tot} kcal</div>
+        </div>
+        {/* Objetivo calórico según fase */}
+        <div style={{ marginTop: 11, padding: "10px 11px", background: `${P.ember}0E`, border: `1px solid ${P.ember}33`, borderRadius: 10 }}>
+          <div style={{ fontSize: 11, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 7 }}>Objetivo calórico</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 120 }}>
+              <div style={{ fontSize: 10.5, color: P.dim, fontWeight: 700, marginBottom: 3 }}>Mantención (kcal)</div>
+              <Inp type="number" inputMode="numeric" placeholder={estMaint ? String(estMaint) : "2800"} value={n.maintenance === "" || n.maintenance == null ? "" : n.maintenance}
+                onChange={(e) => mut((x) => (x.maintenance = e.target.value === "" ? "" : (+e.target.value || 0)))} style={{ textAlign: "center" }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 130 }}>
+              <div style={{ fontSize: 10.5, color: P.dim, fontWeight: 700, marginBottom: 3 }}>Fase</div>
+              <select value={goal} onChange={(e) => mut((x) => (x.goal = e.target.value))} style={{ width: "100%", padding: "9px 8px", fontSize: 13 }}>
+                {Object.entries(GOAL_META).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+              </select>
+            </div>
+          </div>
+          {estMaint > 0 && (
+            <button onClick={() => mut((x) => (x.maintenance = estMaint))} style={{ fontSize: 11.5, color: P.blue, marginTop: 6, textDecoration: "underline" }}>
+              Estimar mantención por peso (≈ {estMaint} kcal)
+            </button>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 9, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 13, color: P.dim }}>
+              Objetivo: <b className="disp" style={{ color: GOAL_META[goal].color, fontSize: 16 }}>{maint > 0 ? `${targetK} kcal` : "—"}</b>
+              {maint > 0 && goal !== "mant" && <span style={{ fontSize: 11.5, color: P.faint }}> ({goal === "deficit" ? "−20%" : "+10%"})</span>}
+            </div>
+            <div style={{ flex: 1 }} />
+            {maint > 0 && (
+              <Btn kind="ember" small onClick={() => mut((x) => { x.kcal = targetK; x.solve = "c"; recalc(x, "c"); })}>
+                Aplicar y ajustar carbos
+              </Btn>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: P.faint, marginTop: 7, lineHeight: 1.4 }}>
+            «Aplicar» fija las calorías objetivo y calcula los carbohidratos que faltan manteniendo la proteína y la grasa.
+          </div>
+        </div>
         <div style={{ marginTop: 10 }}><Txt rows={2} placeholder="Notas generales del plan nutricional…" value={n.notes} onChange={(e) => mut((x) => (x.notes = e.target.value))} /></div>
       </Card>
       {n.meals.map((m, mi) => (
@@ -4711,9 +4907,9 @@ const ScheduleEditor = ({ plan, savePlan }) => {
         <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Semana tipo</div>
         {[["mon", "Lunes"], ["tue", "Martes"], ["wed", "Miércoles"], ["thu", "Jueves"], ["fri", "Viernes"], ["sat", "Sábado"], ["sun", "Domingo"]].map(([k, label]) => (
           <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <div style={{ width: 90, fontSize: 13.5, fontWeight: 600 }}>{label}</div>
+            <div style={{ width: 84, flexShrink: 0, fontSize: 13.5, fontWeight: 600 }}>{label}</div>
             <select value={plan.schedule?.[k] || ""} onChange={(e) => mut((p) => { if (!p.schedule) p.schedule = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }; p.schedule[k] = e.target.value || null; })}
-              style={{ flex: 1, padding: "9px 8px", fontSize: 13.5 }}>
+              style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "9px 8px", fontSize: 13.5 }}>
               <option value="">Descanso</option>
               {groupDaysByRoutine(plan.days).map((g) => (
                 <optgroup key={g.key} label={g.label}>
