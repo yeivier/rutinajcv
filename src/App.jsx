@@ -14,36 +14,39 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v17";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v18";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
+// Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
+// como color de acento para que las letras resalten. El rojo se mantiene solo
+// como señal de acciones destructivas / errores.
 const P = {
-  bg: "#12100E",
-  s1: "#1B1815",
-  s2: "#241F19",
-  s3: "#2E2820",
-  line: "#3A3226",
-  text: "#F2E9DC",
-  dim: "#A2957F",
-  faint: "#6E6350",
-  ember: "#FF6B2C",
-  ember2: "#FFB86B",
-  green: "#63D68C",
+  bg: "#0B0B0C",
+  s1: "#161618",
+  s2: "#1F1F22",
+  s3: "#2A2A2E",
+  line: "#3C3C42",
+  text: "#FFFFFF",
+  dim: "#B9B9C0",
+  faint: "#7E7E86",
+  ember: "#FFFFFF",
+  ember2: "#DCDCE2",
+  green: "#ECECEF",
   red: "#E5484D",
-  blue: "#5FA8C7",
+  blue: "#AEB4BD",
 };
 
 const SET_TYPES = {
-  warmup:   { label: "Aproximación", short: "APR", color: "#6E8CA0", g: "warmup" },
-  normal:   { label: "Efectiva",     short: "EF",  color: "#A2957F", g: "efectiva" },
-  top:      { label: "Top set",      short: "TOP", color: "#FF6B2C", g: "topset" },
-  backoff:  { label: "Back-off",     short: "B-O", color: "#E8A54B", g: "backoff" },
-  drop:     { label: "Drop set",     short: "DROP",color: "#E5484D", g: "dropset" },
-  restpause:{ label: "Rest-pause",   short: "R-P", color: "#B583F0", g: "restpause" },
-  amrap:    { label: "AMRAP",        short: "AMR", color: "#4CC9E8", g: "amrap" },
-  cluster:  { label: "Cluster set",  short: "CLU", color: "#7FD4A8", g: "cluster" },
-  vma:      { label: "VMA (iso final)", short: "VMA", color: "#F0839B", g: "vma" },
-  midiso:   { label: "Iso media + reps", short: "ISO", color: "#8AA1F0", g: "midiso" },
-  pfi:      { label: "Pre-fatiga iso", short: "PFI", color: "#E06C3E", g: "pfi" },
+  warmup:   { label: "Aproximación", short: "APR", color: "#8A8A90", g: "warmup" },
+  normal:   { label: "Efectiva",     short: "EF",  color: "#ADADB4", g: "efectiva" },
+  top:      { label: "Top set",      short: "TOP", color: "#FFFFFF", g: "topset" },
+  backoff:  { label: "Back-off",     short: "B-O", color: "#CFCFD5", g: "backoff" },
+  drop:     { label: "Drop set",     short: "DROP",color: "#EDEDF1", g: "dropset" },
+  restpause:{ label: "Rest-pause",   short: "R-P", color: "#BEBEC5", g: "restpause" },
+  amrap:    { label: "AMRAP",        short: "AMR", color: "#D6D6DC", g: "amrap" },
+  cluster:  { label: "Cluster set",  short: "CLU", color: "#B2B2B9", g: "cluster" },
+  vma:      { label: "VMA (iso final)", short: "VMA", color: "#C6C6CD", g: "vma" },
+  midiso:   { label: "Iso media + reps", short: "ISO", color: "#B9B9C0", g: "midiso" },
+  pfi:      { label: "Pre-fatiga iso", short: "PFI", color: "#E2E2E7", g: "pfi" },
 };
 
 const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Otro"];
@@ -61,9 +64,9 @@ const PCT_HINT = {
    Los ejercicios consecutivos con el mismo `group` se ejecutan seguidos, sin
    descanso entre ellos, y se repiten tantas veces como diga `groupRounds`. */
 const GROUP_KINDS = {
-  superset: { label: "Superserie", short: "SS", min: 2, color: "#B583F0" },
-  triset:   { label: "Triserie",   short: "TRI", min: 3, color: "#4CC9E8" },
-  giant:    { label: "Serie gigante", short: "GIG", min: 4, color: "#E8A54B" },
+  superset: { label: "Superserie", short: "SS", min: 2, color: "#FFFFFF" },
+  triset:   { label: "Triserie",   short: "TRI", min: 3, color: "#CFCFD5" },
+  giant:    { label: "Serie gigante", short: "GIG", min: 4, color: "#A6A6AD" },
 };
 // Nombre según cuántos ejercicios acabaron en el grupo (2 = superserie, 3 = triserie, 4+ = gigante)
 const groupKindFor = (n) => (n >= 4 ? "giant" : n === 3 ? "triset" : "superset");
@@ -834,7 +837,7 @@ const GlobalStyle = () => (
     .fj button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
     .fj ::-webkit-scrollbar { width: 6px; height: 6px; }
     .fj ::-webkit-scrollbar-thumb { background: ${P.line}; border-radius: 3px; }
-    @keyframes fjQuench { 0% { background-color: rgba(255,107,44,.35); } 100% { background-color: rgba(99,214,140,.10); } }
+    @keyframes fjQuench { 0% { background-color: rgba(255,255,255,.35); } 100% { background-color: rgba(255,255,255,.10); } }
     .fj .quench { animation: fjQuench .9s ease forwards; }
     @keyframes fjPulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
     .fj .pulse { animation: fjPulse 1.6s ease-in-out infinite; }
@@ -857,10 +860,10 @@ const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...res
     borderRadius: 12, fontWeight: 600, fontSize: small ? 13 : 15,
     padding: small ? "7px 12px" : "12px 18px", opacity: disabled ? 0.45 : 1, transition: "filter .15s" };
   const kinds = {
-    ember: { background: `linear-gradient(135deg, ${P.ember}, #E1531A)`, color: "#1A0D05" },
+    ember: { background: `linear-gradient(135deg, ${P.ember}, #CFCFD5)`, color: "#0B0B0C" },
     ghost: { background: P.s2, border: `1px solid ${P.line}`, color: P.text },
     line:  { background: "transparent", border: `1px solid ${P.line}`, color: P.dim },
-    green: { background: "rgba(99,214,140,.14)", border: `1px solid rgba(99,214,140,.4)`, color: P.green },
+    green: { background: "rgba(255,255,255,.14)", border: `1px solid rgba(255,255,255,.4)`, color: P.green },
     red:   { background: "rgba(229,72,77,.12)", border: `1px solid rgba(229,72,77,.4)`, color: P.red },
   };
   return <button {...rest} disabled={disabled} onClick={onClick} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
@@ -933,11 +936,10 @@ const Empty = ({ icon: Icon, title, body }) => (
 const Logo = ({ size = 26 }) => (
   <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 6, lineHeight: 1 }}>
     <div style={{ width: size + 14, height: size + 14, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center",
-      background: `linear-gradient(140deg, ${P.ember}, #C23E0E)`, boxShadow: "0 2px 12px rgba(255,107,44,.35)" }}>
-      {/* Mancuerna: dos discos por lado (uno externo pequeño y otro interno grande)
-          unidos por una barra en el medio. Estilo plano, monocromo, escalable. */}
+      background: "#FFFFFF", boxShadow: "0 2px 14px rgba(255,255,255,.20)" }}>
+      {/* Mancuerna en negro sobre placa blanca: contraste blanco y negro puro. */}
       <svg viewBox="0 0 24 24" width={size * 0.72} height={size * 0.72} aria-hidden="true">
-        <g fill="#1A0D05">
+        <g fill="#0B0B0C">
           <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
           <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
           <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
@@ -946,7 +948,7 @@ const Logo = ({ size = 26 }) => (
         </g>
       </svg>
     </div>
-    <div className="disp" style={{ fontSize: size * 0.72, fontWeight: 700, letterSpacing: ".18em" }}>FORJA</div>
+    <div className="disp" style={{ fontSize: size * 0.72, fontWeight: 700, letterSpacing: ".18em", color: P.text }}>FORJA</div>
   </div>
 );
 
@@ -958,7 +960,7 @@ const GlossaryBody = ({ focusId }) => {
     <div ref={ref}>
       {GLOSSARY.map((g) => (
         <div key={g.id} data-g={g.id} style={{ padding: "14px 0", borderBottom: `1px solid ${P.line}`,
-          background: focusId === g.id ? "rgba(255,107,44,.06)" : "transparent", borderRadius: 8, scrollMarginTop: 8 }}>
+          background: focusId === g.id ? "rgba(255,255,255,.06)" : "transparent", borderRadius: 8, scrollMarginTop: 8 }}>
           <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 5, color: focusId === g.id ? P.ember2 : P.text }}>{g.term}</div>
           <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.55, whiteSpace: "pre-line" }}>{g.def}</div>
           <div style={{ fontSize: 13, color: P.faint, lineHeight: 1.5, marginTop: 7, paddingLeft: 10, borderLeft: `2px solid ${P.line}` }}>
@@ -1161,8 +1163,8 @@ const ExHistorySheet = ({ open, onClose, exName, entries, onOpenImg }) => (
             </div>
           ))}
           {en.comment && (
-            <div style={{ marginTop: 7, fontSize: 13.5, color: P.ember2, background: "rgba(255,107,44,.07)",
-              border: `1px solid rgba(255,107,44,.2)`, borderRadius: 10, padding: "8px 11px", lineHeight: 1.45 }}>
+            <div style={{ marginTop: 7, fontSize: 13.5, color: P.ember2, background: "rgba(255,255,255,.07)",
+              border: `1px solid rgba(255,255,255,.2)`, borderRadius: 10, padding: "8px 11px", lineHeight: 1.45 }}>
               <MessageSquare size={12} style={{ marginRight: 5, verticalAlign: -1 }} />{en.comment}
             </div>
           )}
@@ -1193,7 +1195,7 @@ const InlineRest = ({ timer, onAdjust, onDismiss }) => {
   const col = over ? P.green : P.ember;
   return (
     <div style={{ marginTop: 8, padding: "8px 9px", borderRadius: 10,
-      background: over ? "rgba(99,214,140,.10)" : `${P.ember}12`, border: `1px solid ${over ? "rgba(99,214,140,.45)" : `${P.ember}44`}` }}>
+      background: over ? "rgba(255,255,255,.10)" : `${P.ember}12`, border: `1px solid ${over ? "rgba(255,255,255,.45)" : `${P.ember}44`}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
         <Timer size={16} color={col} className={over ? "" : "pulse"} />
         <span style={{ fontSize: 11.5, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>
@@ -1225,13 +1227,13 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
     <input type="number" inputMode="decimal" step="any" placeholder={ph} value={set[field]}
       onChange={(e) => onPatch({ [field]: e.target.value })}
       style={{ width: w, padding: "9px 4px", textAlign: "center", fontWeight: 600, fontSize: 15,
-        background: done ? "rgba(99,214,140,.07)" : P.s3, borderColor: done ? "rgba(99,214,140,.35)" : P.line }} />
+        background: done ? "rgba(255,255,255,.07)" : P.s3, borderColor: done ? "rgba(255,255,255,.35)" : P.line }} />
   );
   const coachNote = set.coachNote || "";
   const coachAttachIds = set.coachAttachIds || [];
   return (
     <div className={done ? "quench" : ""} style={{ borderRadius: 12, padding: "8px 8px 8px 10px", marginBottom: 6,
-      background: done ? "rgba(99,214,140,.10)" : P.s2, border: `1px solid ${done ? "rgba(99,214,140,.3)" : P.line}` }}>
+      background: done ? "rgba(255,255,255,.10)" : P.s2, border: `1px solid ${done ? "rgba(255,255,255,.3)" : P.line}` }}>
       {(coachNote || coachAttachIds.length > 0 || set.coachVideo) && (
         <div style={{ marginBottom: 7, padding: "7px 9px", background: `${P.ember}12`, border: `1px solid ${P.ember}33`, borderRadius: 8 }}>
           {coachNote && <div style={{ fontSize: 12.5, color: P.ember2, lineHeight: 1.4 }}>{coachNote}</div>}
@@ -1288,7 +1290,7 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <button onClick={() => setShowCmt((v) => !v)} title="Comentario de la serie"
             style={{ padding: 5, color: set.comment ? P.ember2 : P.faint }}>
-            <MessageSquare size={16} fill={set.comment ? "rgba(255,184,107,.25)" : "none"} />
+            <MessageSquare size={16} fill={set.comment ? "rgba(220,220,226,.25)" : "none"} />
           </button>
           <button onClick={() => onStartRest && onStartRest()} title={`Iniciar descanso de ${restSec}s`}
             style={{ padding: 5, color: timer ? P.ember : P.faint }}>
@@ -1297,7 +1299,7 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
         </div>
         <button onClick={onToggleDone} title={done ? "Desmarcar" : "Serie completada"}
           style={{ width: 40, height: 40, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
-            background: done ? P.green : P.s3, color: done ? "#0D2415" : P.dim,
+            background: done ? P.green : P.s3, color: done ? "#0B0B0C" : P.dim,
             border: `1px solid ${done ? P.green : P.line}` }}>
           <Check size={19} strokeWidth={3} />
         </button>
@@ -1355,10 +1357,10 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
   const lastNote = lastEntry && (lastEntry.comment || (lastEntry.sets || []).some((s) => s.comment));
 
   return (
-    <Card style={{ marginBottom: 12, overflow: "hidden", borderColor: complete ? "rgba(99,214,140,.35)" : P.line }}>
+    <Card style={{ marginBottom: 12, overflow: "hidden", borderColor: complete ? "rgba(255,255,255,.35)" : P.line }}>
       <button onClick={() => setOpen((v) => !v)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-          background: complete ? "rgba(99,214,140,.15)" : P.s2, color: complete ? P.green : P.dim, border: `1px solid ${complete ? "rgba(99,214,140,.4)" : P.line}`, fontWeight: 700, fontSize: 14 }}>
+          background: complete ? "rgba(255,255,255,.15)" : P.s2, color: complete ? P.green : P.dim, border: `1px solid ${complete ? "rgba(255,255,255,.4)" : P.line}`, fontWeight: 700, fontSize: 14 }}>
           {complete ? <Check size={17} strokeWidth={3} /> : exIdx + 1}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1389,7 +1391,7 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
           )}
           <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
             <Btn kind={lastNote ? "ghost" : "line"} small onClick={() => setHist(true)}
-              style={lastNote ? { borderColor: "rgba(255,184,107,.5)", color: P.ember2 } : {}}>
+              style={lastNote ? { borderColor: "rgba(220,220,226,.5)", color: P.ember2 } : {}}>
               <History size={14} /> Historial y notas{entries.length ? ` (${entries.length})` : ""}
             </Btn>
             {ex.video && <Btn kind="line" small onClick={() => window.open(ex.video, "_blank")}><Video size={14} /> Ver técnica</Btn>}
@@ -1463,8 +1465,8 @@ const FocusField = ({ label, value, placeholder, onChange, onClear }) => (
     <input type="text" inputMode="decimal" enterKeyHint="done" placeholder={placeholder} value={value}
       onChange={(e) => onChange(e.target.value.replace(/[^0-9.,]/g, ""))}
       style={{ width: "100%", padding: "9px 2px", textAlign: "center", fontWeight: 700, fontSize: 20,
-        background: value !== "" ? "rgba(99,214,140,.08)" : P.s2,
-        borderColor: value !== "" ? "rgba(99,214,140,.35)" : P.line, borderRadius: 0 }} />
+        background: value !== "" ? "rgba(255,255,255,.08)" : P.s2,
+        borderColor: value !== "" ? "rgba(255,255,255,.35)" : P.line, borderRadius: 0 }} />
     <button onClick={() => onChange(stepNumeric(value, -1))} aria-label={`Bajar ${label}`}
       style={{ width: "100%", padding: "3px 0", color: P.dim, background: P.s3, border: `1px solid ${P.line}`, borderRadius: "0 0 9px 9px" }}>
       <ChevronDown size={20} strokeWidth={2.5} />
@@ -1702,7 +1704,7 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
     const target = (s.rest != null && s.rest !== "" ? +s.rest : (exx.rest || 0));
     const over = target > 0 && restEl >= target;
     return (
-      <div key={s.id} style={{ background: P.s1, border: `1px solid ${s.done ? "rgba(99,214,140,.35)" : P.line}`,
+      <div key={s.id} style={{ background: P.s1, border: `1px solid ${s.done ? "rgba(255,255,255,.35)" : P.line}`,
         borderRadius: 14, padding: "9px 10px 10px", marginBottom: 9 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
           <span className="disp" style={{ fontSize: 15, fontWeight: 700, color: kindColor || P.text }}>{label}</span>
@@ -1715,13 +1717,13 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
             style={{ padding: 5, color: P.faint }}><Trash2 size={16} /></button>
           <button data-cmt onClick={() => (cmtKey === ck ? setCmtKey(null) : openCmt(ck))} aria-label={`Comentario de ${label}`}
             style={{ padding: 5, color: s.comment ? P.ember2 : P.faint }}>
-            <MessageSquare size={17} fill={s.comment ? "rgba(255,184,107,.25)" : "none"} />
+            <MessageSquare size={17} fill={s.comment ? "rgba(220,220,226,.25)" : "none"} />
           </button>
           <button onClick={() => toggleRest(ei, si)} aria-label={`Cronómetro de descanso de ${label}`}
             style={{ padding: 5, color: started ? P.ember : P.faint }}><Timer size={17} /></button>
           <button onClick={() => patchSet(ei, si, { done: !s.done })} aria-label={s.done ? "Desmarcar serie" : "Marcar serie hecha"}
             style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-              background: s.done ? P.green : P.s3, color: s.done ? "#0D2415" : P.dim, border: `1px solid ${s.done ? P.green : P.line}` }}>
+              background: s.done ? P.green : P.s3, color: s.done ? "#0B0B0C" : P.dim, border: `1px solid ${s.done ? P.green : P.line}` }}>
             <Check size={17} strokeWidth={3} />
           </button>
         </div>
@@ -1737,8 +1739,8 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
 
         {started && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "6px 9px", borderRadius: 9,
-            background: over ? "rgba(99,214,140,.10)" : `${P.ember}12`,
-            border: `1px solid ${over ? "rgba(99,214,140,.45)" : `${P.ember}44`}` }}>
+            background: over ? "rgba(255,255,255,.10)" : `${P.ember}12`,
+            border: `1px solid ${over ? "rgba(255,255,255,.45)" : `${P.ember}44`}` }}>
             <Timer size={15} color={over ? P.green : P.ember} />
             <span className="disp" style={{ fontSize: 19, fontWeight: 700, color: over ? P.green : P.ember }}>{bigTime(restEl)}</span>
             <span style={{ fontSize: 11.5, color: P.faint }}>descansando{target ? ` · objetivo ${target}s` : ""}</span>
@@ -1962,7 +1964,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             ))}
           </div>
           {summary.prs.length > 0 && (
-            <div style={{ background: "rgba(255,107,44,.08)", border: `1px solid ${P.ember}55`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+            <div style={{ background: "rgba(255,255,255,.08)", border: `1px solid ${P.ember}55`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
               <div style={{ fontWeight: 700, color: P.ember2, marginBottom: 6 }}><Award size={15} style={{ verticalAlign: -2, marginRight: 5 }} />Récords personales de peso</div>
               {summary.prs.map((p) => <div key={p} style={{ fontSize: 14, color: P.text, padding: "2px 0" }}>• {p}</div>)}
             </div>
@@ -1987,8 +1989,8 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <div style={{ color: P.dim, fontSize: 14, marginBottom: 14 }}>{d.exs.length} ejercicios · {totalSeries} series efectivas. Aún no se ha creado sesión: revisa lo que toca y arranca cuando estés listo.</div>
         {mesoOf(plan).weeks.length > 1 && (
           <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 12, padding: "6px 11px", borderRadius: 9,
-            background: currentWeek(plan).deload ? "rgba(99,214,140,.12)" : `${P.blue}14`,
-            border: `1px solid ${currentWeek(plan).deload ? "rgba(99,214,140,.45)" : `${P.blue}44`}` }}>
+            background: currentWeek(plan).deload ? "rgba(255,255,255,.12)" : `${P.blue}14`,
+            border: `1px solid ${currentWeek(plan).deload ? "rgba(255,255,255,.45)" : `${P.blue}44`}` }}>
             <Calendar size={14} color={currentWeek(plan).deload ? P.green : P.blue} />
             <span style={{ fontSize: 12.5, color: P.dim }}>
               {currentWeek(plan).name}{currentWeek(plan).deload ? " · semana de descarga" : ""} — reps y RIR de esta semana
@@ -2058,7 +2060,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Entrenar</h1>
         <div style={{ color: P.dim, fontSize: 14, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego un día para ver los ejercicios. Solo cuando aprietes «Iniciar entrenamiento» se creará la sesión y empezarán los cronómetros.</div>
         {active && (
-          <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.ember}66`, background: `linear-gradient(160deg, rgba(255,107,44,.10), ${P.s1})` }}>
+          <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.ember}66`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
             <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>Sesión en curso: {active.dayName}</div>
             <div style={{ fontSize: 12.5, color: P.dim, marginBottom: 10 }}>Estás mirando la rutina. Tu registro sigue guardado tal como lo dejaste.</div>
             <Btn kind="ember" small onClick={() => { setPreviewDay(null); setBrowsing(false); }} style={{ width: "100%" }}>
@@ -2296,7 +2298,7 @@ const TodayTab = ({ plan, history, active, goTrain, role }) => {
       </div>
 
       {active ? (
-        <Card style={{ padding: 16, marginBottom: 14, borderColor: `${P.ember}66`, background: `linear-gradient(160deg, rgba(255,107,44,.10), ${P.s1})` }}>
+        <Card style={{ padding: 16, marginBottom: 14, borderColor: `${P.ember}66`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
           <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 4 }}>Tienes una sesión en curso</div>
           <div style={{ fontSize: 13.5, color: P.dim, marginBottom: 12 }}>{active.dayName} — todos tus datos están guardados. Puedes retomarla exactamente donde quedaste, aunque cierres la app.</div>
           <Btn kind="ember" onClick={goTrain} style={{ width: "100%" }}><Play size={16} /> Continuar sesión</Btn>
@@ -2593,7 +2595,7 @@ const NutritionView = ({ n }) => {
       {hasMacros && (
         <>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 10 }}>
-          {[["kcal", v.kcal || "—", P.ember2], ["Proteína", v.p ? `${v.p} g` : "—", P.green], ["Carbos", v.c ? `${v.c} g` : "—", P.blue], ["Grasas", v.f ? `${v.f} g` : "—", "#E8A54B"]].map(([l, val, c]) => (
+          {[["kcal", v.kcal || "—", P.ember2], ["Proteína", v.p ? `${v.p} g` : "—", P.green], ["Carbos", v.c ? `${v.c} g` : "—", P.blue], ["Grasas", v.f ? `${v.f} g` : "—", "#8C8C93"]].map(([l, val, c]) => (
             <Card key={l} style={{ padding: "11px 6px", textAlign: "center" }}>
               <div className="disp" style={{ fontSize: 18, fontWeight: 700, color: c }}>{val}</div>
               <div style={{ fontSize: 10.5, color: P.dim, marginTop: 2 }}>{l}</div>
@@ -2605,12 +2607,12 @@ const NutritionView = ({ n }) => {
             <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", marginBottom: 8, background: P.s3 }}>
               <div style={{ width: `${v.pctP}%`, background: P.green }} />
               <div style={{ width: `${v.pctC}%`, background: P.blue }} />
-              <div style={{ width: `${v.pctF}%`, background: "#E8A54B" }} />
+              <div style={{ width: `${v.pctF}%`, background: "#8C8C93" }} />
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 12px", fontSize: 11.5, color: P.dim }}>
               <span><b style={{ color: P.green }}>Proteína</b> {v.pk} kcal ({v.pctP}%)</span>
               <span><b style={{ color: P.blue }}>Carbos</b> {v.ck} kcal ({v.pctC}%)</span>
-              <span><b style={{ color: "#E8A54B" }}>Grasa</b> {v.fk} kcal ({v.pctF}%)</span>
+              <span><b style={{ color: "#8C8C93" }}>Grasa</b> {v.fk} kcal ({v.pctF}%)</span>
             </div>
           </div>
         )}
@@ -3080,8 +3082,8 @@ const MesoPanel = ({ plan, savePlan }) => {
                 title="Marcar como semana de descarga"
                 style={{ fontSize: 11, fontWeight: 700, padding: "4px 8px", borderRadius: 7, whiteSpace: "nowrap",
                   color: w.deload ? P.green : P.faint,
-                  background: w.deload ? "rgba(99,214,140,.14)" : "transparent",
-                  border: `1px solid ${w.deload ? "rgba(99,214,140,.45)" : P.line}` }}>
+                  background: w.deload ? "rgba(255,255,255,.14)" : "transparent",
+                  border: `1px solid ${w.deload ? "rgba(255,255,255,.45)" : P.line}` }}>
                 Descarga
               </button>
               {meso.weeks.length > 1 && (
@@ -3507,12 +3509,12 @@ const NutritionEditor = ({ plan, savePlan }) => {
           <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", marginBottom: 8, background: P.s3 }}>
             <div style={{ width: `${v.pctP}%`, background: P.green }} />
             <div style={{ width: `${v.pctC}%`, background: P.blue }} />
-            <div style={{ width: `${v.pctF}%`, background: "#E8A54B" }} />
+            <div style={{ width: `${v.pctF}%`, background: "#8C8C93" }} />
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 12px", fontSize: 11.5, color: P.dim }}>
             <span><b style={{ color: P.green }}>Proteína</b> {v.p} g · {v.pk} kcal ({v.pctP}%)</span>
             <span><b style={{ color: P.blue }}>Carbos</b> {v.c} g · {v.ck} kcal ({v.pctC}%)</span>
-            <span><b style={{ color: "#E8A54B" }}>Grasa</b> {v.f} g · {v.fk} kcal ({v.pctF}%)</span>
+            <span><b style={{ color: "#8C8C93" }}>Grasa</b> {v.f} g · {v.fk} kcal ({v.pctF}%)</span>
           </div>
           <div style={{ fontSize: 12.5, color: P.text, fontWeight: 700, marginTop: 6 }}>Total: {v.tot} kcal</div>
         </div>
@@ -5052,7 +5054,7 @@ const Gate = ({ roster, onEnter, onAdd }) => (
         Este dispositivo recordará tu elección. Podrás cambiarla cuando quieras desde el encabezado.
       </div>
       <Card onClick={() => onEnter("coach", roster.students[0]?.id)} style={{ padding: "15px 16px", marginBottom: 16, borderColor: `${P.ember}55`, cursor: "pointer",
-        background: `linear-gradient(150deg, rgba(255,107,44,.10), ${P.s1})` }}>
+        background: `linear-gradient(150deg, rgba(255,255,255,.10), ${P.s1})` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: `${P.ember}22`, border: `1px solid ${P.ember}55`, display: "flex", alignItems: "center", justifyContent: "center" }}><ClipboardList size={20} color={P.ember} /></div>
           <div><div style={{ fontWeight: 700, fontSize: 16 }}>Soy el coach</div><div style={{ fontSize: 12.5, color: P.dim }}>Crear y editar rutinas, ver la actividad de todos</div></div>
