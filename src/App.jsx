@@ -5,7 +5,7 @@ import {
   Camera, Check, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
-  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search
+  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library
 } from "lucide-react";
 
 /* ============================================================
@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v20";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v21";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -5251,6 +5251,28 @@ const Toast = ({ msg }) => !msg ? null : (
   </div>
 );
 
+/* ============================================================
+   ATLAS — enciclopedia + guía de ejercicios (Olympia Training Atlas)
+   Se sirve como archivos propios dentro de esta misma plataforma
+   (carpeta /atlas), así que queda embebido sin salir del sitio.
+   ============================================================ */
+const AtlasTab = () => (
+  <div style={{ padding: "16px 12px 6px" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+      <Library size={21} color={P.ember} />
+      <h1 style={{ fontSize: 24, textTransform: "uppercase", margin: "4px 0" }}>Atlas</h1>
+    </div>
+    <div style={{ color: P.dim, fontSize: 13, marginBottom: 10, lineHeight: 1.4 }}>
+      Enciclopedia profesional de fuerza e hipertrofia + guía definitiva de ejercicios: 248 conceptos, 83 ejercicios y 22 fuentes científicas.
+    </div>
+    <div style={{ borderRadius: 14, overflow: "hidden", border: `1px solid ${P.line}`,
+      height: "calc(100dvh - 220px)", minHeight: 460, background: "#07090d" }}>
+      <iframe src="atlas/index.html" title="Olympia Training Atlas" loading="lazy"
+        style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
+    </div>
+  </div>
+);
+
 const TABS = {
   alumno: [
     { id: "hoy", label: "Hoy", Icon: Home },
@@ -5260,6 +5282,7 @@ const TABS = {
     { id: "nutricion", label: "Nutric.", Icon: Utensils },
     { id: "timer", label: "Timer", Icon: Timer },
     { id: "guia", label: "Guía", Icon: BookOpen },
+    { id: "atlas", label: "Atlas", Icon: Library },
   ],
   coach: [
     { id: "rutina", label: "Rutina", Icon: ClipboardList },
@@ -5270,6 +5293,7 @@ const TABS = {
     { id: "actividad", label: "Activ.", Icon: Users },
     { id: "timer", label: "Timer", Icon: Timer },
     { id: "guia", label: "Guía", Icon: BookOpen },
+    { id: "atlas", label: "Atlas", Icon: Library },
   ],
 };
 
@@ -5677,6 +5701,7 @@ const App = () => {
             <GlossaryBody />
           </div>
         )}
+        {tab === "atlas" && <AtlasTab />}
       </div>
 
       <TabBar tabs={tabs} tab={tab} setTab={setTab} />
