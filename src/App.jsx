@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v21";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v22";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -36,8 +36,8 @@ const P = {
 };
 
 const SET_TYPES = {
-  warmup:   { label: "Aproximación", short: "APR", color: "#8A8A90", g: "warmup" },
-  normal:   { label: "Efectiva",     short: "EF",  color: "#ADADB4", g: "efectiva" },
+  warmup:   { label: "Calentamiento (Warm-up set)", short: "WRM", color: "#8A8A90", g: "warmup" },
+  normal:   { label: "Serie de trabajo (Working set)", short: "WRK", color: "#ADADB4", g: "efectiva" },
   top:      { label: "Top set",      short: "TOP", color: "#FFFFFF", g: "topset" },
   backoff:  { label: "Back-off",     short: "B-O", color: "#CFCFD5", g: "backoff" },
   drop:     { label: "Drop set",     short: "DROP",color: "#EDEDF1", g: "dropset" },
@@ -141,8 +141,8 @@ const GLOSSARY = [
   { id:"dropset", term:"Drop set", def:"Al terminar la serie cerca del fallo, bajas el peso de inmediato (20–30 % menos) y sigues repitiendo sin descanso. Puede tener una o varias «caídas». Genera mucho estímulo y mucha fatiga: se usa con moderación, normalmente en la última serie de ejercicios de aislamiento.", ej:"Elevaciones laterales: 12 reps con 10 kg → sin descansar, 10 reps con 7 kg → 8 reps con 5 kg." },
   { id:"restpause", term:"Rest-pause", def:"Haces la serie hasta cerca del fallo, descansas 10–20 segundos y, con el mismo peso, sacas un mini-bloque más de repeticiones. Se puede repetir 1–2 veces. Permite acumular repeticiones efectivas en poco tiempo.", ej:"12 reps → 15 s de pausa → 4 reps → 15 s → 3 reps, todo con el mismo peso." },
   { id:"amrap", term:"AMRAP", def:"«As Many Reps As Possible»: haces todas las repeticiones posibles con técnica correcta (según el RIR indicado). Sirve para medir progreso y ajustar cargas.", ej:"Última serie AMRAP @ RIR 1: anota cuántas salieron; si superas el rango, la próxima semana sube el peso." },
-  { id:"warmup", term:"Serie de aproximación", def:"Series ligeras previas a las series efectivas para preparar articulaciones, activar la musculatura y practicar la técnica sin generar fatiga. No cuentan como volumen efectivo.", ej:"Antes de un top set de 100 kg: 8 reps con 40 kg, 5 con 60 kg, 3 con 80 kg." },
-  { id:"efectiva", term:"Serie efectiva", def:"Serie de trabajo real, hecha lo bastante cerca del fallo (RIR 0–4) como para estimular hipertrofia. Es la unidad con la que se cuenta el volumen semanal por grupo muscular.", ej:"3 series efectivas de 8–10 @ RIR 2 en remo = 3 series que suman al volumen de espalda." },
+  { id:"warmup", term:"Serie de calentamiento (Warm-up set, WRM)", def:"Series ligeras previas a las series de trabajo para preparar articulaciones, activar la musculatura y practicar la técnica sin generar fatiga. No cuentan como volumen efectivo.", ej:"Antes de un top set de 100 kg: 8 reps con 40 kg, 5 con 60 kg, 3 con 80 kg." },
+  { id:"efectiva", term:"Serie de trabajo (Working set, WRK)", def:"Serie de trabajo real, hecha lo bastante cerca del fallo (RIR 0–4) como para estimular hipertrofia. Es la unidad con la que se cuenta el volumen semanal por grupo muscular.", ej:"3 series de trabajo de 8–10 @ RIR 2 en remo = 3 series que suman al volumen de espalda." },
   { id:"superset", term:"Superserie", def:"Dos ejercicios realizados uno inmediatamente después del otro, descansando recién al terminar el segundo. Ahorra tiempo y funciona mejor con músculos antagonistas o que no compiten entre sí.", ej:"Curl de bíceps + extensión de tríceps en polea, descanso de 90 s al completar ambos." },
   { id:"tempo", term:"Tempo", def:"Velocidad de cada fase de la repetición escrita en 4 números: excéntrica – pausa abajo – concéntrica – pausa arriba (en segundos). Controlar la bajada suele ser lo más relevante para hipertrofia.", ej:"Tempo 3-1-1-0: bajas en 3 s, pausa de 1 s, subes en 1 s, sin pausa arriba." },
   { id:"fallo", term:"Fallo muscular / fallo técnico", def:"Fallo muscular: no puedes completar otra repetición aunque lo intentes. Fallo técnico: aún podrías moverla, pero ya no con técnica correcta. Para hipertrofia se entrena cerca del fallo; llegar siempre al fallo absoluto aumenta la fatiga más que el estímulo.", ej:"Si en la rep 9 la espalda se despega del respaldo, esa fue tu última rep útil: fallo técnico." },
