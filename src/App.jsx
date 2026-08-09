@@ -5,7 +5,7 @@ import {
   Camera, Check, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
-  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical
+  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers
 } from "lucide-react";
 
 /* ============================================================
@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v18";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v19";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -49,7 +49,10 @@ const SET_TYPES = {
   pfi:      { label: "Pre-fatiga iso", short: "PFI", color: "#E2E2E7", g: "pfi" },
 };
 
-const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Otro"];
+const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Trapecio","Otro"];
+// Porcentaje de crédito que se le puede asignar a un músculo secundario
+// (el ejercicio también lo trabaja, pero no es el músculo principal).
+const SECONDARY_PCTS = [25, 50, 75];
 
 // Tipos de serie que admiten porcentaje de bajada de carga
 const PCT_TYPES = ["top", "backoff", "drop", "amrap"];
@@ -351,6 +354,9 @@ const fmtDateFull = (iso) => {
 };
 const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 const kg = (n) => (n % 1 === 0 ? String(n) : n.toFixed(1).replace(".", ","));
+// Formatea series que pueden salir fraccionadas por el crédito de músculos
+// secundarios (ej: 8.5 series).
+const fmtSets = (n) => (n % 1 === 0 ? String(n) : n.toFixed(1));
 const weekKey = (iso) => {
   const d = new Date(iso); const day = (d.getDay() + 6) % 7;
   const mon = new Date(d); mon.setDate(d.getDate() - day); mon.setHours(0,0,0,0);
@@ -617,7 +623,7 @@ function seedPlan() {
       meals: [],
     },
     instructions: [
-      { id: uid(), title: "Datos y cronograma", body: "Leandro Pereira · 27 años · 1,77 m · categoría Mens Physique. Peso inicial 83 → peso actual 90. Bloque de 4 semanas. Cronograma: Lunes A · Martes B · Miércoles C · Viernes D · Sábado E (jueves y domingo, descanso). Cardio suave ~120 bpm según indique el coach." },
+      { id: uid(), title: "Datos y cronograma", body: "27 años · 1,77 m · categoría Mens Physique. Peso inicial 83 → peso actual 90. Bloque de 4 semanas. Cronograma: Lunes A · Martes B · Miércoles C · Viernes D · Sábado E (jueves y domingo, descanso). Cardio suave ~120 bpm según indique el coach." },
       { id: uid(), title: "Foco: progresión de carga", body: "El foco del plan es la progresión de carga. Anota SIEMPRE tus cargas para mantener el control (esta app lo hace por ti). El progreso no depende solo del plan, sino de la ejecución correcta, la técnica y la conciencia corporal: siente el músculo que trabaja. Si el entrenamiento se siente muy fácil, probablemente no estás dando tu máximo: progresa la carga con buena amplitud y cadencia. No agregues ejercicios ni series extra: más volumen puede perjudicar la recuperación." },
       { id: uid(), title: "Intensidad del Esfuerzo (IE) y RIR", body: "El IE mide el esfuerzo de cada serie en escala 1 a 10. 1–5: muy fácil (calentamiento). 6–7: medio, terminarías con 3–4 reps en reserva. 8: desafiante, ~2 reps en reserva. 9: muy exigente, queda 1 rep en reserva. 10: fallo total. En FORJA cada serie muestra el RIR equivalente: IE 10 = RIR 0, IE 9 = RIR 1, IE 8 = RIR 2. Respeta el IE de cada ejercicio como parámetro." },
       { id: uid(), title: "Series y calentamiento", body: "Las series que aparecen en cada ejercicio son las series efectivas (cerca o hasta el fallo, según el IE). Antes, calienta en el propio ejercicio: empieza con cargas bajas y súbelas de forma progresiva con pocas repeticiones, sin fatigarte. Ejemplo Leg Press: 40 kg (10) → 100 kg (6) → 140 kg (3) → serie principal. Regla del «/»: en el nombre = opciones (elige la que prefieras); en las repeticiones = las reps de cada serie (Serie 1 / Serie 2 / Serie 3)." },
@@ -770,19 +776,51 @@ function daysFromAIJson(rawDays) {
   }));
 }
 
+/* Reparte las series efectivas de un ejercicio entre su músculo principal
+   (crédito completo) y los músculos secundarios que haya marcado el coach
+   (crédito parcial, según el % de cada uno). Un ejercicio de espalda que
+   también marque trapecio al 50 % suma sus series completas a Espalda y la
+   mitad a Trapecio. */
+function addExerciseVolume(perMuscle, ex) {
+  const eff = (ex.sets || []).filter((s) => s.type !== "warmup").length;
+  if (!eff) return;
+  const m = ex.muscle || "Otro";
+  perMuscle[m] = (perMuscle[m] || 0) + eff;
+  (ex.secondary || []).forEach((sec) => {
+    if (!sec || !sec.muscle || sec.muscle === m) return;
+    const frac = (sec.pct != null ? sec.pct : 50) / 100;
+    perMuscle[sec.muscle] = (perMuscle[sec.muscle] || 0) + eff * frac;
+  });
+}
+
+const statusFor = (sets, ref) => {
+  if (!ref) return "sin referencia";
+  if (sets < ref.mev) return "bajo";
+  if (sets < ref.mav[0]) return "mínimo";
+  if (sets <= ref.mav[1]) return "óptimo";
+  if (sets <= ref.mrv) return "alto";
+  return "sobre MRV";
+};
+
+/* Series efectivas por grupo muscular para UN día (sesión) puntual —
+   incluye el aporte parcial de músculos secundarios. */
+function volumeByMuscleForDay(day) {
+  const perMuscle = {};
+  (day.exs || []).forEach((ex) => addExerciseVolume(perMuscle, ex));
+  const rows = Object.entries(perMuscle)
+    .map(([muscle, sets]) => ({ muscle, sets, ref: BB_VOLUME_REF[muscle], status: statusFor(sets, BB_VOLUME_REF[muscle]) }))
+    .sort((a, b) => b.sets - a.sets);
+  const totalSets = (day.exs || []).reduce((a, e) => a + (e.sets || []).filter((s) => s.type !== "warmup").length, 0);
+  return { rows, totalSets };
+}
+
 /* Series efectivas por grupo muscular.
    Si el plan tiene cronograma semanal, cuenta lo que realmente toca cada semana;
-   si no, cuenta una vuelta completa a la rutina. */
+   si no, cuenta una vuelta completa a la rutina. Incluye el aporte parcial de
+   músculos secundarios marcados en cada ejercicio. */
 function volumeByMuscle(plan) {
   const perMuscle = {};
-  const add = (day) => {
-    (day.exs || []).forEach((ex) => {
-      const eff = (ex.sets || []).filter((s) => s.type !== "warmup").length;
-      if (!eff) return;
-      const m = ex.muscle || "Otro";
-      perMuscle[m] = (perMuscle[m] || 0) + eff;
-    });
-  };
+  const add = (day) => { (day.exs || []).forEach((ex) => addExerciseVolume(perMuscle, ex)); };
   const sched = plan.schedule || {};
   const scheduledIds = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((k) => sched[k]).filter(Boolean);
   let basis = "semana";
@@ -796,18 +834,7 @@ function volumeByMuscle(plan) {
     (plan.days || []).forEach(add);
   }
   const rows = Object.entries(perMuscle)
-    .map(([muscle, sets]) => {
-      const ref = BB_VOLUME_REF[muscle];
-      let status = "sin referencia";
-      if (ref) {
-        if (sets < ref.mev) status = "bajo";
-        else if (sets < ref.mav[0]) status = "mínimo";
-        else if (sets <= ref.mav[1]) status = "óptimo";
-        else if (sets <= ref.mrv) status = "alto";
-        else status = "sobre MRV";
-      }
-      return { muscle, sets, ref, status };
-    })
+    .map(([muscle, sets]) => ({ muscle, sets, ref: BB_VOLUME_REF[muscle], status: statusFor(sets, BB_VOLUME_REF[muscle]) }))
     .sort((a, b) => b.sets - a.sets);
   return { basis, rows, total: rows.reduce((a, r) => a + r.sets, 0) };
 }
@@ -1433,6 +1460,105 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
         </div>
       )}
       <ExHistorySheet open={hist} onClose={() => setHist(false)} exName={ex.name} entries={entries} onOpenImg={onOpenImg} />
+    </Card>
+  );
+};
+
+/* ============================================================
+   Bloque de superserie/triserie/serie gigante en sesión (vista normal,
+   NO focus mode). En vez de una tarjeta por ejercicio con todas sus series
+   apiladas, se muestra UNA tarjeta para todo el bloque, organizada por
+   RONDA: la ronda 1 junta la serie 1 de cada ejercicio del bloque, la
+   ronda 2 junta la serie 2 de cada uno, etc. — el mismo orden que el
+   focus mode, para que sea evidente qué hacer justo después de qué.
+   ============================================================ */
+const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, onPatchSet, onSetDone, onInfo, onError, onOpenImg, timer, onStartRest, onAdjustRest, onDismissRest }) => {
+  const [open, setOpen] = useState(members[0] === 0);
+  const [hist, setHist] = useState(null);   // índice del ejercicio cuyo historial se ve
+  const col = GROUP_KINDS[kind].color;
+  const totalSets = members.reduce((a, mi) => a + exsAll[mi].sets.length, 0);
+  const doneSets = members.reduce((a, mi) => a + exsAll[mi].sets.filter((s) => s.done).length, 0);
+  const complete = doneSets === totalSets && totalSets > 0;
+  const posLabel = (k) => `${String.fromCharCode(65 + (members[0] % 26))}${k + 1}`;
+
+  return (
+    <Card style={{ marginBottom: 12, overflow: "hidden", borderColor: complete ? "rgba(255,255,255,.35)" : `${col}55`,
+      borderLeft: `3px solid ${col}` }}>
+      <button onClick={() => setOpen((v) => !v)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+          background: complete ? "rgba(255,255,255,.15)" : `${col}1E`, color: complete ? P.green : col, border: `1px solid ${complete ? "rgba(255,255,255,.4)" : `${col}55`}` }}>
+          {complete ? <Check size={17} strokeWidth={3} /> : <Layers size={16} />}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 15.5, lineHeight: 1.25 }}>
+            {members.map((mi, k) => exsAll[mi].name).join(" + ")}
+          </div>
+          <div style={{ fontSize: 12, color: col, marginTop: 2, fontWeight: 700 }}>
+            {GROUP_KINDS[kind].label} · {rounds} rondas · {totalSets} series en total
+          </div>
+        </div>
+        <span style={{ fontSize: 12.5, color: P.dim, fontWeight: 600 }}>{doneSets}/{totalSets}</span>
+        {open ? <ChevronUp size={17} color={P.faint} /> : <ChevronDown size={17} color={P.faint} />}
+      </button>
+
+      {open && (
+        <div style={{ padding: "0 12px 13px" }}>
+          <div style={{ fontSize: 12, color: P.dim, marginBottom: 10, lineHeight: 1.4 }}>
+            Haz {members.map((_, k) => posLabel(k)).join(" → ")} seguidos, sin descanso entre ellos. Descansa solo al terminar la ronda completa.
+          </div>
+
+          {members.map((mi, k) => exsAll[mi].notes && (
+            <div key={"note" + mi} style={{ fontSize: 13, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, padding: "8px 11px", marginBottom: 8, lineHeight: 1.4 }}>
+              <span style={{ color: col, fontWeight: 700 }}>{posLabel(k)} · {exsAll[mi].name} — Coach · </span>{exsAll[mi].notes}
+            </div>
+          ))}
+
+          {Array.from({ length: rounds }).map((_, r) => (
+            <div key={r} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: col, letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 6 }}>
+                Ronda {r + 1}/{rounds}
+              </div>
+              {members.map((mi, k) => {
+                const s = exsAll[mi].sets[r];
+                if (!s) return null;
+                const ex = exsAll[mi];
+                const entries = history.byEx[ex.id] || [];
+                const lastEntry = entries.length ? entries[entries.length - 1] : null;
+                return (
+                  <div key={mi} style={{ marginBottom: 7 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: col, marginBottom: 3 }}>{posLabel(k)} · {ex.name}</div>
+                    <SetRow set={s} idx={r}
+                      restSec={(s.rest != null && s.rest !== "" ? +s.rest : (ex.rest || 90))}
+                      timer={timer && timer.exIdx === mi && timer.setIdx === r ? timer : null}
+                      onStartRest={() => onStartRest(mi, r)}
+                      onAdjustRest={onAdjustRest}
+                      onDismissRest={onDismissRest}
+                      onOpenImg={onOpenImg} onAttachError={onError}
+                      last={lastEntry && lastEntry.sets[r] && lastEntry.sets[r].done ? lastEntry.sets[r] : null}
+                      suggest={null}
+                      onPatch={(patch) => onPatchSet(mi, r, patch)}
+                      onToggleDone={() => onSetDone(mi, r)}
+                      onInfo={onInfo} />
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+
+          {members.map((mi, k) => (
+            <div key={"cmt" + mi} style={{ marginBottom: k < members.length - 1 ? 8 : 0 }}>
+              <div style={{ fontSize: 11, color: P.faint, fontWeight: 700, marginBottom: 3 }}>{posLabel(k)} · {exsAll[mi].name}</div>
+              <Txt rows={2} placeholder={`Comentario de ${exsAll[mi].name} (sensaciones, molestias, ajustes…)`}
+                value={exsAll[mi].comment} onChange={(e) => onPatchEx(mi, { comment: e.target.value })} style={{ fontSize: 13.5 }} />
+              {exsAll[mi].video && (
+                <Btn kind="line" small onClick={() => window.open(exsAll[mi].video, "_blank")} style={{ marginTop: 6 }}>
+                  <Video size={14} /> Ver técnica de {exsAll[mi].name}
+                </Btn>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 };
@@ -2222,34 +2348,37 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             </div>
           )}
         </Card>
-        {active.exs.map((ex, ei) => {
-          const gr = exGroupInfo(active.exs, ei);
-          const node = (
-            <SessionExercise key={ex.id} ex={ex} exIdx={ei} gr={gr} history={history}
-              onPatchEx={(p) => patchEx(ei, p)} onPatchSet={(si, p) => patchSet(ei, si, p)}
-              onSetDone={(si) => toggleDone(ei, si)} onInfo={onInfo} onError={toast} onOpenImg={setViewImg}
-              timer={timer} onStartRest={startRest} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} />
-          );
-          if (!gr.kind) return node;
-          // Cabecera del bloque justo antes del primer ejercicio del grupo, y
-          // un marco lateral del color del bloque que abarca todos sus ejercicios.
-          const col = GROUP_KINDS[gr.kind].color;
-          return (
-            <div key={"g" + ex.id} style={{ borderLeft: `3px solid ${col}`, borderRadius: 4, paddingLeft: 8, marginBottom: 2 }}>
-              {gr.first && (
-                <div style={{ background: `${col}18`, border: `1px solid ${col}55`, borderRadius: 11, padding: "9px 11px", marginBottom: 8 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: col, letterSpacing: ".03em" }}>
-                    {GROUP_KINDS[gr.kind].label} · {gr.rounds} rondas
-                  </div>
-                  <div style={{ fontSize: 12, color: P.dim, marginTop: 3, lineHeight: 1.4 }}>
-                    Haz {Array.from({ length: gr.size }, (_, k) => `${gr.posLabel[0]}${k + 1}`).join(" → ")} seguidos, sin descanso entre ellos. Al terminar los {gr.size}, descansa y repite: son {gr.rounds} rondas en total.
-                  </div>
-                </div>
-              )}
-              {node}
-            </div>
-          );
-        })}
+        {(() => {
+          const out = [];
+          let i = 0;
+          while (i < active.exs.length) {
+            const gr = exGroupInfo(active.exs, i);
+            if (gr.kind) {
+              // Un bloque (superserie/triserie/gigante) se renderiza UNA sola
+              // vez, con todos sus ejercicios organizados por ronda.
+              const members = [];
+              let j = i;
+              const g = active.exs[i].group;
+              while (j < active.exs.length && active.exs[j].group === g) { members.push(j); j++; }
+              out.push(
+                <SessionGroupBlock key={"blk" + active.exs[i].id} exsAll={active.exs} members={members} kind={gr.kind} rounds={gr.rounds} history={history}
+                  onPatchEx={patchEx} onPatchSet={patchSet} onSetDone={toggleDone} onInfo={onInfo} onError={toast} onOpenImg={setViewImg}
+                  timer={timer} onStartRest={startRest} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} />
+              );
+              i = j;
+            } else {
+              const ei = i;
+              out.push(
+                <SessionExercise key={active.exs[ei].id} ex={active.exs[ei]} exIdx={ei} gr={gr} history={history}
+                  onPatchEx={(p) => patchEx(ei, p)} onPatchSet={(si, p) => patchSet(ei, si, p)}
+                  onSetDone={(si) => toggleDone(ei, si)} onInfo={onInfo} onError={toast} onOpenImg={setViewImg}
+                  timer={timer} onStartRest={startRest} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} />
+              );
+              i++;
+            }
+          }
+          return out;
+        })()}
         <Btn kind="line" onClick={() => setConfirmDiscard(true)} style={{ width: "100%", marginTop: 8, color: P.faint }}>
           <Trash2 size={15} /> Descartar sesión (no guarda nada)
         </Btn>
@@ -2734,11 +2863,34 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
           </select></Field></div>
         <div style={{ width: 130 }}><Field label="Descanso ejercicio (seg)"><Inp type="number" inputMode="numeric" value={d.rest} onChange={(e) => set({ rest: +e.target.value || 0 })} /></Field></div>
       </div>
+      <Field label="Músculos secundarios (opcional)"
+        hint="Este ejercicio no es 100 % aislado para el músculo principal. Ej: un remo prioriza espalda pero también trabaja trapecio y bíceps: márcalos con el % que aportan y se suman al volumen semanal de esos grupos.">
+        {(d.secondary || []).map((sec, si) => (
+          <div key={si} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+            <select value={sec.muscle} onChange={(e) => set({ secondary: d.secondary.map((x, xi) => xi === si ? { ...x, muscle: e.target.value } : x) })}
+              style={{ flex: 1, padding: "8px 8px", fontSize: 13.5 }}>
+              {MUSCLES.filter((m) => m !== d.muscle).map((m) => <option key={m}>{m}</option>)}
+            </select>
+            <select value={sec.pct} onChange={(e) => set({ secondary: d.secondary.map((x, xi) => xi === si ? { ...x, pct: +e.target.value } : x) })}
+              style={{ width: 82, padding: "8px 6px", fontSize: 13.5 }}>
+              {SECONDARY_PCTS.map((p) => <option key={p} value={p}>{p}%</option>)}
+            </select>
+            <button onClick={() => set({ secondary: d.secondary.filter((_, xi) => xi !== si) })} style={{ color: P.faint, padding: 6 }}><Trash2 size={15} /></button>
+          </div>
+        ))}
+        <Btn kind="line" small onClick={() => {
+          const opt = MUSCLES.find((m) => m !== d.muscle && !(d.secondary || []).some((s) => s.muscle === m)) || MUSCLES[0];
+          set({ secondary: [...(d.secondary || []), { muscle: opt, pct: 50 }] });
+        }}><Plus size={14} /> Añadir músculo secundario</Btn>
+      </Field>
       <Field label="Series"><SetsEditor sets={d.sets} onChange={(sets) => set({ sets })} onInfo={onInfo} exRest={d.rest} /></Field>
       <Field label="Vista previa del alumno" hint="Así verá el alumno este ejercicio al entrenar. Para armar una superserie/triserie une este ejercicio con el siguiente usando el clip de la lista de ejercicios.">
         <div style={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 11, padding: "11px 12px" }}>
           <div style={{ fontWeight: 700, fontSize: 14.5 }}>{d.name || "Nombre del ejercicio"}</div>
-          <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>{d.muscle} · descanso {fmtClock(d.rest || 120)} · {d.sets.length} serie{d.sets.length !== 1 ? "s" : ""}</div>
+          <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>
+            {d.muscle} · descanso {fmtClock(d.rest || 120)} · {d.sets.length} serie{d.sets.length !== 1 ? "s" : ""}
+            {(d.secondary || []).length > 0 && ` · también: ${d.secondary.map((s) => `${s.muscle} ${s.pct}%`).join(", ")}`}
+          </div>
           {d.notes && <div style={{ fontSize: 12.5, color: P.ember2, marginTop: 7, lineHeight: 1.45 }}><b>Coach · </b>{d.notes}</div>}
           <div style={{ marginTop: 9, display: "flex", flexDirection: "column", gap: 6 }}>
             {d.sets.length === 0 && <div style={{ fontSize: 12.5, color: P.faint }}>Añade al menos una serie arriba.</div>}
@@ -3383,7 +3535,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                     <Paperclip size={12} /> Toca el clip de un ejercicio para unirlo con el de abajo. Dos = superserie, tres = triserie, cuatro o más = serie gigante. Une otro más para agrandar el bloque.
                   </div>
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                    <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] } })} style={{ flex: 1, minWidth: 150 }}>
+                    <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] } })} style={{ flex: 1, minWidth: 150 }}>
                       <Plus size={15} /> Añadir ejercicio
                     </Btn>
                     {copiedEx && (
@@ -4331,40 +4483,87 @@ const AthleteForm = ({ plan, savePlan }) => {
 };
 
 /* ---- Volumen por grupo muscular ---- */
+const MuscleVolumeRow = ({ r, max }) => (
+  <Card style={{ padding: "11px 13px", marginBottom: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+      <div style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{r.muscle}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: P.text }}>{fmtSets(r.sets)} series</div>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em",
+        color: VOL_COLORS[r.status], background: `${VOL_COLORS[r.status]}1E`, border: `1px solid ${VOL_COLORS[r.status]}55`,
+        borderRadius: 7, padding: "2px 7px" }}>{r.status}</div>
+    </div>
+    <div style={{ position: "relative", height: 8, background: P.s3, borderRadius: 5, overflow: "hidden" }}>
+      {r.ref && (
+        <div style={{ position: "absolute", left: `${(r.ref.mav[0] / max) * 100}%`, width: `${((r.ref.mav[1] - r.ref.mav[0]) / max) * 100}%`,
+          top: 0, bottom: 0, background: `${P.green}33` }} />
+      )}
+      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(100, (r.sets / max) * 100)}%`,
+        background: VOL_COLORS[r.status], opacity: .85, borderRadius: 5 }} />
+    </div>
+    {r.ref && (
+      <div style={{ fontSize: 11.5, color: P.faint, marginTop: 6 }}>
+        MEV {r.ref.mev} · zona óptima {r.ref.mav[0]}–{r.ref.mav[1]} · MRV {r.ref.mrv} · frecuencia sugerida {r.ref.freq}
+      </div>
+    )}
+  </Card>
+);
+
 const VolumePanel = ({ plan }) => {
+  const [sub, setSub] = useState("semana");
   const vol = useMemo(() => volumeByMuscle(plan), [plan]);
+  const perDay = useMemo(() => (plan.days || []).map((d) => ({ day: d, ...volumeByMuscleForDay(d) })), [plan.days]);
   if (!vol.rows.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Carga la rutina del alumno para ver el volumen efectivo por grupo muscular." />;
   const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
+
   return (
     <div>
-      <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 12, lineHeight: 1.5 }}>
-        Series efectivas (sin contar aproximaciones) por <b>{vol.basis === "semana" ? "semana según el cronograma" : "vuelta completa a la rutina"}</b>. Total: {vol.total} series.
-        {vol.basis === "ciclo" && " Asigna los días en la pestaña Agenda para verlo en base semanal."}
+      <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 11, padding: 3, marginBottom: 12 }}>
+        {[["semana", "Semanal por músculo"], ["sesion", "Por sesión"]].map(([id, l]) => (
+          <button key={id} onClick={() => setSub(id)} style={{ flex: 1, padding: "8px 6px", borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+            background: sub === id ? P.s3 : "transparent", color: sub === id ? P.text : P.faint, border: `1px solid ${sub === id ? P.line : "transparent"}` }}>{l}</button>
+        ))}
       </div>
-      {vol.rows.map((r) => (
-        <Card key={r.muscle} style={{ padding: "11px 13px", marginBottom: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{r.muscle}</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: P.text }}>{r.sets} series</div>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em",
-              color: VOL_COLORS[r.status], background: `${VOL_COLORS[r.status]}1E`, border: `1px solid ${VOL_COLORS[r.status]}55`,
-              borderRadius: 7, padding: "2px 7px" }}>{r.status}</div>
+
+      {sub === "semana" && (
+        <>
+          <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 12, lineHeight: 1.5 }}>
+            Series efectivas (sin contar aproximaciones) por <b>{vol.basis === "semana" ? "semana según el cronograma" : "vuelta completa a la rutina"}</b>. Total: {fmtSets(vol.total)} series.
+            {vol.basis === "ciclo" && " Asigna los días en la pestaña Agenda para verlo en base semanal."}
+            {" "}Incluye el aporte parcial de los músculos secundarios que marques en cada ejercicio.
           </div>
-          <div style={{ position: "relative", height: 8, background: P.s3, borderRadius: 5, overflow: "hidden" }}>
-            {r.ref && (
-              <div style={{ position: "absolute", left: `${(r.ref.mav[0] / max) * 100}%`, width: `${((r.ref.mav[1] - r.ref.mav[0]) / max) * 100}%`,
-                top: 0, bottom: 0, background: `${P.green}33` }} />
-            )}
-            <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(100, (r.sets / max) * 100)}%`,
-              background: VOL_COLORS[r.status], opacity: .85, borderRadius: 5 }} />
+          {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} />)}
+        </>
+      )}
+
+      {sub === "sesion" && (
+        <>
+          <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 12, lineHeight: 1.5 }}>
+            Series efectivas totales de cada sesión, con el desglose por grupo muscular (incluye el aporte parcial de músculos secundarios).
           </div>
-          {r.ref && (
-            <div style={{ fontSize: 11.5, color: P.faint, marginTop: 6 }}>
-              MEV {r.ref.mev} · zona óptima {r.ref.mav[0]}–{r.ref.mav[1]} · MRV {r.ref.mrv} · frecuencia sugerida {r.ref.freq}
-            </div>
-          )}
-        </Card>
-      ))}
+          {perDay.length === 0 && <Empty icon={ClipboardList} title="Sin días cargados" body="Crea los días de la rutina para ver el detalle por sesión." />}
+          {perDay.map(({ day, rows, totalSets }) => (
+            <Card key={day.id} style={{ padding: "12px 13px", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{day.name}</div>
+                <div style={{ fontSize: 11.5, color: P.faint }}>{routineLabel(routineOf(day))}</div>
+                <div style={{ flex: 1 }} />
+                <div className="disp" style={{ fontSize: 16, fontWeight: 700, color: P.ember2 }}>{fmtSets(totalSets)} series</div>
+              </div>
+              {rows.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: P.faint }}>Sin ejercicios en este día.</div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {rows.map((r) => (
+                    <div key={r.muscle} style={{ fontSize: 12, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 8, padding: "4px 9px" }}>
+                      {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ))}
+        </>
+      )}
     </div>
   );
 };
@@ -5166,7 +5365,7 @@ const App = () => {
       let r = await sGet("forja-roster");
       if (!r || r.v !== ROSTER_VERSION || !r.students || r.students.length === 0) {
         const id = uid();
-        r = { v: ROSTER_VERSION, students: [{ id, name: "Leandro Pereira", createdAt: todayISO() }] };
+        r = { v: ROSTER_VERSION, students: [{ id, name: "Alumno ejemplo", createdAt: todayISO() }] };
         await sSet(`forja-plan:${id}`, seedPlanWithSchedule());
         const legacyH = await sGet("forja-history");
         await sSet(`forja-history:${id}`, (legacyH && legacyH.sessions) ? legacyH : emptyHistory());
@@ -5443,7 +5642,7 @@ const App = () => {
           Esta acción reemplaza el plan actual. El historial del alumno (sesiones, pesos, fotos) NO se borra. Puedes deshacer con el botón «Deshacer» si te arrepientes.
         </div>
         <Btn kind="ember" onClick={() => { resetPlan(true); setConfirmReset(false); }} style={{ width: "100%", marginBottom: 8 }}>
-          <RotateCcw size={15} /> Restaurar plan de ejemplo (Leandro)
+          <RotateCcw size={15} /> Restaurar plan de ejemplo
         </Btn>
         <Btn kind="line" onClick={() => { resetPlan(false); setConfirmReset(false); }} style={{ width: "100%", color: P.red }}>
           <Trash2 size={15} /> Vaciar completamente (empezar desde cero)
