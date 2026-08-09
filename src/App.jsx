@@ -5,7 +5,7 @@ import {
   Camera, Check, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
-  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers
+  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search
 } from "lucide-react";
 
 /* ============================================================
@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v19";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v20";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -147,6 +147,10 @@ const GLOSSARY = [
   { id:"tempo", term:"Tempo", def:"Velocidad de cada fase de la repetición escrita en 4 números: excéntrica – pausa abajo – concéntrica – pausa arriba (en segundos). Controlar la bajada suele ser lo más relevante para hipertrofia.", ej:"Tempo 3-1-1-0: bajas en 3 s, pausa de 1 s, subes en 1 s, sin pausa arriba." },
   { id:"fallo", term:"Fallo muscular / fallo técnico", def:"Fallo muscular: no puedes completar otra repetición aunque lo intentes. Fallo técnico: aún podrías moverla, pero ya no con técnica correcta. Para hipertrofia se entrena cerca del fallo; llegar siempre al fallo absoluto aumenta la fatiga más que el estímulo.", ej:"Si en la rep 9 la espalda se despega del respaldo, esa fue tu última rep útil: fallo técnico." },
   { id:"volumen", term:"Volumen de entrenamiento", def:"Cantidad total de trabajo. La forma más usada de medirlo es el número de series efectivas por grupo muscular por semana; también se mide en kilos totales (peso × reps × series).", ej:"Espalda: 14 series efectivas/semana. FORJA calcula el tonelaje de cada sesión automáticamente." },
+  { id:"mev", term:"MEV (Volumen Mínimo Efectivo)", def:"El número de series efectivas por semana, para un grupo muscular, por debajo del cual prácticamente no hay progreso: es el mínimo que hay que hacer para que el músculo crezca. Menos que el MEV es «bajo» en FORJA.", ej:"Si el MEV de pecho es 8 series/semana, con solo 4 series estás muy por debajo del estímulo mínimo: hay que sumar más volumen para progresar." },
+  { id:"mav", term:"MAV (rango de Máxima Adaptación de Volumen)", def:"Rango de series efectivas por semana donde el músculo progresa mejor: ya se pasó el mínimo (MEV) pero todavía no se llega al techo recuperable (MRV). Es la «zona óptima» que FORJA destaca en cada tabla de volumen. La mayor parte del entrenamiento debería vivir en este rango.", ej:"Si el rango óptimo de espalda es 14–22 series/semana, entrenar con 18 series está justo en la zona donde más se progresa." },
+  { id:"mrv", term:"MRV (Volumen Máximo Recuperable)", def:"El techo de series efectivas por semana que el cuerpo puede recuperar en esa fase. Pasarse de este número no da más músculo: solo suma fatiga que no alcanzas a disipar entre sesiones, y el rendimiento empieza a bajar. Sirve como límite superior, no como meta.", ej:"Si el MRV de bíceps es 20 series/semana y programas 26, probablemente estés sobre-entrenando ese grupo: toca bajar volumen o meter un deload." },
+  { id:"landmarks", term:"MEV / zona óptima (MAV) / MRV, todos juntos", def:"Son tres marcas en la misma escala de series semanales, de menor a mayor: MEV (mínimo para estimular) → zona óptima o MAV (donde más se progresa) → MRV (techo recuperable). FORJA los muestra en ese orden, separados por «/»: por ejemplo «8 / 12–20 / 22» significa MEV 8, zona óptima entre 12 y 20, MRV 22 series por semana.", ej:"Pecho: 8 / 12–20 / 22 · 2×/sem → con menos de 8 series vas bajo, entre 12 y 20 estás en la zona ideal, y pasar de 22 es entrenar más de lo que puedes recuperar. El «2×/sem» es la frecuencia semanal sugerida para ese grupo." },
   { id:"sobrecarga", term:"Sobrecarga progresiva", def:"Principio central del progreso: hacer más con el tiempo — más peso, más repeticiones o más series con la misma técnica. Por eso registrar cada serie importa: sin historial no hay progresión medible.", ej:"Semana 1: 80 kg × 8. Semana 3: 80 kg × 10. Semana 4: 82,5 kg × 8." },
   { id:"mesociclo", term:"Mesociclo", def:"Bloque de entrenamiento de 4 a 8 semanas con una progresión planificada (subiendo volumen o intensidad), que normalmente termina en una descarga.", ej:"Mesociclo de 5 semanas: RIR 3 → 2 → 2 → 1 → deload." },
   { id:"cluster", term:"Cluster set (serie en racimo)", def:"Serie partida en mini-bloques con pausas muy cortas dentro de la propia serie, para acumular repeticiones de calidad con una carga alta que en continuo no aguantarías. La pausa deja recuperar fosfocreatina sin perder la tensión del ejercicio.", ej:"Cluster 3/1/1/1 con tu peso de 5RM: 3 reps → 10-15 s de pausa (la barra descansa) → 1 rep → 10-15 s → 1 rep → 10-15 s → 1 rep. Eso es UNA serie: 6 reps con un peso de 5RM. Descanso entre clusters: 3-5 min. Úsalo en básicos (sentadilla, press, remo), 2-4 clusters por ejercicio." },
@@ -980,12 +984,34 @@ const Logo = ({ size = 26 }) => (
 );
 
 /* ---------------- Glosario UI ---------------- */
+// Quita tildes y pasa a minúsculas, para que buscar "mev" o "número" encuentre
+// lo mismo sin importar acentos ni mayúsculas.
+const searchNorm = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
 const GlossaryBody = ({ focusId }) => {
   const ref = useRef(null);
+  const [q, setQ] = useState("");
   useEffect(() => { if (focusId && ref.current) { const el = ref.current.querySelector(`[data-g="${focusId}"]`); el && el.scrollIntoView({ block: "start" }); } }, [focusId]);
+  const nq = searchNorm(q.trim());
+  const items = nq ? GLOSSARY.filter((g) => searchNorm(g.term).includes(nq) || searchNorm(g.def).includes(nq) || searchNorm(g.ej).includes(nq)) : GLOSSARY;
   return (
     <div ref={ref}>
-      {GLOSSARY.map((g) => (
+      <div style={{ position: "relative", marginBottom: 10 }}>
+        <Search size={16} color={P.faint} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
+        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar un término (ej: MEV, RIR, drop set…)"
+          aria-label="Buscar en la guía de términos" style={{ width: "100%", padding: "10px 12px 10px 34px", fontSize: 14 }} />
+        {q && (
+          <button onClick={() => setQ("")} aria-label="Borrar búsqueda"
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: P.faint, padding: 4 }}>
+            <X size={15} />
+          </button>
+        )}
+      </div>
+      {q && <div style={{ fontSize: 12, color: P.faint, marginBottom: 8 }}>{items.length} resultado{items.length !== 1 ? "s" : ""}</div>}
+      {items.length === 0 && (
+        <div style={{ padding: "24px 8px", textAlign: "center", color: P.faint, fontSize: 13.5 }}>Sin resultados para «{q}».</div>
+      )}
+      {items.map((g) => (
         <div key={g.id} data-g={g.id} style={{ padding: "14px 0", borderBottom: `1px solid ${P.line}`,
           background: focusId === g.id ? "rgba(255,255,255,.06)" : "transparent", borderRadius: 8, scrollMarginTop: 8 }}>
           <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 5, color: focusId === g.id ? P.ember2 : P.text }}>{g.term}</div>
@@ -2595,7 +2621,7 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
     <div style={{ padding: "18px 16px 30px" }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Progreso</h1>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
-        {subBtn("ex", "Ejercicios")}{subBtn("ses", "Sesiones")}{subBtn("body", "Cuerpo")}
+        {subBtn("ex", "Ejercicios")}{subBtn("ses", "Sesiones")}{subBtn("vol", "Volumen")}{subBtn("body", "Cuerpo")}
       </div>
 
       {sub === "ex" && (
@@ -2640,6 +2666,8 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
           ))
         )
       )}
+
+      {sub === "vol" && <VolumePanel plan={plan} />}
 
       {sub === "body" && (
         <div>
@@ -4511,7 +4539,11 @@ const MuscleVolumeRow = ({ r, max }) => (
 const VolumePanel = ({ plan }) => {
   const [sub, setSub] = useState("semana");
   const vol = useMemo(() => volumeByMuscle(plan), [plan]);
-  const perDay = useMemo(() => (plan.days || []).map((d) => ({ day: d, ...volumeByMuscleForDay(d) })), [plan.days]);
+  // Agrupado por rutina (A, B, C…), igual que en la pestaña Rutina, para no
+  // mezclar sesiones de rutinas distintas en una sola lista.
+  const groups = useMemo(() => groupDaysByRoutine(plan.days).map((g) => ({
+    ...g, perDay: g.days.map((d) => ({ day: d, ...volumeByMuscleForDay(d) })),
+  })), [plan.days]);
   if (!vol.rows.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Carga la rutina del alumno para ver el volumen efectivo por grupo muscular." />;
   const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
 
@@ -4538,29 +4570,36 @@ const VolumePanel = ({ plan }) => {
       {sub === "sesion" && (
         <>
           <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 12, lineHeight: 1.5 }}>
-            Series efectivas totales de cada sesión, con el desglose por grupo muscular (incluye el aporte parcial de músculos secundarios).
+            Series efectivas totales de cada sesión, con el desglose por grupo muscular (incluye el aporte parcial de músculos secundarios), separadas por rutina.
           </div>
-          {perDay.length === 0 && <Empty icon={ClipboardList} title="Sin días cargados" body="Crea los días de la rutina para ver el detalle por sesión." />}
-          {perDay.map(({ day, rows, totalSets }) => (
-            <Card key={day.id} style={{ padding: "12px 13px", marginBottom: 10 }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{day.name}</div>
-                <div style={{ fontSize: 11.5, color: P.faint }}>{routineLabel(routineOf(day))}</div>
-                <div style={{ flex: 1 }} />
-                <div className="disp" style={{ fontSize: 16, fontWeight: 700, color: P.ember2 }}>{fmtSets(totalSets)} series</div>
+          {groups.length === 0 && <Empty icon={ClipboardList} title="Sin días cargados" body="Crea los días de la rutina para ver el detalle por sesión." />}
+          {groups.map((g) => (
+            <div key={g.key} style={{ marginBottom: 18 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${P.line}` }}>
+                <div className="disp" style={{ fontSize: 16, fontWeight: 700, textTransform: "uppercase", color: P.ember2 }}>{g.label}</div>
+                <div style={{ fontSize: 11.5, color: P.faint }}>{g.days.length} sesión{g.days.length !== 1 ? "es" : ""}</div>
               </div>
-              {rows.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: P.faint }}>Sin ejercicios en este día.</div>
-              ) : (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {rows.map((r) => (
-                    <div key={r.muscle} style={{ fontSize: 12, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 8, padding: "4px 9px" }}>
-                      {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
+              {g.perDay.map(({ day, rows, totalSets }) => (
+                <Card key={day.id} style={{ padding: "12px 13px", marginBottom: 10 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>{day.name}</div>
+                    <div style={{ flex: 1 }} />
+                    <div className="disp" style={{ fontSize: 16, fontWeight: 700, color: P.ember2 }}>{fmtSets(totalSets)} series</div>
+                  </div>
+                  {rows.length === 0 ? (
+                    <div style={{ fontSize: 12.5, color: P.faint }}>Sin ejercicios en este día.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {rows.map((r) => (
+                        <div key={r.muscle} style={{ fontSize: 12, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 8, padding: "4px 9px" }}>
+                          {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
-            </Card>
+                  )}
+                </Card>
+              ))}
+            </div>
           ))}
         </>
       )}
@@ -4598,12 +4637,22 @@ const KnowledgePanel = () => {
       </Section>
 
       <Section id="volumen" title="Volumen semanal por grupo muscular">
-        <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 8 }}>Series efectivas por semana. MEV: mínimo para estimular. Zona óptima: donde se progresa mejor. MRV: techo que se puede recuperar.</div>
+        <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 10, lineHeight: 1.5 }}>
+          Series efectivas por semana, de menor a mayor: <b style={{ color: P.text }}>MEV</b> (mínimo para estimular) →
+          <b style={{ color: P.green }}> zona óptima</b> (donde se progresa mejor) → <b style={{ color: P.text }}>MRV</b> (techo que se puede recuperar).
+          Pasarse del MRV no da más músculo, solo más fatiga.
+        </div>
         {Object.entries(BB_VOLUME_REF).map(([m, r]) => (
-          <div key={m} style={{ display: "flex", gap: 8, fontSize: 13, padding: "4px 0", borderBottom: `1px solid ${P.line}55` }}>
-            <div style={{ flex: 1, color: P.text, fontWeight: 600 }}>{m}</div>
-            <div>{r.mev} / <b style={{ color: P.green }}>{r.mav[0]}–{r.mav[1]}</b> / {r.mrv}</div>
-            <div style={{ color: P.faint, width: 62, textAlign: "right" }}>{r.freq}</div>
+          <div key={m} style={{ padding: "8px 0", borderBottom: `1px solid ${P.line}55` }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
+              <div style={{ flex: 1, color: P.text, fontWeight: 700, fontSize: 13.5 }}>{m}</div>
+              <div style={{ color: P.faint, fontSize: 12 }}>{r.freq}</div>
+            </div>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", fontSize: 12 }}>
+              <span style={{ color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>MEV {r.mev}</span>
+              <span style={{ color: P.green, background: "rgba(255,255,255,.08)", border: `1px solid rgba(255,255,255,.35)`, borderRadius: 6, padding: "2px 7px", fontWeight: 700 }}>Óptimo {r.mav[0]}–{r.mav[1]}</span>
+              <span style={{ color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>MRV {r.mrv}</span>
+            </div>
           </div>
         ))}
       </Section>
