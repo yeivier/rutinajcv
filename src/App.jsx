@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v22";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v23";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -35,18 +35,21 @@ const P = {
   blue: "#AEB4BD",
 };
 
+// Cada tipo de serie con su propio color fuerte y distinto, para que se
+// reconozcan de un vistazo durante el entrenamiento (el resto de la app
+// se mantiene en blanco y negro; esto es la única excepción a propósito).
 const SET_TYPES = {
-  warmup:   { label: "Calentamiento (Warm-up set)", short: "WRM", color: "#8A8A90", g: "warmup" },
-  normal:   { label: "Serie de trabajo (Working set)", short: "WRK", color: "#ADADB4", g: "efectiva" },
-  top:      { label: "Top set",      short: "TOP", color: "#FFFFFF", g: "topset" },
-  backoff:  { label: "Back-off",     short: "B-O", color: "#CFCFD5", g: "backoff" },
-  drop:     { label: "Drop set",     short: "DROP",color: "#EDEDF1", g: "dropset" },
-  restpause:{ label: "Rest-pause",   short: "R-P", color: "#BEBEC5", g: "restpause" },
-  amrap:    { label: "AMRAP",        short: "AMR", color: "#D6D6DC", g: "amrap" },
-  cluster:  { label: "Cluster set",  short: "CLU", color: "#B2B2B9", g: "cluster" },
-  vma:      { label: "VMA (iso final)", short: "VMA", color: "#C6C6CD", g: "vma" },
-  midiso:   { label: "Iso media + reps", short: "ISO", color: "#B9B9C0", g: "midiso" },
-  pfi:      { label: "Pre-fatiga iso", short: "PFI", color: "#E2E2E7", g: "pfi" },
+  warmup:   { label: "Calentamiento (Warm-up set)", short: "WRM", color: "#7DA6C7", g: "warmup" },
+  normal:   { label: "Serie de trabajo (Working set)", short: "WRK", color: "#34D399", g: "efectiva" },
+  top:      { label: "Top set",      short: "TOP", color: "#FF6B2C", g: "topset" },
+  backoff:  { label: "Back-off",     short: "B-O", color: "#F2B84B", g: "backoff" },
+  drop:     { label: "Drop set",     short: "DROP",color: "#F0555F", g: "dropset" },
+  restpause:{ label: "Rest-pause",   short: "R-P", color: "#B583F0", g: "restpause" },
+  amrap:    { label: "AMRAP",        short: "AMR", color: "#38D9E8", g: "amrap" },
+  cluster:  { label: "Cluster set",  short: "CLU", color: "#2DD4BF", g: "cluster" },
+  vma:      { label: "VMA (iso final)", short: "VMA", color: "#F472B6", g: "vma" },
+  midiso:   { label: "Iso media + reps", short: "ISO", color: "#818CF8", g: "midiso" },
+  pfi:      { label: "Pre-fatiga iso", short: "PFI", color: "#FB8A5C", g: "pfi" },
 };
 
 const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Trapecio","Otro"];
