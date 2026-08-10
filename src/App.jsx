@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v25";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v26";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -100,17 +100,26 @@ function blockIndexAt(exs, idx) {
   return count;
 }
 
+// Letra sola del bloque en la posición `idx` (sin número): la usan tanto el
+// ejercicio suelto (series tradicionales, un solo "bloque" de un ejercicio)
+// como el primer miembro de un grupo real.
+const blockLetter = (exs, idx) => String.fromCharCode(65 + (blockIndexAt(exs, idx) % 26));
+
 /* Datos del grupo al que pertenece exs[i]: tamaño, tipo, si es el primero y
-   qué letra le toca dentro del bloque (A1, A2, A3…). */
+   qué letra le toca dentro del bloque (A1, A2, A3…). Un ejercicio suelto
+   (series tradicionales, sin superserie/triserie/gigante) es su propio
+   bloque de un solo ejercicio: recibe la letra pero sin número, porque no
+   hay secuencia que numerar — se completan todas sus series antes de pasar
+   al siguiente ejercicio. */
 function exGroupInfo(exs, i) {
   const g = exs[i] && exs[i].group;
-  const solo = { kind: null, first: false, size: 1, rounds: 1, roundsRaw: "", linkedToNext: false, posLabel: "" };
+  const solo = { kind: null, first: true, size: 1, rounds: 1, roundsRaw: "", linkedToNext: false, posLabel: blockLetter(exs, i) };
   if (!g) return solo;
   let start = i, end = i;
   while (start > 0 && exs[start - 1].group === g) start--;
   while (end < exs.length - 1 && exs[end + 1].group === g) end++;
   const size = end - start + 1;
-  if (size < 2) return solo;   // grupo huérfano: no es un bloque
+  if (size < 2) return solo;   // grupo huérfano: no es un bloque real, se trata como suelto
   const raw = exs[start].groupRounds;
   const roundsRaw = raw === undefined || raw === null ? "" : String(raw);
   return {
@@ -120,7 +129,7 @@ function exGroupInfo(exs, i) {
     roundsRaw,                          // lo que se ve en la casilla (puede quedar vacío)
     rounds: Math.max(1, parseInt(roundsRaw, 10) || 1),  // el valor real que se usa
     linkedToNext: i < end,
-    posLabel: `${String.fromCharCode(65 + (blockIndexAt(exs, start) % 26))}${i - start + 1}`,
+    posLabel: `${blockLetter(exs, start)}${i - start + 1}`,
   };
 }
 
@@ -1452,6 +1461,9 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
                 · {GROUP_KINDS[gr.kind].label} {gr.posLabel} · {gr.rounds} rondas
               </span>
             )}
+            {gr && !gr.kind && gr.posLabel && (
+              <span style={{ color: P.dim, fontWeight: 700 }}>· Bloque {gr.posLabel} · series tradicionales</span>
+            )}
             {ex.superset && <span style={{ color: P.blue }}>· superserie</span>}
           </div>
         </div>
@@ -2061,7 +2073,7 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
             </>
           ) : (
             <>
-              {renderExHeader(page.ei, { big: true })}
+              {renderExHeader(page.ei, { big: true, posLabel: exGroupInfo(exs, page.ei).posLabel, color: P.dim })}
               <div style={{ marginTop: 10 }}>
                 {exs[page.ei].sets.map((s, si) => renderSetCard(page.ei, si, `S${si + 1}`, null))}
               </div>
@@ -3537,7 +3549,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                     const gr = exGroupInfo(d.exs, ei);
                     return (
                     <div key={e.id}>
-                    {gr.first && (
+                    {gr.first && gr.kind && (
                       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, padding: "0 2px", flexWrap: "wrap" }}>
                         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
                           color: GROUP_KINDS[gr.kind].color, background: `${GROUP_KINDS[gr.kind].color}1E`,
@@ -3564,7 +3576,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                       borderRadius: 11, padding: "9px 10px", marginBottom: gr.linkedToNext ? 2 : 6 }}>
                       <button onClick={() => setEditEx({ dayId: d.id, ex: structuredClone(e) })} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.25, overflowWrap: "anywhere" }}>
-                          {gr.kind && <span style={{ color: GROUP_KINDS[gr.kind].color, marginRight: 5 }}>{gr.posLabel}</span>}{e.name}
+                          {gr.posLabel && <span style={{ color: gr.kind ? GROUP_KINDS[gr.kind].color : P.faint, marginRight: 5 }}>{gr.posLabel}</span>}{e.name}
                         </div>
                         <div style={{ fontSize: 11.5, color: P.faint, display: "flex", gap: 5, flexWrap: "wrap", marginTop: 2 }}>
                           {e.sets.map((s) => <TypeBadge key={s.id} type={s.type} />)}
