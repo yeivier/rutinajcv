@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v24";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v25";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -78,6 +78,28 @@ const GROUP_KINDS = {
 // Nombre según cuántos ejercicios acabaron en el grupo (2 = superserie, 3 = triserie, 4+ = gigante)
 const groupKindFor = (n) => (n >= 4 ? "giant" : n === 3 ? "triset" : "superset");
 
+// Índice de bloque (A=0, B=1, C=2…) en la posición `idx` de `exs`: cuenta
+// cuántos bloques hay ANTES de esa posición, tratando cada grupo contiguo
+// (superserie/triserie/gigante) como UN solo bloque y cada ejercicio suelto
+// como otro. Así la letra avanza por bloque, no por cada ejercicio individual
+// (un A solo seguido de un B1/B2/B3 no debe hacer que el siguiente bloque
+// arranque en "E" solo porque ocupó 4 posiciones del arreglo).
+function blockIndexAt(exs, idx) {
+  let count = 0, i = 0;
+  while (i < idx) {
+    const g = exs[i] && exs[i].group;
+    if (g) {
+      let end = i;
+      while (end < exs.length - 1 && exs[end + 1].group === g) end++;
+      i = end + 1;
+    } else {
+      i++;
+    }
+    count++;
+  }
+  return count;
+}
+
 /* Datos del grupo al que pertenece exs[i]: tamaño, tipo, si es el primero y
    qué letra le toca dentro del bloque (A1, A2, A3…). */
 function exGroupInfo(exs, i) {
@@ -98,7 +120,7 @@ function exGroupInfo(exs, i) {
     roundsRaw,                          // lo que se ve en la casilla (puede quedar vacío)
     rounds: Math.max(1, parseInt(roundsRaw, 10) || 1),  // el valor real que se usa
     linkedToNext: i < end,
-    posLabel: `${String.fromCharCode(65 + (start % 26))}${i - start + 1}`,
+    posLabel: `${String.fromCharCode(65 + (blockIndexAt(exs, start) % 26))}${i - start + 1}`,
   };
 }
 
@@ -1510,7 +1532,7 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
   const totalSets = members.reduce((a, mi) => a + exsAll[mi].sets.length, 0);
   const doneSets = members.reduce((a, mi) => a + exsAll[mi].sets.filter((s) => s.done).length, 0);
   const complete = doneSets === totalSets && totalSets > 0;
-  const posLabel = (k) => `${String.fromCharCode(65 + (members[0] % 26))}${k + 1}`;
+  const posLabel = (k) => `${String.fromCharCode(65 + (blockIndexAt(exsAll, members[0]) % 26))}${k + 1}`;
 
   return (
     <Card style={{ marginBottom: 12, overflow: "hidden", borderColor: complete ? "rgba(255,255,255,.35)" : `${col}55`,
