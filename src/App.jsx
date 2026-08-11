@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v26";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v27";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -77,6 +77,17 @@ const GROUP_KINDS = {
 };
 // Nombre según cuántos ejercicios acabaron en el grupo (2 = superserie, 3 = triserie, 4+ = gigante)
 const groupKindFor = (n) => (n >= 4 ? "giant" : n === 3 ? "triset" : "superset");
+
+// FORJA no tiene un campo de tempo propio: se anota como texto al principio
+// de las notas del ejercicio ("Tempo 3/0/1/0 (excéntrico/pausa/…)."). Esta
+// función lo extrae para poder mostrarlo como insignia compacta en la lista
+// de la rutina, en vez de que quede escondido dentro de las notas y solo
+// visible al abrir el ejercicio.
+const TEMPO_RE = /^Tempo\s+([\d.]+\/[\d.]+\/[\d.]+\/[\d.]+)/i;
+const parseTempo = (notes) => {
+  const m = TEMPO_RE.exec((notes || "").trim());
+  return m ? m[1] : null;
+};
 
 // Índice de bloque (A=0, B=1, C=2…) en la posición `idx` de `exs`: cuenta
 // cuántos bloques hay ANTES de esa posición, tratando cada grupo contiguo
@@ -1456,6 +1467,7 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
           <div style={{ fontWeight: 700, fontSize: 15.5, lineHeight: 1.25 }}>{ex.name}</div>
           <div style={{ fontSize: 12, color: P.faint, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
             <span>{ex.muscle}</span><span>· {ex.sets.length} series</span><span>· descanso {fmtClock(ex.rest || 120)}</span>
+            {parseTempo(ex.notes) && <span>· Tempo {parseTempo(ex.notes)}</span>}
             {gr && gr.kind && (
               <span style={{ color: GROUP_KINDS[gr.kind].color, fontWeight: 700 }}>
                 · {GROUP_KINDS[gr.kind].label} {gr.posLabel} · {gr.rounds} rondas
@@ -1853,6 +1865,11 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
         </div>
         <div className="disp" style={{ fontSize: big ? 23 : 18.5, fontWeight: 700, lineHeight: 1.15, margin: "3px 0 6px" }}>{exx.name}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {parseTempo(exx.notes) && (
+            <span style={{ fontSize: 12, fontWeight: 700, color: P.dim, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>
+              Tempo {parseTempo(exx.notes)}
+            </span>
+          )}
           <button
             onPointerDown={() => { heldRef.current = false; holdTimer.current = setTimeout(() => { heldRef.current = true; showInstr(ei, true); }, 380); }}
             onPointerUp={() => { clearTimeout(holdTimer.current); if (!heldRef.current) (noteOpen ? hideInstr() : showInstr(ei, false)); }}
@@ -3580,6 +3597,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                         </div>
                         <div style={{ fontSize: 11.5, color: P.faint, display: "flex", gap: 5, flexWrap: "wrap", marginTop: 2 }}>
                           {e.sets.map((s) => <TypeBadge key={s.id} type={s.type} />)}
+                          {parseTempo(e.notes) && (
+                            <span style={{ padding: "1px 6px", borderRadius: 5, border: `1px solid ${P.line}`, color: P.dim, fontWeight: 700 }}>
+                              Tempo {parseTempo(e.notes)}
+                            </span>
+                          )}
                         </div>
                       </button>
                       <button onClick={() => mut((p) => move(p.days[di].exs, ei, -1))} style={{ padding: 5, color: P.faint }}><ArrowUp size={14} /></button>
