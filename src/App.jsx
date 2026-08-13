@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v31";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v32";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -3702,7 +3702,50 @@ const MesoPanel = ({ plan, savePlan }) => {
    a un día. El agente IA también puede sumar ejercicios acá (ver
    BodybuildingChat / forja-biblioteca).
    ============================================================ */
-const LibraryPanel = ({ plan, savePlan, onInfo, toast, onCopyExercise }) => {
+// Junta todos los ejercicios ya usados —en cualquier día de cualquier
+// rutina (A, B, C…), y también los que solo quedaron en el historial de
+// sesiones porque ya se borraron de la rutina actual— y arma un candidato
+// de biblioteca por cada nombre distinto (sin distinguir mayúsculas). Si
+// el mismo nombre aparece más de una vez, se queda con la versión más
+// completa (más series, con notas, con video, con secundarios).
+function libraryExercisesFromPlanAndHistory(plan, history) {
+  const byName = new Map();
+  const richness = (ex) => (ex.sets ? ex.sets.length : 0) + (ex.notes ? 2 : 0) + (ex.video ? 1 : 0) + (ex.secondary ? ex.secondary.length : 0);
+
+  (plan.days || []).forEach((d) => (d.exs || []).forEach((e) => {
+    const key = (e.name || "").trim().toLowerCase();
+    if (!key) return;
+    const prev = byName.get(key);
+    if (!prev || richness(e) > richness(prev)) byName.set(key, e);
+  }));
+
+  const byEx = (history && history.byEx) || {};
+  Object.keys(byEx).forEach((exId) => {
+    const entries = byEx[exId] || [];
+    if (!entries.length) return;
+    const last = entries[entries.length - 1];
+    const key = (last.exName || "").trim().toLowerCase();
+    if (!key || byName.has(key)) return; // ya cubierto por una rutina actual
+    byName.set(key, {
+      name: last.exName,
+      muscle: "Otro",
+      rest: 90,
+      notes: "",
+      video: "",
+      secondary: [],
+      sets: (last.sets && last.sets.length) ? last.sets.map((s) => ({
+        type: Object.keys(SET_TYPES).includes(s.type) ? s.type : "normal",
+        repsT: s.repsT || "8-10",
+        rirT: s.rirT || "",
+        pct: s.pct != null ? s.pct : 15,
+      })) : [{ type: "normal", repsT: "8-10", rirT: "", pct: 15 }],
+    });
+  });
+
+  return [...byName.values()];
+}
+
+const LibraryPanel = ({ plan, savePlan, onInfo, toast, onCopyExercise, history }) => {
   const [q, setQ] = useState("");
   const [muscleF, setMuscleF] = useState([]);
   const [equipF, setEquipF] = useState([]);
@@ -3722,6 +3765,31 @@ const LibraryPanel = ({ plan, savePlan, onInfo, toast, onCopyExercise }) => {
   });
 
   const newExTemplate = () => ({ id: uid(), isNew: true, name: "", muscle: MUSCLES[0], equipment: "", rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] });
+
+  // Suma a la biblioteca todo lo que ya está registrado en las rutinas (A/B/C…)
+  // y en el historial de sesiones (por si algún ejercicio ya se borró de la
+  // rutina actual). Nunca duplica: si el nombre ya existe en la biblioteca
+  // (sin distinguir mayúsculas), lo salta.
+  const importUsed = () => {
+    const candidates = libraryExercisesFromPlanAndHistory(plan, history);
+    const existing = new Set(lib.map((x) => (x.name || "").trim().toLowerCase()));
+    const toAdd = candidates.filter((c) => !existing.has((c.name || "").trim().toLowerCase()));
+    if (!toAdd.length) { if (toast) toast("No hay ejercicios nuevos: la biblioteca ya los tiene todos."); return; }
+    mut((p) => {
+      if (!p.library) p.library = [];
+      toAdd.forEach((c) => {
+        p.library.push({
+          id: uid(), name: c.name, muscle: c.muscle || "Otro", equipment: c.equipment || "",
+          rest: c.rest || 90, notes: c.notes || "", video: c.video || "", superset: "",
+          secondary: (c.secondary || []).map((s) => ({ ...s })),
+          coachAttachIds: c.coachAttachIds ? [...c.coachAttachIds] : [],
+          sets: (c.sets && c.sets.length ? c.sets : [{ type: "normal", repsT: "8-10", rirT: "", pct: 15 }])
+            .map((s) => ({ id: uid(), type: s.type, repsT: s.repsT, rirT: s.rirT, pct: s.pct })),
+        });
+      });
+    });
+    if (toast) toast(`✓ ${toAdd.length} ejercicio${toAdd.length !== 1 ? "s" : ""} nuevo${toAdd.length !== 1 ? "s" : ""} agregado${toAdd.length !== 1 ? "s" : ""} desde rutinas y sesiones`);
+  };
 
   const chip = (label, active, onClick) => (
     <button key={label} onClick={onClick} style={{ padding: "5px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, flexShrink: 0,
@@ -3750,9 +3818,14 @@ const LibraryPanel = ({ plan, savePlan, onInfo, toast, onCopyExercise }) => {
         </div>
       </div>
 
-      <Btn kind="ember" onClick={() => setEditEx(newExTemplate())} style={{ width: "100%", marginBottom: 14 }}>
-        <Plus size={16} /> Añadir ejercicio a la biblioteca
-      </Btn>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        <Btn kind="ember" onClick={() => setEditEx(newExTemplate())} style={{ flex: 1, minWidth: 170 }}>
+          <Plus size={16} /> Añadir ejercicio a la biblioteca
+        </Btn>
+        <Btn kind="line" onClick={importUsed} style={{ flex: 1, minWidth: 220 }}>
+          <ClipboardList size={16} /> Cargar los ya usados en rutinas y sesiones
+        </Btn>
+      </div>
 
       {lib.length === 0 ? (
         <Empty icon={Library} title="Biblioteca vacía" body="Añade ejercicios a mano o pídele al agente IA que sume los que recomiende. Después los copias y pegas en cualquier día de la rutina." />
@@ -3791,7 +3864,7 @@ const LibraryPanel = ({ plan, savePlan, onInfo, toast, onCopyExercise }) => {
   );
 };
 
-const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
+const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
   const [view, setView] = useState("dias"); // 'dias' | 'biblioteca'
   const [openDay, setOpenDay] = useState(null);
   const [editEx, setEditEx] = useState(null); // {dayId, ex}
@@ -4111,7 +4184,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
         ))}
       </div>
 
-      {view === "biblioteca" && <LibraryPanel plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
+      {view === "biblioteca" && <LibraryPanel plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} history={history} />}
 
       {view === "dias" && (<>
       <MesoPanel plan={plan} savePlan={savePlan} />
@@ -6522,7 +6595,7 @@ const App = () => {
             <Btn kind="line" small onClick={() => setConfirmReset(true)} style={{ color: P.red }}><Trash2 size={13} /> Vaciar plan</Btn>
           </div>
         )}
-        {mode === "coach" && tab === "rutina" && <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} />}
+        {mode === "coach" && tab === "rutina" && <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history} />}
         {mode === "coach" && tab === "agenda" && <ScheduleEditor plan={plan} savePlan={savePlan} />}
         {mode === "coach" && tab === "nutricion" && <NutritionEditor plan={plan} savePlan={savePlan} />}
         {mode === "coach" && tab === "ia" && (
