@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v29";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v30";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -990,6 +990,12 @@ const GlobalStyle = () => (
     @keyframes fjUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
     .fj .sheetIn { animation: fjUp .22s ease; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
+    /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
+       inferior fija (TabBar) queda "transparente" al puntero: si no, al
+       arrastrar hacia la parte baja de la pantalla, elementFromPoint choca
+       con la barra (que está encima en el z-index) en vez de con la tarjeta
+       de abajo, y soltar ahí nunca aplica el cambio de orden. */
+    body.fj-dragging [data-tabbar] { pointer-events: none; }
   `}</style>
 );
 
@@ -3875,11 +3881,13 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     window.addEventListener("pointercancel", up);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    document.body.classList.add("fj-dragging");
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
       document.body.style.overflow = prevOverflow;
+      document.body.classList.remove("fj-dragging");
     };
   }, [dragging, dragOver]);
 
@@ -3938,11 +3946,13 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     window.addEventListener("pointercancel", up);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    document.body.classList.add("fj-dragging");
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
       document.body.style.overflow = prevOverflow;
+      document.body.classList.remove("fj-dragging");
     };
   }, [exDragging, exDragOver]);
 
@@ -3997,11 +4007,13 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     window.addEventListener("pointercancel", up);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    document.body.classList.add("fj-dragging");
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
       document.body.style.overflow = prevOverflow;
+      document.body.classList.remove("fj-dragging");
     };
   }, [routineDragging, routineDragOver]);
 
@@ -4212,10 +4224,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                         </button>
                       </div>
                     )}
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, background: P.s2,
+                    <div style={{ background: P.s2,
                       border: `1px solid ${gr.kind ? `${GROUP_KINDS[gr.kind].color}55` : P.line}`,
                       borderLeft: gr.kind ? `3px solid ${GROUP_KINDS[gr.kind].color}` : `1px solid ${P.line}`,
                       borderRadius: 11, padding: "9px 10px", marginBottom: gr.linkedToNext ? 2 : 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <button onClick={() => setEditEx({ dayId: d.id, ex: structuredClone(e) })} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.25, overflowWrap: "anywhere" }}>
                           {gr.posLabel && <span style={{ color: gr.kind ? GROUP_KINDS[gr.kind].color : P.faint, marginRight: 5 }}>{gr.posLabel}</span>}{e.name}
@@ -4243,20 +4256,23 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                         </button>
                       )}
                       <button onClick={() => setDel({ type: "ex", dayId: d.id, exId: e.id, name: e.name })} style={{ padding: 5, color: P.faint }}><Trash2 size={14} /></button>
-                      {gr.first && (
-                        <button
-                          onPointerDown={(ev) => startExDrag(d.id, blockKey, ev)}
-                          onPointerMove={cancelExPress}
-                          onPointerUp={() => { const st = exDragRef.current; if (!exDragging) clearTimeout(st.holdTimer); }}
-                          onPointerCancel={() => { const st = exDragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
-                          onContextMenu={(ev) => ev.preventDefault()}
-                          title={gr.kind ? "Mantén pulsado y arrastra para mover todo el bloque" : "Mantén pulsado y arrastra para mover el ejercicio"}
-                          aria-label={`Mover ${gr.kind ? "el bloque de " : ""}${e.name}`}
-                          style={{ padding: "5px 1px", color: exDraggingHere ? P.ember : P.faint, cursor: "grab",
-                            touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
-                          <GripVertical size={15} />
-                        </button>
-                      )}
+                    </div>
+                    {gr.first && (
+                      <button
+                        onPointerDown={(ev) => startExDrag(d.id, blockKey, ev)}
+                        onPointerMove={cancelExPress}
+                        onPointerUp={() => { const st = exDragRef.current; if (!exDragging) clearTimeout(st.holdTimer); }}
+                        onPointerCancel={() => { const st = exDragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
+                        onContextMenu={(ev) => ev.preventDefault()}
+                        title={gr.kind ? "Mantén pulsado y arrastra para mover todo el bloque" : "Mantén pulsado y arrastra para mover el ejercicio"}
+                        aria-label={`Mover ${gr.kind ? "el bloque de " : ""}${e.name}`}
+                        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                          marginTop: 8, padding: "8px 0", borderRadius: 8, border: `1px dashed ${exDraggingHere ? P.ember : P.line}`,
+                          color: exDraggingHere ? P.ember : P.faint, fontSize: 11.5, fontWeight: 600, cursor: "grab",
+                          touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
+                        <GripVertical size={15} /> Mantén pulsado para mover{gr.kind ? " el bloque" : ""}
+                      </button>
+                    )}
                     </div>
                     </div>
                   );});})()}
@@ -6104,7 +6120,7 @@ const TABS = {
 };
 
 const TabBar = ({ tabs, tab, setTab }) => (
-  <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
+  <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
     background: `${P.s1}F5`, backdropFilter: "blur(10px)", borderTop: `1px solid ${P.line}` }}>
     <div style={{ display: "flex", width: "100%", maxWidth: 520, padding: "6px 2px calc(8px + env(safe-area-inset-bottom))" }}>
       {tabs.map(({ id, label, Icon }) => {
