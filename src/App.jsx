@@ -14,25 +14,29 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v33";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v34";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
 // como señal de acciones destructivas / errores.
+// Paleta FORJA: negro, rojo intenso y blanco intenso — solo 3 colores, con el
+// máximo contraste posible entre ellos para que todo se lea fácil de un vistazo.
+// "green"/"blue" son nombres heredados de una paleta anterior; hoy funcionan
+// como matices de blanco (positivo/informativo) dentro del mismo esquema.
 const P = {
-  bg: "#0B0B0C",
-  s1: "#161618",
-  s2: "#1F1F22",
-  s3: "#2A2A2E",
-  line: "#3C3C42",
+  bg: "#000000",
+  s1: "#141414",
+  s2: "#1C1C1C",
+  s3: "#262626",
+  line: "#3A3A3A",
   text: "#FFFFFF",
-  dim: "#B9B9C0",
-  faint: "#7E7E86",
-  ember: "#FFFFFF",
-  ember2: "#DCDCE2",
-  green: "#ECECEF",
-  red: "#E5484D",
-  blue: "#AEB4BD",
+  dim: "#C9C9C9",
+  faint: "#8C8C8C",
+  ember: "#FF2438",
+  ember2: "#FF5C68",
+  green: "#FFFFFF",
+  red: "#FF2438",
+  blue: "#D6D6DC",
 };
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
@@ -1024,11 +1028,11 @@ const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...res
     borderRadius: 12, fontWeight: 600, fontSize: small ? 13 : 15,
     padding: small ? "7px 12px" : "12px 18px", opacity: disabled ? 0.45 : 1, transition: "filter .15s" };
   const kinds = {
-    ember: { background: `linear-gradient(135deg, ${P.ember}, #CFCFD5)`, color: "#0B0B0C" },
+    ember: { background: `linear-gradient(135deg, #FF4D5E, ${P.ember})`, color: "#FFFFFF" },
     ghost: { background: P.s2, border: `1px solid ${P.line}`, color: P.text },
     line:  { background: "transparent", border: `1px solid ${P.line}`, color: P.dim },
     green: { background: "rgba(255,255,255,.14)", border: `1px solid rgba(255,255,255,.4)`, color: P.green },
-    red:   { background: "rgba(229,72,77,.12)", border: `1px solid rgba(229,72,77,.4)`, color: P.red },
+    red:   { background: "rgba(255,36,56,.14)", border: `1px solid rgba(255,36,56,.45)`, color: P.red },
   };
   return <button {...rest} disabled={disabled} onClick={onClick} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
 };
@@ -1728,7 +1732,7 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
         </div>
         <button onClick={onToggleDone} title={done ? "Desmarcar" : "Serie completada"}
           style={{ width: 40, height: 40, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
-            background: done ? P.green : P.s3, color: done ? "#0B0B0C" : P.dim,
+            background: done ? P.green : P.s3, color: done ? "#000000" : P.dim,
             border: `1px solid ${done ? P.green : P.line}` }}>
           <Check size={19} strokeWidth={3} />
         </button>
@@ -2276,7 +2280,7 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
             style={{ padding: 5, color: started ? P.ember : P.faint }}><Timer size={17} /></button>
           <button onClick={() => patchSet(ei, si, { done: !s.done })} aria-label={s.done ? "Desmarcar serie" : "Marcar serie hecha"}
             style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-              background: s.done ? P.green : P.s3, color: s.done ? "#0B0B0C" : P.dim, border: `1px solid ${s.done ? P.green : P.line}` }}>
+              background: s.done ? P.green : P.s3, color: s.done ? "#000000" : P.dim, border: `1px solid ${s.done ? P.green : P.line}` }}>
             <Check size={17} strokeWidth={3} />
           </button>
         </div>
@@ -6151,7 +6155,7 @@ const TimerTab = () => {
 };
 
 const StorageBanner = () => storageOK ? null : (
-  <div style={{ background: "rgba(229,72,77,.12)", border: `1px solid rgba(229,72,77,.4)`, borderRadius: 12,
+  <div style={{ background: "rgba(255,36,56,.14)", border: `1px solid rgba(255,36,56,.45)`, borderRadius: 12,
     margin: "10px 16px 0", padding: "10px 12px", display: "flex", gap: 9, alignItems: "flex-start" }}>
     <AlertTriangle size={16} color={P.red} style={{ flexShrink: 0, marginTop: 1 }} />
     <div style={{ fontSize: 12.5, color: P.red, lineHeight: 1.45 }}>
@@ -6163,7 +6167,7 @@ const StorageBanner = () => storageOK ? null : (
 const Toast = ({ msg }) => !msg ? null : (
   <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 86, zIndex: 80,
     width: "calc(100% - 32px)", maxWidth: 488 }}>
-    <div className="sheetIn" style={{ background: "#2A1214", border: `1px solid rgba(229,72,77,.5)`, color: "#F5B8BA",
+    <div className="sheetIn" style={{ background: "#2B0508", border: `1px solid rgba(255,36,56,.6)`, color: "#FFFFFF",
       borderRadius: 12, padding: "11px 14px", fontSize: 13.5, lineHeight: 1.4, boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>{msg}</div>
   </div>
 );
@@ -6183,7 +6187,7 @@ const AtlasTab = () => (
       Enciclopedia profesional de fuerza e hipertrofia + guía definitiva de ejercicios: 248 conceptos, 83 ejercicios y 22 fuentes científicas.
     </div>
     <div style={{ borderRadius: 14, overflow: "hidden", border: `1px solid ${P.line}`,
-      height: "calc(100dvh - 220px)", minHeight: 460, background: "#07090d" }}>
+      height: "calc(100dvh - 220px)", minHeight: 460, background: "#000000" }}>
       <iframe src="atlas/index.html" title="Olympia Training Atlas" loading="lazy"
         style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
     </div>
