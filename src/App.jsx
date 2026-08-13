@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v27";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v28";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -413,6 +413,23 @@ const weekKey = (iso) => {
   const mon = new Date(d); mon.setDate(d.getDate() - day); mon.setHours(0,0,0,0);
   return mon.getTime();
 };
+
+// Racha de entrenamiento: cuenta semanas consecutivas con al menos una
+// sesión terminada, contando hacia atrás desde la semana actual. Si esta
+// semana todavía no tiene sesión no se corta la racha de inmediato (el
+// alumno puede estar a mitad de semana); recién se corta cuando pasa una
+// semana entera en blanco.
+function weekStreak(sessions) {
+  if (!sessions || !sessions.length) return 0;
+  const weeks = new Set(sessions.map((s) => weekKey(s.date)));
+  const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+  const curWk = weekKey(todayISO());
+  let cursor = weeks.has(curWk) ? curWk : curWk - oneWeekMs;
+  if (!weeks.has(cursor)) return 0;
+  let n = 0;
+  while (weeks.has(cursor)) { n++; cursor -= oneWeekMs; }
+  return n;
+}
 
 function beep() {
   try {
@@ -1236,6 +1253,140 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", captu
 };
 
 /* ============================================================
+   Gráfico de progreso por ejercicio: pestañas de rango, curva de mejor
+   peso, racha de sesiones, marca (PR) y tabla serie a serie. Construido
+   desde cero sobre history.byEx, sin depender de nada externo.
+   ============================================================ */
+const PROGRESS_RANGES = [
+  { id: "w", label: "7D", days: 7 },
+  { id: "m", label: "1M", days: 30 },
+  { id: "3m", label: "3M", days: 90 },
+  { id: "6m", label: "6M", days: 182 },
+  { id: "y", label: "1A", days: 365 },
+  { id: "all", label: "Todo", days: null },
+];
+
+const ExerciseProgress = ({ entries }) => {
+  const [range, setRange] = useState("3m");
+  const all = entries || [];
+
+  // Para cada sesión registrada, el mejor peso levantado, series hechas y
+  // reps totales (solo series marcadas como hechas y con peso cargado).
+  const withBest = useMemo(() => all.map((en) => {
+    const done = (en.sets || []).filter((s) => s.done && s.weight !== "");
+    const best = done.length ? Math.max(...done.map((s) => +s.weight)) : null;
+    const totalReps = done.reduce((a, s) => a + (+s.reps || 0), 0);
+    return { en, best, setsDone: done.length, totalReps };
+  }).filter((x) => x.best != null), [all]);
+
+  const rangeDef = PROGRESS_RANGES.find((r) => r.id === range) || PROGRESS_RANGES[2];
+  const cutoff = rangeDef.days ? Date.now() - rangeDef.days * 86400000 : null;
+  const filtered = cutoff ? withBest.filter((x) => new Date(x.en.date).getTime() >= cutoff) : withBest;
+
+  const chartData = filtered.map((x) => ({ d: fmtDate(x.en.date), v: x.best }));
+  const allTimeBest = withBest.length ? Math.max(...withBest.map((x) => x.best)) : null;
+
+  // Delta de últimos 30 días: compara el último registro con el que había
+  // vigente justo antes de esa ventana (o con el primero de la ventana, si
+  // no hay nada anterior).
+  const delta30 = useMemo(() => {
+    const cut = Date.now() - 30 * 86400000;
+    const recent = withBest.filter((x) => new Date(x.en.date).getTime() >= cut);
+    if (!recent.length) return null;
+    const before = withBest.filter((x) => new Date(x.en.date).getTime() < cut);
+    const refBase = before.length ? before[before.length - 1].best : recent[0].best;
+    return recent[recent.length - 1].best - refBase;
+  }, [withBest]);
+
+  const rangeDelta = filtered.length >= 2 ? filtered[filtered.length - 1].best - filtered[0].best : null;
+
+  if (withBest.length === 0) return null;
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 10, overflowX: "auto" }}>
+        {PROGRESS_RANGES.map((r) => (
+          <button key={r.id} onClick={() => setRange(r.id)} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700,
+            background: range === r.id ? P.s3 : "transparent", color: range === r.id ? P.text : P.faint, border: `1px solid ${range === r.id ? P.line : "transparent"}` }}>
+            {r.label}
+          </button>
+        ))}
+      </div>
+
+      {chartData.length ? (
+        <Card style={{ padding: "14px 8px 6px", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0 10px 6px", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, color: P.dim }}>Mejor peso por sesión (kg)</span>
+            {rangeDelta != null && (
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: rangeDelta >= 0 ? P.ember2 : P.red }}>
+                {rangeDelta >= 0 ? "+" : ""}{kg(rangeDelta)} kg · este rango
+              </span>
+            )}
+          </div>
+          <ChartBox data={chartData} unit="kg" />
+        </Card>
+      ) : (
+        <div style={{ fontSize: 13, color: P.faint, padding: "10px 2px", marginBottom: 12 }}>Sin sesiones en este rango. Prueba un rango más amplio.</div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+        <Card style={{ padding: "10px 6px", textAlign: "center" }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 700 }}>{withBest.length}</div>
+          <div style={{ fontSize: 10, color: P.dim, marginTop: 2 }}>Sesiones</div>
+        </Card>
+        <Card style={{ padding: "10px 6px", textAlign: "center" }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 700, color: delta30 == null ? P.text : delta30 >= 0 ? P.ember2 : P.red }}>
+            {delta30 == null ? "—" : `${delta30 >= 0 ? "+" : ""}${kg(delta30)}`}
+          </div>
+          <div style={{ fontSize: 10, color: P.dim, marginTop: 2 }}>Últimos 30 días</div>
+        </Card>
+        <Card style={{ padding: "10px 6px", textAlign: "center" }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 700, color: P.ember2, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+            <Award size={14} /> {allTimeBest != null ? kg(allTimeBest) : "—"}
+          </div>
+          <div style={{ fontSize: 10, color: P.dim, marginTop: 2 }}>Mejor marca</div>
+        </Card>
+      </div>
+
+      <div style={{ fontSize: 12, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Progreso serie a serie</div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+          <thead>
+            <tr style={{ color: P.faint, textAlign: "left" }}>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>Fecha</th>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>Series</th>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>Reps</th>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>Peso</th>
+              <th style={{ padding: "4px 6px", fontWeight: 600 }}>Progreso</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...withBest].reverse().map((x, i, arr) => {
+              const prev = arr[i + 1];
+              const diff = prev ? x.best - prev.best : null;
+              const isBest = x.best === allTimeBest;
+              return (
+                <tr key={x.en.sessionId} style={{ borderTop: `1px solid ${P.line}`, background: isBest ? `${P.ember}0c` : "transparent" }}>
+                  <td style={{ padding: "6px 6px", whiteSpace: "nowrap" }}>{fmtDate(x.en.date)}</td>
+                  <td style={{ padding: "6px 6px" }}>{x.setsDone}</td>
+                  <td style={{ padding: "6px 6px" }}>{x.totalReps}</td>
+                  <td style={{ padding: "6px 6px", fontWeight: 700, whiteSpace: "nowrap" }}>
+                    {kg(x.best)} kg {isBest && <Award size={11} color={P.ember2} style={{ verticalAlign: -1, marginLeft: 2 }} />}
+                  </td>
+                  <td style={{ padding: "6px 6px", color: diff == null ? P.faint : diff > 0 ? P.ember2 : diff < 0 ? P.red : P.faint }}>
+                    {diff == null ? "—" : diff === 0 ? "=" : `${diff > 0 ? "+" : ""}${kg(diff)}`}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================
    Historial por ejercicio (la ficha que Harbiz no tiene)
    ============================================================ */
 const ExHistorySheet = ({ open, onClose, exName, entries, onOpenImg }) => (
@@ -1243,7 +1394,9 @@ const ExHistorySheet = ({ open, onClose, exName, entries, onOpenImg }) => (
     {(!entries || entries.length === 0) ? (
       <Empty icon={History} title="Sin registros todavía" body="Cuando completes este ejercicio en una sesión, acá verás tus pesos, repeticiones, RIR y todos tus comentarios anteriores." />
     ) : (
-      [...entries].reverse().map((en, i) => (
+      <>
+      <ExerciseProgress entries={entries} />
+      {[...entries].reverse().map((en, i) => (
         <div key={i} style={{ padding: "13px 0", borderBottom: `1px solid ${P.line}` }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
             <div style={{ fontWeight: 700, fontSize: 14 }}>{fmtDateFull(en.date)}</div>
@@ -1274,10 +1427,75 @@ const ExHistorySheet = ({ open, onClose, exName, entries, onOpenImg }) => (
             </div>
           )}
         </div>
-      ))
+      ))}
+      </>
     )}
   </Sheet>
 );
+
+/* ============================================================
+   Ficha de técnica: junta en una sola tarjeta lo que antes vivía repartido
+   (músculo, indicaciones del coach, video, demostración) y suma un rincón
+   nuevo para que el alumno guarde sus propias fotos de forma — una
+   referencia fija, a diferencia de las fotos de "Historial" que quedan
+   atadas a una sesión puntual.
+   ============================================================ */
+const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError }) => {
+  if (!ex) return null;
+  const formPhotos = ex.formPhotoIds || [];
+  const canEdit = !!onPatchEx;
+  const addFormPhoto = (id) => onPatchEx && onPatchEx({ formPhotoIds: [...formPhotos, id].slice(0, 2) });
+  const removeFormPhoto = (id) => onPatchEx && onPatchEx({ formPhotoIds: formPhotos.filter((x) => x !== id) });
+  return (
+    <Sheet open={open} onClose={onClose} title={`Ficha · ${ex.name}`} tall>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 8, background: P.s2, border: `1px solid ${P.line}`, color: P.ember2 }}>{ex.muscle}</span>
+        {(ex.secondary || []).map((s, i) => (
+          <span key={i} style={{ fontSize: 11.5, fontWeight: 600, padding: "4px 9px", borderRadius: 8, background: P.s2, border: `1px solid ${P.line}`, color: P.dim }}>
+            {s.muscle} · {s.pct}%
+          </span>
+        ))}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Técnica</div>
+        {ex.notes ? (
+          <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{ex.notes}</div>
+        ) : (
+          <div style={{ fontSize: 13, color: P.faint }}>Tu coach todavía no dejó indicaciones técnicas para este ejercicio.</div>
+        )}
+      </div>
+
+      {ex.video && (
+        <Btn kind="line" small onClick={() => window.open(ex.video, "_blank")} style={{ marginBottom: 16 }}>
+          <Video size={14} /> Ver video de técnica
+        </Btn>
+      )}
+
+      {(ex.coachAttachIds || []).length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Demostración del coach</div>
+          <div style={{ display: "flex", gap: 7, overflowX: "auto" }}>
+            {ex.coachAttachIds.map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={78} />)}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div style={{ fontSize: 11.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Tus fotos de forma (máx. 2)</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {formPhotos.map((id) => (
+            <AttachThumb key={id} id={id} onOpen={onOpenImg} size={78} onRemove={canEdit ? () => removeFormPhoto(id) : undefined} />
+          ))}
+          {canEdit && formPhotos.length < 2 && (
+            <AttachButton mode="photo" iconOnly onAttached={addFormPhoto} onError={onError} />
+          )}
+        </div>
+        {formPhotos.length === 0 && !canEdit && <div style={{ fontSize: 12.5, color: P.faint }}>Sin fotos todavía.</div>}
+      </div>
+    </Sheet>
+  );
+};
 
 /* ============================================================
    Cronómetro de descanso, dentro de la propia serie
@@ -1440,6 +1658,7 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
 const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetDone, onInfo, onError, onOpenImg, timer, onStartRest, onAdjustRest, onDismissRest }) => {
   const [open, setOpen] = useState(exIdx === 0);
   const [hist, setHist] = useState(false);
+  const [info, setInfo] = useState(false);
   const entries = (history.byEx[ex.id] || []);
   const lastEntry = entries.length ? entries[entries.length - 1] : null;
   const doneCount = ex.sets.filter((s) => s.done).length;
@@ -1498,6 +1717,7 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
               style={lastNote ? { borderColor: "rgba(220,220,226,.5)", color: P.ember2 } : {}}>
               <History size={14} /> Historial y notas{entries.length ? ` (${entries.length})` : ""}
             </Btn>
+            <Btn kind="line" small onClick={() => setInfo(true)}><Info size={14} /> Ficha técnica</Btn>
             {ex.video && <Btn kind="line" small onClick={() => window.open(ex.video, "_blank")}><Video size={14} /> Ver técnica</Btn>}
             <AttachButton mode="photo" onAttached={(id) => onPatchEx({ attachIds: [...(ex.attachIds || []), id] })} onError={onError} />
             <AttachButton mode="video" onAttached={(id) => onPatchEx({ attachIds: [...(ex.attachIds || []), id] })} onError={onError} />
@@ -1537,6 +1757,7 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
         </div>
       )}
       <ExHistorySheet open={hist} onClose={() => setHist(false)} exName={ex.name} entries={entries} onOpenImg={onOpenImg} />
+      <ExerciseInfoSheet ex={ex} open={info} onClose={() => setInfo(false)} onPatchEx={onPatchEx} onOpenImg={onOpenImg} onError={onError} />
     </Card>
   );
 };
@@ -1552,6 +1773,7 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
 const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, onPatchSet, onSetDone, onInfo, onError, onOpenImg, timer, onStartRest, onAdjustRest, onDismissRest }) => {
   const [open, setOpen] = useState(members[0] === 0);
   const [hist, setHist] = useState(null);   // índice del ejercicio cuyo historial se ve
+  const [info, setInfo] = useState(null);   // índice del ejercicio cuya ficha técnica se ve
   const col = GROUP_KINDS[kind].color;
   const totalSets = members.reduce((a, mi) => a + exsAll[mi].sets.length, 0);
   const doneSets = members.reduce((a, mi) => a + exsAll[mi].sets.filter((s) => s.done).length, 0);
@@ -1627,15 +1849,20 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
               <div style={{ fontSize: 11, color: P.faint, fontWeight: 700, marginBottom: 3 }}>{posLabel(k)} · {exsAll[mi].name}</div>
               <Txt rows={2} placeholder={`Comentario de ${exsAll[mi].name} (sensaciones, molestias, ajustes…)`}
                 value={exsAll[mi].comment} onChange={(e) => onPatchEx(mi, { comment: e.target.value })} style={{ fontSize: 13.5 }} />
-              {exsAll[mi].video && (
-                <Btn kind="line" small onClick={() => window.open(exsAll[mi].video, "_blank")} style={{ marginTop: 6 }}>
-                  <Video size={14} /> Ver técnica de {exsAll[mi].name}
-                </Btn>
-              )}
+              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                <Btn kind="line" small onClick={() => setInfo(mi)}><Info size={14} /> Ficha técnica</Btn>
+                {exsAll[mi].video && (
+                  <Btn kind="line" small onClick={() => window.open(exsAll[mi].video, "_blank")}>
+                    <Video size={14} /> Ver técnica de {exsAll[mi].name}
+                  </Btn>
+                )}
+              </div>
             </div>
           ))}
         </div>
       )}
+      <ExerciseInfoSheet ex={info != null ? exsAll[info] : null} open={info != null} onClose={() => setInfo(null)}
+        onPatchEx={info != null ? (patch) => onPatchEx(info, patch) : null} onOpenImg={onOpenImg} onError={onError} />
     </Card>
   );
 };
@@ -1677,11 +1904,13 @@ const FocusField = ({ label, value, placeholder, onChange, onClear }) => (
   </div>
 );
 
-const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storageOK, savedAt }) => {
+const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit, onFinish, storageOK, savedAt }) => {
   const [pageIdx, setPageIdx] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [peek, setPeek] = useState(null);          // {mode:"name"|"full"} → siguiente página
   const [instr, setInstr] = useState(null);        // {ei, pinned} → nota del coach de ese ejercicio
+  const [ficha, setFicha] = useState(null);        // ei → ficha técnica abierta de ese ejercicio
+  const [viewImg, setViewImg] = useState(null);
   const [cmtKey, setCmtKey] = useState(null);      // "ei-si" de la serie con el comentario abierto
   const [rests, setRests] = useState({});          // {"ei-si": timestamp de inicio del descanso}
   const [undoStack, setUndoStack] = useState([]);
@@ -1880,6 +2109,11 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
               border: `1.5px solid ${exx.notes ? (noteOpen ? P.ember : P.dim) : P.line}`, color: exx.notes ? (noteOpen ? P.ember : P.dim) : P.line,
               background: noteOpen ? `${P.ember}18` : "transparent", touchAction: "manipulation", transition: "color .15s ease, border-color .15s ease" }}>
             <Info size={big ? 19 : 17} />
+          </button>
+          <button data-keep onClick={() => setFicha(ei)} aria-label="Ver ficha técnica completa del ejercicio"
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: P.dim, fontWeight: 600,
+              border: `1px solid ${P.line}`, borderRadius: 17, padding: big ? "7px 12px" : "6px 10px" }}>
+            <BookOpen size={big ? 16 : 14} /> Ficha
           </button>
           {exx.video && (
             <a href={exx.video} target="_blank" rel="noopener noreferrer"
@@ -2109,6 +2343,9 @@ const FocusMode = ({ active, history, patch, patchSet, onExit, onFinish, storage
       <Confirm open={confirmFinish} title="Terminar sesión"
         body={doneSets < totalSets ? `Llevas ${doneSets} de ${totalSets} series marcadas. Se guardará todo lo registrado hasta ahora.` : "¡Sesión completa! Se guardará todo en tu historial."}
         okLabel="Terminar y guardar" onOk={() => { setConfirmFinish(false); onFinish(); }} onCancel={() => setConfirmFinish(false)} />
+      <ExerciseInfoSheet ex={ficha != null ? exs[ficha] : null} open={ficha != null} onClose={() => setFicha(null)}
+        onPatchEx={ficha != null && patchEx ? (p) => patchEx(ficha, p) : null} onOpenImg={setViewImg} onError={onError} />
+      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
   );
 };
@@ -2371,7 +2608,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   if (focus && active) {
     return (
       <>
-        <FocusMode active={active} history={history} patch={patch} patchSet={patchSet} storageOK={storageOK} savedAt={savedAt}
+        <FocusMode active={active} history={history} patch={patch} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
           onExit={() => setFocus(false)} onFinish={doFinish} />
         {summarySheet}
       </>
@@ -2488,6 +2725,7 @@ const TodayTab = ({ plan, history, active, goTrain, role }) => {
   const wk = weekKey(todayISO());
   const weekSessions = history.sessions.filter((s) => weekKey(s.date) === wk);
   const weekVol = weekSessions.reduce((a, s) => a + s.volume, 0);
+  const streak = weekStreak(history.sessions);
   const lastSession = history.sessions[history.sessions.length - 1];
   let suggested = plan.days[0];
   if (lastSession) {
@@ -2524,6 +2762,17 @@ const TodayTab = ({ plan, history, active, goTrain, role }) => {
       ) : (
         <Card style={{ padding: 16, marginBottom: 14 }}>
           <Empty icon={Dumbbell} title="Sin rutina cargada" body={role === "coach" ? "Entra a la pestaña Rutina para armar el plan." : "Tu coach aún no carga la rutina."} />
+        </Card>
+      )}
+
+      {streak > 0 && (
+        <Card style={{ padding: "13px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12,
+          borderColor: `${P.ember}55`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
+          <Flame size={26} color={P.ember2} className="pulse" />
+          <div style={{ flex: 1 }}>
+            <div className="disp" style={{ fontSize: 19, fontWeight: 700, lineHeight: 1.15 }}>{streak} semana{streak !== 1 ? "s" : ""} seguida{streak !== 1 ? "s" : ""}</div>
+            <div style={{ fontSize: 12, color: P.faint, marginTop: 2 }}>entrenando sin cortar la racha</div>
+          </div>
         </Card>
       )}
 
@@ -2651,12 +2900,6 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
   }, [plan, history]);
   useEffect(() => { if (!exId && allEx.length) setExId(allEx[0][0]); }, [allEx, exId]);
 
-  const exData = (history.byEx[exId] || []).map((en) => {
-    const done = en.sets.filter((s) => s.done && s.weight !== "");
-    const best = done.length ? Math.max(...done.map((s) => +s.weight)) : null;
-    return best != null ? { d: fmtDate(en.date), v: best } : null;
-  }).filter(Boolean);
-
   const bwData = history.bodyweight.map((b) => ({ d: fmtDate(b.date), v: b.kg }));
 
   const addBW = () => {
@@ -2685,19 +2928,16 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
           <select value={exId} onChange={(e) => setExId(e.target.value)} style={{ width: "100%", padding: "11px 12px", marginBottom: 12 }}>
             {allEx.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
-          {exData.length === 0 ? (
-            <Empty icon={TrendingUp} title="Sin datos aún" body="Cuando registres este ejercicio en una sesión, acá verás la curva de tu mejor peso por día." />
+          {(history.byEx[exId] || []).length === 0 ? (
+            <Empty icon={TrendingUp} title="Sin datos aún" body="Cuando registres este ejercicio en una sesión, acá verás la curva de tu mejor peso, tu marca y el detalle serie a serie." />
           ) : (
-            <Card style={{ padding: "14px 8px 6px" }}>
-              <div style={{ fontSize: 12.5, color: P.dim, padding: "0 10px 6px" }}>Mejor peso por sesión (kg)</div>
-              <ChartBox data={exData} unit="kg" />
-            </Card>
-          )}
-          {(history.byEx[exId] || []).length > 0 && (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ fontSize: 12, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Registro completo</div>
-              <ExHistorySheetInline entries={history.byEx[exId]} onOpenImg={setViewImg} />
-            </div>
+            <>
+              <ExerciseProgress entries={history.byEx[exId]} />
+              <div style={{ marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Registro completo</div>
+                <ExHistorySheetInline entries={history.byEx[exId]} onOpenImg={setViewImg} />
+              </div>
+            </>
           )}
         </div>
       )}
@@ -3344,6 +3584,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   const [importOpen, setImportOpen] = useState(false);
   const [copiedEx, setCopiedEx] = useState(null);
   const [copiedDay, setCopiedDay] = useState(null);
+  const [fichaEx, setFichaEx] = useState(null); // ejercicio con la ficha técnica abierta (vista previa del coach)
+  const [viewImg, setViewImg] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
   const toggleRoutine = (key) => setOpenRoutines((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]));
   // Reordenar los días arrastrando: mantén pulsado ~400 ms sobre un día y
@@ -3606,6 +3848,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                       </button>
                       <button onClick={() => mut((p) => move(p.days[di].exs, ei, -1))} style={{ padding: 5, color: P.faint }}><ArrowUp size={14} /></button>
                       <button onClick={() => mut((p) => move(p.days[di].exs, ei, +1))} style={{ padding: 5, color: P.faint }}><ArrowDown size={14} /></button>
+                      <button onClick={() => setFichaEx(e)} title="Ver ficha técnica (vista previa del alumno)" aria-label={`Ver ficha técnica de ${e.name}`} style={{ padding: 5, color: P.faint }}><Info size={14} /></button>
                       <button onClick={() => copyExercise(e)} title="Copiar ejercicio completo" aria-label={`Copiar ${e.name}`} style={{ padding: 5, color: P.faint }}><Copy size={14} /></button>
                       {ei < d.exs.length - 1 && (
                         <button onClick={() => mut((p) => toggleLink(p.days[di].exs, ei))}
@@ -3675,6 +3918,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
         onOk={() => { mut((p) => { if (del.type === "day") p.days = p.days.filter((x) => x.id !== del.dayId);
           else { const day = p.days.find((x) => x.id === del.dayId); day.exs = day.exs.filter((x) => x.id !== del.exId); } }); setDel(null); }} />
       <ImportRoutineSheet open={importOpen} onClose={() => setImportOpen(false)} plan={plan} savePlan={savePlan} toast={toast} />
+      <ExerciseInfoSheet ex={fichaEx} open={!!fichaEx} onClose={() => setFichaEx(null)} onOpenImg={setViewImg} />
+      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
   );
 };
@@ -3896,7 +4141,12 @@ const ActivityTab = ({ plan, history }) => {
           </select>
           {(history.byEx[exId] || []).length === 0
             ? <Empty icon={History} title="Sin registros" body="Este ejercicio aún no tiene sesiones registradas." />
-            : <ExHistorySheetInline entries={history.byEx[exId]} onOpenImg={setViewImg} />}
+            : (
+              <>
+                <ExerciseProgress entries={history.byEx[exId]} />
+                <ExHistorySheetInline entries={history.byEx[exId]} onOpenImg={setViewImg} />
+              </>
+            )}
         </div>
       )}
       <SessionDetailSheet session={openSession} onClose={() => setOpenSession(null)} history={history} onOpenImg={setViewImg} />
