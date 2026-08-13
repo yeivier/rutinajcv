@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v30";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v31";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -175,6 +175,18 @@ function moveBlock(exs, fromKey, toKey) {
   const newToB = exBlocks(exs).find((b) => b.key === toKey);
   const insertAt = wasBefore ? newToB.end : newToB.start;
   exs.splice(insertAt, 0, ...moved);
+}
+
+// Auto-scroll durante un arrastre (día/ejercicio/rutina): si el dedo se
+// acerca al borde superior o inferior de la pantalla, la página se
+// desplaza sola. Sin esto, mover un bloque de superserie/triserie (que
+// ocupa mucho alto) a un punto que no entra en la pantalla es imposible:
+// no hay forma de soltar sobre algo que nunca llega a verse.
+function autoScrollNearEdge(clientY) {
+  const EDGE = 90;
+  const h = window.innerHeight;
+  if (clientY < EDGE) window.scrollBy(0, -(EDGE - clientY) * 0.6);
+  else if (clientY > h - EDGE) window.scrollBy(0, (clientY - (h - EDGE)) * 0.6);
 }
 
 /* Une o separa exs[i] de exs[i+1]. Si alguno ya pertenece a un bloque, se
@@ -3869,6 +3881,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   useEffect(() => {
     if (!dragging) return;
     const move = (e) => {
+      autoScrollNearEdge(e.clientY);
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const card = el && el.closest && el.closest("[data-day-card]");
       const overId = card ? card.getAttribute("data-day-card") : null;
@@ -3879,14 +3892,14 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     window.addEventListener("pointermove", move, { passive: false });
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    // El scroll de la página se deja activo a propósito (para el
+    // auto-scroll de arriba): touch-action:none en el asa ya evita que el
+    // navegador confunda el gesto con un scroll nativo mientras se arrastra.
     document.body.classList.add("fj-dragging");
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
-      document.body.style.overflow = prevOverflow;
       document.body.classList.remove("fj-dragging");
     };
   }, [dragging, dragOver]);
@@ -3933,6 +3946,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   useEffect(() => {
     if (!exDragging) return;
     const move = (e) => {
+      autoScrollNearEdge(e.clientY);
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const card = el && el.closest && el.closest("[data-ex-block]");
       const dayId = card ? card.getAttribute("data-ex-day") : null;
@@ -3944,14 +3958,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     window.addEventListener("pointermove", move, { passive: false });
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     document.body.classList.add("fj-dragging");
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
-      document.body.style.overflow = prevOverflow;
       document.body.classList.remove("fj-dragging");
     };
   }, [exDragging, exDragOver]);
@@ -3995,6 +4006,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   useEffect(() => {
     if (!routineDragging) return;
     const move = (e) => {
+      autoScrollNearEdge(e.clientY);
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const card = el && el.closest && el.closest("[data-routine-group]");
       const overKey = card ? card.getAttribute("data-routine-group") : null;
@@ -4005,14 +4017,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     window.addEventListener("pointermove", move, { passive: false });
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     document.body.classList.add("fj-dragging");
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
-      document.body.style.overflow = prevOverflow;
       document.body.classList.remove("fj-dragging");
     };
   }, [routineDragging, routineDragOver]);
@@ -4084,7 +4093,12 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
   };
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    // El padding inferior es más grande que en otras pestañas a propósito: la
+    // barra de navegación fija tapa el final de la lista y, sin este espacio
+    // extra, un bloque de superserie/triserie (más alto que un ejercicio
+    // suelto) puede quedar atrapado detrás de la barra sin forma de
+    // desplazarlo a la vista para poder arrastrarlo.
+    <div style={{ padding: "18px 16px calc(100px + env(safe-area-inset-bottom))" }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Rutina</h1>
       <div style={{ color: P.dim, fontSize: 14, marginBottom: 14 }}>Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante.</div>
 
@@ -4269,6 +4283,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                         style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                           marginTop: 8, padding: "8px 0", borderRadius: 8, border: `1px dashed ${exDraggingHere ? P.ember : P.line}`,
                           color: exDraggingHere ? P.ember : P.faint, fontSize: 11.5, fontWeight: 600, cursor: "grab",
+                          position: "relative", zIndex: 60,
                           touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
                         <GripVertical size={15} /> Mantén pulsado para mover{gr.kind ? " el bloque" : ""}
                       </button>
