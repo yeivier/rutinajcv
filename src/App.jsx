@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v32";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v33";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -4233,6 +4233,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
               title="Mantén pulsado aquí y arrastra para mover la rutina completa"
               aria-label={`Mover ${g.label}`}
               style={{ padding: "6px 2px", marginBottom: open ? 8 : 0, color: routineDragging === g.key ? P.ember : P.faint, cursor: "grab",
+                position: "relative", zIndex: 60,
                 touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
               <GripVertical size={17} />
             </button>
@@ -4248,7 +4249,12 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
                 background: dragging === d.id ? P.s3 : (dragOver === d.id && dragging ? P.s2 : P.s1),
                 boxShadow: dragging === d.id ? "0 14px 30px rgba(0,0,0,.62)" : "none",
                 transform: dragging === d.id ? "scale(1.02)" : (dragOver === d.id && dragging ? "scale(.99)" : "none"),
-                zIndex: dragging === d.id ? 5 : 1,
+                // "auto" cuando no se arrastra: un z-index numérico aquí (aunque
+                // sea bajo) crea un contexto de apilamiento que atrapa a los
+                // descendientes (p.ej. el asa "Mantén pulsado para mover", con
+                // z-index:60) y les impide ganarle a la barra inferior fija
+                // (z-index:50) cuando el asa cae en esa franja de la pantalla.
+                zIndex: dragging === d.id ? 5 : "auto",
                 transition: "background .12s ease, box-shadow .14s ease, transform .14s ease",
                 WebkitUserSelect: dragging ? "none" : "auto", userSelect: dragging ? "none" : "auto" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "11px 12px" }}>
@@ -4272,6 +4278,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
                   title="Mantén pulsado aquí y arrastra para mover el día"
                   aria-label={`Mover el día ${d.name}`}
                   style={{ padding: "6px 2px", color: dragging === d.id ? P.ember : P.faint, cursor: "grab",
+                    position: "relative", zIndex: 60,
                     touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
                   <GripVertical size={17} />
                 </button>
