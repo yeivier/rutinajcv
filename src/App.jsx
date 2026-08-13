@@ -5,7 +5,7 @@ import {
   Camera, Check, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
-  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library
+  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff
 } from "lucide-react";
 
 /* ============================================================
@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v28";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v29";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Tema blanco y negro: fondo negro, superficies en grises neutros y blanco
 // como color de acento para que las letras resalten. El rojo se mantiene solo
@@ -54,6 +54,8 @@ const SET_TYPES = {
 };
 
 const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Trapecio","Otro"];
+// Equipo usado por un ejercicio de la biblioteca — sirve para filtrar la búsqueda.
+const EQUIPMENT = ["Barra","Barra EZ","Mancuernas","Máquina","Polea","Smith","Peso corporal","Kettlebell","Banda elástica","Otro"];
 // Porcentaje de crédito que se le puede asignar a un músculo secundario
 // (el ejercicio también lo trabaja, pero no es el músculo principal).
 const SECONDARY_PCTS = [25, 50, 75];
@@ -142,6 +144,37 @@ function exGroupInfo(exs, i) {
     linkedToNext: i < end,
     posLabel: `${blockLetter(exs, start)}${i - start + 1}`,
   };
+}
+
+/* Los bloques de un día: cada superserie/triserie/gigante cuenta como UN
+   bloque (todos sus ejercicios seguidos) y cada ejercicio suelto es un
+   bloque de uno. Se usa para arrastrar y reordenar de a bloque completo,
+   nunca separando un superserie/triserie a la mitad. */
+function exBlocks(exs) {
+  const out = [];
+  let i = 0;
+  while (i < exs.length) {
+    const g = exs[i].group;
+    let j = i + 1;
+    if (g) { while (j < exs.length && exs[j].group === g) j++; }
+    out.push({ start: i, end: j, key: exs[i].id });
+    i = j;
+  }
+  return out;
+}
+
+// Mueve el bloque completo que empieza en `fromKey` justo antes/después del
+// bloque `toKey`, preservando el orden interno de cada bloque. Muta `exs`.
+function moveBlock(exs, fromKey, toKey) {
+  const blocks = exBlocks(exs);
+  const fromB = blocks.find((b) => b.key === fromKey);
+  const toB = blocks.find((b) => b.key === toKey);
+  if (!fromB || !toB || fromB.key === toB.key) return;
+  const wasBefore = fromB.start < toB.start;
+  const moved = exs.splice(fromB.start, fromB.end - fromB.start);
+  const newToB = exBlocks(exs).find((b) => b.key === toKey);
+  const insertAt = wasBefore ? newToB.end : newToB.start;
+  exs.splice(insertAt, 0, ...moved);
 }
 
 /* Une o separa exs[i] de exs[i+1]. Si alguno ya pertenece a un bloque, se
@@ -535,6 +568,24 @@ const nextRoutineKey = (days) => {
   return String((days || []).length + 1);
 };
 
+// Mueve TODOS los días de una rutina (bloque completo) justo antes/después
+// del bloque de otra rutina, sin alterar el orden interno de los días de
+// cada una. Muta p.days.
+function moveRoutineGroup(p, fromKey, toKey) {
+  if (fromKey === toKey) return;
+  const order = groupDaysByRoutine(p.days).map((g) => g.key);
+  const fromIdx = order.indexOf(fromKey), toIdx = order.indexOf(toKey);
+  if (fromIdx < 0 || toIdx < 0) return;
+  const movedDays = p.days.filter((d) => routineOf(d) === fromKey);
+  const rest = p.days.filter((d) => routineOf(d) !== fromKey);
+  const wasBefore = fromIdx < toIdx;
+  let insertAt;
+  if (wasBefore) insertAt = rest.reduce((last, d, i) => (routineOf(d) === toKey ? i + 1 : last), rest.length);
+  else { insertAt = rest.findIndex((d) => routineOf(d) === toKey); if (insertAt === -1) insertAt = rest.length; }
+  rest.splice(insertAt, 0, ...movedDays);
+  p.days = rest;
+}
+
 /* Rutina B — transcripción literal del documento J2 («Entrenamiento Jose Miguel Posada») */
 function routineBDays() {
   const ex = (name, muscle, rest, ss, notes, s) => ({ id: uid(), name, muscle, rest, superset: ss || "", notes: notes || "", video: "", sets: s });
@@ -631,7 +682,7 @@ function setTargets(ex, setIdx, week) {
   };
 }
 
-const emptyPlan = () => ({ days: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], athlete: emptyAthlete(), meso: emptyMeso(), updatedAt: todayISO() });
+const emptyPlan = () => ({ days: [], library: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], athlete: emptyAthlete(), meso: emptyMeso(), updatedAt: todayISO() });
 function seedPlan() {
   const ex = (name, muscle, rest, ss, notes, video, s) => ({ id: uid(), name, muscle, rest, superset: ss || "", notes: notes || "", video: video || "", sets: s });
   const n = (reps, rir) => ["normal", reps, rir];
@@ -1192,7 +1243,7 @@ const ImageViewer = ({ src, onClose }) => {
 
 // mode: "photo" | "video" | "both"
 // capture: true = abre la cámara del celular directo (grabar); false = elegir de galería
-const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", capture, iconOnly }) => {
+const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", capture, iconOnly, disabled }) => {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const cb = onAttached || onAdd;
@@ -1238,17 +1289,59 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", captu
           finally { setBusy(false); }
         }} />
       {iconOnly ? (
-        <button disabled={busy} title={text} onClick={() => ref.current && ref.current.click()}
+        <button disabled={busy || disabled} title={text} onClick={() => ref.current && ref.current.click()}
           style={{ width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
-            background: P.s3, border: `1px solid ${P.line}`, color: busy ? P.ember : P.dim, flexShrink: 0 }}>
+            background: P.s3, border: `1px solid ${P.line}`, color: busy ? P.ember : P.dim, flexShrink: 0, opacity: disabled ? 0.5 : 1 }}>
           {busy ? <span style={{ fontSize: 10, fontWeight: 700 }}>…</span> : <Icon size={15} />}
         </button>
       ) : (
-        <Btn kind="line" small disabled={busy} onClick={() => ref.current && ref.current.click()}>
+        <Btn kind="line" small disabled={busy || disabled} onClick={() => ref.current && ref.current.click()}>
           <Icon size={14} /> {busy ? "Subiendo…" : text}
         </Btn>
       )}
     </>
+  );
+};
+
+// Dictado de voz para cualquier campo de texto: usa el reconocimiento de voz
+// del propio navegador (Web Speech API), en español. Va acumulando el texto
+// final reconocido y lo entrega vía onResult cada vez que hay una frase
+// terminada. No graba ni sube nada: todo pasa en el dispositivo.
+const VoiceDictateButton = ({ onResult, onError, disabled }) => {
+  const [listening, setListening] = useState(false);
+  const recRef = useRef(null);
+  const supported = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  const toggle = () => {
+    if (!supported) { onError && onError("El dictado de voz no está disponible en este navegador."); return; }
+    if (listening) { recRef.current && recRef.current.stop(); return; }
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new Rec();
+    rec.lang = "es-CL";
+    rec.continuous = true;
+    rec.interimResults = false;
+    rec.onresult = (ev) => {
+      let text = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) text += ev.results[i][0].transcript;
+      }
+      if (text.trim()) onResult(text.trim());
+    };
+    rec.onerror = (ev) => { if (ev.error !== "no-speech" && ev.error !== "aborted") onError && onError("No se pudo escuchar: " + ev.error); };
+    rec.onend = () => setListening(false);
+    recRef.current = rec;
+    try { rec.start(); setListening(true); } catch { onError && onError("No se pudo iniciar el dictado."); }
+  };
+
+  useEffect(() => () => { recRef.current && recRef.current.stop(); }, []);
+
+  return (
+    <button type="button" disabled={disabled} onClick={toggle} title={listening ? "Detener dictado" : "Dictar por voz"}
+      aria-label={listening ? "Detener dictado de voz" : "Dictar por voz"}
+      style={{ width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        background: listening ? `${P.red}22` : P.s3, border: `1px solid ${listening ? P.red : P.line}`, color: listening ? P.red : P.dim }}>
+      {listening ? <MicOff size={15} className="pulse" /> : <Mic size={15} />}
+    </button>
   );
 };
 
@@ -3187,6 +3280,12 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
           </select></Field></div>
         <div style={{ width: 130 }}><Field label="Descanso ejercicio (seg)"><Inp type="number" inputMode="numeric" value={d.rest} onChange={(e) => set({ rest: +e.target.value || 0 })} /></Field></div>
       </div>
+      <Field label="Equipo (opcional)" hint="Sirve para buscar y filtrar en la biblioteca de ejercicios.">
+        <select value={d.equipment || ""} onChange={(e) => set({ equipment: e.target.value })} style={{ width: "100%", padding: "10px 10px" }}>
+          <option value="">— Sin especificar —</option>
+          {EQUIPMENT.map((eq) => <option key={eq}>{eq}</option>)}
+        </select>
+      </Field>
       <Field label="Músculos secundarios (opcional)"
         hint="Este ejercicio no es 100 % aislado para el músculo principal. Ej: un remo prioriza espalda pero también trabaja trapecio y bíceps: márcalos con el % que aportan y se suman al volumen semanal de esos grupos.">
         {(d.secondary || []).map((sec, si) => (
@@ -3577,7 +3676,105 @@ const MesoPanel = ({ plan, savePlan }) => {
   );
 };
 
+/* ============================================================
+   Biblioteca de ejercicios: catálogo reutilizable de ejercicios, aparte
+   de la rutina en sí. Reutiliza exactamente el mismo editor y la misma
+   forma de dato que un ejercicio de rutina (ExerciseEditorSheet), así
+   que agregar uno a la biblioteca se ve y se llena igual que agregarlo
+   a un día. El agente IA también puede sumar ejercicios acá (ver
+   BodybuildingChat / forja-biblioteca).
+   ============================================================ */
+const LibraryPanel = ({ plan, savePlan, onInfo, toast, onCopyExercise }) => {
+  const [q, setQ] = useState("");
+  const [muscleF, setMuscleF] = useState([]);
+  const [equipF, setEquipF] = useState([]);
+  const [editEx, setEditEx] = useState(null); // ejercicio de biblioteca en edición (o nuevo)
+  const [del, setDel] = useState(null);
+  const [viewImg, setViewImg] = useState(null);
+  const lib = plan.library || [];
+
+  const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
+  const toggle = (arr, setArr, v) => setArr(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+
+  const filtered = lib.filter((e) => {
+    if (q.trim() && !e.name.toLowerCase().includes(q.trim().toLowerCase())) return false;
+    if (muscleF.length && !muscleF.includes(e.muscle)) return false;
+    if (equipF.length && !equipF.includes(e.equipment || "")) return false;
+    return true;
+  });
+
+  const newExTemplate = () => ({ id: uid(), isNew: true, name: "", muscle: MUSCLES[0], equipment: "", rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] });
+
+  const chip = (label, active, onClick) => (
+    <button key={label} onClick={onClick} style={{ padding: "5px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, flexShrink: 0,
+      background: active ? `${P.ember}22` : P.s2, border: `1px solid ${active ? `${P.ember}66` : P.line}`, color: active ? P.ember2 : P.dim }}>{label}</button>
+  );
+
+  return (
+    <div>
+      <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 12 }}>
+        Catálogo de ejercicios reutilizable, aparte de la rutina. Búscalos, cópialos y pégalos en cualquier día. El agente IA también puede sumar ejercicios acá cuando se lo pidas.
+      </div>
+      <div style={{ position: "relative", marginBottom: 10 }}>
+        <Search size={16} color={P.faint} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
+        <Inp value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar ejercicio por nombre…" style={{ paddingLeft: 34 }} />
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 5 }}>Grupo muscular</div>
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
+          {MUSCLES.map((m) => chip(m, muscleF.includes(m), () => toggle(muscleF, setMuscleF, m)))}
+        </div>
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 5 }}>Equipo</div>
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
+          {EQUIPMENT.map((eq) => chip(eq, equipF.includes(eq), () => toggle(equipF, setEquipF, eq)))}
+        </div>
+      </div>
+
+      <Btn kind="ember" onClick={() => setEditEx(newExTemplate())} style={{ width: "100%", marginBottom: 14 }}>
+        <Plus size={16} /> Añadir ejercicio a la biblioteca
+      </Btn>
+
+      {lib.length === 0 ? (
+        <Empty icon={Library} title="Biblioteca vacía" body="Añade ejercicios a mano o pídele al agente IA que sume los que recomiende. Después los copias y pegas en cualquier día de la rutina." />
+      ) : filtered.length === 0 ? (
+        <div style={{ fontSize: 13, color: P.faint, textAlign: "center", padding: "20px 0" }}>Ningún ejercicio calza con la búsqueda o los filtros.</div>
+      ) : (
+        filtered.map((e) => (
+          <Card key={e.id} style={{ padding: "11px 12px", marginBottom: 9 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <button onClick={() => setEditEx(structuredClone(e))} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14.5, lineHeight: 1.25 }}>{e.name}</div>
+                <div style={{ fontSize: 11.5, color: P.faint, marginTop: 3, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <span>{e.muscle}</span>{e.equipment && <span>· {e.equipment}</span>}<span>· {e.sets.length} serie{e.sets.length !== 1 ? "s" : ""}</span>
+                </div>
+              </button>
+              <button onClick={() => onCopyExercise(e)} title="Copiar (después pégalo en cualquier día de la rutina)" aria-label={`Copiar ${e.name}`} style={{ padding: 5, color: P.faint }}><Copy size={15} /></button>
+              <button onClick={() => setDel(e)} style={{ padding: 5, color: P.faint }}><Trash2 size={15} /></button>
+            </div>
+          </Card>
+        ))
+      )}
+
+      <ExerciseEditorSheet ex={editEx} onClose={() => setEditEx(null)} onInfo={onInfo}
+        onSave={(exd) => { const { isNew, ...clean } = exd; mut((p) => {
+          if (!p.library) p.library = [];
+          const i = p.library.findIndex((x) => x.id === clean.id);
+          if (i >= 0) p.library[i] = clean; else p.library.push(clean);
+        }); setEditEx(null); if (toast) toast(`✓ «${exd.name}» guardado en la biblioteca`); }} />
+
+      <Confirm open={!!del} danger title="Eliminar de la biblioteca" body={del ? `¿Eliminar «${del.name}» de la biblioteca? No afecta a las rutinas donde ya se usó.` : ""}
+        okLabel="Eliminar" onCancel={() => setDel(null)}
+        onOk={() => { mut((p) => { p.library = (p.library || []).filter((x) => x.id !== del.id); }); setDel(null); }} />
+
+      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
+    </div>
+  );
+};
+
 const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
+  const [view, setView] = useState("dias"); // 'dias' | 'biblioteca'
   const [openDay, setOpenDay] = useState(null);
   const [editEx, setEditEx] = useState(null); // {dayId, ex}
   const [del, setDel] = useState(null); // {type:'day'|'ex', dayId, exId, name}
@@ -3686,6 +3883,150 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
     };
   }, [dragging, dragOver]);
 
+  // Reordenar ejercicios (o bloques enteros de superserie/triserie/gigante)
+  // dentro de un mismo día, mismo mecanismo de mantener pulsado que los días.
+  const [exDragging, setExDragging] = useState(null);   // {dayId, blockKey}
+  const [exDragOver, setExDragOver] = useState(null);   // {dayId, blockKey}
+  const exDragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
+  const startExDrag = (dayId, blockKey, e) => {
+    e.preventDefault();
+    const st = exDragRef.current;
+    clearTimeout(st.holdTimer);
+    st.activated = false;
+    st.startX = e.clientX; st.startY = e.clientY;
+    st.holdTimer = setTimeout(() => {
+      st.activated = true;
+      setExDragging({ dayId, blockKey });
+      try { navigator.vibrate && navigator.vibrate(25); } catch {}
+    }, 220);
+  };
+  const cancelExPress = (e) => {
+    const st = exDragRef.current;
+    if (e && st.holdTimer && !st.activated) {
+      const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
+      if (dx > 8 || dy > 8) clearTimeout(st.holdTimer);
+    }
+  };
+  const endExDrag = () => {
+    const st = exDragRef.current;
+    clearTimeout(st.holdTimer);
+    if (exDragging) {
+      st.blockUntil = Date.now() + 250;
+      if (exDragOver && exDragOver.dayId === exDragging.dayId && exDragOver.blockKey !== exDragging.blockKey) {
+        mut((p) => {
+          const day = p.days.find((d) => d.id === exDragging.dayId);
+          if (day) moveBlock(day.exs, exDragging.blockKey, exDragOver.blockKey);
+        });
+      }
+    }
+    st.activated = false;
+    setExDragging(null); setExDragOver(null);
+  };
+  useEffect(() => {
+    if (!exDragging) return;
+    const move = (e) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const card = el && el.closest && el.closest("[data-ex-block]");
+      const dayId = card ? card.getAttribute("data-ex-day") : null;
+      const overKey = card && dayId === exDragging.dayId ? card.getAttribute("data-ex-block") : null;
+      setExDragOver((prev) => (overKey ? { dayId, blockKey: overKey } : null));
+      e.preventDefault();
+    };
+    const up = () => endExDrag();
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [exDragging, exDragOver]);
+
+  // Reordenar rutinas completas (bloques A/B/C…) arrastrando el asa de su
+  // encabezado, mismo mecanismo de mantener pulsado que días y ejercicios.
+  const [routineDragging, setRoutineDragging] = useState(null); // key
+  const [routineDragOver, setRoutineDragOver] = useState(null); // key
+  const routineDragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
+  const startRoutineDrag = (key, e) => {
+    e.preventDefault();
+    const st = routineDragRef.current;
+    clearTimeout(st.holdTimer);
+    st.activated = false;
+    st.startX = e.clientX; st.startY = e.clientY;
+    st.holdTimer = setTimeout(() => {
+      st.activated = true;
+      setRoutineDragging(key);
+      try { navigator.vibrate && navigator.vibrate(25); } catch {}
+    }, 220);
+  };
+  const cancelRoutinePress = (e) => {
+    const st = routineDragRef.current;
+    if (e && st.holdTimer && !st.activated) {
+      const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
+      if (dx > 8 || dy > 8) clearTimeout(st.holdTimer);
+    }
+  };
+  const endRoutineDrag = () => {
+    const st = routineDragRef.current;
+    clearTimeout(st.holdTimer);
+    if (routineDragging) {
+      st.blockUntil = Date.now() + 250;
+      if (routineDragOver && routineDragOver !== routineDragging) {
+        mut((p) => moveRoutineGroup(p, routineDragging, routineDragOver));
+      }
+    }
+    st.activated = false;
+    setRoutineDragging(null); setRoutineDragOver(null);
+  };
+  useEffect(() => {
+    if (!routineDragging) return;
+    const move = (e) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const card = el && el.closest && el.closest("[data-routine-group]");
+      const overKey = card ? card.getAttribute("data-routine-group") : null;
+      setRoutineDragOver((prev) => (prev === overKey ? prev : overKey));
+      e.preventDefault();
+    };
+    const up = () => endRoutineDrag();
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [routineDragging, routineDragOver]);
+
+  const [copiedRoutine, setCopiedRoutine] = useState(null);
+  // Copia la rutina completa: todos sus días, con todos sus ejercicios y series.
+  const copyRoutine = (g) => {
+    setCopiedRoutine({ label: g.label, days: structuredClone(g.days) });
+    if (toast) toast(`✓ ${g.label} copiada completa: ${g.days.length} día${g.days.length !== 1 ? "s" : ""}`);
+  };
+  // Pega la rutina copiada como una rutina nueva (letra libre), con ids nuevos
+  // en días, ejercicios y series para no compartir estado con la original.
+  const pasteRoutine = () => {
+    if (!copiedRoutine) return;
+    mut((p) => {
+      const key = nextRoutineKey(p.days);
+      const clones = copiedRoutine.days.map((d) => ({
+        ...structuredClone(d), id: uid(), routine: key,
+        exs: (d.exs || []).map((e) => ({ ...e, id: uid(), sets: (e.sets || []).map((s) => ({ ...s, id: uid() })) })),
+      }));
+      p.days.push(...clones);
+      setOpenRoutines((o) => [...o, key]);
+    });
+    if (toast) toast(`✓ ${copiedRoutine.label} pegada como rutina nueva`);
+  };
+
   // Vuelca todos los ejercicios del día copiado dentro de otro día ya existente.
   // Cada ejercicio y cada serie se clonan con ids nuevos para no compartir estado
   // con el día original.
@@ -3735,6 +4076,18 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Rutina</h1>
       <div style={{ color: P.dim, fontSize: 14, marginBottom: 14 }}>Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante.</div>
 
+      <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
+        {[["dias", "Días", ClipboardList], ["biblioteca", "Biblioteca", Library]].map(([id, label, Icon]) => (
+          <button key={id} onClick={() => setView(id)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 4px", borderRadius: 10, fontSize: 13.5, fontWeight: 600,
+            background: view === id ? P.s3 : "transparent", color: view === id ? P.text : P.faint, border: `1px solid ${view === id ? P.line : "transparent"}` }}>
+            <Icon size={14} /> {label}{id === "biblioteca" && (plan.library || []).length > 0 ? ` (${plan.library.length})` : ""}
+          </button>
+        ))}
+      </div>
+
+      {view === "biblioteca" && <LibraryPanel plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
+
+      {view === "dias" && (<>
       <MesoPanel plan={plan} savePlan={savePlan} />
 
       <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(140deg, ${P.ember}18, ${P.s1})`, borderColor: `${P.ember}55` }}>
@@ -3755,14 +4108,36 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
       )}
 
       {groupDaysByRoutine(plan.days).map((g) => { const open = openRoutines.includes(g.key); return (
-        <div key={g.key} style={{ marginBottom: 20 }}>
-          <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-            style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, marginBottom: open ? 8 : 0,
-              paddingBottom: 6, borderBottom: `1px solid ${P.line}`, textAlign: "left" }}>
-            <div className="disp" style={{ fontSize: 17, fontWeight: 700, textTransform: "uppercase", color: P.ember2 }}>{g.label}</div>
-            <div style={{ fontSize: 11.5, color: P.faint, flex: 1, minWidth: 0 }}>{g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series</div>
-            {open ? <ChevronUp size={18} color={P.ember} /> : <ChevronDown size={18} color={P.faint} />}
-          </button>
+        <div key={g.key} data-routine-group={g.key}
+          onClickCapture={(e) => { if (Date.now() < (routineDragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
+          style={{ marginBottom: 20, borderRadius: 12,
+            background: routineDragging === g.key ? P.s2 : (routineDragOver === g.key && routineDragging ? P.s1 : "transparent"),
+            boxShadow: routineDragging === g.key ? "0 14px 30px rgba(0,0,0,.55)" : "none",
+            transform: routineDragging === g.key ? "scale(1.01)" : "none",
+            transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
+              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, marginBottom: open ? 8 : 0,
+                paddingBottom: 6, borderBottom: `1px solid ${P.line}`, textAlign: "left" }}>
+              <div className="disp" style={{ fontSize: 17, fontWeight: 700, textTransform: "uppercase", color: P.ember2 }}>{g.label}</div>
+              <div style={{ fontSize: 11.5, color: P.faint, flex: 1, minWidth: 0 }}>{g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series</div>
+              {open ? <ChevronUp size={18} color={P.ember} /> : <ChevronDown size={18} color={P.faint} />}
+            </button>
+            <button onClick={() => copyRoutine(g)} title="Copiar la rutina completa" aria-label={`Copiar ${g.label} completa`}
+              style={{ padding: 6, marginBottom: open ? 8 : 0, color: P.faint }}><Copy size={15} /></button>
+            <button
+              onPointerDown={(e) => startRoutineDrag(g.key, e)}
+              onPointerMove={cancelRoutinePress}
+              onPointerUp={() => { const st = routineDragRef.current; if (!routineDragging) clearTimeout(st.holdTimer); }}
+              onPointerCancel={() => { const st = routineDragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
+              onContextMenu={(e) => e.preventDefault()}
+              title="Mantén pulsado aquí y arrastra para mover la rutina completa"
+              aria-label={`Mover ${g.label}`}
+              style={{ padding: "6px 2px", marginBottom: open ? 8 : 0, color: routineDragging === g.key ? P.ember : P.faint, cursor: "grab",
+                touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
+              <GripVertical size={17} />
+            </button>
+          </div>
           {open && (<>
           {g.items.map(({ day: d, index: di }) => (
             <Card key={d.id}
@@ -3804,10 +4179,18 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
               </div>
               {openDay === d.id && (
                 <div style={{ padding: "0 12px 12px" }}>
-                  {d.exs.map((e, ei) => {
+                  {(() => { const blocks = exBlocks(d.exs); return d.exs.map((e, ei) => {
                     const gr = exGroupInfo(d.exs, ei);
+                    const blockKey = (blocks.find((b) => ei >= b.start && ei < b.end) || {}).key;
+                    const exDraggingHere = exDragging && exDragging.dayId === d.id && exDragging.blockKey === blockKey;
+                    const exDragOverHere = exDragOver && exDragOver.dayId === d.id && exDragOver.blockKey === blockKey && exDragging && exDragging.blockKey !== blockKey;
                     return (
-                    <div key={e.id}>
+                    <div key={e.id} data-ex-block={blockKey} data-ex-day={d.id}
+                      onClickCapture={(ev) => { if (Date.now() < (exDragRef.current.blockUntil || 0)) { ev.stopPropagation(); ev.preventDefault(); } }}
+                      style={{ background: exDraggingHere ? P.s3 : "transparent", boxShadow: exDraggingHere ? "0 10px 24px rgba(0,0,0,.55)" : "none",
+                        transform: exDraggingHere ? "scale(1.015)" : (exDragOverHere ? "scale(.99)" : "none"), borderRadius: exDraggingHere || exDragOverHere ? 12 : 0,
+                        transition: "background .12s ease, box-shadow .14s ease, transform .14s ease",
+                        WebkitUserSelect: exDragging ? "none" : "auto", userSelect: exDragging ? "none" : "auto" }}>
                     {gr.first && gr.kind && (
                       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, padding: "0 2px", flexWrap: "wrap" }}>
                         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
@@ -3860,9 +4243,23 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
                         </button>
                       )}
                       <button onClick={() => setDel({ type: "ex", dayId: d.id, exId: e.id, name: e.name })} style={{ padding: 5, color: P.faint }}><Trash2 size={14} /></button>
+                      {gr.first && (
+                        <button
+                          onPointerDown={(ev) => startExDrag(d.id, blockKey, ev)}
+                          onPointerMove={cancelExPress}
+                          onPointerUp={() => { const st = exDragRef.current; if (!exDragging) clearTimeout(st.holdTimer); }}
+                          onPointerCancel={() => { const st = exDragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
+                          onContextMenu={(ev) => ev.preventDefault()}
+                          title={gr.kind ? "Mantén pulsado y arrastra para mover todo el bloque" : "Mantén pulsado y arrastra para mover el ejercicio"}
+                          aria-label={`Mover ${gr.kind ? "el bloque de " : ""}${e.name}`}
+                          style={{ padding: "5px 1px", color: exDraggingHere ? P.ember : P.faint, cursor: "grab",
+                            touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
+                          <GripVertical size={15} />
+                        </button>
+                      )}
                     </div>
                     </div>
-                  );})}
+                  );});})()}
                   <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.4, margin: "2px 2px 8px", display: "flex", alignItems: "center", gap: 5 }}>
                     <Paperclip size={12} /> Toca el clip de un ejercicio para unirlo con el de abajo. Dos = superserie, tres = triserie, cuatro o más = serie gigante. Une otro más para agrandar el bloque.
                   </div>
@@ -3906,6 +4303,17 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast }) => {
           <Plus size={16} /> Añadir día de entrenamiento
         </Btn>
       )}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: plan.days.length === 0 ? 10 : 0 }}>
+        <Btn kind="line" onClick={() => mut((p) => { const key = nextRoutineKey(p.days); p.days.push({ id: uid(), name: "Día 1", routine: key, exs: [] }); setOpenRoutines((o) => [...o, key]); })} style={{ flex: 1, minWidth: 180 }}>
+          <Plus size={16} /> Nueva rutina
+        </Btn>
+        {copiedRoutine && (
+          <Btn kind="line" onClick={pasteRoutine} style={{ flex: 1.3, minWidth: 200 }}>
+            <ClipboardList size={16} /> Pegar {copiedRoutine.label} como rutina nueva
+          </Btn>
+        )}
+      </div>
+      </>)}
 
       <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo} meso={mesoOf(plan)}
         onSave={(exd) => { const { isNew, ...clean } = exd; mut((p) => { const day = p.days.find((x) => x.id === editEx.dayId);
@@ -4594,7 +5002,7 @@ const BB_SPECIALTIES = [
 ];
 
 /* Bloques de acción que el agente puede devolver para que el coach los aplique */
-const BB_ACTION_RE = /```forja-(rutina|nutricion)\s*([\s\S]*?)```/g;
+const BB_ACTION_RE = /```forja-(rutina|nutricion|biblioteca)\s*([\s\S]*?)```/g;
 function parseAIActions(text) {
   const actions = [];
   const clean = text.replace(BB_ACTION_RE, (whole, kind, body) => {
@@ -4731,6 +5139,13 @@ Cuando propongas calorías y macros concretos, incluye también:
 \`\`\`forja-nutricion
 {"kcal":3000,"p":200,"c":330,"f":80,"notes":"Resumen breve de la pauta"}
 \`\`\`
+
+Cuando el coach te pida agregar un ejercicio a la biblioteca (catálogo reutilizable, aparte de la rutina), o cuando tú mismo recomiendes uno nuevo y el coach lo acepte, incluye:
+\`\`\`forja-biblioteca
+{"name":"Nombre del ejercicio","muscle":"Pecho","equipment":"Mancuernas","rest":90,"notes":"Indicación técnica breve","sets":[{"type":"normal","repsT":"8-12","rirT":"2"}]}
+\`\`\`
+Reglas iguales a forja-rutina para "muscle" y "type"; "equipment" debe ser uno de ${EQUIPMENT.join(", ")} (o vacío). Un solo ejercicio por bloque; si son varios, repite el bloque forja-biblioteca una vez por cada uno.
+
 No uses estos bloques si el coach solo pregunta algo teórico: son para cambios que quiere aplicar.
 
 ${ctx}`;
@@ -5016,6 +5431,8 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [applied, setApplied] = useState({});
+  const [pendingAttach, setPendingAttach] = useState([]); // ids de fotos/videos aún no enviados
+  const [viewImg, setViewImg] = useState(null);
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -5036,20 +5453,44 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
 
   const spec = BB_SPECIALTIES.find((s) => s.id === specialty) || BB_SPECIALTIES[0];
 
+  // Arma el contenido de un mensaje para la API de Claude: si tiene fotos
+  // adjuntas, van primero como bloques de imagen (Claude las analiza), el
+  // texto va al final. Los videos no se pueden mandar a la API de visión:
+  // quedan adjuntos para que el coach los vea, pero se avisa en el texto.
+  const contentForAPI = async (m) => {
+    if (!m.attachIds || !m.attachIds.length) return m.content;
+    const blocks = [];
+    let videoCount = 0;
+    for (const id of m.attachIds) {
+      const media = await sGet(`attach:${id}`);
+      if (!media) continue;
+      if (media.kind === "video") { videoCount++; continue; }
+      const comma = media.dataUrl.indexOf(",");
+      const meta = media.dataUrl.slice(5, media.dataUrl.indexOf(";"));
+      blocks.push({ type: "image", source: { type: "base64", media_type: meta || "image/jpeg", data: media.dataUrl.slice(comma + 1) } });
+    }
+    const note = videoCount ? `\n\n(${videoCount} video${videoCount !== 1 ? "s" : ""} adjunto${videoCount !== 1 ? "s" : ""}, no se envía a la IA para análisis)` : "";
+    blocks.push({ type: "text", text: (m.content || "(foto adjunta)") + note });
+    return blocks;
+  };
+
   const send = async (preset) => {
     const text = (preset != null ? preset : input).trim();
-    if (!text || busy) return;
+    if ((!text && !pendingAttach.length) || busy) return;
     if (!apiKey) { setErr("Configura primero tu API key de Anthropic."); onNeedKey && onNeedKey(); return; }
     setErr("");
-    const nextMsgs = [...messages, { role: "user", content: text }];
-    setMessages(nextMsgs); setInput(""); setBusy(true);
+    const userMsg = { role: "user", content: text };
+    if (pendingAttach.length) userMsg.attachIds = [...pendingAttach];
+    const nextMsgs = [...messages, userMsg];
+    setMessages(nextMsgs); setInput(""); setPendingAttach([]); setBusy(true);
     try {
       const ctx = buildAthleteContext({ plan, history, athlete: plan.athlete, student: currentStudent });
+      const apiMessages = await Promise.all(nextMsgs.map(async (m) => ({ role: m.role, content: await contentForAPI(m) })));
       const data = await callClaudeAPI(apiKey, {
         model: AI_MODEL,
         max_tokens: 3000,
         system: buildBBSystemPrompt(ctx, specialty),
-        messages: nextMsgs.map((m) => ({ role: m.role, content: m.content })),
+        messages: apiMessages,
       });
       const answer = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n") || "(sin respuesta)";
       const final = [...nextMsgs, { role: "assistant", content: answer }];
@@ -5083,6 +5524,21 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
     savePlan(p);
     setApplied((a) => ({ ...a, [key]: true }));
     toast && toast("✓ Macros aplicados al plan nutricional");
+  };
+
+  const applyLibrary = (data, key) => {
+    const p = structuredClone(plan);
+    if (!p.library) p.library = [];
+    p.library.push({
+      id: uid(), name: data.name || "Ejercicio", muscle: MUSCLES.includes(data.muscle) ? data.muscle : MUSCLES[0],
+      equipment: EQUIPMENT.includes(data.equipment) ? data.equipment : "", rest: +data.rest || 90, notes: data.notes || "",
+      video: "", superset: "", secondary: [],
+      sets: (data.sets || []).map((s) => ({ id: uid(), type: SET_TYPES[s.type] ? s.type : "normal", repsT: s.repsT || "8-12", rirT: s.rirT || "2", pct: 15 })),
+    });
+    p.updatedAt = todayISO();
+    savePlan(p);
+    setApplied((a) => ({ ...a, [key]: true }));
+    toast && toast(`✓ «${data.name || "Ejercicio"}» agregado a la biblioteca`);
   };
 
   const clearChat = () => { setMessages([]); setApplied({}); persist([]); };
@@ -5121,9 +5577,16 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
         {messages.map((m, i) => {
           if (m.role === "user") {
             return (
-              <div key={i} style={{ marginBottom: 10, display: "flex", justifyContent: "flex-end" }}>
-                <div style={{ maxWidth: "85%", padding: "10px 13px", borderRadius: 14, background: `${P.ember}22`,
-                  border: `1px solid ${P.ember}55`, fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{m.content}</div>
+              <div key={i} style={{ marginBottom: 10, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                {m.attachIds && m.attachIds.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 5, maxWidth: "85%", overflowX: "auto" }}>
+                    {m.attachIds.map((id) => <AttachThumb key={id} id={id} size={56} onOpen={setViewImg} />)}
+                  </div>
+                )}
+                {m.content && (
+                  <div style={{ maxWidth: "85%", padding: "10px 13px", borderRadius: 14, background: `${P.ember}22`,
+                    border: `1px solid ${P.ember}55`, fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{m.content}</div>
+                )}
               </div>
             );
           }
@@ -5160,6 +5623,25 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
                     </Card>
                   );
                 }
+                if (act.kind === "biblioteca") {
+                  const d = act.data;
+                  return (
+                    <Card key={key} style={{ padding: "12px 13px", marginTop: 8, borderColor: `${P.blue}55`, background: `${P.blue}0A` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+                        <Library size={15} color={P.blue} />
+                        <div style={{ fontWeight: 700, fontSize: 13.5, flex: 1 }}>{d.name || "Ejercicio"}</div>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: P.dim, marginBottom: 9, lineHeight: 1.45 }}>
+                        {d.muscle}{d.equipment ? ` · ${d.equipment}` : ""} · {(d.sets || []).length} serie{(d.sets || []).length !== 1 ? "s" : ""}
+                      </div>
+                      {done ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: P.green }}><Check size={14} /> Agregado a la biblioteca</div>
+                      ) : (
+                        <Btn kind="line" small onClick={() => applyLibrary(d, key)}><Plus size={13} /> Agregar a la biblioteca</Btn>
+                      )}
+                    </Card>
+                  );
+                }
                 const d = act.data;
                 return (
                   <Card key={key} style={{ padding: "12px 13px", marginTop: 8, borderColor: `${P.green}55`, background: `${P.green}0A` }}>
@@ -5191,12 +5673,24 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
         {err && <div style={{ padding: "10px 13px", borderRadius: 10, background: `${P.red}22`, border: `1px solid ${P.red}55`, fontSize: 12.5, color: P.red, marginBottom: 8 }}>{err}</div>}
       </div>
 
+      {pendingAttach.length > 0 && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 7, overflowX: "auto" }}>
+          {pendingAttach.map((id) => (
+            <AttachThumb key={id} id={id} size={52} onOpen={setViewImg}
+              onRemove={() => setPendingAttach((a) => a.filter((x) => x !== id))} />
+          ))}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <AttachButton mode="both" iconOnly disabled={busy} onError={setErr} onAttached={(id) => setPendingAttach((a) => [...a, id])} />
+          <VoiceDictateButton disabled={busy} onError={setErr} onResult={(text) => setInput((v) => (v ? `${v} ${text}` : text))} />
+        </div>
         <textarea rows={2} placeholder={apiKey ? `Pregunta de ${spec.label.toLowerCase()}…` : "Configura la API key primero"} disabled={busy}
           value={input} onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           style={{ flex: 1, padding: "10px 12px", fontSize: 14, minWidth: 0, resize: "none" }} />
-        <Btn kind="ember" disabled={!input.trim() || busy} onClick={() => send()} style={{ padding: "12px 14px", minWidth: 0 }}>
+        <Btn kind="ember" disabled={(!input.trim() && !pendingAttach.length) || busy} onClick={() => send()} style={{ padding: "12px 14px", minWidth: 0 }}>
           <Send size={16} />
         </Btn>
       </div>
@@ -5204,9 +5698,10 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
       {messages.length > 0 && (
         <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
           <Btn kind="line" small onClick={clearChat}><Trash2 size={12} /> Reiniciar conversación</Btn>
-          <div style={{ fontSize: 11.5, color: P.faint, alignSelf: "center" }}>La conversación se guarda por alumno.</div>
+          <div style={{ fontSize: 11.5, color: P.faint, alignSelf: "center" }}>La conversación se guarda por alumno. Las fotos se analizan con IA; los videos quedan adjuntos pero no se analizan.</div>
         </div>
       )}
+      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
   );
 };
@@ -5710,6 +6205,8 @@ const App = () => {
     if (!p.events) p.events = [];
     // Migración: planes viejos sin ficha del atleta (la usa el agente de culturismo)
     if (!p.athlete) p.athlete = emptyAthlete();
+    // Migración: planes viejos sin biblioteca de ejercicios
+    if (!p.library) p.library = [];
     if ((p.seedVersion || 0) < SEED_VERSION) {
       const trainingB = (p.days || []).find((day) => day.name === "Entrenamiento B");
       if (trainingB) {
