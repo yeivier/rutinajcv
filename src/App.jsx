@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v41";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v42";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -787,17 +787,40 @@ function routineBDays() {
 }
 
 /* ============================================================
-   Mesociclo: el plan corre por semanas. Cada semana puede fijar
-   reps y RIR distintos por ejercicio; si no los fija, se usan los
-   del ejercicio. Una semana puede marcarse como descarga (deload).
+   Mesociclos: el plan puede tener VARIOS mesociclos (fases del año,
+   bloques distintos), cada uno con su propio nombre y su propia lista
+   de semanas. Solo uno está "en curso" a la vez — de ahí sale la semana
+   activa que ve el alumno. Cada semana puede fijar reps y RIR distintos
+   por ejercicio (eso se edita dentro del ejercicio, sin tocar acá); si
+   no los fija, se usan los del ejercicio. Una semana puede marcarse como
+   descarga (deload).
+   Migración: los planes viejos tenían un solo `plan.meso = {weeks, current}`
+   plano (sin agrupar en mesociclos) — `mesoStateOf` lo envuelve en un
+   único "Mesociclo 1" sin tocar los IDs de semana, así los objetivos por
+   semana ya cargados en cada ejercicio (`ex.weekly[weekId]`) se preservan
+   intactos, sin necesidad de migrar esos datos también.
    ============================================================ */
 const emptyMeso = () => ({
   weeks: [{ id: uid(), name: "Semana 1", deload: false }],
   current: 0,
 });
 const mesoOf = (plan) => (plan && plan.meso && Array.isArray(plan.meso.weeks) && plan.meso.weeks.length ? plan.meso : emptyMeso());
+const emptyMesociclo = (name) => ({ id: uid(), name: name || "Mesociclo 1", notes: "", weeks: [{ id: uid(), name: "Semana 1", deload: false }], current: 0 });
+const emptyMesoState = () => { const m = emptyMesociclo("Mesociclo 1"); return { mesociclos: [m], currentMesoId: m.id }; };
+const mesoStateOf = (plan) => {
+  if (plan && plan.mesoState && Array.isArray(plan.mesoState.mesociclos) && plan.mesoState.mesociclos.length) return plan.mesoState;
+  if (plan && plan.meso && Array.isArray(plan.meso.weeks) && plan.meso.weeks.length) {
+    const m = { id: uid(), name: "Mesociclo 1", notes: "", weeks: plan.meso.weeks, current: plan.meso.current || 0 };
+    return { mesociclos: [m], currentMesoId: m.id };
+  }
+  return emptyMesoState();
+};
+const currentMesociclo = (plan) => {
+  const st = mesoStateOf(plan);
+  return st.mesociclos.find((m) => m.id === st.currentMesoId) || st.mesociclos[0];
+};
 const currentWeek = (plan) => {
-  const m = mesoOf(plan);
+  const m = currentMesociclo(plan);
   return m.weeks[Math.min(m.current || 0, m.weeks.length - 1)];
 };
 /* Reps y RIR objetivo de una serie para la semana activa: si la semana tiene
@@ -813,7 +836,7 @@ function setTargets(ex, setIdx, week) {
   };
 }
 
-const emptyPlan = () => ({ days: [], library: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], athlete: emptyAthlete(), meso: emptyMeso(), updatedAt: todayISO() });
+const emptyPlan = () => ({ days: [], library: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], athlete: emptyAthlete(), meso: emptyMeso(), mesoState: emptyMesoState(), updatedAt: todayISO() });
 function seedPlan() {
   const ex = (name, muscle, rest, ss, notes, video, s) => ({ id: uid(), name, muscle, rest, superset: ss || "", notes: notes || "", video: video || "", sets: s });
   const n = (reps, rir) => ["normal", reps, rir];
@@ -2843,7 +2866,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <div style={{ fontSize: 12.5, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 3 }}>{routineLabel(routineOf(d))}</div>
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "0 0 4px" }}>{d.name}</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>{d.exs.length} ejercicios · {totalSeries} series efectivas. Aún no se ha creado sesión: revisa lo que toca y arranca cuando estés listo.</div>
-        {mesoOf(plan).weeks.length > 1 && (
+        {currentMesociclo(plan).weeks.length > 1 && (
           <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 12, padding: "6px 11px", borderRadius: 9,
             background: currentWeek(plan).deload ? "rgba(255,255,255,.12)" : `${P.blue}14`,
             border: `1px solid ${currentWeek(plan).deload ? "rgba(255,255,255,.45)" : `${P.blue}44`}` }}>
@@ -3974,75 +3997,362 @@ REGLAS ESTRICTAS:
 };
 
 
-/* ---- Mesociclo: semanas, descarga y semana activa ---- */
-const MesoPanel = ({ plan, savePlan }) => {
-  const [open, setOpen] = useState(false);
-  const meso = mesoOf(plan);
-  const mut = (fn) => { const p = structuredClone(plan); if (!p.meso) p.meso = emptyMeso(); fn(p); p.updatedAt = todayISO(); savePlan(p); };
-  const addWeek = (deload) => mut((p) => {
-    p.meso.weeks.push({ id: uid(), name: `Semana ${p.meso.weeks.length + 1}`, deload: !!deload });
-  });
-  const delWeek = (id) => mut((p) => {
-    if (p.meso.weeks.length <= 1) return;
-    p.meso.weeks = p.meso.weeks.filter((w) => w.id !== id);
-    if (p.meso.current >= p.meso.weeks.length) p.meso.current = p.meso.weeks.length - 1;
-    // Los objetivos que tuviera esa semana dejan de tener dueño: se limpian
-    p.days.forEach((d) => d.exs.forEach((e) => { if (e.weekly) delete e.weekly[id]; }));
-  });
-  const cur = meso.weeks[Math.min(meso.current || 0, meso.weeks.length - 1)];
+/* ---- Plantillas populares de mesociclo: crean la lista de semanas de un
+   golpe (nombre + descarga + una nota breve de enfoque por semana). No
+   tocan los ejercicios — los objetivos por semana de cada ejercicio se
+   siguen llenando a mano (o quedan vacíos y usan los valores del propio
+   ejercicio). ---- */
+const MESO_TEMPLATES = [
+  { id: "lineal", name: "Progresión lineal clásica", desc: "Sube la intensidad semana a semana y cierra con descarga. La opción más simple para empezar.",
+    weeks: [
+      { name: "Semana 1", deload: false, notes: "RIR 3-4 · técnica y volumen base" },
+      { name: "Semana 2", deload: false, notes: "RIR 2-3 · sube el peso levemente" },
+      { name: "Semana 3", deload: false, notes: "RIR 1-2 · casi al fallo" },
+      { name: "Semana 4", deload: false, notes: "RIR 0-1 · semana pico" },
+      { name: "Semana 5 · Descarga", deload: true, notes: "50% del volumen · RIR 4-5" },
+    ] },
+  { id: "dup", name: "Ondulante diaria (DUP)", desc: "Alterna semanas de fuerza, hipertrofia y volumen dentro del mismo bloque.",
+    weeks: [
+      { name: "Semana 1 · Fuerza", deload: false, notes: "3-5 reps · RIR 2" },
+      { name: "Semana 2 · Hipertrofia", deload: false, notes: "8-12 reps · RIR 2" },
+      { name: "Semana 3 · Volumen", deload: false, notes: "12-15 reps · RIR 1-2" },
+      { name: "Semana 4 · Descarga", deload: true, notes: "50% del volumen · RIR 4-5" },
+    ] },
+  { id: "bloques", name: "Periodización por bloques", desc: "Acumulación → Intensificación → Realización: el clásico de fuerza-hipertrofia.",
+    weeks: [
+      { name: "Semana 1 · Acumulación", deload: false, notes: "Alto volumen · RIR 3" },
+      { name: "Semana 2 · Acumulación", deload: false, notes: "Alto volumen · RIR 2-3" },
+      { name: "Semana 3 · Intensificación", deload: false, notes: "Baja volumen, sube intensidad · RIR 1-2" },
+      { name: "Semana 4 · Intensificación", deload: false, notes: "RIR 1" },
+      { name: "Semana 5 · Realización", deload: false, notes: "Bajo volumen, pico de intensidad · RIR 0-1" },
+      { name: "Semana 6 · Descarga", deload: true, notes: "50% del volumen · RIR 4-5" },
+    ] },
+  { id: "autoreg", name: "Autorregulada por RIR", desc: "El RIR baja fijo cada semana; tú ajustas el peso del alumno según cómo responda.",
+    weeks: [
+      { name: "Semana 1", deload: false, notes: "RIR 4" },
+      { name: "Semana 2", deload: false, notes: "RIR 3" },
+      { name: "Semana 3", deload: false, notes: "RIR 2" },
+      { name: "Semana 4", deload: false, notes: "RIR 1" },
+      { name: "Semana 5 · Descarga", deload: true, notes: "RIR 5" },
+    ] },
+];
+
+function parseMesoJSON(rawText) {
+  const match = rawText.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const data = JSON.parse(match[0]);
+    if (!data.weeks || !Array.isArray(data.weeks) || !data.weeks.length) return null;
+    return data;
+  } catch { return null; }
+}
+
+/* ---- Importar mesociclo con IA: mismo patrón que ImportRoutineSheet
+   (sube PDF/foto/texto, la IA lo lee), pero acá solo arma el contenedor
+   de semanas (nombre + descarga + una nota de enfoque) — no toca los
+   ejercicios uno por uno. ---- */
+const ImportMesoSheet = ({ open, onClose, toast, onAdd }) => {
+  const [apiKey, setApiKey] = useState("");
+  const [step, setStep] = useState("input");
+  const [text, setText] = useState("");
+  const [file, setFile] = useState(null);
+  const [fileB64, setFileB64] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => { if (open) sGet("forja-ai-key").then((k) => k && setApiKey(k)); }, [open]);
+  const reset = () => { setStep("input"); setText(""); setFile(null); setFileB64(null); setPreview(null); setErr(""); };
+  const close = () => { onClose(); setTimeout(reset, 300); };
+
+  const handleFile = async (f) => {
+    if (!f) return;
+    if (f.size > 30 * 1024 * 1024) { setErr("El archivo pesa más de 30 MB, muy grande para procesar."); return; }
+    setErr("");
+    try {
+      const dataUrl = await readFileDataUrl(f);
+      const b64 = dataUrl.split(",")[1];
+      setFile({ name: f.name, type: f.type || (f.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg"), size: f.size });
+      setFileB64(b64);
+    } catch (e) { setErr("No se pudo leer el archivo."); }
+  };
+
+  const analyze = async () => {
+    if (!apiKey) { setErr("Falta configurar la API key de Anthropic. Ve a la pestaña IA."); return; }
+    if (!text.trim() && !fileB64) { setErr("Sube un archivo o pega el texto del mesociclo."); return; }
+    setStep("analyzing"); setErr("");
+    const systemPrompt = `Eres un asistente que extrae la ESTRUCTURA de un mesociclo de entrenamiento (solo las semanas, no ejercicios).
+Analiza el contenido y devuelve SOLO JSON válido, sin markdown ni texto extra, con esta estructura:
+{
+  "name": "Nombre corto del mesociclo (ej: Fuerza bloque 1, Hipertrofia preverano...)",
+  "weeks": [
+    { "name": "Nombre de la semana (ej: Semana 1, Semana 1 · Acumulación...)", "deload": false, "notes": "Foco breve: RIR objetivo, volumen, énfasis (máx 12 palabras)" }
+  ]
+}
+REGLAS ESTRICTAS:
+- "deload" es true solo en semanas de descarga/recuperación
+- Máximo 12 semanas
+- "notes" siempre en español, corto
+- No inventes semanas que no estén sugeridas por el documento`;
+    const content = [];
+    if (fileB64 && file) {
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      content.push({ type: isPdf ? "document" : "image", source: { type: "base64", media_type: isPdf ? "application/pdf" : (file.type || "image/jpeg"), data: fileB64 } });
+    }
+    if (text.trim()) content.push({ type: "text", text: text.trim() });
+    if (content.length === 0) content.push({ type: "text", text: "Extrae la estructura del mesociclo del archivo adjunto." });
+    try {
+      const data = await callClaudeAPI(apiKey, { model: "claude-opus-4-6", max_tokens: 8000, system: systemPrompt, messages: [{ role: "user", content }] });
+      const rawText = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+      const parsed = parseMesoJSON(rawText);
+      if (!parsed) throw new Error("La IA no devolvió un mesociclo legible. Prueba pegar el texto en vez del archivo.");
+      setPreview(parsed);
+      setStep("preview");
+    } catch (e) {
+      setErr(e.message || "Error al analizar");
+      setStep("input");
+    }
+  };
+
+  const apply = () => {
+    if (!preview) return;
+    onAdd(preview.name || "Mesociclo importado", preview.weeks);
+    if (toast) toast(`✓ Mesociclo «${preview.name || "importado"}» creado con ${preview.weeks.length} semana${preview.weeks.length !== 1 ? "s" : ""}`);
+    close();
+  };
+
   return (
-    <Card style={{ marginBottom: 22, overflow: "hidden", borderColor: `${P.blue}44` }}>
-      <button onClick={() => setOpen((v) => !v)} style={{ width: "100%", textAlign: "left", padding: "12px 14px", display: "flex", alignItems: "center", gap: 11 }}>
-        <div style={{ width: 38, height: 38, borderRadius: 11, background: `${P.blue}1E`, border: `1px solid ${P.blue}55`,
-          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <Calendar size={19} color={P.blue} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 15.5 }}>Mesociclo · {meso.weeks.length} semana{meso.weeks.length !== 1 ? "s" : ""}</div>
-          <div style={{ fontSize: 13, color: P.dim, marginTop: 2 }}>
-            En curso: {cur.name}{cur.deload ? " (descarga)" : ""}
+    <Sheet open={open} onClose={close} title="Importar mesociclo con IA" tall>
+      {!apiKey && (
+        <Card style={{ padding: 12, marginBottom: 12, borderColor: `${P.ember}66`, background: `${P.ember}0A` }}>
+          <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5 }}>
+            <b style={{ color: P.ember2 }}>Falta la API key.</b> Configúrala en la pestaña <b>IA</b> del modo Coach.
           </div>
-        </div>
-        {open ? <ChevronUp size={18} color={P.faint} /> : <ChevronDown size={18} color={P.faint} />}
-      </button>
-      {open && (
-        <div style={{ padding: "0 14px 14px" }}>
-          <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.45, marginBottom: 10 }}>
-            Marca la semana en curso: el alumno verá las repeticiones y el RIR de esa semana.
-            Los objetivos por semana de cada ejercicio se editan dentro del ejercicio.
+        </Card>
+      )}
+      {step === "input" && (
+        <>
+          <div style={{ fontSize: 14.5, color: P.dim, marginBottom: 14, lineHeight: 1.5 }}>
+            Sube un PDF, foto o pega el texto de un mesociclo (el tuyo o uno que te haya pasado alguien). La IA arma las semanas — nombre, si es descarga y un enfoque breve. Los ejercicios y sus objetivos por semana se cargan después, dentro de cada ejercicio.
           </div>
-          {meso.weeks.map((w, i) => (
-            <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 9px", marginBottom: 6, borderRadius: 10,
-              background: i === meso.current ? `${P.ember}14` : P.s2,
-              border: `1px solid ${i === meso.current ? `${P.ember}66` : P.line}` }}>
-              <button onClick={() => mut((p) => { p.meso.current = i; })} title="Marcar como semana en curso"
-                aria-label={`Marcar ${w.name} como semana en curso`}
-                style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0,
-                  border: `2px solid ${i === meso.current ? P.ember : P.line}`,
-                  background: i === meso.current ? P.ember : "transparent" }} />
-              <input value={w.name} onChange={(e) => mut((p) => { p.meso.weeks[i].name = e.target.value; })}
-                aria-label={`Nombre de la semana ${i + 1}`}
-                style={{ flex: 1, minWidth: 0, padding: "6px 8px", fontSize: 14.5, background: "transparent", border: "none" }} />
-              <button onClick={() => mut((p) => { p.meso.weeks[i].deload = !p.meso.weeks[i].deload; })}
-                title="Marcar como semana de descarga"
-                style={{ fontSize: 12, fontWeight: 700, padding: "4px 8px", borderRadius: 7, whiteSpace: "nowrap",
-                  color: w.deload ? P.green : P.faint,
-                  background: w.deload ? "rgba(255,255,255,.14)" : "transparent",
-                  border: `1px solid ${w.deload ? "rgba(255,255,255,.45)" : P.line}` }}>
-                Descarga
-              </button>
-              {meso.weeks.length > 1 && (
-                <button onClick={() => delWeek(w.id)} aria-label={`Eliminar ${w.name}`} style={{ padding: 5, color: P.faint }}><Trash2 size={15} /></button>
-              )}
-            </div>
-          ))}
-          <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
-            <Btn kind="line" small onClick={() => addWeek(false)} style={{ flex: 1, minWidth: 140 }}><Plus size={14} /> Añadir semana</Btn>
-            <Btn kind="line" small onClick={() => addWeek(true)} style={{ flex: 1, minWidth: 150 }}><Plus size={14} /> Semana de descarga</Btn>
+          <Field label="Subir archivo (PDF, foto o screenshot)">
+            <label style={{ display: "block", padding: "16px 12px", background: P.s2, border: `2px dashed ${P.line}`, borderRadius: 12, textAlign: "center", cursor: "pointer" }}>
+              <input type="file" accept="application/pdf,image/*" style={{ display: "none" }} onChange={(e) => handleFile(e.target.files && e.target.files[0])} />
+              <Upload size={22} color={P.faint} style={{ margin: "0 auto 6px", display: "block" }} />
+              <div style={{ fontSize: 14, color: P.dim }}>Toca para elegir archivo</div>
+              <div style={{ fontSize: 12.5, color: P.faint, marginTop: 3 }}>PDF, JPG, PNG · hasta 30 MB</div>
+            </label>
+            {file && <div style={{ fontSize: 13.5, color: P.green, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+              <Check size={14} /> {file.name} ({(file.size / 1024).toFixed(0)} KB)
+              <button onClick={() => { setFile(null); setFileB64(null); }} style={{ color: P.faint, marginLeft: "auto" }}><X size={13} /></button>
+            </div>}
+          </Field>
+          <div style={{ textAlign: "center", padding: "6px 0", color: P.faint, fontSize: 12, fontWeight: 700, letterSpacing: ".1em" }}>— O TAMBIÉN —</div>
+          <Field label="Pegar texto del mesociclo">
+            <Txt rows={6} placeholder="Ej:&#10;Semana 1: RIR 3, volumen base&#10;Semana 2: RIR 2&#10;Semana 3: descarga&#10;..." value={text} onChange={(e) => setText(e.target.value)} />
+          </Field>
+          {err && <div style={{ padding: "10px 12px", borderRadius: 8, background: `${P.red}22`, border: `1px solid ${P.red}55`, fontSize: 13.5, color: P.red, marginBottom: 10, lineHeight: 1.4 }}>{err}</div>}
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <Btn kind="line" onClick={close} style={{ flex: 1 }}>Cancelar</Btn>
+            <Btn kind="ember" disabled={!apiKey || (!text.trim() && !fileB64)} onClick={analyze} style={{ flex: 2 }}><Sparkles size={15} /> Analizar con IA</Btn>
           </div>
+        </>
+      )}
+      {step === "analyzing" && (
+        <div style={{ padding: "48px 20px", textAlign: "center" }}>
+          <div className="pulse"><Sparkles size={36} color={P.ember} /></div>
+          <div style={{ marginTop: 16, fontWeight: 700, fontSize: 16 }}>Analizando el mesociclo…</div>
+          <div style={{ marginTop: 8, fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>Esto puede tardar unos segundos.</div>
         </div>
       )}
-    </Card>
+      {step === "preview" && preview && (
+        <>
+          <Card style={{ padding: "12px 14px", marginBottom: 12, background: `${P.green}0F`, borderColor: `${P.green}44` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <Check size={16} color={P.green} /><div style={{ fontWeight: 700, fontSize: 15 }}>{preview.name || "Mesociclo importado"}</div>
+            </div>
+            <div style={{ fontSize: 14, color: P.dim }}><b>{preview.weeks.length}</b> semana{preview.weeks.length !== 1 ? "s" : ""}</div>
+          </Card>
+          {preview.weeks.map((w, i) => (
+            <div key={i} style={{ padding: "8px 11px", marginBottom: 6, borderRadius: 10, background: P.s2, border: `1px solid ${P.line}` }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: w.deload ? P.green : P.text }}>{w.name}{w.deload ? " · descarga" : ""}</div>
+              {w.notes && <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2 }}>{w.notes}</div>}
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+            <Btn kind="line" onClick={() => { setStep("input"); setPreview(null); }} style={{ flex: 1 }}>Reintentar</Btn>
+            <Btn kind="ember" onClick={apply} style={{ flex: 2 }}><Plus size={14} /> Crear mesociclo</Btn>
+          </div>
+        </>
+      )}
+    </Sheet>
+  );
+};
+
+/* ---- Mesociclos: uno o varios bloques, cada uno con sus propias semanas.
+   El header de cada bloque muestra su NOMBRE (Mesociclo 1, o el que le
+   pongas) — las "Semana 1, 2, 3..." solo aparecen al desplegarlo. ---- */
+const MesociclosPanel = ({ plan, savePlan, toast }) => {
+  const [openMesoId, setOpenMesoId] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const state = mesoStateOf(plan);
+  const mut = (fn) => {
+    const p = structuredClone(plan);
+    if (!p.mesoState || !Array.isArray(p.mesoState.mesociclos) || !p.mesoState.mesociclos.length) p.mesoState = mesoStateOf(p);
+    fn(p);
+    p.updatedAt = todayISO();
+    savePlan(p);
+  };
+
+  const addMesociclo = (name, weeksSeed) => {
+    const id = uid();
+    mut((p) => {
+      const m = { id, name: name || `Mesociclo ${p.mesoState.mesociclos.length + 1}`, notes: "", current: 0,
+        weeks: weeksSeed && weeksSeed.length ? weeksSeed.map((w) => ({ id: uid(), name: w.name, deload: !!w.deload, notes: w.notes || "" })) : [{ id: uid(), name: "Semana 1", deload: false }] };
+      p.mesoState.mesociclos.push(m);
+      p.mesoState.currentMesoId = m.id;
+    });
+    setOpenMesoId(id);
+  };
+  const renameMesociclo = (mesoId, name) => mut((p) => { const m = p.mesoState.mesociclos.find((x) => x.id === mesoId); if (m) m.name = name; });
+  const setCurrentMesociclo = (mesoId) => mut((p) => { p.mesoState.currentMesoId = mesoId; });
+  const delMesociclo = (mesoId) => mut((p) => {
+    if (p.mesoState.mesociclos.length <= 1) return;
+    const target = p.mesoState.mesociclos.find((x) => x.id === mesoId);
+    p.mesoState.mesociclos = p.mesoState.mesociclos.filter((x) => x.id !== mesoId);
+    if (p.mesoState.currentMesoId === mesoId) p.mesoState.currentMesoId = p.mesoState.mesociclos[0].id;
+    const deadWeekIds = new Set((target ? target.weeks : []).map((w) => w.id));
+    p.days.forEach((d) => d.exs.forEach((e) => { if (e.weekly) deadWeekIds.forEach((wid) => delete e.weekly[wid]); }));
+  });
+  const addWeek = (mesoId, deload) => mut((p) => {
+    const m = p.mesoState.mesociclos.find((x) => x.id === mesoId); if (!m) return;
+    m.weeks.push({ id: uid(), name: `Semana ${m.weeks.length + 1}`, deload: !!deload });
+  });
+  const delWeek = (mesoId, weekId) => mut((p) => {
+    const m = p.mesoState.mesociclos.find((x) => x.id === mesoId); if (!m || m.weeks.length <= 1) return;
+    m.weeks = m.weeks.filter((w) => w.id !== weekId);
+    if (m.current >= m.weeks.length) m.current = m.weeks.length - 1;
+    p.days.forEach((d) => d.exs.forEach((e) => { if (e.weekly) delete e.weekly[weekId]; }));
+  });
+  const renameWeek = (mesoId, weekId, name) => mut((p) => {
+    const m = p.mesoState.mesociclos.find((x) => x.id === mesoId); if (!m) return;
+    const w = m.weeks.find((x) => x.id === weekId); if (w) w.name = name;
+  });
+  const toggleDeload = (mesoId, weekId) => mut((p) => {
+    const m = p.mesoState.mesociclos.find((x) => x.id === mesoId); if (!m) return;
+    const w = m.weeks.find((x) => x.id === weekId); if (w) w.deload = !w.deload;
+  });
+  const setCurrentWeekOf = (mesoId, i) => mut((p) => {
+    const m = p.mesoState.mesociclos.find((x) => x.id === mesoId); if (m) m.current = i;
+  });
+
+  const cm = currentMesociclo(plan);
+  const delTarget = confirmDel ? state.mesociclos.find((m) => m.id === confirmDel) : null;
+
+  return (
+    <>
+      <Card style={{ marginBottom: 22, overflow: "hidden", borderColor: `${P.blue}44` }}>
+        <div style={{ padding: "13px 14px 2px", display: "flex", alignItems: "center", gap: 11 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 11, background: `${P.blue}1E`, border: `1px solid ${P.blue}55`,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Calendar size={19} color={P.blue} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 15.5 }}>Mesociclos</div>
+            <div style={{ fontSize: 13, color: P.dim, marginTop: 2 }}>{state.mesociclos.length} mesociclo{state.mesociclos.length !== 1 ? "s" : ""} · en curso: {cm.name}</div>
+          </div>
+        </div>
+        <div style={{ padding: "10px 14px 14px" }}>
+          <div style={{ fontSize: 13, color: P.faint, lineHeight: 1.45, marginBottom: 10 }}>
+            Cada mesociclo agrupa varias semanas. El que está «en curso» es el que ve el alumno; dentro de cada semana marcas cuál es la activa. Los objetivos por semana de cada ejercicio se editan dentro del ejercicio.
+          </div>
+          {state.mesociclos.map((m) => {
+            const open = openMesoId === m.id;
+            const isCurrent = state.currentMesoId === m.id;
+            const cur = m.weeks[Math.min(m.current || 0, m.weeks.length - 1)];
+            return (
+              <div key={m.id} style={{ marginBottom: 10, borderRadius: 12, overflow: "hidden",
+                border: `1px solid ${isCurrent ? `${P.ember}66` : P.line}`, background: isCurrent ? `${P.ember}0A` : P.s2 }}>
+                <button onClick={() => setOpenMesoId(open ? null : m.id)} style={{ width: "100%", textAlign: "left", padding: "11px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                  {isCurrent && <span title="Mesociclo en curso" style={{ width: 8, height: 8, borderRadius: 4, background: P.ember, flexShrink: 0 }} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15, overflowWrap: "break-word" }}>{m.name}</div>
+                    <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>{m.weeks.length} semana{m.weeks.length !== 1 ? "s" : ""} · {cur.name}{cur.deload ? " (descarga)" : ""}</div>
+                  </div>
+                  {open ? <ChevronUp size={16} color={P.faint} /> : <ChevronDown size={16} color={P.faint} />}
+                </button>
+                {open && (
+                  <div style={{ padding: "0 12px 12px" }}>
+                    <div style={{ display: "flex", gap: 7, alignItems: "center", marginBottom: 9, flexWrap: "wrap" }}>
+                      <input value={m.name} onChange={(e) => renameMesociclo(m.id, e.target.value)} aria-label="Nombre del mesociclo"
+                        style={{ flex: 1, minWidth: 120, padding: "7px 9px", fontSize: 14.5 }} />
+                      {!isCurrent && <Btn kind="line" small onClick={() => setCurrentMesociclo(m.id)}>Poner en curso</Btn>}
+                      {state.mesociclos.length > 1 && (
+                        <button onClick={() => setConfirmDel(m.id)} aria-label={`Eliminar ${m.name}`} style={{ padding: 6, color: P.faint }}><Trash2 size={15} /></button>
+                      )}
+                    </div>
+                    {m.weeks.map((w, i) => (
+                      <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 9px", marginBottom: 6, borderRadius: 10,
+                        background: i === m.current ? `${P.ember}14` : P.s1, border: `1px solid ${i === m.current ? `${P.ember}66` : P.line}` }}>
+                        <button onClick={() => setCurrentWeekOf(m.id, i)} title="Marcar como semana en curso" aria-label={`Marcar ${w.name} como semana en curso`}
+                          style={{ width: 20, height: 20, borderRadius: 10, flexShrink: 0,
+                            border: `2px solid ${i === m.current ? P.ember : P.line}`, background: i === m.current ? P.ember : "transparent" }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <input value={w.name} onChange={(e) => renameWeek(m.id, w.id, e.target.value)} aria-label={`Nombre de la semana ${i + 1}`}
+                            style={{ width: "100%", padding: "5px 7px", fontSize: 14, background: "transparent", border: "none" }} />
+                          {w.notes && <div style={{ fontSize: 11.5, color: P.faint, padding: "0 7px" }}>{w.notes}</div>}
+                        </div>
+                        <button onClick={() => toggleDeload(m.id, w.id)} title="Marcar como semana de descarga"
+                          style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 7px", borderRadius: 7, whiteSpace: "nowrap",
+                            color: w.deload ? P.green : P.faint, background: w.deload ? "rgba(255,255,255,.14)" : "transparent",
+                            border: `1px solid ${w.deload ? "rgba(255,255,255,.45)" : P.line}` }}>
+                          Descarga
+                        </button>
+                        {m.weeks.length > 1 && (
+                          <button onClick={() => delWeek(m.id, w.id)} aria-label={`Eliminar ${w.name}`} style={{ padding: 5, color: P.faint }}><Trash2 size={14} /></button>
+                        )}
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                      <Btn kind="line" small onClick={() => addWeek(m.id, false)} style={{ flex: 1, minWidth: 120 }}><Plus size={13} /> Añadir semana</Btn>
+                      <Btn kind="line" small onClick={() => addWeek(m.id, true)} style={{ flex: 1, minWidth: 130 }}><Plus size={13} /> Semana de descarga</Btn>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div style={{ display: "flex", gap: 7, marginTop: 4, flexWrap: "wrap" }}>
+            <Btn kind="line" small onClick={() => addMesociclo(`Mesociclo ${state.mesociclos.length + 1}`)} style={{ flex: 1, minWidth: 160 }}><Plus size={14} /> Desde cero</Btn>
+            <Btn kind="line" small onClick={() => setTemplatesOpen(true)} style={{ flex: 1, minWidth: 160 }}><Library size={14} /> Plantillas populares</Btn>
+            <Btn kind="ember" small onClick={() => setImportOpen(true)} style={{ flex: 1, minWidth: 160 }}><Sparkles size={14} /> Importar con IA</Btn>
+          </div>
+        </div>
+      </Card>
+
+      <Sheet open={templatesOpen} onClose={() => setTemplatesOpen(false)} title="Plantillas de mesociclo" tall>
+        <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 14, lineHeight: 1.5 }}>
+          Crea un mesociclo nuevo ya armado con una estructura de semanas popular. Puedes editarlo después como cualquier otro.
+        </div>
+        {MESO_TEMPLATES.map((t) => (
+          <Card key={t.id} style={{ padding: "12px 14px", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 3 }}>{t.name}</div>
+            <div style={{ fontSize: 13.5, color: P.dim, marginBottom: 8, lineHeight: 1.4 }}>{t.desc}</div>
+            <div style={{ fontSize: 12, color: P.faint, marginBottom: 10 }}>{t.weeks.length} semanas · {t.weeks.filter((w) => w.deload).length} de descarga</div>
+            <Btn kind="ember" small onClick={() => { addMesociclo(t.name, t.weeks); setTemplatesOpen(false); if (toast) toast(`✓ Mesociclo «${t.name}» creado`); }} style={{ width: "100%" }}>
+              <Plus size={14} /> Usar esta plantilla
+            </Btn>
+          </Card>
+        ))}
+      </Sheet>
+
+      <ImportMesoSheet open={importOpen} onClose={() => setImportOpen(false)} toast={toast} onAdd={(name, weeks) => addMesociclo(name, weeks)} />
+
+      <Confirm open={!!confirmDel} danger title="Eliminar mesociclo"
+        body={delTarget ? `Se eliminará «${delTarget.name}» con sus ${delTarget.weeks.length} semana${delTarget.weeks.length !== 1 ? "s" : ""}. Los objetivos por semana que tuvieran cargados los ejercicios para esas semanas también se borran. Esta acción no se puede deshacer.` : ""}
+        okLabel="Eliminar" onOk={() => { delMesociclo(confirmDel); setConfirmDel(null); }} onCancel={() => setConfirmDel(null)} />
+    </>
   );
 };
 
@@ -4558,7 +4868,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       {view === "biblioteca" && <LibraryPanel plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} history={history} />}
 
       {view === "dias" && (<>
-      <MesoPanel plan={plan} savePlan={savePlan} />
+      <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} />
 
       <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.ember}1F, ${P.s1} 55%)`, borderColor: `${P.ember}4A` }}>
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -4826,7 +5136,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       </div>
       </>)}
 
-      <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo} meso={mesoOf(plan)}
+      <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo} meso={currentMesociclo(plan)}
         onSave={(exd) => { const { isNew, ...clean } = exd; mut((p) => { const day = p.days.find((x) => x.id === editEx.dayId);
           const i = day.exs.findIndex((x) => x.id === clean.id);
           if (i >= 0) day.exs[i] = clean; else day.exs.push(clean); }); setEditEx(null); }} />
