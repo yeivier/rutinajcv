@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v44";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v45";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -720,6 +720,18 @@ function moveRoutineGroup(p, fromKey, toKey) {
   p.days = rest;
 }
 
+// Reordena la lista de mesociclos del plan (arrastrar y soltar). Muta
+// p.mesoState.mesociclos.
+function moveMesociclo(p, fromId, toId) {
+  if (fromId === toId || !p.mesoState) return;
+  const arr = p.mesoState.mesociclos;
+  const fromIdx = arr.findIndex((m) => m.id === fromId);
+  const toIdx = arr.findIndex((m) => m.id === toId);
+  if (fromIdx < 0 || toIdx < 0) return;
+  const [moved] = arr.splice(fromIdx, 1);
+  arr.splice(toIdx, 0, moved);
+}
+
 /* Rutina B — transcripción literal del documento J2 («Entrenamiento Jose Miguel Posada») */
 function routineBDays() {
   const ex = (name, muscle, rest, ss, notes, s) => ({ id: uid(), name, muscle, rest, superset: ss || "", notes: notes || "", video: "", sets: s });
@@ -818,12 +830,18 @@ const mesoStateOf = (plan) => {
   }
   return emptyMesoState();
 };
+// currentMesoId puede ser null a propósito: el coach eligió "Sin mesociclo"
+// para este alumno (sigue entrenando con los valores base de cada
+// ejercicio, sin objetivos por semana). undefined/id inválido cae al
+// primero de la lista — nunca deja al alumno sin nada por un dato viejo.
 const currentMesociclo = (plan) => {
   const st = mesoStateOf(plan);
+  if (st.currentMesoId === null) return null;
   return st.mesociclos.find((m) => m.id === st.currentMesoId) || st.mesociclos[0];
 };
 const currentWeek = (plan) => {
   const m = currentMesociclo(plan);
+  if (!m) return null;
   return m.weeks[Math.min(m.current || 0, m.weeks.length - 1)];
 };
 /* Reps y RIR objetivo de una serie para la semana activa: si la semana tiene
@@ -2869,7 +2887,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <div style={{ fontSize: 12.5, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 3 }}>{routineLabel(routineOf(d), plan.routineNames)}</div>
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "0 0 4px" }}>{d.name}</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>{d.exs.length} ejercicios · {totalSeries} series efectivas. Aún no se ha creado sesión: revisa lo que toca y arranca cuando estés listo.</div>
-        {currentMesociclo(plan).weeks.length > 1 && (
+        {currentMesociclo(plan) && currentMesociclo(plan).weeks.length > 1 && (
           <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 12, padding: "6px 11px", borderRadius: 9,
             background: currentWeek(plan).deload ? "rgba(255,255,255,.12)" : `${P.blue}14`,
             border: `1px solid ${currentWeek(plan).deload ? "rgba(255,255,255,.45)" : `${P.blue}44`}` }}>
@@ -4250,6 +4268,65 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
     const m = p.mesoState.mesociclos.find((x) => x.id === mesoId); if (m) m.current = i;
   });
 
+  // Reordenar mesociclos arrastrando: mismo patrón que rutinas/días —
+  // mantén pulsado ~220 ms sobre el asa y arrastra para soltar en otra
+  // posición de la lista.
+  const [mesoDragging, setMesoDragging] = useState(null); // id
+  const [mesoDragOver, setMesoDragOver] = useState(null); // id
+  const mesoDragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
+  const startMesoDrag = (id, e) => {
+    e.preventDefault();
+    const st = mesoDragRef.current;
+    clearTimeout(st.holdTimer);
+    st.activated = false;
+    st.startX = e.clientX; st.startY = e.clientY;
+    st.holdTimer = setTimeout(() => {
+      st.activated = true;
+      setMesoDragging(id);
+      try { navigator.vibrate && navigator.vibrate(25); } catch {}
+    }, 220);
+  };
+  const cancelMesoPress = (e) => {
+    const st = mesoDragRef.current;
+    if (e && st.holdTimer && !st.activated) {
+      const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
+      if (dx > 8 || dy > 8) clearTimeout(st.holdTimer);
+    }
+  };
+  const endMesoDrag = () => {
+    const st = mesoDragRef.current;
+    clearTimeout(st.holdTimer);
+    if (mesoDragging) {
+      st.blockUntil = Date.now() + 250;
+      if (mesoDragOver && mesoDragOver !== mesoDragging) {
+        mut((p) => moveMesociclo(p, mesoDragging, mesoDragOver));
+      }
+    }
+    st.activated = false;
+    setMesoDragging(null); setMesoDragOver(null);
+  };
+  useEffect(() => {
+    if (!mesoDragging) return;
+    const move = (e) => {
+      autoScrollNearEdge(e.clientY);
+      const card = elementUnderY(document.querySelectorAll("[data-mesociclo]"), e.clientY);
+      const overId = card ? card.getAttribute("data-mesociclo") : null;
+      setMesoDragOver((prev) => (prev === overId ? prev : overId));
+      e.preventDefault();
+    };
+    const up = () => endMesoDrag();
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    document.body.classList.add("fj-dragging");
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      document.body.classList.remove("fj-dragging");
+    };
+  }, [mesoDragging, mesoDragOver]);
+
   const cm = currentMesociclo(plan);
   const delTarget = confirmDel ? state.mesociclos.find((m) => m.id === confirmDel) : null;
 
@@ -4263,28 +4340,67 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 15.5 }}>Mesociclos</div>
-            <div style={{ fontSize: 13, color: P.dim, marginTop: 2 }}>{state.mesociclos.length} mesociclo{state.mesociclos.length !== 1 ? "s" : ""} · en curso: {cm.name}</div>
+            <div style={{ fontSize: 13, color: P.dim, marginTop: 2 }}>{state.mesociclos.length} mesociclo{state.mesociclos.length !== 1 ? "s" : ""} · en curso: {cm ? cm.name : "sin mesociclo asignado"}</div>
           </div>
         </div>
         <div style={{ padding: "10px 14px 14px" }}>
           <div style={{ fontSize: 13, color: P.faint, lineHeight: 1.45, marginBottom: 10 }}>
-            Cada mesociclo agrupa varias semanas. El que está «en curso» es el que ve el alumno; dentro de cada semana marcas cuál es la activa. Los objetivos por semana de cada ejercicio se editan dentro del ejercicio.
+            Cada mesociclo agrupa varias semanas. El que está «en curso» es el que ve el alumno; dentro de cada semana marcas cuál es la activa. Los objetivos por semana de cada ejercicio se editan dentro del ejercicio. Mantén pulsado el asa para reordenarlos.
           </div>
+
+          {/* "Sin mesociclo" — el coach puede sacar a un alumno de todo el
+              repertorio: entrena con los valores base de cada ejercicio,
+              sin objetivos por semana ni aviso de "semana en curso". */}
+          <button onClick={() => setCurrentMesociclo(null)}
+            style={{ width: "100%", textAlign: "left", padding: "10px 12px", marginBottom: 10, borderRadius: 12,
+              display: "flex", alignItems: "center", gap: 10,
+              border: `1px solid ${state.currentMesoId === null ? `${P.ember}66` : P.line}`,
+              background: state.currentMesoId === null ? `${P.ember}0A` : P.s2 }}>
+            {state.currentMesoId === null
+              ? <span title="Sin mesociclo asignado" style={{ width: 8, height: 8, borderRadius: 4, background: P.ember, flexShrink: 0 }} />
+              : <span style={{ width: 8, height: 8, borderRadius: 4, border: `1px solid ${P.line}`, flexShrink: 0 }} />}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>Sin mesociclo</div>
+              <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>El alumno entrena con las reps y el RIR base de cada ejercicio, sin periodización</div>
+            </div>
+          </button>
+
           {state.mesociclos.map((m) => {
             const open = openMesoId === m.id;
             const isCurrent = state.currentMesoId === m.id;
             const cur = m.weeks[Math.min(m.current || 0, m.weeks.length - 1)];
+            const dragging = mesoDragging === m.id;
             return (
-              <div key={m.id} style={{ marginBottom: 10, borderRadius: 12, overflow: "hidden",
-                border: `1px solid ${isCurrent ? `${P.ember}66` : P.line}`, background: isCurrent ? `${P.ember}0A` : P.s2 }}>
-                <button onClick={() => setOpenMesoId(open ? null : m.id)} style={{ width: "100%", textAlign: "left", padding: "11px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-                  {isCurrent && <span title="Mesociclo en curso" style={{ width: 8, height: 8, borderRadius: 4, background: P.ember, flexShrink: 0 }} />}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15, overflowWrap: "break-word" }}>{m.name}</div>
-                    <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>{m.weeks.length} semana{m.weeks.length !== 1 ? "s" : ""} · {cur.name}{cur.deload ? " (descarga)" : ""}</div>
-                  </div>
-                  {open ? <ChevronUp size={16} color={P.faint} /> : <ChevronDown size={16} color={P.faint} />}
-                </button>
+              <div key={m.id} data-mesociclo={m.id}
+                onClickCapture={(e) => { if (Date.now() < (mesoDragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
+                style={{ marginBottom: 10, borderRadius: 12, overflow: "hidden",
+                  border: `1px solid ${isCurrent ? `${P.ember}66` : P.line}`,
+                  background: dragging ? P.s3 : (mesoDragOver === m.id && mesoDragging ? P.s1 : (isCurrent ? `${P.ember}0A` : P.s2)),
+                  boxShadow: dragging ? DRAG_LIFT_SHADOW : "none",
+                  transform: dragging ? DRAG_LIFT_TRANSFORM : "none",
+                  transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button onClick={() => setOpenMesoId(open ? null : m.id)} style={{ flex: 1, minWidth: 0, textAlign: "left", padding: "11px 6px 11px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                    {isCurrent && <span title="Mesociclo en curso" style={{ width: 8, height: 8, borderRadius: 4, background: P.ember, flexShrink: 0 }} />}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, overflowWrap: "break-word" }}>{m.name}</div>
+                      <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>{m.weeks.length} semana{m.weeks.length !== 1 ? "s" : ""} · {cur.name}{cur.deload ? " (descarga)" : ""}</div>
+                    </div>
+                    {open ? <ChevronUp size={16} color={P.faint} /> : <ChevronDown size={16} color={P.faint} />}
+                  </button>
+                  <button
+                    onPointerDown={(e) => startMesoDrag(m.id, e)}
+                    onPointerMove={cancelMesoPress}
+                    onPointerUp={() => { const st = mesoDragRef.current; if (!mesoDragging) clearTimeout(st.holdTimer); }}
+                    onPointerCancel={() => { const st = mesoDragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
+                    onContextMenu={(e) => e.preventDefault()}
+                    title="Mantén pulsado aquí y arrastra para reordenar" aria-label={`Mover ${m.name}`}
+                    style={{ padding: "6px 10px 6px 4px", color: dragging ? P.ember : P.faint, cursor: "grab",
+                      position: "relative", zIndex: 60,
+                      touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
+                    <GripVertical size={17} />
+                  </button>
+                </div>
                 {open && (
                   <div style={{ padding: "0 12px 12px" }}>
                     <div style={{ display: "flex", gap: 7, alignItems: "center", marginBottom: 9, flexWrap: "wrap" }}>
