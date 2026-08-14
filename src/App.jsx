@@ -5,7 +5,8 @@ import {
   Camera, Check, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
-  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff
+  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
+  Trophy, Medal, Gift, Lock
 } from "lucide-react";
 
 /* ============================================================
@@ -14,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v37";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v38";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -499,6 +500,78 @@ function weekStreak(sessions) {
   let n = 0;
   while (weeks.has(cursor)) { n++; cursor -= oneWeekMs; }
   return n;
+}
+
+/* ============================================================
+   LOGROS — medallas por avance del alumno (constancia, sesiones,
+   récords personales, tonelaje acumulado y antigüedad entrenando).
+   Se calculan siempre en vivo a partir del historial — no se guardan
+   como "ya desbloqueado", así nunca quedan desincronizados.
+   ============================================================ */
+const ACHIEVEMENTS = [
+  { id: "racha_4", group: "Constancia", label: "Racha de 4 semanas", need: 4, Icon: Flame,
+    metric: (m) => m.streak, fmt: (v) => `${v} semana${v !== 1 ? "s" : ""} seguidas` },
+  { id: "racha_8", group: "Constancia", label: "Racha de 8 semanas", need: 8, Icon: Flame,
+    metric: (m) => m.streak, fmt: (v) => `${v} semanas seguidas` },
+  { id: "racha_12", group: "Constancia", label: "Racha de 12 semanas", need: 12, Icon: Flame,
+    metric: (m) => m.streak, fmt: (v) => `${v} semanas seguidas` },
+  { id: "ses_10", group: "Sesiones", label: "10 sesiones completadas", need: 10, Icon: Dumbbell,
+    metric: (m) => m.sessions, fmt: (v) => `${v} sesiones` },
+  { id: "ses_50", group: "Sesiones", label: "50 sesiones completadas", need: 50, Icon: Dumbbell,
+    metric: (m) => m.sessions, fmt: (v) => `${v} sesiones` },
+  { id: "ses_100", group: "Sesiones", label: "100 sesiones completadas", need: 100, Icon: Dumbbell,
+    metric: (m) => m.sessions, fmt: (v) => `${v} sesiones` },
+  { id: "ses_200", group: "Sesiones", label: "200 sesiones completadas", need: 200, Icon: Dumbbell,
+    metric: (m) => m.sessions, fmt: (v) => `${v} sesiones` },
+  { id: "pr_1", group: "Récords", label: "Primer récord personal", need: 1, Icon: Award,
+    metric: (m) => m.prs, fmt: (v) => `${v} PR${v !== 1 ? "s" : ""}` },
+  { id: "pr_10", group: "Récords", label: "10 récords personales", need: 10, Icon: Award,
+    metric: (m) => m.prs, fmt: (v) => `${v} PRs` },
+  { id: "pr_25", group: "Récords", label: "25 récords personales", need: 25, Icon: Award,
+    metric: (m) => m.prs, fmt: (v) => `${v} PRs` },
+  { id: "ton_10", group: "Tonelaje", label: "10 toneladas levantadas", need: 10000, Icon: TrendingUp,
+    metric: (m) => m.tonnage, fmt: (v) => `${Math.round(v / 1000 * 10) / 10} t` },
+  { id: "ton_50", group: "Tonelaje", label: "50 toneladas levantadas", need: 50000, Icon: TrendingUp,
+    metric: (m) => m.tonnage, fmt: (v) => `${Math.round(v / 1000 * 10) / 10} t` },
+  { id: "ton_100", group: "Tonelaje", label: "100 toneladas levantadas", need: 100000, Icon: TrendingUp,
+    metric: (m) => m.tonnage, fmt: (v) => `${Math.round(v / 1000 * 10) / 10} t` },
+  { id: "dias_30", group: "Antigüedad", label: "1 mes entrenando en FORJA", need: 30, Icon: Calendar,
+    metric: (m) => m.daysActive, fmt: (v) => `${v} días` },
+  { id: "dias_90", group: "Antigüedad", label: "3 meses entrenando en FORJA", need: 90, Icon: Calendar,
+    metric: (m) => m.daysActive, fmt: (v) => `${v} días` },
+  { id: "dias_180", group: "Antigüedad", label: "6 meses entrenando en FORJA", need: 180, Icon: Calendar,
+    metric: (m) => m.daysActive, fmt: (v) => `${v} días` },
+  { id: "dias_365", group: "Antigüedad", label: "1 año entrenando en FORJA", need: 365, Icon: Calendar,
+    metric: (m) => m.daysActive, fmt: (v) => `${v} días` },
+];
+
+// Resume el historial de un alumno en las métricas base que alimentan
+// logros y rankings, para no recorrer `sessions` una vez por cada cosa.
+function progressMetrics(history) {
+  const sessions = (history && history.sessions) || [];
+  const tonnage = sessions.reduce((a, s) => a + (s.volume || 0), 0);
+  const prs = sessions.reduce((a, s) => a + (s.prs ? s.prs.length : 0), 0);
+  const minutes = sessions.reduce((a, s) => a + (s.durationMin || 0), 0);
+  const dates = sessions.map((s) => new Date(s.date).getTime()).filter((t) => !isNaN(t));
+  const daysActive = dates.length ? Math.floor((Date.now() - Math.min(...dates)) / 86400000) : 0;
+  return { sessions: sessions.length, tonnage, prs, minutes, streak: weekStreak(sessions), daysActive };
+}
+
+function computeAchievements(history) {
+  const m = progressMetrics(history);
+  return ACHIEVEMENTS.map((a) => {
+    const value = a.metric(m);
+    return { ...a, value, earned: value >= a.need, pct: Math.min(100, Math.round((value / a.need) * 100)) };
+  });
+}
+
+// Estimación de calorías quemadas — FORJA no mide gasto energético real
+// (haría falta un sensor), así que se calcula con una fórmula estándar de
+// entrenamiento de fuerza (~MET 6) según minutos entrenados y peso
+// corporal. Se etiqueta como "estimado" en toda la interfaz.
+function estimateKcal(minutes, weightKg) {
+  const w = weightKg > 0 ? weightKg : 75;
+  return Math.round(minutes * w * 0.1);
 }
 
 function beep() {
@@ -3184,6 +3257,55 @@ const SessionDetailSheet = ({ session, onClose, history, onOpenImg }) => (
   </Sheet>
 );
 
+// Grilla de medallas: agrupadas por categoría, con barra de progreso para
+// las que faltan por desbloquear. Se usa tanto en "Mis logros" del alumno
+// como (con el historial de cada uno) en Rankings del coach.
+const AchievementGrid = ({ history }) => {
+  const list = computeAchievements(history);
+  const earnedCount = list.filter((a) => a.earned).length;
+  const groups = [...new Set(list.map((a) => a.group))];
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px",
+        background: P.s1, border: `1px solid ${P.line}`, borderRadius: 14, boxShadow: CARD_LIFT }}>
+        <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+          background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`,
+          boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(224,26,26,.6)" }}>
+          <Trophy size={20} color="#FFFFFF" />
+        </div>
+        <div><div style={{ fontWeight: 700, fontSize: 17 }}>{earnedCount} de {list.length} logros</div>
+          <div style={{ fontSize: 12.5, color: P.faint }}>Sigue entrenando para desbloquear el resto</div></div>
+      </div>
+      {groups.map((g) => (
+        <div key={g} style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>{g}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+            {list.filter((a) => a.group === g).map((a) => (
+              <div key={a.id} style={{ padding: "13px 10px", borderRadius: 13, textAlign: "center",
+                background: a.earned ? `linear-gradient(160deg, ${P.s3}, ${P.s2})` : P.s1,
+                border: `1px solid ${a.earned ? `${P.ember}55` : P.line}`,
+                boxShadow: a.earned ? CARD_LIFT : "none", opacity: a.earned ? 1 : .68 }}>
+                <div style={{ width: 44, height: 44, borderRadius: 14, margin: "0 auto 8px", display: "flex", alignItems: "center", justifyContent: "center",
+                  background: a.earned ? `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)` : P.s2,
+                  boxShadow: a.earned ? "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(224,26,26,.6)" : "none" }}>
+                  {a.earned ? <a.Icon size={21} color="#FFFFFF" /> : <Lock size={17} color={P.faint} />}
+                </div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25, marginBottom: 4 }}>{a.label}</div>
+                <div style={{ fontSize: 11, color: P.faint }}>{a.fmt(a.value)}{!a.earned ? ` de ${a.fmt(a.need)}` : ""}</div>
+                {!a.earned && (
+                  <div style={{ height: 4, borderRadius: 2, background: P.s3, marginTop: 7, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${a.pct}%`, background: P.ember }} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const ProgressTab = ({ plan, history, saveHistory }) => {
   const [sub, setSub] = useState("ex");
   const [exId, setExId] = useState("");
@@ -3222,8 +3344,10 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
     <div style={{ padding: "18px 16px 30px" }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Progreso</h1>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
-        {subBtn("ex", "Ejercicios")}{subBtn("ses", "Sesiones")}{subBtn("vol", "Volumen")}{subBtn("body", "Cuerpo")}
+        {subBtn("ex", "Ejercicios")}{subBtn("ses", "Sesiones")}{subBtn("vol", "Volumen")}{subBtn("body", "Cuerpo")}{subBtn("logros", "Logros")}
       </div>
+
+      {sub === "logros" && <AchievementGrid history={history} />}
 
       {sub === "ex" && (
         <div>
@@ -4905,6 +5029,209 @@ const ActivityTab = ({ plan, history }) => {
 };
 
 /* ============================================================
+   RANKINGS — tablas de posición entre alumnos + premio del mes.
+   El coach elige el criterio; el "score total" (para sugerir al
+   ganador del mes) suma puntos de posición en 5 criterios fijos.
+   Calorías es una ESTIMACIÓN (no hay forma de medir gasto real sin
+   un sensor) — se etiqueta como tal en toda la pantalla.
+   ============================================================ */
+function monthKeyOf(d) { return d.slice(0, 7); }
+function monthMetrics(history, monthKey) {
+  const sessions = ((history && history.sessions) || []).filter((s) => monthKeyOf(s.date || "") === monthKey);
+  return {
+    sessions: sessions.length,
+    tonnage: sessions.reduce((a, s) => a + (s.volume || 0), 0),
+    prs: sessions.reduce((a, s) => a + (s.prs ? s.prs.length : 0), 0),
+    minutes: sessions.reduce((a, s) => a + (s.durationMin || 0), 0),
+  };
+}
+// % de sesiones hechas vs las que tocaban según el horario semanal armado
+// en Agenda (días con rutina asignada). Sin horario armado, no hay con qué
+// comparar y se muestra "—" en vez de inventar un número.
+function adherencePct(plan, history, monthKey) {
+  const sched = (plan && plan.schedule) || {};
+  const plannedPerWeek = Object.values(sched).filter(Boolean).length;
+  if (!plannedPerWeek) return null;
+  const now = new Date();
+  const [y, mo] = monthKey.split("-").map(Number);
+  const isCurrent = now.getFullYear() === y && now.getMonth() + 1 === mo;
+  const daysElapsed = isCurrent ? now.getDate() : new Date(y, mo, 0).getDate();
+  const expected = plannedPerWeek * (daysElapsed / 7);
+  if (expected <= 0) return null;
+  const done = monthMetrics(history, monthKey).sessions;
+  return Math.min(100, Math.round((done / expected) * 100));
+}
+function bestForExerciseName(history, nameLower) {
+  let best = 0;
+  Object.values((history && history.byEx) || {}).forEach((entries) => {
+    (entries || []).forEach((en) => {
+      if (((en.exName || "").trim().toLowerCase()) !== nameLower) return;
+      (en.sets || []).forEach((s) => { if (s.done) best = Math.max(best, numN(s.weight)); });
+    });
+  });
+  return best;
+}
+const RANK_CRITERIA = [
+  { id: "kcal", label: "Calorías quemadas (estimado)", get: (r, mk) => estimateKcal(monthMetrics(r.history, mk).minutes, r.weight), fmt: (v) => `${Math.round(v).toLocaleString("es-CL")} kcal` },
+  { id: "tonnage", label: "Tonelaje levantado", get: (r, mk) => monthMetrics(r.history, mk).tonnage, fmt: (v) => `${Math.round(v / 1000 * 10) / 10} t` },
+  { id: "prs", label: "Récords personales (PRs)", get: (r, mk) => monthMetrics(r.history, mk).prs, fmt: (v) => `${v} PR${v !== 1 ? "s" : ""}` },
+  { id: "adherencia", label: "Cumplimiento de indicaciones", get: (r, mk) => adherencePct(r.plan, r.history, mk), fmt: (v) => v == null ? "— (sin horario armado)" : `${v}%` },
+  { id: "streak", label: "Constancia (racha de semanas)", get: (r) => r.metrics.streak, fmt: (v) => `${v} semana${v !== 1 ? "s" : ""}` },
+];
+
+const RankingsTab = ({ roster, toast }) => {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+  const [criterion, setCriterion] = useState("kcal");
+  const [exName, setExName] = useState("");
+  const [winners, setWinners] = useState([]);
+  const [prizeDraft, setPrizeDraft] = useState("");
+  const monthKey = monthKeyOf(todayISO());
+  const monthLabel = new Date().toLocaleDateString("es-CL", { month: "long", year: "numeric" });
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const out = [];
+      for (const s of roster.students) {
+        const [p, h] = await Promise.all([sGet(`forja-plan:${s.id}`), sGet(`forja-history:${s.id}`)]);
+        const hist = (h && h.sessions) ? h : emptyHistory();
+        out.push({ id: s.id, name: s.name, plan: p || emptyPlan(), history: hist, weight: numN((p && p.athlete || {}).weight), metrics: progressMetrics(hist) });
+      }
+      setRows(out);
+      setLoading(false);
+      const w = await sGet("forja-monthly-winners");
+      setWinners((w && w.list) || []);
+    })();
+  }, [roster]);
+
+  const exOptions = useMemo(() => {
+    const set = new Set();
+    rows.forEach((r) => Object.values(r.history.byEx || {}).forEach((entries) => (entries || []).forEach((en) => en.exName && set.add(en.exName))));
+    return [...set].sort((a, b) => a.localeCompare(b, "es"));
+  }, [rows]);
+  useEffect(() => { if (!exName && exOptions.length) setExName(exOptions[0]); }, [exOptions, exName]);
+
+  // Puntaje total: para cada uno de los 5 criterios fijos, ordena a los
+  // alumnos y reparte puntos por posición (1º = N puntos ... último = 1).
+  // Así se puede sumar algo tan distinto como calorías, kg y % en una sola
+  // tabla, sin que una unidad "pese" más que otra por su magnitud.
+  const totals = useMemo(() => {
+    const scores = new Map(rows.map((r) => [r.id, 0]));
+    RANK_CRITERIA.forEach((c) => {
+      const vals = rows.map((r) => ({ id: r.id, v: c.get(r, monthKey) })).filter((x) => x.v != null);
+      vals.sort((a, b) => b.v - a.v);
+      vals.forEach((x, i) => scores.set(x.id, scores.get(x.id) + (vals.length - i)));
+    });
+    return rows.map((r) => ({ ...r, score: scores.get(r.id) || 0 })).sort((a, b) => b.score - a.score);
+  }, [rows, monthKey]);
+
+  const activeCriterion = RANK_CRITERIA.find((c) => c.id === criterion);
+  const board = criterion === "prEx"
+    ? rows.map((r) => ({ ...r, v: bestForExerciseName(r.history, exName.trim().toLowerCase()) })).sort((a, b) => b.v - a.v)
+    : rows.map((r) => ({ ...r, v: activeCriterion.get(r, monthKey) })).sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
+
+  const leader = totals[0];
+  const alreadyAwarded = winners.some((w) => w.month === monthKey);
+  const declareWinner = async () => {
+    if (!leader) return;
+    const entry = { month: monthKey, studentId: leader.id, studentName: leader.name, score: leader.score, prize: prizeDraft.trim(), delivered: false, awardedAt: todayISO() };
+    const list = [entry, ...winners.filter((w) => w.month !== monthKey)];
+    setWinners(list);
+    await sSet("forja-monthly-winners", { list });
+    setPrizeDraft("");
+    if (toast) toast(`✓ ${leader.name} queda como ganador de ${monthLabel}`);
+  };
+  const markDelivered = async (m) => {
+    const list = winners.map((w) => w.month === m ? { ...w, delivered: true } : w);
+    setWinners(list);
+    await sSet("forja-monthly-winners", { list });
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando rankings de todos los alumnos…</div>;
+
+  return (
+    <div style={{ padding: "18px 16px 30px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <Trophy size={22} color={P.ember} />
+        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Rankings</h1>
+      </div>
+      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 16, lineHeight: 1.45 }}>
+        Compara a tus alumnos por distintos criterios. Las calorías son una estimación (duración × peso corporal) — FORJA no mide gasto real.
+      </div>
+
+      <Card style={{ padding: 14, marginBottom: 16, background: `linear-gradient(150deg, ${P.ember}1F, ${P.s1} 55%)`, borderColor: `${P.ember}4A` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <Gift size={17} color={P.ember} />
+          <div style={{ fontWeight: 700, fontSize: 15.5, textTransform: "capitalize" }}>Premio de {monthLabel}</div>
+        </div>
+        {leader ? (
+          <>
+            <div style={{ fontSize: 14, color: P.dim, marginBottom: 10 }}>
+              Sumando los 5 criterios de abajo, <b style={{ color: P.text }}>{leader.name}</b> va primero con <b style={{ color: P.ember2 }}>{leader.score} pts</b>.
+            </div>
+            {alreadyAwarded ? (
+              (() => { const w = winners.find((x) => x.month === monthKey); return (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: 13.5 }}>Ganador declarado: <b>{w.studentName}</b>{w.prize ? ` · Premio: ${w.prize}` : ""}</div>
+                  {!w.delivered && <Btn kind="line" small onClick={() => markDelivered(monthKey)}><Check size={13} /> Marcar entregado</Btn>}
+                  {w.delivered && <span style={{ fontSize: 12.5, color: P.green, display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={13} /> Entregado</span>}
+                </div>
+              );})()
+            ) : (
+              <>
+                <Inp value={prizeDraft} onChange={(e) => setPrizeDraft(e.target.value)} placeholder="Premio sorpresa (ej: proteína, descuento, straps…)" style={{ marginBottom: 8 }} />
+                <Btn kind="ember" onClick={declareWinner} style={{ width: "100%" }}><Trophy size={15} /> Declarar ganador de {monthLabel}</Btn>
+              </>
+            )}
+          </>
+        ) : <div style={{ color: P.faint, fontSize: 13.5 }}>Agrega alumnos con sesiones registradas para calcular el premio del mes.</div>}
+      </Card>
+
+      <select value={criterion} onChange={(e) => setCriterion(e.target.value)} style={{ width: "100%", padding: "10px 11px", fontSize: 14.5, marginBottom: exName || criterion !== "prEx" ? 10 : 0 }}>
+        {RANK_CRITERIA.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        <option value="prEx">PR de un ejercicio en particular</option>
+      </select>
+      {criterion === "prEx" && (
+        <select value={exName} onChange={(e) => setExName(e.target.value)} style={{ width: "100%", padding: "10px 11px", fontSize: 14.5, marginBottom: 10 }}>
+          {exOptions.length === 0 && <option value="">Sin ejercicios registrados aún</option>}
+          {exOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      )}
+
+      {board.map((r, i) => (
+        <Card key={r.id} style={{ padding: "11px 13px", marginBottom: 8, display: "flex", alignItems: "center", gap: 11 }}>
+          <div className="disp" style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            fontWeight: 800, fontSize: 14,
+            background: i === 0 ? `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)` : P.s2,
+            color: i === 0 ? "#FFFFFF" : P.faint, border: i === 0 ? "none" : `1px solid ${P.line}` }}>
+            {i === 0 ? <Medal size={15} /> : i + 1}
+          </div>
+          <div style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 15, overflowWrap: "break-word" }}>{r.name}</div>
+          <div style={{ fontWeight: 700, fontSize: 14.5, color: P.ember2, flexShrink: 0 }}>
+            {criterion === "prEx" ? (r.v > 0 ? `${kg(r.v)} kg` : "—") : activeCriterion.fmt(r.v)}
+          </div>
+        </Card>
+      ))}
+      {board.length === 0 && <Empty icon={Trophy} title="Sin alumnos" body="Agrega alumnos para empezar a comparar su progreso." />}
+
+      {winners.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>Historial de premios</div>
+          {winners.map((w) => (
+            <div key={w.month} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", marginBottom: 6, borderRadius: 10, background: P.s2, border: `1px solid ${P.line}`, fontSize: 13 }}>
+              <Award size={14} color={P.ember2} style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>{w.month} · <b>{w.studentName}</b>{w.prize ? ` · ${w.prize}` : ""}</div>
+              {w.delivered ? <Check size={14} color={P.green} /> : <span style={{ color: P.faint, fontSize: 11.5 }}>pendiente</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ============================================================
    Chrome global: banner de storage, toast, tabs y App raíz
    ============================================================ */
 /* ============================================================
@@ -6462,7 +6789,7 @@ const ROLE_META = {
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "timer", "guia", "atlas"];
+const TABS_COACH_IDS = ["rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "timer", "guia", "atlas"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -6514,6 +6841,7 @@ const TABS = {
     { id: "ia", label: "IA", Icon: Sparkles },
     { id: "indicaciones", label: "Indicac.", Icon: StickyNote },
     { id: "actividad", label: "Activ.", Icon: Users },
+    { id: "rankings", label: "Rankings", Icon: Trophy },
     { id: "timer", label: "Timer", Icon: Timer },
     { id: "guia", label: "Guía", Icon: BookOpen },
     { id: "atlas", label: "Atlas", Icon: Library },
@@ -7053,6 +7381,11 @@ const App = () => {
           </ReadOnlyLock>
         )}
         {mode === "coach" && tab === "actividad" && <ActivityTab plan={plan} history={history} />}
+        {mode === "coach" && tab === "rankings" && (
+          <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
+            <RankingsTab roster={roster} toast={toast} />
+          </ReadOnlyLock>
+        )}
         {tab === "timer" && <TimerTab />}
         {tab === "guia" && (
           <div style={{ padding: "18px 16px 30px" }}>
