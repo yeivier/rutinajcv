@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v43";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v44";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -4410,16 +4410,19 @@ function libraryExercisesFromPlanAndHistory(plan, history) {
   return [...byName.values()];
 }
 
-const LibraryPanel = ({ plan, savePlan, onInfo, toast, onCopyExercise, history }) => {
+// La Biblioteca es del COACH, no de cada alumno: un único catálogo
+// compartido (`forja-library`) visible sin importar qué alumno se esté
+// gestionando en ese momento — así lo cargado para uno sirve para todos.
+const LibraryPanel = ({ plan, history, library, onSaveLibrary, onInfo, toast, onCopyExercise }) => {
   const [q, setQ] = useState("");
   const [muscleF, setMuscleF] = useState([]);
   const [equipF, setEquipF] = useState([]);
   const [editEx, setEditEx] = useState(null); // ejercicio de biblioteca en edición (o nuevo)
   const [del, setDel] = useState(null);
   const [viewImg, setViewImg] = useState(null);
-  const lib = plan.library || [];
+  const lib = library || [];
 
-  const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
+  const mut = (fn) => { const next = structuredClone(lib); fn(next); onSaveLibrary(next); };
   const toggle = (arr, setArr, v) => setArr(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
 
   const filtered = lib.filter((e) => {
@@ -4432,18 +4435,17 @@ const LibraryPanel = ({ plan, savePlan, onInfo, toast, onCopyExercise, history }
   const newExTemplate = () => ({ id: uid(), isNew: true, name: "", muscle: MUSCLES[0], equipment: "", rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] });
 
   // Suma a la biblioteca todo lo que ya está registrado en las rutinas (A/B/C…)
-  // y en el historial de sesiones (por si algún ejercicio ya se borró de la
-  // rutina actual). Nunca duplica: si el nombre ya existe en la biblioteca
-  // (sin distinguir mayúsculas), lo salta.
+  // y en el historial de sesiones del alumno que se está gestionando (por si
+  // algún ejercicio ya se borró de la rutina actual). Nunca duplica: si el
+  // nombre ya existe en la biblioteca (sin distinguir mayúsculas), lo salta.
   const importUsed = () => {
     const candidates = libraryExercisesFromPlanAndHistory(plan, history);
     const existing = new Set(lib.map((x) => (x.name || "").trim().toLowerCase()));
     const toAdd = candidates.filter((c) => !existing.has((c.name || "").trim().toLowerCase()));
     if (!toAdd.length) { if (toast) toast("No hay ejercicios nuevos: la biblioteca ya los tiene todos."); return; }
-    mut((p) => {
-      if (!p.library) p.library = [];
+    mut((next) => {
       toAdd.forEach((c) => {
-        p.library.push({
+        next.push({
           id: uid(), name: c.name, muscle: c.muscle || "Otro", equipment: c.equipment || "",
           rest: c.rest || 90, notes: c.notes || "", video: c.video || "", superset: "",
           secondary: (c.secondary || []).map((s) => ({ ...s })),
@@ -4514,22 +4516,21 @@ const LibraryPanel = ({ plan, savePlan, onInfo, toast, onCopyExercise, history }
       )}
 
       <ExerciseEditorSheet ex={editEx} onClose={() => setEditEx(null)} onInfo={onInfo}
-        onSave={(exd) => { const { isNew, ...clean } = exd; mut((p) => {
-          if (!p.library) p.library = [];
-          const i = p.library.findIndex((x) => x.id === clean.id);
-          if (i >= 0) p.library[i] = clean; else p.library.push(clean);
+        onSave={(exd) => { const { isNew, ...clean } = exd; mut((next) => {
+          const i = next.findIndex((x) => x.id === clean.id);
+          if (i >= 0) next[i] = clean; else next.push(clean);
         }); setEditEx(null); if (toast) toast(`✓ «${exd.name}» guardado en la biblioteca`); }} />
 
       <Confirm open={!!del} danger title="Eliminar de la biblioteca" body={del ? `¿Eliminar «${del.name}» de la biblioteca? No afecta a las rutinas donde ya se usó.` : ""}
         okLabel="Eliminar" onCancel={() => setDel(null)}
-        onOk={() => { mut((p) => { p.library = (p.library || []).filter((x) => x.id !== del.id); }); setDel(null); }} />
+        onOk={() => { onSaveLibrary(lib.filter((x) => x.id !== del.id)); setDel(null); }} />
 
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
   );
 };
 
-const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent }) => {
+const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent, library, onSaveLibrary }) => {
   const [view, setView] = useState("dias"); // 'dias' | 'biblioteca'
   const [openDay, setOpenDay] = useState(null);
   const [editEx, setEditEx] = useState(null); // {dayId, ex}
@@ -4863,12 +4864,12 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         {[["dias", "Días", ClipboardList], ["biblioteca", "Biblioteca", Library]].map(([id, label, Icon]) => (
           <button key={id} onClick={() => setView(id)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 4px", borderRadius: 10, fontSize: 14.5, fontWeight: 600,
             background: view === id ? P.s3 : "transparent", color: view === id ? P.text : P.faint, border: `1px solid ${view === id ? P.line : "transparent"}` }}>
-            <Icon size={14} /> {label}{id === "biblioteca" && (plan.library || []).length > 0 ? ` (${plan.library.length})` : ""}
+            <Icon size={14} /> {label}{id === "biblioteca" && (library || []).length > 0 ? ` (${library.length})` : ""}
           </button>
         ))}
       </div>
 
-      {view === "biblioteca" && <LibraryPanel plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} history={history} />}
+      {view === "biblioteca" && <LibraryPanel plan={plan} history={history} library={library} onSaveLibrary={onSaveLibrary} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
 
       {view === "dias" && (<>
       <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} />
@@ -6582,16 +6583,13 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
   };
 
   const applyLibrary = (data, key) => {
-    const p = structuredClone(plan);
-    if (!p.library) p.library = [];
-    p.library.push({
+    const next = [...(library || []), {
       id: uid(), name: data.name || "Ejercicio", muscle: MUSCLES.includes(data.muscle) ? data.muscle : MUSCLES[0],
       equipment: EQUIPMENT.includes(data.equipment) ? data.equipment : "", rest: +data.rest || 90, notes: data.notes || "",
       video: "", superset: "", secondary: [],
       sets: (data.sets || []).map((s) => ({ id: uid(), type: SET_TYPES[s.type] ? s.type : "normal", repsT: s.repsT || "8-12", rirT: s.rirT || "2", pct: 15 })),
-    });
-    p.updatedAt = todayISO();
-    savePlan(p);
+    }];
+    onSaveLibrary(next);
     setApplied((a) => ({ ...a, [key]: true }));
     toast && toast(`✓ «${data.name || "Ejercicio"}» agregado a la biblioteca`);
   };
@@ -6762,7 +6760,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
 };
 
 /* ---- Pestaña IA: agente de culturismo + nutrición ---- */
-const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJumpConsumed }) => {
+const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJumpConsumed, library, onSaveLibrary }) => {
   const [sub, setSub] = useState("agente");
   const [apiKey, setApiKey] = useState("");
   const [draftKey, setDraftKey] = useState("");
@@ -7427,6 +7425,13 @@ const App = () => {
   // Equipo del lado coach (Head Coach + staff). Sin miembros = coach solo,
   // acceso total, cero fricción extra (comportamiento de siempre).
   const [team, setTeam] = useState({ members: [] });
+  // Biblioteca de ejercicios: catálogo único del coach, compartido entre
+  // todos sus alumnos (no vive dentro del plan de cada uno).
+  const [library, setLibrary] = useState([]);
+  const saveLibrary = useCallback((exercises) => {
+    setLibrary(exercises);
+    sSet("forja-library", { exercises });
+  }, []);
   const [myTeamId, setMyTeamId] = useState(null);
   const [equipoOpen, setEquipoOpen] = useState(false);
   const myRole = (() => {
@@ -7461,8 +7466,6 @@ const App = () => {
     if (!p.events) p.events = [];
     // Migración: planes viejos sin ficha del atleta (la usa el agente de culturismo)
     if (!p.athlete) p.athlete = emptyAthlete();
-    // Migración: planes viejos sin biblioteca de ejercicios
-    if (!p.library) p.library = [];
     if ((p.seedVersion || 0) < SEED_VERSION) {
       const trainingB = (p.days || []).find((day) => day.name === "Entrenamiento B");
       if (trainingB) {
@@ -7514,6 +7517,8 @@ const App = () => {
       setRoster(r);
       const t = await sGet("forja-team");
       if (t && Array.isArray(t.members)) setTeam(t);
+      const lib = await sGet("forja-library");
+      if (lib && Array.isArray(lib.exercises)) setLibrary(lib.exercises);
       const dev = await sGet("forja-device", false);
       const known = dev && dev.sid && r.students.some((s) => s.id === dev.sid);
       if (dev && dev.mode && known) await openIdentity(dev.mode, dev.sid, r, dev.teamId);
@@ -7761,7 +7766,8 @@ const App = () => {
         {mode === "coach" && tab === "rutina" && (
           <ReadOnlyLock active={roleTabAccess.rutina === "view"} toast={toast}>
             <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history}
-              student={currentStudent} onUpdateStudent={(patch) => currentStudent && updateStudent(currentStudent.id, patch)} />
+              student={currentStudent} onUpdateStudent={(patch) => currentStudent && updateStudent(currentStudent.id, patch)}
+              library={library} onSaveLibrary={saveLibrary} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && tab === "agenda" && (
@@ -7778,7 +7784,7 @@ const App = () => {
         {mode === "coach" && tab === "ia" && (
           <ReadOnlyLock active={roleTabAccess.ia === "view"} toast={toast}>
             <AITab plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast}
-              jumpSub={aiJumpSub} onJumpConsumed={() => setAiJumpSub(null)} />
+              jumpSub={aiJumpSub} onJumpConsumed={() => setAiJumpSub(null)} library={library} onSaveLibrary={saveLibrary} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && tab === "indicaciones" && (
