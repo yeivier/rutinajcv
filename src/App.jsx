@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v45";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v46";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -3201,6 +3201,8 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines }) => 
         <Logo />
         <div style={{ fontSize: 13, color: P.faint, textAlign: "right" }}>{fmtDateFull(todayISO())}</div>
       </div>
+
+      <EventReminderBanner events={plan.events} />
 
       {active ? (
         <Card style={{ padding: 16, marginBottom: 14, borderColor: `${P.ember}66`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
@@ -6979,22 +6981,73 @@ const DAY_LABELS_LONG = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "
 const MONTH_LABELS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const parseDate = (s) => { const [y, m, d] = s.split("-").map((x) => +x); return new Date(y, m - 1, d); };
+const startOfWeek = (d) => { const w = new Date(d); w.setDate(w.getDate() - w.getDay()); return w; };
 
-const CalendarTab = ({ plan, history, onGoTrain }) => {
+// Colores de evento en la Agenda — como con SET_TYPES, es otra excepción a
+// propósito a la paleta roja/blanco/negro del resto de la app: ayuda a
+// distinguir de un vistazo qué tipo de recordatorio es cada evento, tanto en
+// las celdas del calendario como en la lista de próximos.
+const EVENT_COLORS = {
+  ember:  { label: "Rojo",    dot: "#FF4747" },
+  blue:   { label: "Celeste", dot: "#7DA6C7" },
+  green:  { label: "Verde",   dot: "#34D399" },
+  gold:   { label: "Dorado",  dot: "#F2B84B" },
+  purple: { label: "Violeta", dot: "#B583F0" },
+};
+const EVENT_COLOR_KEYS = Object.keys(EVENT_COLORS);
+
+// La app no tiene service worker ni backend de push, así que "notificar" es
+// in-app: el coach elige cuántos días antes de la fecha el evento entra en
+// la lista de "próximos" que aparece arriba de la Agenda (y en Hoy, para el
+// alumno) cada vez que se abre la app.
+const REMIND_OPTIONS = [
+  { v: 0, label: "El mismo día" },
+  { v: 1, label: "1 día antes" },
+  { v: 2, label: "2 días antes" },
+  { v: 3, label: "3 días antes" },
+  { v: 7, label: "1 semana antes" },
+  { v: 14, label: "2 semanas antes" },
+];
+const eventColorDot = (key) => (EVENT_COLORS[key] || EVENT_COLORS.blue).dot;
+const daysUntil = (iso) => { const t = new Date(); t.setHours(0, 0, 0, 0); return Math.round((parseDate(iso) - t) / 86400000); };
+const upcomingEvents = (events) => (events || [])
+  .map((e) => ({ ...e, _in: daysUntil(e.date) }))
+  .filter((e) => e._in >= 0 && e._in <= (e.remind || 0))
+  .sort((a, b) => a._in - b._in);
+
+const EventReminderBanner = ({ events }) => {
+  const list = upcomingEvents(events);
+  if (!list.length) return null;
+  return (
+    <Card style={{ padding: "12px 14px", marginBottom: 14, borderColor: `${P.ember}55` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <Bell size={16} color={P.ember2} />
+        <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>
+          {list.length === 1 ? "Recordatorio próximo" : "Recordatorios próximos"}
+        </div>
+      </div>
+      {list.map((e) => (
+        <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "5px 0" }}>
+          <span style={{ width: 9, height: 9, borderRadius: 999, background: eventColorDot(e.color), flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 600 }}>{e.title}</div>
+            {e.note && <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>{e.note}</div>}
+          </div>
+          <div style={{ fontSize: 12.5, color: P.ember2, fontWeight: 700, flexShrink: 0 }}>
+            {e._in === 0 ? "Hoy" : e._in === 1 ? "Mañana" : `en ${e._in} días`}
+          </div>
+        </div>
+      ))}
+    </Card>
+  );
+};
+
+/* Calendario mensual/semanal reutilizado por la Agenda del coach y del
+   alumno — mismo look que un Google Calendar simplificado: navegación por
+   mes o semana, celdas con puntitos de color por cada evento del día. */
+const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected, dayFor, eventsFor, sessionsOnDate }) => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const [view, setView] = useState("month"); // week | month
-  const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
-  const [selected, setSelected] = useState(isoDate(today));
 
-  const dayFor = (dateObj) => {
-    const key = DAY_KEYS[dateObj.getDay()];
-    const dayId = plan.schedule && plan.schedule[key];
-    return dayId ? plan.days.find((d) => d.id === dayId) : null;
-  };
-  const eventsFor = (iso) => (plan.events || []).filter((e) => e.date === iso);
-  const sessionsOnDate = (iso) => history.sessions.filter((s) => s.date === iso);
-
-  // Generar celdas del mes
   const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const monthEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
   const gridStart = new Date(monthStart); gridStart.setDate(1 - monthStart.getDay());
@@ -7004,18 +7057,13 @@ const CalendarTab = ({ plan, history, onGoTrain }) => {
     cells.push(d);
     if (i >= 34 && d >= monthEnd) break;
   }
-
-  const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay());
-  const weekCells = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
+  // En vista semana, `cursor` es el domingo de la semana mostrada.
+  const weekCells = Array.from({ length: 7 }, (_, i) => { const d = new Date(cursor); d.setDate(cursor.getDate() + i); return d; });
 
   const goPrev = () => setCursor((c) => view === "month" ? new Date(c.getFullYear(), c.getMonth() - 1, 1) : new Date(c.getTime() - 7 * 86400000));
   const goNext = () => setCursor((c) => view === "month" ? new Date(c.getFullYear(), c.getMonth() + 1, 1) : new Date(c.getTime() + 7 * 86400000));
-
-  const selDate = parseDate(selected);
-  const selDay = dayFor(selDate);
-  const selEvents = eventsFor(selected);
-  const selSessions = sessionsOnDate(selected);
-  const isToday = selected === isoDate(today);
+  const goToday = () => { setSelected(isoDate(today)); setCursor(view === "month" ? new Date(today.getFullYear(), today.getMonth(), 1) : startOfWeek(today)); };
+  const switchView = (v) => { setView(v); const base = parseDate(selected); setCursor(v === "month" ? new Date(base.getFullYear(), base.getMonth(), 1) : startOfWeek(base)); };
 
   const cell = (d) => {
     const iso = isoDate(d);
@@ -7036,46 +7084,77 @@ const CalendarTab = ({ plan, history, onGoTrain }) => {
         <span style={{ fontSize: 13, fontWeight: isTodayCell ? 700 : 500, color: isSel ? P.ember : P.text }}>{d.getDate()}</span>
         {day && <div style={{ width: "80%", height: 3, borderRadius: 2, background: hasSession ? P.green : P.ember }} />}
         {!day && !hasSession && evs.length === 0 && <div style={{ width: 3, height: 3, borderRadius: 999, background: P.faint, opacity: 0.5 }} />}
-        {evs.length > 0 && <div style={{ position: "absolute", top: 2, right: 3, width: 6, height: 6, borderRadius: 999, background: P.blue }} />}
+        {evs.length > 0 && (
+          <div style={{ display: "flex", gap: 2, marginTop: 1 }}>
+            {evs.slice(0, 3).map((e) => <span key={e.id} style={{ width: 5, height: 5, borderRadius: 999, background: eventColorDot(e.color) }} />)}
+          </div>
+        )}
       </button>
     );
   };
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Agenda</h1>
-        <div style={{ flex: 1 }} />
+    <Card style={{ padding: "10px 12px 12px", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
         <div style={{ display: "flex", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 8, padding: 3 }}>
           {[["week", "Sem"], ["month", "Mes"]].map(([id, l]) => (
-            <button key={id} onClick={() => setView(id)} style={{ padding: "5px 11px", borderRadius: 6, fontSize: 13, fontWeight: 700,
+            <button key={id} onClick={() => switchView(id)} style={{ padding: "5px 11px", borderRadius: 6, fontSize: 13, fontWeight: 700,
               background: view === id ? P.s3 : "transparent", color: view === id ? P.text : P.faint }}>{l}</button>
           ))}
         </div>
+        <div style={{ flex: 1 }} />
+        <button onClick={goToday} style={{ padding: "4px 8px", fontSize: 12, color: P.ember, fontWeight: 700, borderRadius: 6, border: `1px solid ${P.ember}55` }}>HOY</button>
       </div>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+        <button onClick={goPrev} aria-label="Período anterior" style={{ padding: 6, color: P.dim }}><ChevronLeft size={18} /></button>
+        <div style={{ flex: 1, textAlign: "center", fontWeight: 700, fontSize: 16, textTransform: "capitalize" }}>
+          {view === "month" ? `${MONTH_LABELS[cursor.getMonth()]} ${cursor.getFullYear()}` : `Semana del ${weekCells[0].getDate()} ${MONTH_LABELS[weekCells[0].getMonth()].slice(0, 3)}`}
+        </div>
+        <button onClick={goNext} aria-label="Período siguiente" style={{ padding: 6, color: P.dim }}><ChevronRight size={18} /></button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, marginBottom: 4 }}>
+        {DAY_LABELS.map((l) => <div key={l} style={{ textAlign: "center", fontSize: 11, color: P.faint, fontWeight: 700, textTransform: "uppercase", padding: "2px 0" }}>{l}</div>)}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+        {view === "month" ? cells.map(cell) : weekCells.map(cell)}
+      </div>
+      <div style={{ display: "flex", gap: 12, marginTop: 10, fontSize: 12, color: P.faint, flexWrap: "wrap" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 3, background: P.ember, borderRadius: 2 }} />Entrenamiento</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 3, background: P.green, borderRadius: 2 }} />Realizado</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 6, height: 6, background: eventColorDot("blue"), borderRadius: 999 }} />Evento</span>
+      </div>
+    </Card>
+  );
+};
 
-      <Card style={{ padding: "10px 12px 12px", marginBottom: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-          <button onClick={goPrev} style={{ padding: 6, color: P.dim }}><ChevronLeft size={18} /></button>
-          <div style={{ flex: 1, textAlign: "center", fontWeight: 700, fontSize: 16, textTransform: "capitalize" }}>
-            {view === "month" ? `${MONTH_LABELS[cursor.getMonth()]} ${cursor.getFullYear()}` : `Semana del ${weekCells[0].getDate()} ${MONTH_LABELS[weekCells[0].getMonth()].slice(0, 3)}`}
-          </div>
-          <button onClick={goNext} style={{ padding: 6, color: P.dim }}><ChevronRight size={18} /></button>
-          <button onClick={() => { setCursor(new Date(today.getFullYear(), today.getMonth(), 1)); setSelected(isoDate(today)); }}
-            style={{ padding: "4px 8px", fontSize: 12, color: P.ember, fontWeight: 700, borderRadius: 6, border: `1px solid ${P.ember}55`, marginLeft: 4 }}>HOY</button>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, marginBottom: 4 }}>
-          {DAY_LABELS.map((l) => <div key={l} style={{ textAlign: "center", fontSize: 11, color: P.faint, fontWeight: 700, textTransform: "uppercase", padding: "2px 0" }}>{l}</div>)}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
-          {view === "month" ? cells.map(cell) : weekCells.map(cell)}
-        </div>
-        <div style={{ display: "flex", gap: 12, marginTop: 10, fontSize: 12, color: P.faint, flexWrap: "wrap" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 3, background: P.ember, borderRadius: 2 }} />Entrenamiento</span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 3, background: P.green, borderRadius: 2 }} />Realizado</span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 6, height: 6, background: P.blue, borderRadius: 999 }} />Recordatorio</span>
-        </div>
-      </Card>
+const CalendarTab = ({ plan, history, onGoTrain }) => {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const [view, setView] = useState("month"); // week | month
+  const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selected, setSelected] = useState(isoDate(today));
+
+  const dayFor = (dateObj) => {
+    const key = DAY_KEYS[dateObj.getDay()];
+    const dayId = plan.schedule && plan.schedule[key];
+    return dayId ? plan.days.find((d) => d.id === dayId) : null;
+  };
+  const eventsFor = (iso) => (plan.events || []).filter((e) => e.date === iso);
+  const sessionsOnDate = (iso) => history.sessions.filter((s) => s.date === iso);
+
+  const selDate = parseDate(selected);
+  const selDay = dayFor(selDate);
+  const selEvents = eventsFor(selected);
+  const selSessions = sessionsOnDate(selected);
+  const isToday = selected === isoDate(today);
+
+  return (
+    <div style={{ padding: "18px 16px 30px" }}>
+      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 8px" }}>Agenda</h1>
+
+      <EventReminderBanner events={plan.events} />
+
+      <CalendarGrid cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
+        dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} />
 
       <Card style={{ padding: "13px 15px" }}>
         <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 3 }}>
@@ -7108,8 +7187,8 @@ const CalendarTab = ({ plan, history, onGoTrain }) => {
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
             <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Recordatorios del coach</div>
             {selEvents.map((e) => (
-              <div key={e.id} style={{ display: "flex", gap: 9, padding: "8px 10px", background: `${P.blue}15`, border: `1px solid ${P.blue}44`, borderRadius: 9, marginBottom: 6 }}>
-                <Bell size={15} color={P.blue} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div key={e.id} style={{ display: "flex", gap: 9, padding: "8px 10px", background: `${eventColorDot(e.color)}18`, border: `1px solid ${eventColorDot(e.color)}55`, borderRadius: 9, marginBottom: 6 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 999, background: eventColorDot(e.color), flexShrink: 0, marginTop: 4 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14.5, fontWeight: 600 }}>{e.title}</div>
                   {e.note && <div style={{ fontSize: 13.5, color: P.dim, marginTop: 2 }}>{e.note}</div>}
@@ -7123,18 +7202,88 @@ const CalendarTab = ({ plan, history, onGoTrain }) => {
   );
 };
 
-/* Configuración del calendario en modo coach */
-const ScheduleEditor = ({ plan, savePlan }) => {
+/* Agenda en modo coach: mismo calendario que ve el alumno, más la
+   configuración de la semana tipo. Tocar cualquier día abre el detalle y
+   permite agregar o editar un evento con fecha, color y aviso previo. */
+const ScheduleEditor = ({ plan, history, savePlan }) => {
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
-  const [addingEvent, setAddingEvent] = useState(false);
-  const [ev, setEv] = useState({ date: isoDate(new Date()), title: "", note: "" });
-  const today = new Date();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const [view, setView] = useState("month");
+  const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selected, setSelected] = useState(isoDate(today));
+  const [eventSheet, setEventSheet] = useState(null); // { id?, date, title, note, color, remind }
+
+  const dayFor = (dateObj) => {
+    const key = DAY_KEYS[dateObj.getDay()];
+    const dayId = plan.schedule && plan.schedule[key];
+    return dayId ? plan.days.find((d) => d.id === dayId) : null;
+  };
+  const eventsFor = (iso) => (plan.events || []).filter((e) => e.date === iso);
+  const sessionsOnDate = (iso) => (history ? history.sessions.filter((s) => s.date === iso) : []);
+
+  const selDate = parseDate(selected);
+  const selDay = dayFor(selDate);
+  const selEvents = eventsFor(selected);
+
+  const openNewEvent = (date) => setEventSheet({ date: date || selected, title: "", note: "", color: "ember", remind: 0 });
+  const saveEvent = () => {
+    if (!eventSheet.title.trim()) return;
+    mut((p) => {
+      if (!p.events) p.events = [];
+      if (eventSheet.id) {
+        const i = p.events.findIndex((x) => x.id === eventSheet.id);
+        if (i >= 0) p.events[i] = { ...eventSheet };
+      } else {
+        p.events.push({ id: uid(), ...eventSheet });
+      }
+    });
+    setEventSheet(null);
+  };
+  const deleteEvent = (id) => { mut((p) => { p.events = p.events.filter((x) => x.id !== id); }); setEventSheet(null); };
+
   return (
     <div style={{ padding: "18px 16px 30px" }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Agenda</h1>
-      <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Asigna qué entrenamiento toca cada día de la semana. Los días sin asignar quedan como descanso. También puedes añadir recordatorios en fechas específicas (fotos de progreso, chequeos, etc.).</div>
+      <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Toca cualquier día del calendario para ver qué entrena tu alumno y agregar recordatorios (fotos de progreso, chequeos, etc.). Abajo configuras qué rutina toca cada día de la semana.</div>
 
-      <Card style={{ padding: "13px 14px", marginBottom: 14 }}>
+      <EventReminderBanner events={plan.events} />
+
+      <CalendarGrid cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
+        dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} />
+
+      <Card style={{ padding: "13px 15px", marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 3 }}>
+          {selected === isoDate(today) ? "Hoy · " : ""}{DAY_LABELS_LONG[selDate.getDay()]} {selDate.getDate()} {MONTH_LABELS[selDate.getMonth()].slice(0, 3)}
+        </div>
+        {selDay ? (
+          <div style={{ marginTop: 6, fontSize: 14.5, color: P.dim }}>
+            Entrena: <span style={{ color: P.text, fontWeight: 600 }}>{selDay.name}</span> · {routineLabel(routineOf(selDay), plan.routineNames)}
+          </div>
+        ) : (
+          <div style={{ marginTop: 6, fontSize: 14.5, color: P.faint }}>Día de descanso, según la semana tipo de abajo</div>
+        )}
+
+        {selEvents.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            {selEvents.map((e) => (
+              <button key={e.id} onClick={() => setEventSheet({ ...e })} style={{ width: "100%", textAlign: "left", display: "flex", gap: 9, padding: "8px 10px",
+                background: P.s2, border: `1px solid ${P.line}`, borderRadius: 9, marginBottom: 6 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 999, background: eventColorDot(e.color), flexShrink: 0, marginTop: 4 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600 }}>{e.title}</div>
+                  {e.note && <div style={{ fontSize: 13, color: P.dim, marginTop: 1 }}>{e.note}</div>}
+                  <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>Aviso: {(REMIND_OPTIONS.find((r) => r.v === (e.remind || 0)) || REMIND_OPTIONS[0]).label.toLowerCase()}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        <Btn kind="line" small onClick={() => openNewEvent(selected)} style={{ width: "100%", marginTop: 8 }}>
+          <Plus size={13} /> Agregar evento el {selDate.getDate()} de {MONTH_LABELS[selDate.getMonth()].toLowerCase()}
+        </Btn>
+      </Card>
+
+      <Card style={{ padding: "13px 14px" }}>
         <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Semana tipo</div>
         {[["mon", "Lunes"], ["tue", "Martes"], ["wed", "Miércoles"], ["thu", "Jueves"], ["fri", "Viernes"], ["sat", "Sábado"], ["sun", "Domingo"]].map(([k, label]) => (
           <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -7152,42 +7301,35 @@ const ScheduleEditor = ({ plan, savePlan }) => {
         ))}
       </Card>
 
-      <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase" }}>Recordatorios en fechas específicas</div>
-        <div style={{ flex: 1 }} />
-        <Btn kind="line" small onClick={() => { setEv({ date: isoDate(new Date()), title: "", note: "" }); setAddingEvent(true); }}>
-          <Plus size={13} /> Nuevo
-        </Btn>
-      </div>
-
-      {(plan.events || []).length === 0 ? (
-        <Empty icon={Bell} title="Sin recordatorios" body="Toca «Nuevo» para agregar recordatorios (ej: subir fotos de progreso el 1 de cada mes)." />
-      ) : (
-        [...(plan.events || [])].sort((a, b) => a.date.localeCompare(b.date)).map((e) => (
-          <Card key={e.id} style={{ padding: "11px 13px", marginBottom: 8 }}>
-            <div style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
-              <Bell size={15} color={P.blue} style={{ flexShrink: 0, marginTop: 2 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: P.faint }}>{fmtDateFull(e.date)}</div>
-                <div style={{ fontSize: 15, fontWeight: 600, marginTop: 1 }}>{e.title}</div>
-                {e.note && <div style={{ fontSize: 13.5, color: P.dim, marginTop: 2 }}>{e.note}</div>}
+      <Sheet open={!!eventSheet} onClose={() => setEventSheet(null)} title={eventSheet && eventSheet.id ? "Editar evento" : "Nuevo evento"}>
+        {eventSheet && (
+          <>
+            <Field label="Fecha"><Inp type="date" value={eventSheet.date} onChange={(e) => setEventSheet({ ...eventSheet, date: e.target.value })} /></Field>
+            <Field label="Título"><Inp placeholder="Ej: Subir fotos de progreso" value={eventSheet.title} onChange={(e) => setEventSheet({ ...eventSheet, title: e.target.value })} /></Field>
+            <Field label="Nota (opcional)"><Txt rows={2} placeholder="Detalles adicionales…" value={eventSheet.note} onChange={(e) => setEventSheet({ ...eventSheet, note: e.target.value })} /></Field>
+            <Field label="Color">
+              <div style={{ display: "flex", gap: 8 }}>
+                {EVENT_COLOR_KEYS.map((k) => (
+                  <button key={k} onClick={() => setEventSheet({ ...eventSheet, color: k })} title={EVENT_COLORS[k].label} aria-label={EVENT_COLORS[k].label}
+                    style={{ width: 30, height: 30, borderRadius: 999, background: EVENT_COLORS[k].dot,
+                      border: eventSheet.color === k ? `2px solid ${P.text}` : "2px solid transparent" }} />
+                ))}
               </div>
-              <button onClick={() => mut((p) => { p.events = p.events.filter((x) => x.id !== e.id); })} style={{ color: P.faint, padding: 4 }}>
-                <Trash2 size={14} />
-              </button>
+            </Field>
+            <Field label="Recordarle al alumno">
+              <select value={eventSheet.remind || 0} onChange={(e) => setEventSheet({ ...eventSheet, remind: +e.target.value })} style={{ width: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+                {REMIND_OPTIONS.map((r) => <option key={r.v} value={r.v}>{r.label}</option>)}
+              </select>
+            </Field>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              {eventSheet.id && (
+                <button onClick={() => deleteEvent(eventSheet.id)} style={{ padding: "0 12px", color: P.red }} aria-label="Eliminar evento"><Trash2 size={17} /></button>
+              )}
+              <Btn kind="line" onClick={() => setEventSheet(null)} style={{ flex: 1 }}>Cancelar</Btn>
+              <Btn kind="ember" disabled={!eventSheet.title.trim()} onClick={saveEvent} style={{ flex: 2 }}>Guardar</Btn>
             </div>
-          </Card>
-        ))
-      )}
-
-      <Sheet open={addingEvent} onClose={() => setAddingEvent(false)} title="Nuevo recordatorio">
-        <Field label="Fecha"><Inp type="date" value={ev.date} onChange={(e) => setEv({ ...ev, date: e.target.value })} /></Field>
-        <Field label="Título"><Inp placeholder="Ej: Subir fotos de progreso" value={ev.title} onChange={(e) => setEv({ ...ev, title: e.target.value })} /></Field>
-        <Field label="Nota (opcional)"><Txt rows={2} placeholder="Detalles adicionales…" value={ev.note} onChange={(e) => setEv({ ...ev, note: e.target.value })} /></Field>
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <Btn kind="line" onClick={() => setAddingEvent(false)} style={{ flex: 1 }}>Cancelar</Btn>
-          <Btn kind="ember" disabled={!ev.title.trim()} onClick={() => { mut((p) => { if (!p.events) p.events = []; p.events.push({ id: uid(), ...ev }); }); setAddingEvent(false); }} style={{ flex: 2 }}>Guardar</Btn>
-        </div>
+          </>
+        )}
       </Sheet>
     </div>
   );
@@ -7888,7 +8030,7 @@ const App = () => {
         )}
         {mode === "coach" && tab === "agenda" && (
           <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
-            <ScheduleEditor plan={plan} savePlan={savePlan} />
+            <ScheduleEditor plan={plan} history={history} savePlan={savePlan} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && tab === "nutricion" && (
