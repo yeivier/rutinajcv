@@ -14,7 +14,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v36";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v37";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -6428,6 +6428,74 @@ const AtlasTab = () => (
   </div>
 );
 
+/* ============================================================
+   EQUIPO — roles del lado coach (Head Coach y su staff)
+   No hay login con contraseña en FORJA (la identidad se elige tocando un
+   nombre, igual que con los alumnos): esto es una separación de
+   ORGANIZACIÓN — qué ve y qué puede tocar cada rol — no una barrera de
+   seguridad criptográfica. Se documenta así en la propia pantalla de
+   gestión del equipo para que quede claro.
+   ============================================================ */
+// tabAccess: null = acceso completo a todas las pestañas de coach (editar).
+// Si es un objeto, solo esas pestañas aparecen, con "edit" o "view" cada una.
+// "guia"/"atlas"/"timer" son contenido de referencia sin riesgo de mutar
+// datos del alumno, así que quedan disponibles para cualquier rol.
+const ALWAYS_TABS = { timer: "edit", guia: "edit", atlas: "edit" };
+const ROLE_META = {
+  head_coach:  { label: "Head Coach", short: "Acceso completo + gestiona el equipo", manageTeam: true, tabAccess: null },
+  coach_asistente: { label: "Coach asistente", short: "Acceso completo, no gestiona el equipo", manageTeam: false, tabAccess: null },
+  asistente:   { label: "Asistente", short: "Rutina, agenda e indicaciones", manageTeam: false,
+    tabAccess: { rutina: "edit", agenda: "edit", indicaciones: "edit", actividad: "view", ...ALWAYS_TABS } },
+  nutricionista: { label: "Nutricionista", short: "Nutrición, ve rutina y actividad", manageTeam: false,
+    tabAccess: { nutricion: "edit", ia: "edit", rutina: "view", actividad: "view", ...ALWAYS_TABS } },
+  nutricionista_deportivo: { label: "Nutricionista deportivo", short: "Nutrición, ve rutina y actividad", manageTeam: false,
+    tabAccess: { nutricion: "edit", ia: "edit", rutina: "view", actividad: "view", ...ALWAYS_TABS } },
+  doctor:        { label: "Doctor", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
+    tabAccess: { rutina: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+  kinesiologo:   { label: "Kinesiólogo", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
+    tabAccess: { rutina: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+  quiropractico: { label: "Quiropráctico", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
+    tabAccess: { rutina: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+  masoterapeuta: { label: "Masoterapeuta", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
+    tabAccess: { rutina: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+  solo_ver:      { label: "Solo visualización", short: "Ve todo, no puede editar nada", manageTeam: false, tabAccess: null, forceView: true },
+};
+const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
+
+const TABS_COACH_IDS = ["rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "timer", "guia", "atlas"];
+// Pestañas de coach visibles + si cada una es editable, según el rol.
+// Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
+// un coach solo, sin staff, no nota ningún cambio de comportamiento.
+function coachTabsForRole(role) {
+  const meta = ROLE_META[role] || ROLE_META.head_coach;
+  if (!meta.tabAccess) {
+    const mode = meta.forceView ? "view" : "edit";
+    return Object.fromEntries(TABS_COACH_IDS.map((id) => [id, mode]));
+  }
+  return meta.tabAccess;
+}
+
+// Bloquea toda interacción dentro de una pestaña cuando el rol solo puede
+// verla: una capa transparente encima intercepta los toques y avisa por
+// qué, sin tener que deshabilitar botón por botón en cada pantalla.
+const ReadOnlyLock = ({ active, toast, children }) => (
+  <div style={{ position: "relative" }}>
+    {children}
+    {active && (
+      <div
+        onClick={() => toast && toast("Tu rol solo puede ver esta sección — no editarla.")}
+        style={{ position: "absolute", inset: 0, zIndex: 45, cursor: "not-allowed" }} />
+    )}
+    {active && (
+      <div style={{ margin: "0 16px 14px", padding: "9px 12px", borderRadius: 10,
+        background: P.s2, border: `1px solid ${P.line}`, color: P.dim, fontSize: 12.5,
+        display: "flex", alignItems: "center", gap: 8 }}>
+        <Info size={14} color={P.faint} style={{ flexShrink: 0 }} /> Estás viendo esta sección en modo solo lectura — tu rol no puede editarla.
+      </div>
+    )}
+  </div>
+);
+
 const TABS = {
   alumno: [
     { id: "hoy", label: "Hoy", Icon: Home },
@@ -6479,7 +6547,46 @@ const TabBar = ({ tabs, tab, setTab }) => (
 );
 
 /* ---- Selección de identidad (por dispositivo) ---- */
-const Gate = ({ roster, onEnter, onAdd }) => (
+const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
+  // Si ya hay equipo armado (más de un coach/staff), "Soy el coach" no
+  // entra directo: primero pregunta quién de todos es. Sin equipo (el
+  // caso de siempre, un solo coach) sigue entrando directo, sin fricción.
+  const hasTeam = team && team.members && team.members.length > 0;
+  const [pickingTeam, setPickingTeam] = useState(false);
+  if (pickingTeam) {
+    return (
+      <div className="fj" style={{ minHeight: "100vh", background: P.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <GlobalStyle />
+        <div style={{ width: "100%", maxWidth: 420 }}>
+          <button onClick={() => setPickingTeam(false)} style={{ display: "flex", alignItems: "center", gap: 6, color: P.faint, fontSize: 13.5, marginBottom: 14 }}>
+            <ChevronLeft size={16} /> Volver
+          </button>
+          <h1 style={{ fontSize: 22, textTransform: "uppercase", margin: "0 0 4px" }}>¿Quién eres?</h1>
+          <div style={{ color: P.dim, fontSize: 14, marginBottom: 16, lineHeight: 1.4 }}>Elige tu nombre del equipo — así ves solo lo que corresponde a tu rol.</div>
+          <Card onClick={() => onEnterTeam(null)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer", borderColor: `${P.ember}55` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#FFF" }}>★</div>
+              <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 15.5 }}>Tú (Head Coach)</div><div style={{ fontSize: 12.5, color: P.dim }}>El dueño de este dispositivo</div></div>
+              <ChevronRight size={17} color={P.faint} />
+            </div>
+          </Card>
+          {team.members.map((m) => (
+            <Card key={m.id} onClick={() => onEnterTeam(m.id)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                <div className="disp" style={{ width: 36, height: 36, borderRadius: 10, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2 }}>{m.name.slice(0, 1).toUpperCase()}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 15.5 }}>{m.name}</div>
+                  <div style={{ fontSize: 12.5, color: P.faint }}>{(ROLE_META[m.role] || {}).label || m.role}</div>
+                </div>
+                <ChevronRight size={17} color={P.faint} />
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return (
   <div className="fj" style={{ minHeight: "100vh", background: P.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
     <GlobalStyle />
     <div style={{ width: "100%", maxWidth: 420 }}>
@@ -6488,11 +6595,11 @@ const Gate = ({ roster, onEnter, onAdd }) => (
       <div style={{ color: P.dim, fontSize: 14.5, textAlign: "center", marginBottom: 20, lineHeight: 1.45 }}>
         Este dispositivo recordará tu elección. Podrás cambiarla cuando quieras desde el encabezado.
       </div>
-      <Card onClick={() => onEnter("coach", roster.students[0]?.id)} style={{ padding: "15px 16px", marginBottom: 16, borderColor: `${P.ember}55`, cursor: "pointer",
+      <Card onClick={() => hasTeam ? setPickingTeam(true) : onEnter("coach", roster.students[0]?.id)} style={{ padding: "15px 16px", marginBottom: 16, borderColor: `${P.ember}55`, cursor: "pointer",
         background: `linear-gradient(150deg, rgba(255,255,255,.10), ${P.s1})` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: `${P.ember}22`, border: `1px solid ${P.ember}55`, display: "flex", alignItems: "center", justifyContent: "center" }}><ClipboardList size={20} color={P.ember} /></div>
-          <div><div style={{ fontWeight: 700, fontSize: 16 }}>Soy el coach</div><div style={{ fontSize: 13.5, color: P.dim }}>Crear y editar rutinas, ver la actividad de todos</div></div>
+          <div><div style={{ fontWeight: 700, fontSize: 16 }}>Soy el coach</div><div style={{ fontSize: 13.5, color: P.dim }}>{hasTeam ? "Elige quién del equipo eres" : "Crear y editar rutinas, ver la actividad de todos"}</div></div>
         </div>
       </Card>
       <div style={{ fontSize: 12, color: P.faint, textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 700, margin: "4px 2px 8px" }}>Entrar como alumno</div>
@@ -6508,7 +6615,8 @@ const Gate = ({ roster, onEnter, onAdd }) => (
       <Btn kind="line" onClick={onAdd} style={{ width: "100%", marginTop: 6 }}><Plus size={15} /> Agregar alumno</Btn>
     </div>
   </div>
-);
+  );
+};
 
 /* ---- Gestión de alumnos (coach) ---- */
 const RosterSheet = ({ open, onClose, roster, sid, onEnter, onAdd, onRename, onRemove }) => (
@@ -6532,6 +6640,54 @@ const RosterSheet = ({ open, onClose, roster, sid, onEnter, onAdd, onRename, onR
   </Sheet>
 );
 
+/* ---- Gestión del equipo (solo Head Coach) ---- */
+const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove }) => {
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("coach_asistente");
+  const add = () => {
+    const n = name.trim();
+    if (!n) return;
+    onAdd({ id: uid(), name: n, role, addedAt: todayISO() });
+    setName(""); setRole("coach_asistente");
+  };
+  return (
+    <Sheet open={open} onClose={onClose} title="Equipo" tall>
+      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 6, lineHeight: 1.45 }}>
+        Agrega a tu staff y decide qué puede ver y editar cada uno. Tú siempre eres Head Coach y no aparece en esta lista.
+      </div>
+      <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 14, lineHeight: 1.4, padding: "8px 10px", background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10 }}>
+        FORJA no pide contraseña: la identidad se elige tocando un nombre, igual que con los alumnos. Esto organiza quién ve/edita qué — no reemplaza cuidar quién tiene el dispositivo en la mano.
+      </div>
+      {team.members.length === 0 && (
+        <div style={{ textAlign: "center", padding: "20px 8px", color: P.faint, fontSize: 14 }}>Todavía no agregaste a nadie del equipo.</div>
+      )}
+      {team.members.map((m) => (
+        <Card key={m.id} style={{ padding: "12px 14px", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <div className="disp" style={{ width: 34, height: 34, borderRadius: 9, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2, flexShrink: 0 }}>{m.name.slice(0, 1).toUpperCase()}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 15.5 }}>{m.name}</div>
+              <div style={{ fontSize: 12, color: P.faint }}>{(ROLE_META[m.role] || {}).short}</div>
+            </div>
+            <button onClick={() => onRemove(m)} style={{ color: P.faint, padding: 6 }}><Trash2 size={15} /></button>
+          </div>
+          <select value={m.role} onChange={(e) => onChangeRole(m.id, e.target.value)} style={{ width: "100%", padding: "8px 9px", fontSize: 14 }}>
+            {ROLE_ORDER.map((r) => <option key={r} value={r}>{ROLE_META[r].label}</option>)}
+          </select>
+        </Card>
+      ))}
+      <Card style={{ padding: 14, marginTop: 6 }}>
+        <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>Agregar al equipo</div>
+        <Inp value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" style={{ marginBottom: 8 }} />
+        <select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: "100%", padding: "9px 9px", fontSize: 14, marginBottom: 10 }}>
+          {ROLE_ORDER.map((r) => <option key={r} value={r}>{ROLE_META[r].label}</option>)}
+        </select>
+        <Btn kind="ember" onClick={add} disabled={!name.trim()} style={{ width: "100%" }}><Plus size={15} /> Agregar</Btn>
+      </Card>
+    </Sheet>
+  );
+};
+
 const App = () => {
   const [loading, setLoading] = useState(true);
   // El splash se ve al menos 1.6s (para que la animación de entrada
@@ -6542,6 +6698,18 @@ const App = () => {
   const [roster, setRoster] = useState({ v: ROSTER_VERSION, students: [] });
   const [mode, setMode] = useState("coach");
   const [sid, setSid] = useState(null);
+  // Equipo del lado coach (Head Coach + staff). Sin miembros = coach solo,
+  // acceso total, cero fricción extra (comportamiento de siempre).
+  const [team, setTeam] = useState({ members: [] });
+  const [myTeamId, setMyTeamId] = useState(null);
+  const [equipoOpen, setEquipoOpen] = useState(false);
+  const myRole = (() => {
+    if (!myTeamId) return "head_coach";
+    const me = team.members.find((m) => m.id === myTeamId);
+    return me ? me.role : "head_coach";
+  })();
+  const myRoleMeta = ROLE_META[myRole] || ROLE_META.head_coach;
+  const roleTabAccess = coachTabsForRole(myRole);
   const [plan, setPlan] = useState(null);
   const [history, setHistory] = useState(emptyHistory);
   const [active, setActive] = useState(null);
@@ -6590,16 +6758,17 @@ const App = () => {
     return { p, h, a: a || null };
   };
 
-  const openIdentity = async (m, id, rosterArg) => {
+  const openIdentity = async (m, id, rosterArg, teamId) => {
     const r = rosterArg || roster;
     if (!id) id = r.students[0]?.id;
     if (!id) { setLoading(false); return; }
     const { p, h, a } = await loadStudent(id);
     sidRef.current = id; activeRef.current = a;
     setMode(m); setSid(id); setPlan(p); setHistory(h); setActive(a); setSavedAt("");
+    setMyTeamId(teamId || null);
     setTab(m === "coach" ? "rutina" : "hoy");
     setReady(true); setLoading(false);
-    sSet("forja-device", { mode: m, sid: id }, false);
+    sSet("forja-device", { mode: m, sid: id, teamId: teamId || null }, false);
     force((x) => x + 1);
   };
 
@@ -6617,9 +6786,11 @@ const App = () => {
         await sSet("forja-roster", r);
       }
       setRoster(r);
+      const t = await sGet("forja-team");
+      if (t && Array.isArray(t.members)) setTeam(t);
       const dev = await sGet("forja-device", false);
       const known = dev && dev.sid && r.students.some((s) => s.id === dev.sid);
-      if (dev && dev.mode && known) await openIdentity(dev.mode, dev.sid, r);
+      if (dev && dev.mode && known) await openIdentity(dev.mode, dev.sid, r, dev.teamId);
       else setLoading(false);
     })();
     return () => { clearTimeout(planTimer.current); clearTimeout(activeTimer.current); clearTimeout(toastTimer.current); };
@@ -6768,7 +6939,7 @@ const App = () => {
     await sSet("forja-roster", r);
     setRoster(r);
     if (enterAsAlumno) openIdentity("alumno", id, r);
-    else { setRosterOpen(false); openIdentity("coach", id, r); }
+    else { setRosterOpen(false); openIdentity("coach", id, r, myTeamId); }
   };
 
   const renameStudent = async (s) => {
@@ -6785,21 +6956,26 @@ const App = () => {
     await sDel(`forja-plan:${s.id}`); await sDel(`forja-history:${s.id}`); await sDel(`forja-active:${s.id}`);
     await sSet("forja-roster", r); setRoster(r); setConfirmDel(null);
     if (s.id === sidRef.current) {
-      if (r.students.length) openIdentity(mode, r.students[0].id, r);
+      if (r.students.length) openIdentity(mode, r.students[0].id, r, myTeamId);
       else { setReady(false); setRosterOpen(false); }
     }
   };
 
-  const switchMode = (m) => openIdentity(m, sidRef.current);
+  const switchMode = (m) => openIdentity(m, sidRef.current, roster, myTeamId);
   const currentStudent = roster.students.find((s) => s.id === sid);
-  const tabs = TABS[mode];
+  const tabs = mode === "coach"
+    ? TABS.coach.filter((t) => roleTabAccess[t.id])
+    : TABS.alumno;
 
   if (loading || !splashMinDone) {
     return <SplashScreen />;
   }
 
   if (!ready) {
-    return <Gate roster={roster} onEnter={(m, id) => openIdentity(m, id)} onAdd={() => addStudent(false)} />;
+    return <Gate roster={roster} team={team}
+      onEnter={(m, id) => openIdentity(m, id)}
+      onEnterTeam={(teamId) => openIdentity("coach", sidRef.current || roster.students[0]?.id, roster, teamId)}
+      onAdd={() => addStudent(false)} />;
   }
 
   return (
@@ -6818,6 +6994,7 @@ const App = () => {
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {mode === "coach" && <Btn kind="line" small onClick={() => setRosterOpen(true)}><Users size={14} /> Alumnos</Btn>}
+            {mode === "coach" && myRoleMeta.manageTeam && <Btn kind="line" small onClick={() => setEquipoOpen(true)}><Award size={14} /> Equipo</Btn>}
             <div style={{ display: "flex", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3, gap: 3 }}>
               {[["alumno", "Alumno"], ["coach", "Coach"]].map(([id, l]) => (
                 <button key={id} onClick={() => switchMode(id)} style={{ padding: "5px 10px", borderRadius: 8, fontSize: 13, fontWeight: 600,
@@ -6840,7 +7017,7 @@ const App = () => {
         )}
         {mode === "alumno" && tab === "progreso" && <ProgressTab plan={plan} history={history} saveHistory={saveHistory} />}
         {mode === "alumno" && tab === "nutricion" && <NutritionView n={plan.nutrition} />}
-        {mode === "coach" && (tab === "rutina" || tab === "nutricion" || tab === "indicaciones" || tab === "agenda") && (
+        {mode === "coach" && (tab === "rutina" || tab === "nutricion" || tab === "indicaciones" || tab === "agenda") && roleTabAccess[tab] === "edit" && (
           <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "10px 14px 0" }}>
             <Btn kind="line" small onClick={undoPlan} disabled={planHistoryRef.current.past.length === 0}><Undo2 size={14} /> Deshacer</Btn>
             <Btn kind="line" small onClick={redoPlan} disabled={planHistoryRef.current.future.length === 0}><Redo2 size={14} /> Rehacer</Btn>
@@ -6848,17 +7025,33 @@ const App = () => {
             <Btn kind="line" small onClick={() => setConfirmReset(true)} style={{ color: P.red }}><Trash2 size={13} /> Vaciar plan</Btn>
           </div>
         )}
-        {mode === "coach" && tab === "rutina" && <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history} />}
-        {mode === "coach" && tab === "agenda" && <ScheduleEditor plan={plan} savePlan={savePlan} />}
+        {mode === "coach" && tab === "rutina" && (
+          <ReadOnlyLock active={roleTabAccess.rutina === "view"} toast={toast}>
+            <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history} />
+          </ReadOnlyLock>
+        )}
+        {mode === "coach" && tab === "agenda" && (
+          <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
+            <ScheduleEditor plan={plan} savePlan={savePlan} />
+          </ReadOnlyLock>
+        )}
         {mode === "coach" && tab === "nutricion" && (
-          <NutritionEditor plan={plan} savePlan={savePlan}
-            onOpenNutritionAI={() => { setTab("ia"); setAiJumpSub("nutricion"); }} />
+          <ReadOnlyLock active={roleTabAccess.nutricion === "view"} toast={toast}>
+            <NutritionEditor plan={plan} savePlan={savePlan}
+              onOpenNutritionAI={() => { setTab("ia"); setAiJumpSub("nutricion"); }} />
+          </ReadOnlyLock>
         )}
         {mode === "coach" && tab === "ia" && (
-          <AITab plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast}
-            jumpSub={aiJumpSub} onJumpConsumed={() => setAiJumpSub(null)} />
+          <ReadOnlyLock active={roleTabAccess.ia === "view"} toast={toast}>
+            <AITab plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast}
+              jumpSub={aiJumpSub} onJumpConsumed={() => setAiJumpSub(null)} />
+          </ReadOnlyLock>
         )}
-        {mode === "coach" && tab === "indicaciones" && <InstructionsEditor plan={plan} savePlan={savePlan} />}
+        {mode === "coach" && tab === "indicaciones" && (
+          <ReadOnlyLock active={roleTabAccess.indicaciones === "view"} toast={toast}>
+            <InstructionsEditor plan={plan} savePlan={savePlan} />
+          </ReadOnlyLock>
+        )}
         {mode === "coach" && tab === "actividad" && <ActivityTab plan={plan} history={history} />}
         {tab === "timer" && <TimerTab />}
         {tab === "guia" && (
@@ -6875,8 +7068,13 @@ const App = () => {
 
       <TabBar tabs={tabs} tab={tab} setTab={setTab} />
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
-        onEnter={(m, id) => { setRosterOpen(false); openIdentity(m, id); }}
+        onEnter={(m, id) => { setRosterOpen(false); openIdentity(m, id, roster, myTeamId); }}
         onAdd={() => addStudent(false)} onRename={renameStudent} onRemove={(s) => setConfirmDel(s)} />
+      <EquipoSheet open={equipoOpen} onClose={() => setEquipoOpen(false)} team={team}
+        onAdd={(member) => { const t = { members: [...team.members, member] }; setTeam(t); sSet("forja-team", t); }}
+        onChangeRole={(id, role) => { const t = { members: team.members.map((m) => m.id === id ? { ...m, role } : m) }; setTeam(t); sSet("forja-team", t); }}
+        onRemove={(m) => { const t = { members: team.members.filter((x) => x.id !== m.id) }; setTeam(t); sSet("forja-team", t);
+          if (myTeamId === m.id) setMyTeamId(null); }} />
       <Confirm open={!!confirmDel} danger title="Eliminar alumno"
         body={confirmDel ? `Se borrará ${confirmDel.name} junto con su rutina, historial y progreso. Esta acción no se puede deshacer.` : ""}
         okLabel="Eliminar" onOk={() => removeStudent(confirmDel)} onCancel={() => setConfirmDel(null)} />
