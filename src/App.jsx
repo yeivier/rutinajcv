@@ -6,7 +6,7 @@ import {
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
-  Trophy, Medal, Gift, Lock
+  Trophy, Medal, Gift, Lock, Eye, EyeOff
 } from "lucide-react";
 
 /* ============================================================
@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v39";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v40";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -685,6 +685,19 @@ const nextRoutineKey = (days) => {
   }
   return String((days || []).length + 1);
 };
+
+/* ---- Restricción de rutinas visibles por alumno ----
+   El coach puede ocultarle a un alumno algunas rutinas (una fase anterior,
+   un borrador que aún no le toca, etc.) para que solo vea/entrene las que
+   corresponden. Se guarda en `student.allowedRoutines`: una lista de claves
+   de rutina (["A","C"]). Sin restricción (undefined o lista vacía) el
+   alumno ve todo — el comportamiento de siempre, cero fricción. */
+const isRoutineVisible = (allowedRoutines, key) =>
+  !allowedRoutines || allowedRoutines.length === 0 || allowedRoutines.includes(key);
+const visibleRoutineGroups = (days, allowedRoutines) =>
+  groupDaysByRoutine(days).filter((g) => isRoutineVisible(allowedRoutines, g.key));
+const visibleDays = (days, allowedRoutines) =>
+  (days || []).filter((d) => isRoutineVisible(allowedRoutines, routineOf(d)));
 
 // Mueve TODOS los días de una rutina (bloque completo) justo antes/después
 // del bloque de otra rutina, sin alterar el orden interno de los días de
@@ -2744,7 +2757,7 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt }) => {
+const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines }) => {
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [summary, setSummary] = useState(null);
@@ -2758,7 +2771,11 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(iv); }, []);
 
-  const routineGroups = useMemo(() => groupDaysByRoutine(plan.days), [plan.days]);
+  // Solo se listan las rutinas que el coach dejó visibles para este alumno
+  // (si hay restricción). Si el alumno tiene una sesión ya en curso de una
+  // rutina que se le acaba de ocultar, igual puede terminarla con calma —
+  // solo se filtra la lista para empezar sesiones nuevas.
+  const routineGroups = useMemo(() => visibleRoutineGroups(plan.days, allowedRoutines), [plan.days, allowedRoutines]);
   const toggleRoutine = (key) => setOpenRoutines((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]));
   // Si hay sesión en curso, la rutina a la que pertenece se muestra ya desplegada
   const activeRoutine = active ? (plan.days.find((d) => d.id === active.dayId) || {}).routine || null : null;
@@ -3114,23 +3131,24 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
 /* ============================================================
    Hoy (inicio del alumno)
    ============================================================ */
-const TodayTab = ({ plan, history, active, goTrain, role }) => {
+const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines }) => {
   const [showInstr, setShowInstr] = useState(false);
   const wk = weekKey(todayISO());
   const weekSessions = history.sessions.filter((s) => weekKey(s.date) === wk);
   const weekVol = weekSessions.reduce((a, s) => a + s.volume, 0);
   const streak = weekStreak(history.sessions);
   const lastSession = history.sessions[history.sessions.length - 1];
-  let suggested = plan.days[0];
+  const days = visibleDays(plan.days, allowedRoutines);
+  let suggested = days[0];
   if (lastSession) {
-    const i = plan.days.findIndex((d) => d.id === lastSession.dayId);
+    const i = days.findIndex((d) => d.id === lastSession.dayId);
     // El siguiente día se busca dentro de la misma rutina que la última sesión
     if (i >= 0) {
-      const sameRoutine = plan.days.filter((d) => routineOf(d) === routineOf(plan.days[i]));
+      const sameRoutine = days.filter((d) => routineOf(d) === routineOf(days[i]));
       const j = sameRoutine.findIndex((d) => d.id === lastSession.dayId);
-      suggested = sameRoutine[(j + 1) % sameRoutine.length] || plan.days[0];
+      suggested = sameRoutine[(j + 1) % sameRoutine.length] || days[0];
     } else {
-      suggested = plan.days[0];
+      suggested = days[0];
     }
   }
   return (
@@ -4198,7 +4216,7 @@ const LibraryPanel = ({ plan, savePlan, onInfo, toast, onCopyExercise, history }
   );
 };
 
-const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
+const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent }) => {
   const [view, setView] = useState("dias"); // 'dias' | 'biblioteca'
   const [openDay, setOpenDay] = useState(null);
   const [editEx, setEditEx] = useState(null); // {dayId, ex}
@@ -4210,6 +4228,22 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
   const [viewImg, setViewImg] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
   const toggleRoutine = (key) => setOpenRoutines((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]));
+  // Ocultar/mostrar una rutina para el alumno actual. Nunca deja que el
+  // alumno se quede sin ninguna rutina visible.
+  const toggleRoutineVisible = (key) => {
+    if (!student || !onUpdateStudent) return;
+    const allKeys = groupDaysByRoutine(plan.days).map((g) => g.key);
+    const current = (student.allowedRoutines && student.allowedRoutines.length) ? student.allowedRoutines : allKeys.slice();
+    const willHide = current.includes(key);
+    if (willHide && current.length <= 1) {
+      if (toast) toast(`${student.name} debe poder ver al menos una rutina.`);
+      return;
+    }
+    let next = willHide ? current.filter((k) => k !== key) : [...current, key];
+    if (next.length >= allKeys.length) next = []; // todas visibles = sin restricción
+    onUpdateStudent({ allowedRoutines: next });
+    if (toast) toast(willHide ? `${student.name} ya no ve ${routineLabel(key)}` : `${student.name} vuelve a ver ${routineLabel(key)}`);
+  };
   // Reordenar los días arrastrando: mantén pulsado ~400 ms sobre un día y
   // suéltalo sobre otro. Si el destino está en otra rutina, adopta esa rutina.
   const [dragging, setDragging] = useState(null);
@@ -4504,7 +4538,13 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
     // desplazarlo a la vista para poder arrastrarlo.
     <div style={{ padding: "18px 16px calc(100px + env(safe-area-inset-bottom))" }}>
       <h1 style={{ fontSize: 28, textTransform: "uppercase", margin: "4px 0 6px" }}>Rutina</h1>
-      <div style={{ color: P.dim, fontSize: 15.5, marginBottom: 20 }}>Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante.</div>
+      <div style={{ color: P.dim, fontSize: 15.5, marginBottom: 8 }}>Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante.</div>
+      {student && student.allowedRoutines && student.allowedRoutines.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, padding: "8px 11px", marginBottom: 14 }}>
+          <EyeOff size={14} color={P.ember2} style={{ flexShrink: 0 }} />
+          {student.name} solo ve {student.allowedRoutines.map(routineLabel).join(", ")}. Usa el ícono de ojo en cada rutina para cambiarlo.
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 13, padding: 4, marginBottom: 22, boxShadow: CARD_LIFT }}>
         {[["dias", "Días", ClipboardList], ["biblioteca", "Biblioteca", Library]].map(([id, label, Icon]) => (
@@ -4539,7 +4579,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
         <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
       )}
 
-      {groupDaysByRoutine(plan.days).map((g) => { const open = openRoutines.includes(g.key); return (
+      {groupDaysByRoutine(plan.days).map((g) => { const open = openRoutines.includes(g.key);
+        const routineVisible = !student || isRoutineVisible(student.allowedRoutines, g.key); return (
         <div key={g.key} data-routine-group={g.key}
           onClickCapture={(e) => { if (Date.now() < (routineDragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
           style={{ marginBottom: 26, borderRadius: 16,
@@ -4563,10 +4604,21 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
                 color: "#FFFFFF", fontWeight: 800, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="disp" style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase", color: P.text, lineHeight: 1.1 }}>{g.label}</div>
-                <div style={{ fontSize: 13, color: P.faint, marginTop: 2 }}>{g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series</div>
+                <div style={{ fontSize: 13, color: P.faint, marginTop: 2 }}>
+                  {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series
+                  {!routineVisible && <span style={{ color: P.ember2, fontWeight: 700 }}> · Oculta para {student.name}</span>}
+                </div>
               </div>
               {open ? <ChevronUp size={18} color={P.ember} /> : <ChevronDown size={18} color={P.faint} />}
             </button>
+            {student && onUpdateStudent && (
+              <button onClick={() => toggleRoutineVisible(g.key)}
+                title={routineVisible ? `Ocultar ${g.label} para ${student.name}` : `Mostrarle ${g.label} a ${student.name}`}
+                aria-label={routineVisible ? `Ocultar ${g.label}` : `Mostrar ${g.label}`}
+                style={{ padding: 6, color: routineVisible ? P.faint : P.ember2 }}>
+                {routineVisible ? <Eye size={15} /> : <EyeOff size={15} />}
+              </button>
+            )}
             <button onClick={() => copyRoutine(g)} title="Copiar la rutina completa" aria-label={`Copiar ${g.label} completa`}
               style={{ padding: 6, color: P.faint }}><Copy size={15} /></button>
             <button
@@ -7300,6 +7352,12 @@ const App = () => {
     else { setRosterOpen(false); openIdentity("coach", id, r, myTeamId); }
   };
 
+  // Actualiza campos sueltos del alumno (hoy: qué rutinas puede ver).
+  const updateStudent = async (studentId, patch) => {
+    const r = { ...roster, students: roster.students.map((x) => (x.id === studentId ? { ...x, ...patch } : x)) };
+    await sSet("forja-roster", r); setRoster(r);
+  };
+
   const renameStudent = async (s) => {
     const name = (window.prompt ? window.prompt("Nuevo nombre:", s.name) : s.name) || "";
     const trimmed = name.trim();
@@ -7364,14 +7422,15 @@ const App = () => {
         <StorageBanner />
 
         {mode === "alumno" && tab === "hoy" && (
-          <TodayTab plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} />
+          <TodayTab plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} allowedRoutines={currentStudent && currentStudent.allowedRoutines} />
         )}
         {mode === "alumno" && tab === "agenda" && (
           <CalendarTab plan={plan} history={history} onGoTrain={() => setTab("entrenar")} />
         )}
         {mode === "alumno" && tab === "entrenar" && (
           <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive}
-            finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt} />
+            finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
+            allowedRoutines={currentStudent && currentStudent.allowedRoutines} />
         )}
         {mode === "alumno" && tab === "progreso" && <ProgressTab plan={plan} history={history} saveHistory={saveHistory} />}
         {mode === "alumno" && tab === "nutricion" && <NutritionView n={plan.nutrition} />}
@@ -7385,7 +7444,8 @@ const App = () => {
         )}
         {mode === "coach" && tab === "rutina" && (
           <ReadOnlyLock active={roleTabAccess.rutina === "view"} toast={toast}>
-            <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history} />
+            <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history}
+              student={currentStudent} onUpdateStudent={(patch) => currentStudent && updateStudent(currentStudent.id, patch)} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && tab === "agenda" && (
