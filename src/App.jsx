@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v42";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v43";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -650,11 +650,14 @@ const ROUTINE_META = {
   B: { note: "Empujes · Tirones · Pierna, dos vueltas" },
 };
 const routineOf = (day) => (day && day.routine) || ROUTINE_A;
-const routineLabel = (key) => `Rutina ${key}`;
+// El coach puede renombrar cada rutina (se guarda en `plan.routineNames`,
+// clave de rutina → nombre). Sin nombre propio, cae al "Rutina X" de
+// siempre — cero fricción para quien nunca la renombra.
+const routineLabel = (key, customNames) => (customNames && customNames[key]) ? customNames[key] : `Rutina ${key}`;
 const routineNote = (key) => (ROUTINE_META[key] ? ROUTINE_META[key].note : "");
 
 // Agrupa los días respetando el orden en que aparecen en el plan
-const groupDaysByRoutine = (days) => {
+const groupDaysByRoutine = (days, customNames) => {
   const order = [];
   const byKey = new Map();
   (days || []).forEach((d, i) => {
@@ -666,7 +669,7 @@ const groupDaysByRoutine = (days) => {
     const items = byKey.get(key);
     return {
       key,
-      label: routineLabel(key),
+      label: routineLabel(key, customNames),
       note: routineNote(key),
       days: items.map((it) => it.day),
       items,
@@ -694,8 +697,8 @@ const nextRoutineKey = (days) => {
    alumno ve todo — el comportamiento de siempre, cero fricción. */
 const isRoutineVisible = (allowedRoutines, key) =>
   !allowedRoutines || allowedRoutines.length === 0 || allowedRoutines.includes(key);
-const visibleRoutineGroups = (days, allowedRoutines) =>
-  groupDaysByRoutine(days).filter((g) => isRoutineVisible(allowedRoutines, g.key));
+const visibleRoutineGroups = (days, allowedRoutines, customNames) =>
+  groupDaysByRoutine(days, customNames).filter((g) => isRoutineVisible(allowedRoutines, g.key));
 const visibleDays = (days, allowedRoutines) =>
   (days || []).filter((d) => isRoutineVisible(allowedRoutines, routineOf(d)));
 
@@ -2798,7 +2801,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   // (si hay restricción). Si el alumno tiene una sesión ya en curso de una
   // rutina que se le acaba de ocultar, igual puede terminarla con calma —
   // solo se filtra la lista para empezar sesiones nuevas.
-  const routineGroups = useMemo(() => visibleRoutineGroups(plan.days, allowedRoutines), [plan.days, allowedRoutines]);
+  const routineGroups = useMemo(() => visibleRoutineGroups(plan.days, allowedRoutines, plan.routineNames), [plan.days, allowedRoutines, plan.routineNames]);
   const toggleRoutine = (key) => setOpenRoutines((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]));
   // Si hay sesión en curso, la rutina a la que pertenece se muestra ya desplegada
   const activeRoutine = active ? (plan.days.find((d) => d.id === active.dayId) || {}).routine || null : null;
@@ -2863,7 +2866,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <button onClick={() => setPreviewDay(null)} style={{ display: "flex", alignItems: "center", gap: 6, color: P.faint, fontSize: 14.5, marginBottom: 12, padding: "4px 0" }}>
           <ChevronLeft size={17} /> Volver a la lista
         </button>
-        <div style={{ fontSize: 12.5, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 3 }}>{routineLabel(routineOf(d))}</div>
+        <div style={{ fontSize: 12.5, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 3 }}>{routineLabel(routineOf(d), plan.routineNames)}</div>
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "0 0 4px" }}>{d.name}</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>{d.exs.length} ejercicios · {totalSeries} series efectivas. Aún no se ha creado sesión: revisa lo que toca y arranca cuando estés listo.</div>
         {currentMesociclo(plan).weeks.length > 1 && (
@@ -3189,7 +3192,7 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines }) => 
         </Card>
       ) : suggested ? (
         <Card style={{ padding: 16, marginBottom: 14 }}>
-          <div style={{ fontSize: 13, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>Te toca · {routineLabel(routineOf(suggested))}</div>
+          <div style={{ fontSize: 13, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>Te toca · {routineLabel(routineOf(suggested), plan.routineNames)}</div>
           <div className="disp" style={{ fontSize: 21, fontWeight: 700, marginBottom: 3 }}>{suggested.name}</div>
           <div style={{ fontSize: 14, color: P.faint, marginBottom: 12 }}>{suggested.exs.length} ejercicios · {suggested.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
           <Btn kind="ember" onClick={goTrain} style={{ width: "100%" }}><Play size={16} /> Empezar a entrenar</Btn>
@@ -3892,7 +3895,7 @@ REGLAS ESTRICTAS:
     else p.days = [...p.days, ...tagged];
     p.updatedAt = todayISO();
     savePlan(p);
-    if (toast) toast(`✓ Importada como ${routineLabel(routine)}: ${newDays.length} día${newDays.length !== 1 ? "s" : ""}, ${newDays.reduce((a, d) => a + d.exs.length, 0)} ejercicios`);
+    if (toast) toast(`✓ Importada como ${routineLabel(routine, plan.routineNames)}: ${newDays.length} día${newDays.length !== 1 ? "s" : ""}, ${newDays.reduce((a, d) => a + d.exs.length, 0)} ejercicios`);
     close();
   };
 
@@ -4552,7 +4555,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     let next = willHide ? current.filter((k) => k !== key) : [...current, key];
     if (next.length >= allKeys.length) next = []; // todas visibles = sin restricción
     onUpdateStudent({ allowedRoutines: next });
-    if (toast) toast(willHide ? `${student.name} ya no ve ${routineLabel(key)}` : `${student.name} vuelve a ver ${routineLabel(key)}`);
+    if (toast) toast(willHide ? `${student.name} ya no ve ${routineLabel(key, plan.routineNames)}` : `${student.name} vuelve a ver ${routineLabel(key, plan.routineNames)}`);
   };
   // Reordenar los días arrastrando: mantén pulsado ~400 ms sobre un día y
   // suéltalo sobre otro. Si el destino está en otra rutina, adopta esa rutina.
@@ -4837,7 +4840,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       const at = p.days.reduce((last, day, i) => (routineOf(day) === routineKey ? i + 1 : last), p.days.length);
       p.days.splice(at, 0, pasted);
     });
-    if (toast) toast(`✓ «${pasted.name}» pegado en ${routineLabel(routineKey)} con sus ${pasted.exs.length} ejercicios`);
+    if (toast) toast(`✓ «${pasted.name}» pegado en ${routineLabel(routineKey, plan.routineNames)} con sus ${pasted.exs.length} ejercicios`);
   };
 
   return (
@@ -4889,7 +4892,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
       )}
 
-      {groupDaysByRoutine(plan.days).map((g) => { const open = openRoutines.includes(g.key);
+      {groupDaysByRoutine(plan.days, plan.routineNames).map((g) => { const open = openRoutines.includes(g.key);
         const routineVisible = !student || isRoutineVisible(student.allowedRoutines, g.key); return (
         <div key={g.key} data-routine-group={g.key}
           onClickCapture={(e) => { if (Date.now() < (routineDragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
@@ -4929,6 +4932,9 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 {routineVisible ? <Eye size={15} /> : <EyeOff size={15} />}
               </button>
             )}
+            <button onClick={() => { const name = prompt("Nombre de la rutina:", g.label); if (name && name.trim()) mut((p) => { if (!p.routineNames) p.routineNames = {}; p.routineNames[g.key] = name.trim(); }); }}
+              title="Renombrar la rutina" aria-label={`Renombrar ${g.label}`}
+              style={{ padding: 6, color: P.faint }}><PencilLine size={15} /></button>
             <button onClick={() => copyRoutine(g)} title="Copiar la rutina completa" aria-label={`Copiar ${g.label} completa`}
               style={{ padding: 6, color: P.faint }}><Copy size={15} /></button>
             <button
@@ -5814,7 +5820,7 @@ DATOS DEL ALUMNO ACTUAL:
 - Plan actual (kcal/proteína/carbos/grasas): ${plan.nutrition.kcal || "?"} / ${plan.nutrition.p || "?"}g / ${plan.nutrition.c || "?"}g / ${plan.nutrition.f || "?"}g
 - Notas del plan: ${plan.nutrition.notes || "sin notas"}
 - Comidas configuradas: ${(plan.nutrition.meals || []).length}
-- Rutina: ${plan.days.length} días de entrenamiento, ${plan.days.reduce((a, d) => a + d.exs.length, 0)} ejercicios totales, repartidos en ${groupDaysByRoutine(plan.days).map((g) => `${g.label} (${g.days.length} días)`).join(", ") || "ninguna rutina"}.
+- Rutina: ${plan.days.length} días de entrenamiento, ${plan.days.reduce((a, d) => a + d.exs.length, 0)} ejercicios totales, repartidos en ${groupDaysByRoutine(plan.days, plan.routineNames).map((g) => `${g.label} (${g.days.length} días)`).join(", ") || "ninguna rutina"}.
 
 TU ROL:
 - Ayudar al coach a diseñar planes nutricionales adaptados al objetivo del alumno (volumen, definición, mantención, recomposición).
@@ -6074,7 +6080,7 @@ function buildAthleteContext({ plan, history, athlete, student }) {
   const phase = BB_PHASES.find((p) => p.id === a.phase);
   const cat = BB_CATEGORIES.find((c) => c.id === a.category);
 
-  const routineTxt = groupDaysByRoutine(plan.days).map((g) => {
+  const routineTxt = groupDaysByRoutine(plan.days, plan.routineNames).map((g) => {
     const days = g.items.map(({ day }) => {
       const exs = day.exs.map((ex) => {
         const eff = ex.sets.filter((s) => s.type !== "warmup");
@@ -6316,9 +6322,9 @@ const VolumePanel = ({ plan }) => {
   const vol = useMemo(() => volumeByMuscle(plan), [plan]);
   // Agrupado por rutina (A, B, C…), igual que en la pestaña Rutina, para no
   // mezclar sesiones de rutinas distintas en una sola lista.
-  const groups = useMemo(() => groupDaysByRoutine(plan.days).map((g) => ({
+  const groups = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames).map((g) => ({
     ...g, perDay: g.days.map((d) => ({ day: d, ...volumeByMuscleForDay(d) })),
-  })), [plan.days]);
+  })), [plan.days, plan.routineNames]);
   if (!vol.rows.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Carga la rutina del alumno para ver el volumen efectivo por grupo muscular." />;
   const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
 
@@ -6559,7 +6565,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
     p.updatedAt = todayISO();
     savePlan(p);
     setApplied((a) => ({ ...a, [key]: true }));
-    toast && toast(`✓ ${routineLabel(routine)}: ${newDays.length} día${newDays.length !== 1 ? "s" : ""}, ${newDays.reduce((acc, d) => acc + d.exs.length, 0)} ejercicios`);
+    toast && toast(`✓ ${routineLabel(routine, plan.routineNames)}: ${newDays.length} día${newDays.length !== 1 ? "s" : ""}, ${newDays.reduce((acc, d) => acc + d.exs.length, 0)} ejercicios`);
   };
 
   const applyNutrition = (data, key) => {
@@ -7022,7 +7028,7 @@ const ScheduleEditor = ({ plan, savePlan }) => {
             <select value={plan.schedule?.[k] || ""} onChange={(e) => mut((p) => { if (!p.schedule) p.schedule = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }; p.schedule[k] = e.target.value || null; })}
               style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "9px 8px", fontSize: 14.5 }}>
               <option value="">Descanso</option>
-              {groupDaysByRoutine(plan.days).map((g) => (
+              {groupDaysByRoutine(plan.days, plan.routineNames).map((g) => (
                 <optgroup key={g.key} label={g.label}>
                   {g.days.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </optgroup>
