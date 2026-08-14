@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v40";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v41";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -7409,8 +7409,8 @@ const App = () => {
             </div>
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {mode === "coach" && <Btn kind="line" small onClick={() => setRosterOpen(true)}><Users size={14} /> Alumnos</Btn>}
-            {mode === "coach" && myRoleMeta.manageTeam && <Btn kind="line" small onClick={() => setEquipoOpen(true)}><Award size={14} /> Equipo</Btn>}
+            {mode === "coach" && <Btn kind="ember" small onClick={() => setRosterOpen(true)}><Users size={14} /> Alumnos</Btn>}
+            {mode === "coach" && myRoleMeta.manageTeam && <Btn kind="ember" small onClick={() => setEquipoOpen(true)}><Award size={14} /> Equipo</Btn>}
             <div style={{ display: "flex", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3, gap: 3 }}>
               {[["alumno", "Alumno"], ["coach", "Coach"]].map(([id, l]) => (
                 <button key={id} onClick={() => switchMode(id)} style={{ padding: "5px 10px", borderRadius: 8, fontSize: 13, fontWeight: 600,
@@ -7436,10 +7436,10 @@ const App = () => {
         {mode === "alumno" && tab === "nutricion" && <NutritionView n={plan.nutrition} />}
         {mode === "coach" && (tab === "rutina" || tab === "nutricion" || tab === "indicaciones" || tab === "agenda") && roleTabAccess[tab] === "edit" && (
           <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "10px 14px 0" }}>
-            <Btn kind="line" small onClick={undoPlan} disabled={planHistoryRef.current.past.length === 0}><Undo2 size={14} /> Deshacer</Btn>
-            <Btn kind="line" small onClick={redoPlan} disabled={planHistoryRef.current.future.length === 0}><Redo2 size={14} /> Rehacer</Btn>
+            <Btn kind="ember" small onClick={undoPlan} disabled={planHistoryRef.current.past.length === 0}><Undo2 size={14} /> Deshacer</Btn>
+            <Btn kind="ember" small onClick={redoPlan} disabled={planHistoryRef.current.future.length === 0}><Redo2 size={14} /> Rehacer</Btn>
             <div style={{ flex: 1 }} />
-            <Btn kind="line" small onClick={() => setConfirmReset(true)} style={{ color: P.red }}><Trash2 size={13} /> Vaciar plan</Btn>
+            <Btn kind="ember" small onClick={() => setConfirmReset(true)}><Trash2 size={13} /> Vaciar plan</Btn>
           </div>
         )}
         {mode === "coach" && tab === "rutina" && (
