@@ -14,30 +14,32 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v35";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v36";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
-// Paleta FORJA: negro, rojo intenso y blanco intenso — pero en capas, no en
-// bloques planos: superficies con un pelo de calidez para dar profundidad,
-// rojo reservado a acentos/CTA con degradado y brillo (nunca como relleno
-// plano de texto completo, para que no se vea "parchado"), y blanco para
-// jerarquía de texto. "green"/"blue" son nombres heredados de una paleta
-// anterior; hoy funcionan como matices de blanco (positivo/informativo).
+// Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
+// bloques planos: superficies con calidez rojiza para dar profundidad
+// (nada de negro neutro plano), el borde de cada tarjeta ya lleva ese
+// tinte rojo para que las "cajas" se destaquen, y el rojo de acento es
+// un rojo sangre profundo (no rosado) reservado a degradados/CTA — nunca
+// como relleno plano de texto completo, para que no se vea "parchado".
+// "green"/"blue" son nombres heredados de una paleta anterior; hoy
+// funcionan como matices de blanco (positivo/informativo).
 const P = {
-  bg: "#0B0708",
-  s1: "#171214",
-  s2: "#201A1C",
-  s3: "#2B2226",
-  s4: "#362A2F",
-  line: "#3D3236",
+  bg: "#0C0708",
+  s1: "#1A1214",
+  s2: "#241619",
+  s3: "#301B1F",
+  s4: "#3D1F24",
+  line: "#5C2129",
   text: "#FFFFFF",
   dim: "#D9D4D6",
   faint: "#9C9296",
-  ember: "#FF3B4E",
-  ember2: "#FF7480",
+  ember: "#E01A1A",
+  ember2: "#FF3B3B",
   green: "#FFFFFF",
-  red: "#FF3B4E",
+  red: "#E01A1A",
   blue: "#DAD4D6",
-  glow: "rgba(255,59,78,.45)",
+  glow: "rgba(224,26,26,.5)",
 };
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
@@ -192,6 +194,24 @@ function autoScrollNearEdge(clientY) {
   const h = window.innerHeight;
   if (clientY < EDGE) window.scrollBy(0, -(EDGE - clientY) * 0.6);
   else if (clientY > h - EDGE) window.scrollBy(0, (clientY - (h - EDGE)) * 0.6);
+}
+
+// Durante un arrastre, encuentra cuál de los elementos candidatos está bajo
+// la coordenada Y dada — comparando directamente sus rects
+// (getBoundingClientRect), NO vía document.elementFromPoint(). Es clave para
+// que el arrastre funcione en todos los navegadores: en algunos (Safari de
+// iOS incluido) elementFromPoint puede devolver un resultado obsoleto o nulo
+// durante un gesto de touch ya en curso, y ahí un arrastre "más o menos
+// funciona en Chrome pero no en el celular real" es justo ese síntoma.
+function elementUnderY(elements, y) {
+  let best = null, bestDist = Infinity;
+  for (const el of elements) {
+    const r = el.getBoundingClientRect();
+    if (y >= r.top && y <= r.bottom) return el;
+    const dist = y < r.top ? r.top - y : y - r.bottom;
+    if (dist < bestDist) { bestDist = dist; best = el; }
+  }
+  return best;
 }
 
 /* Une o separa exs[i] de exs[i+1]. Si alguno ya pertenece a un bloque, se
@@ -982,19 +1002,19 @@ const VOL_COLORS = { bajo: P.red, mínimo: P.ember2, óptimo: P.green, alto: P.e
    ============================================================ */
 const GlobalStyle = () => (
   <style>{`
-    /* Nueva pareja tipográfica: Oswald para títulos (más ancha y con más
-       presencia que la condensada anterior, pero igual de "atlética") y
-       Plus Jakarta Sans para el cuerpo (más redondeada y cálida que Inter,
-       para que la app se sienta más amigable sin perder legibilidad). */
-    @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    /* Pareja tipográfica seria/profesional: Archivo (peso alto) para
+       títulos — grotesca sobria, con autoridad, sin aire "poster" — e
+       Inter para el cuerpo, el estándar de legibilidad y seriedad en
+       producto. Nada de condensadas ni geométricas redondeadas. */
+    @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body { margin: 0; }
     html, body, #root { min-height: 100%; min-height: 100dvh; }
     body { overflow-x: hidden; overscroll-behavior: none; }
     .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
-      font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; color: ${P.text}; font-variant-numeric: tabular-nums;
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; color: ${P.text}; font-variant-numeric: tabular-nums;
       line-height: 1.42; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-    .fj h1,.fj h2,.fj .disp { font-family: 'Oswald','Plus Jakarta Sans',ui-sans-serif,sans-serif; letter-spacing: .03em; }
+    .fj h1,.fj h2,.fj .disp { font-family: 'Archivo','Inter',ui-sans-serif,sans-serif; letter-spacing: -.01em; }
     .fj input, .fj textarea, .fj select {
       background: ${P.s3}; border: 1px solid ${P.line}; color: ${P.text};
       border-radius: 12px; font-family: inherit; font-size: 15.5px; outline: none;
@@ -1013,6 +1033,20 @@ const GlobalStyle = () => (
     .fj .pulse { animation: fjPulse 1.6s ease-in-out infinite; }
     @keyframes fjUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
     .fj .sheetIn { animation: fjUp .22s ease; }
+    /* Splash de arranque: el ícono "golpea" hacia su tamaño final con un
+       leve rebote, un anillo rojo se expande como onda de impacto, y el
+       nombre converge desde letras separadas. Todo entra en ~1.4s. */
+    @keyframes splashIcon { 0% { transform: scale(0) rotate(-10deg); opacity: 0; }
+      55% { transform: scale(1.14) rotate(3deg); opacity: 1; }
+      75% { transform: scale(.95) rotate(-1deg); } 100% { transform: scale(1) rotate(0deg); opacity: 1; } }
+    .fj .splashIcon { animation: splashIcon .9s cubic-bezier(.2,.9,.3,1.2) both; }
+    @keyframes splashRing { 0% { transform: scale(.4); opacity: .9; } 100% { transform: scale(2.6); opacity: 0; } }
+    .fj .splashRing { animation: splashRing .8s ease-out .55s both; }
+    @keyframes splashWord { 0% { opacity: 0; transform: translateY(8px); letter-spacing: .5em; }
+      100% { opacity: 1; transform: translateY(0); letter-spacing: .22em; } }
+    .fj .splashWord { animation: splashWord .7s ease .68s both; }
+    @keyframes splashTag { from { opacity: 0; } to { opacity: 1; } }
+    .fj .splashTag { animation: splashTag .5s ease 1.25s both; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
     /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
        inferior fija (TabBar) queda "transparente" al puntero: si no, al
@@ -1028,6 +1062,11 @@ const GlobalStyle = () => (
 // Sombra + reflejo superior sutil: da a las tarjetas un relieve suave
 // ("3D discreto") en vez de quedar completamente planas sobre el fondo.
 const CARD_LIFT = "0 1px 0 rgba(255,255,255,.06) inset, 0 10px 26px -16px rgba(0,0,0,.85)";
+// Efecto "3D" de la ficha que se está arrastrando: se agranda, se levanta
+// (translateY negativo) y una sombra profunda + anillo rojo la separan del
+// resto, como si se despegara de la pantalla hacia el usuario.
+const DRAG_LIFT_TRANSFORM = "scale(1.07) translateY(-6px)";
+const DRAG_LIFT_SHADOW = "0 0 0 2px rgba(224,26,26,.55), 0 30px 54px -14px rgba(0,0,0,.8)";
 const Card = ({ children, style, onClick, ...rest }) => (
   <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: 18,
     boxShadow: CARD_LIFT, ...style }}>{children}</div>
@@ -1042,14 +1081,14 @@ const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...res
   const kinds = {
     // Degradado de 3 puntos (no un solo rojo plano) + brillo interior arriba
     // y sombra de color abajo: se lee como un botón con volumen, no un parche.
-    ember: { background: `linear-gradient(160deg, #FF6270, ${P.ember} 55%, #C9142C)`, color: "#FFFFFF",
+    ember: { background: `linear-gradient(160deg, #FF4747, ${P.ember} 55%, #7A0808)`, color: "#FFFFFF",
       boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(255,40,60,.55)" },
     ghost: { background: `linear-gradient(165deg, ${P.s3}, ${P.s2})`, border: `1px solid ${P.line}`, color: P.text,
       boxShadow: "0 1px 0 rgba(255,255,255,.07) inset, 0 6px 16px -10px rgba(0,0,0,.7)" },
     line:  { background: "transparent", border: `1px solid ${P.line}`, color: P.dim },
     green: { background: "rgba(255,255,255,.10)", border: `1px solid rgba(255,255,255,.32)`, color: P.green,
       boxShadow: "0 1px 0 rgba(255,255,255,.14) inset" },
-    red:   { background: "rgba(255,59,78,.14)", border: `1px solid rgba(255,59,78,.45)`, color: P.red },
+    red:   { background: "rgba(224,26,26,.14)", border: `1px solid rgba(224,26,26,.45)`, color: P.red },
   };
   return <button {...rest} disabled={disabled} onClick={onClick} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
 };
@@ -1138,19 +1177,72 @@ const Logo = ({ size = 26 }) => (
   </div>
 );
 
+// Splash de arranque: el ícono aparece con un golpe/rebote y una onda roja de
+// impacto, y el nombre converge después. Toda la coreografía dura ~1.4s (muy
+// por debajo del límite de 4s) y respeta prefers-reduced-motion (regla global).
+const SplashScreen = () => (
+  <div className="fj" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <GlobalStyle />
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+      <div style={{ position: "relative", width: 74, height: 74, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div className="splashRing" style={{ position: "absolute", inset: 0, borderRadius: "50%",
+          border: `2px solid ${P.ember}`, boxShadow: `0 0 30px 6px ${P.glow}` }} />
+        <div className="splashIcon" style={{ width: 74, height: 74, borderRadius: 18, display: "flex", alignItems: "center", justifyContent: "center",
+          background: "#FFFFFF", boxShadow: "0 8px 30px rgba(255,255,255,.25)" }}>
+          <svg viewBox="0 0 24 24" width={40} height={40} aria-hidden="true">
+            <g fill="#0C0708">
+              <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
+              <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
+              <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
+              <rect x="16.5" y="6.6" width="2.5" height="10.8" rx="0.9" />
+              <rect x="19.5" y="8.2" width="2" height="7.6" rx="0.7" />
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div className="disp splashWord" style={{ fontSize: 34, fontWeight: 800, letterSpacing: ".22em", color: P.text }}>FORJA</div>
+      <div className="splashTag" style={{ fontSize: 12.5, color: P.faint, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".14em" }}>
+        Entrenamiento · Nutrición · Progreso
+      </div>
+    </div>
+  </div>
+);
+
 /* ---------------- Glosario UI ---------------- */
 // Quita tildes y pasa a minúsculas, para que buscar "mev" o "número" encuentre
 // lo mismo sin importar acentos ni mayúsculas.
 const searchNorm = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
-const GlossaryBody = ({ focusId }) => {
+const GlossaryBody = ({ focusId, showTopButton }) => {
   const ref = useRef(null);
   const [q, setQ] = useState("");
-  useEffect(() => { if (focusId && ref.current) { const el = ref.current.querySelector(`[data-g="${focusId}"]`); el && el.scrollIntoView({ block: "start" }); } }, [focusId]);
+  // Solo se ve el título; tocar un término lo abre. Así la guía completa
+  // (más de 20 entradas) se puede escanear de un vistazo en vez de tener
+  // que hacer scroll por párrafos enteros para encontrar uno.
+  const [openIds, setOpenIds] = useState(() => new Set(focusId ? [focusId] : []));
+  useEffect(() => {
+    if (focusId && ref.current) {
+      setOpenIds((s) => (s.has(focusId) ? s : new Set(s).add(focusId)));
+      const el = ref.current.querySelector(`[data-g="${focusId}"]`);
+      el && el.scrollIntoView({ block: "start" });
+    }
+  }, [focusId]);
   const nq = searchNorm(q.trim());
   const items = nq ? GLOSSARY.filter((g) => searchNorm(g.term).includes(nq) || searchNorm(g.def).includes(nq) || searchNorm(g.ej).includes(nq)) : GLOSSARY;
+  // Al buscar, los resultados se abren solos: si ya escribiste el término
+  // exacto, ver la respuesta de inmediato ahorra un toque extra.
+  const isOpen = (id) => (nq ? true : openIds.has(id));
+  const toggle = (id) => setOpenIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    let node = ref.current && ref.current.parentElement;
+    while (node) {
+      if (node.scrollHeight > node.clientHeight + 4) node.scrollTo({ top: 0, behavior: "smooth" });
+      node = node.parentElement;
+    }
+  };
   return (
-    <div ref={ref}>
+    <div ref={ref} style={{ position: "relative" }}>
       <div style={{ position: "relative", marginBottom: 10 }}>
         <Search size={16} color={P.faint} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
         <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar un término (ej: MEV, RIR, drop set…)"
@@ -1166,16 +1258,36 @@ const GlossaryBody = ({ focusId }) => {
       {items.length === 0 && (
         <div style={{ padding: "24px 8px", textAlign: "center", color: P.faint, fontSize: 14.5 }}>Sin resultados para «{q}».</div>
       )}
-      {items.map((g) => (
-        <div key={g.id} data-g={g.id} style={{ padding: "14px 0", borderBottom: `1px solid ${P.line}`,
+      {items.map((g) => {
+        const open = isOpen(g.id);
+        return (
+        <div key={g.id} data-g={g.id} style={{ borderBottom: `1px solid ${P.line}`,
           background: focusId === g.id ? "rgba(255,255,255,.06)" : "transparent", borderRadius: 8, scrollMarginTop: 8 }}>
-          <div style={{ fontWeight: 700, fontSize: 16.5, marginBottom: 5, color: focusId === g.id ? P.ember2 : P.text }}>{g.term}</div>
-          <div style={{ fontSize: 15, color: P.dim, lineHeight: 1.55, whiteSpace: "pre-line" }}>{g.def}</div>
-          <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.5, marginTop: 7, paddingLeft: 10, borderLeft: `2px solid ${P.line}` }}>
-            <span style={{ color: P.ember2, fontWeight: 600 }}>Ejemplo · </span>{g.ej}
-          </div>
+          <button onClick={() => toggle(g.id)} aria-expanded={open}
+            style={{ width: "100%", textAlign: "left", padding: "14px 4px", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ flex: 1, fontWeight: 700, fontSize: 16.5, color: focusId === g.id ? P.ember2 : P.text }}>{g.term}</span>
+            {open ? <ChevronUp size={17} color={P.faint} /> : <ChevronDown size={17} color={P.faint} />}
+          </button>
+          {open && (
+            <div style={{ padding: "0 4px 14px" }}>
+              <div style={{ fontSize: 15, color: P.dim, lineHeight: 1.55, whiteSpace: "pre-line" }}>{g.def}</div>
+              <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.5, marginTop: 7, paddingLeft: 10, borderLeft: `2px solid ${P.line}` }}>
+                <span style={{ color: P.ember2, fontWeight: 600 }}>Ejemplo · </span>{g.ej}
+              </div>
+            </div>
+          )}
         </div>
-      ))}
+        );
+      })}
+      {showTopButton && items.length > 4 && (
+        <button onClick={scrollToTop} aria-label="Subir al inicio"
+          style={{ position: "fixed", right: 16, bottom: "calc(96px + env(safe-area-inset-bottom))", zIndex: 40,
+            width: 46, height: 46, borderRadius: 23, display: "flex", alignItems: "center", justifyContent: "center",
+            background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`, color: "#FFFFFF",
+            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(224,26,26,.6)" }}>
+          <ChevronUp size={22} />
+        </button>
+      )}
     </div>
   );
 };
@@ -2037,6 +2149,56 @@ const FocusField = ({ label, value, placeholder, onChange, onClear }) => (
   </div>
 );
 
+// Salir del focus mode ya no es un toque: hay que mantener pulsado 5s. Un
+// anillo circular (SVG) muestra el progreso y el número de segundos que
+// faltan, para que quede claro que hace falta sostener, no tocar.
+const HOLD_EXIT_MS = 5000;
+const HoldToExitButton = ({ onExit }) => {
+  const [progress, setProgress] = useState(0); // 0..1
+  const startAt = useRef(null);
+  const raf = useRef(null);
+  const cancel = () => {
+    if (raf.current) cancelAnimationFrame(raf.current);
+    raf.current = null; startAt.current = null;
+    setProgress(0);
+  };
+  const start = () => {
+    startAt.current = Date.now();
+    const tick = () => {
+      if (!startAt.current) return;
+      const p = Math.min(1, (Date.now() - startAt.current) / HOLD_EXIT_MS);
+      setProgress(p);
+      if (p >= 1) { cancel(); onExit(); return; }
+      raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+  };
+  useEffect(() => () => cancel(), []);
+  const active = progress > 0;
+  const remaining = Math.max(1, Math.ceil((1 - progress) * (HOLD_EXIT_MS / 1000)));
+  const R = 16, C = 2 * Math.PI * R;
+  return (
+    <button
+      onPointerDown={(e) => { e.preventDefault(); start(); }}
+      onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={cancel}
+      onContextMenu={(e) => e.preventDefault()}
+      aria-label="Mantén pulsado 5 segundos para salir del focus mode"
+      title="Mantén pulsado 5 segundos para salir"
+      style={{ position: "relative", width: 38, height: 38, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+        color: active ? P.ember2 : P.faint, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12,
+        touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
+      <svg width={38} height={38} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }} aria-hidden="true">
+        <circle cx="19" cy="19" r={R} fill="none" stroke={P.line} strokeWidth={2.5} />
+        {active && (
+          <circle cx="19" cy="19" r={R} fill="none" stroke={P.ember} strokeWidth={2.5} strokeLinecap="round"
+            strokeDasharray={C} strokeDashoffset={C * (1 - progress)} />
+        )}
+      </svg>
+      {active ? <span style={{ fontSize: 13, fontWeight: 700 }}>{remaining}</span> : <X size={17} />}
+    </button>
+  );
+};
+
 const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit, onFinish, storageOK, savedAt }) => {
   const [pageIdx, setPageIdx] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -2060,6 +2222,16 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
 
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
   useEffect(() => () => { [peekTimer, instrTimer, cmtTimer, holdTimer].forEach((t) => clearTimeout(t.current)); }, []);
+  // Pide pantalla completa real del navegador (oculta barra de dirección) al
+  // entrar y la libera al salir. No todos los navegadores lo soportan (Safari
+  // de iPhone, en particular, no deja pedirla fuera de <video>) — por eso va
+  // en un try/catch silencioso: si falla, el focus mode sigue funcionando
+  // igual, solo que dentro del navegador en vez de a pantalla completa del SO.
+  useEffect(() => {
+    const el = document.documentElement;
+    try { el.requestFullscreen && el.requestFullscreen().catch(() => {}); } catch {}
+    return () => { try { document.fullscreenElement && document.exitFullscreen && document.exitFullscreen().catch(() => {}); } catch {} };
+  }, []);
 
   const exs = active.exs;
 
@@ -2357,10 +2529,7 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
 
       {/* Cabecera: tiempo, posición y salidas */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px 8px", flexShrink: 0 }}>
-        <button onClick={onExit} aria-label="Salir del focus mode"
-          style={{ padding: 7, color: P.faint, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10 }}>
-          <X size={17} />
-        </button>
+        <HoldToExitButton onExit={onExit} />
         <div className="disp" style={{ fontSize: 25, fontWeight: 700, color: P.text, letterSpacing: ".02em" }}>{bigTime(elapsed)}</div>
         <div style={{ fontSize: 12.5, color: P.faint, lineHeight: 1.2 }}>
           {pageIdx + 1}/{pages.length}<br />{doneSets}/{totalSets} series
@@ -3977,8 +4146,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
     if (!dragging) return;
     const move = (e) => {
       autoScrollNearEdge(e.clientY);
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const card = el && el.closest && el.closest("[data-day-card]");
+      const card = elementUnderY(document.querySelectorAll("[data-day-card]"), e.clientY);
       const overId = card ? card.getAttribute("data-day-card") : null;
       setDragOver((prev) => (prev === overId ? prev : overId));
       e.preventDefault();
@@ -4042,11 +4210,10 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
     if (!exDragging) return;
     const move = (e) => {
       autoScrollNearEdge(e.clientY);
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const card = el && el.closest && el.closest("[data-ex-block]");
-      const dayId = card ? card.getAttribute("data-ex-day") : null;
-      const overKey = card && dayId === exDragging.dayId ? card.getAttribute("data-ex-block") : null;
-      setExDragOver((prev) => (overKey ? { dayId, blockKey: overKey } : null));
+      const candidates = Array.from(document.querySelectorAll("[data-ex-block]")).filter((c) => c.getAttribute("data-ex-day") === exDragging.dayId);
+      const card = elementUnderY(candidates, e.clientY);
+      const overKey = card ? card.getAttribute("data-ex-block") : null;
+      setExDragOver((prev) => (overKey ? { dayId: exDragging.dayId, blockKey: overKey } : null));
       e.preventDefault();
     };
     const up = () => endExDrag();
@@ -4102,8 +4269,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
     if (!routineDragging) return;
     const move = (e) => {
       autoScrollNearEdge(e.clientY);
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const card = el && el.closest && el.closest("[data-routine-group]");
+      const card = elementUnderY(document.querySelectorAll("[data-routine-group]"), e.clientY);
       const overKey = card ? card.getAttribute("data-routine-group") : null;
       setRoutineDragOver((prev) => (prev === overKey ? prev : overKey));
       e.preventDefault();
@@ -4214,7 +4380,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
       <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.ember}1F, ${P.s1} 55%)`, borderColor: `${P.ember}4A` }}>
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: `linear-gradient(160deg, #FF6270, ${P.ember} 70%, #C9142C)`,
+            background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`,
             boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(255,40,60,.6)" }}>
             <Sparkles size={20} color="#FFFFFF" />
           </div>
@@ -4235,8 +4401,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
           onClickCapture={(e) => { if (Date.now() < (routineDragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
           style={{ marginBottom: 26, borderRadius: 16,
             background: routineDragging === g.key ? P.s2 : (routineDragOver === g.key && routineDragging ? P.s1 : "transparent"),
-            boxShadow: routineDragging === g.key ? "0 14px 30px rgba(0,0,0,.55)" : "none",
-            transform: routineDragging === g.key ? "scale(1.01)" : "none",
+            boxShadow: routineDragging === g.key ? DRAG_LIFT_SHADOW : "none",
+            transform: routineDragging === g.key ? DRAG_LIFT_TRANSFORM : "none",
             transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: open ? 12 : 0 }}>
             {/* Encabezado de rutina como tarjeta propia con relieve: la letra
@@ -4249,7 +4415,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
                 boxShadow: CARD_LIFT, textAlign: "left" }}>
               <span style={{ flexShrink: 0, minWidth: 36, height: 36, borderRadius: 11, padding: "0 4px",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: `linear-gradient(160deg, #FF6270, ${P.ember} 70%, #C9142C)`,
+                background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`,
                 boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(255,40,60,.6)",
                 color: "#FFFFFF", fontWeight: 800, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -4280,11 +4446,12 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
               data-day-card={d.id}
               onClickCapture={(e) => { if (Date.now() < (dragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
               style={{ marginBottom: 12, overflow: "hidden", position: "relative",
-                // Al engancharla, la ficha se despega del fondo: sombra, leve
-                // aumento y fondo más claro. Sin marcos de color.
+                // Al engancharla, la ficha se despega del fondo con efecto 3D:
+                // se agranda y se levanta hacia el usuario, como si fuera a
+                // salir de la pantalla, con sombra profunda + anillo rojo.
                 background: dragging === d.id ? P.s3 : (dragOver === d.id && dragging ? P.s2 : P.s1),
-                boxShadow: dragging === d.id ? "0 14px 30px rgba(0,0,0,.62)" : "none",
-                transform: dragging === d.id ? "scale(1.02)" : (dragOver === d.id && dragging ? "scale(.99)" : "none"),
+                boxShadow: dragging === d.id ? DRAG_LIFT_SHADOW : "none",
+                transform: dragging === d.id ? DRAG_LIFT_TRANSFORM : (dragOver === d.id && dragging ? "scale(.98)" : "none"),
                 // "auto" cuando no se arrastra: un z-index numérico aquí (aunque
                 // sea bajo) crea un contexto de apilamiento que atrapa a los
                 // descendientes (p.ej. el asa "Mantén pulsado para mover", con
@@ -4331,8 +4498,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history }) => {
                     return (
                     <div key={e.id} data-ex-block={blockKey} data-ex-day={d.id}
                       onClickCapture={(ev) => { if (Date.now() < (exDragRef.current.blockUntil || 0)) { ev.stopPropagation(); ev.preventDefault(); } }}
-                      style={{ background: exDraggingHere ? P.s3 : "transparent", boxShadow: exDraggingHere ? "0 10px 24px rgba(0,0,0,.55)" : "none",
-                        transform: exDraggingHere ? "scale(1.015)" : (exDragOverHere ? "scale(.99)" : "none"), borderRadius: exDraggingHere || exDragOverHere ? 12 : 0,
+                      style={{ background: exDraggingHere ? P.s3 : "transparent", boxShadow: exDraggingHere ? DRAG_LIFT_SHADOW : "none",
+                        transform: exDraggingHere ? DRAG_LIFT_TRANSFORM : (exDragOverHere ? "scale(.98)" : "none"), borderRadius: exDraggingHere || exDragOverHere ? 12 : 0,
                         transition: "background .12s ease, box-shadow .14s ease, transform .14s ease",
                         WebkitUserSelect: exDragging ? "none" : "auto", userSelect: exDragging ? "none" : "auto" }}>
                     {gr.first && gr.kind && (
@@ -4499,7 +4666,7 @@ function macroSolve(n, solve = n.solve || "kcal") {
 const SOLVE_LABEL = { kcal: "Calorías (kcal)", p: "Proteína", c: "Carbohidratos", f: "Grasa" };
 const GOAL_META = { deficit: { label: "Déficit (definición)", factor: 0.8, color: P.blue }, mant: { label: "Mantención", factor: 1, color: P.green }, bulk: { label: "Volumen (bulk)", factor: 1.1, color: P.ember } };
 
-const NutritionEditor = ({ plan, savePlan }) => {
+const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
   const n = plan.nutrition;
   const mut = (fn) => { const p = structuredClone(plan); fn(p.nutrition); p.updatedAt = todayISO(); savePlan(p); };
   const solve = n.solve || "kcal";
@@ -4533,6 +4700,22 @@ const NutritionEditor = ({ plan, savePlan }) => {
   return (
     <div style={{ padding: "18px 16px 30px" }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Nutrición</h1>
+      {onOpenNutritionAI && (
+        <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.ember}1F, ${P.s1} 55%)`, borderColor: `${P.ember}4A` }}>
+          <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+              background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`,
+              boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(224,26,26,.6)" }}>
+              <Utensils size={19} color="#FFFFFF" />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 16.5 }}>Coach IA de nutrición</div>
+              <div style={{ fontSize: 13.5, color: P.dim, marginTop: 2, lineHeight: 1.35 }}>Especializado en macros, timing y adherencia — ya conoce el plan de este alumno.</div>
+            </div>
+            <ChevronRight size={18} color={P.faint} />
+          </button>
+        </Card>
+      )}
       <Card style={{ padding: 14, marginBottom: 14 }}>
         <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 7 }}>Macros del plan</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
@@ -4588,14 +4771,23 @@ const NutritionEditor = ({ plan, savePlan }) => {
               {maint > 0 && goal !== "mant" && <span style={{ fontSize: 12.5, color: P.faint }}> ({goal === "deficit" ? "−20%" : "+10%"})</span>}
             </div>
             <div style={{ flex: 1 }} />
-            {maint > 0 && (
-              <Btn kind="ember" small onClick={() => mut((x) => { x.kcal = targetK; x.solve = "c"; recalc(x, "c"); })}>
-                Aplicar y ajustar carbos
-              </Btn>
-            )}
+            {maint > 0 && (() => {
+              // Ajusta el macro que ya esté marcado como "automático" arriba
+              // (proteína, carbos o grasa) — no siempre carbos. Si el modo
+              // automático actual es "kcal" (no tiene sentido aplicar un
+              // objetivo de calorías Y que las calorías sean el valor
+              // derivado a la vez), cae en carbos por defecto.
+              const applyKey = solve === "kcal" ? "c" : solve;
+              const applyLabel = SOLVE_LABEL[applyKey].toLowerCase();
+              return (
+                <Btn kind="ember" small onClick={() => mut((x) => { x.kcal = targetK; x.solve = applyKey; recalc(x, applyKey); })}>
+                  Aplicar y ajustar {applyLabel}
+                </Btn>
+              );
+            })()}
           </div>
           <div style={{ fontSize: 12, color: P.faint, marginTop: 7, lineHeight: 1.4 }}>
-            «Aplicar» fija las calorías objetivo y calcula los carbohidratos que faltan manteniendo la proteína y la grasa.
+            «Aplicar» fija las calorías objetivo y recalcula el macro marcado como automático arriba (proteína, carbohidratos o grasa) manteniendo fijos los otros dos. Cambia el macro automático en «Calcular automáticamente» si quieres ajustar otro.
           </div>
         </div>
         <div style={{ marginTop: 10 }}><Txt rows={2} placeholder="Notas generales del plan nutricional…" value={n.notes} onChange={(e) => mut((x) => (x.notes = e.target.value))} /></div>
@@ -5856,12 +6048,18 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
 };
 
 /* ---- Pestaña IA: agente de culturismo + nutrición ---- */
-const AITab = ({ plan, savePlan, history, currentStudent, toast }) => {
+const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJumpConsumed }) => {
   const [sub, setSub] = useState("agente");
   const [apiKey, setApiKey] = useState("");
   const [draftKey, setDraftKey] = useState("");
   const [keyLoaded, setKeyLoaded] = useState(false);
   const [showKeyEdit, setShowKeyEdit] = useState(false);
+
+  // Permite abrir esta pestaña directo en una sub-sección (p.ej. desde el
+  // botón "Habla con el coach IA de nutrición" en la pestaña Nutrición).
+  useEffect(() => {
+    if (jumpSub) { setSub(jumpSub); onJumpConsumed && onJumpConsumed(); }
+  }, [jumpSub]);
 
   useEffect(() => {
     (async () => {
@@ -6202,7 +6400,7 @@ const Toast = ({ msg }) => !msg ? null : (
   <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 86, zIndex: 80,
     width: "calc(100% - 32px)", maxWidth: 488 }}>
     <div className="sheetIn" style={{ background: "rgba(30,10,13,.92)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
-      border: `1px solid rgba(255,59,78,.55)`, color: "#FFFFFF",
+      border: `1px solid rgba(224,26,26,.55)`, color: "#FFFFFF",
       borderRadius: 14, padding: "12px 15px", fontSize: 15.5, lineHeight: 1.4,
       boxShadow: "0 1px 0 rgba(255,255,255,.1) inset, 0 12px 30px rgba(0,0,0,.55)" }}>{msg}</div>
   </div>
@@ -6267,7 +6465,7 @@ const TabBar = ({ tabs, tab, setTab }) => (
             {/* La pestaña activa se ve como una placa con relieve (degradado +
                 brillo), no solo un ícono coloreado: más volumen, más clara. */}
             <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 25, borderRadius: 9,
-              background: on ? `linear-gradient(160deg, #FF6270, ${P.ember} 75%)` : "transparent",
+              background: on ? `linear-gradient(160deg, #FF4747, ${P.ember} 75%)` : "transparent",
               boxShadow: on ? "0 1px 0 rgba(255,255,255,.3) inset, 0 4px 12px -4px rgba(255,40,60,.6)" : "none",
               transition: "background .15s, box-shadow .15s" }}>
               <Icon size={18} strokeWidth={on ? 2.3 : 2} color={on ? "#FFFFFF" : P.faint} />
@@ -6336,6 +6534,10 @@ const RosterSheet = ({ open, onClose, roster, sid, onEnter, onAdd, onRename, onR
 
 const App = () => {
   const [loading, setLoading] = useState(true);
+  // El splash se ve al menos 1.6s (para que la animación de entrada
+  // termine de jugarse) aunque los datos ya hayan llegado antes.
+  const [splashMinDone, setSplashMinDone] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setSplashMinDone(true), 1600); return () => clearTimeout(t); }, []);
   const [ready, setReady] = useState(false);
   const [roster, setRoster] = useState({ v: ROSTER_VERSION, students: [] });
   const [mode, setMode] = useState("coach");
@@ -6344,6 +6546,7 @@ const App = () => {
   const [history, setHistory] = useState(emptyHistory);
   const [active, setActive] = useState(null);
   const [tab, setTab] = useState("rutina");
+  const [aiJumpSub, setAiJumpSub] = useState(null);
   const [savedAt, setSavedAt] = useState("");
   const [gloss, setGloss] = useState({ open: false, focus: null });
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -6591,13 +6794,8 @@ const App = () => {
   const currentStudent = roster.students.find((s) => s.id === sid);
   const tabs = TABS[mode];
 
-  if (loading) {
-    return (
-      <div className="fj" style={{ minHeight: "100vh", background: P.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <GlobalStyle />
-        <div className="pulse"><Logo size={34} /></div>
-      </div>
-    );
+  if (loading || !splashMinDone) {
+    return <SplashScreen />;
   }
 
   if (!ready) {
@@ -6652,9 +6850,13 @@ const App = () => {
         )}
         {mode === "coach" && tab === "rutina" && <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history} />}
         {mode === "coach" && tab === "agenda" && <ScheduleEditor plan={plan} savePlan={savePlan} />}
-        {mode === "coach" && tab === "nutricion" && <NutritionEditor plan={plan} savePlan={savePlan} />}
+        {mode === "coach" && tab === "nutricion" && (
+          <NutritionEditor plan={plan} savePlan={savePlan}
+            onOpenNutritionAI={() => { setTab("ia"); setAiJumpSub("nutricion"); }} />
+        )}
         {mode === "coach" && tab === "ia" && (
-          <AITab plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast} />
+          <AITab plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast}
+            jumpSub={aiJumpSub} onJumpConsumed={() => setAiJumpSub(null)} />
         )}
         {mode === "coach" && tab === "indicaciones" && <InstructionsEditor plan={plan} savePlan={savePlan} />}
         {mode === "coach" && tab === "actividad" && <ActivityTab plan={plan} history={history} />}
@@ -6665,7 +6867,7 @@ const App = () => {
             <div style={{ color: P.dim, fontSize: 15, marginBottom: 6 }}>
               Todo lo que aparece en la rutina, explicado en simple. Durante el entrenamiento también puedes tocar cualquier etiqueta (TOP, B-O, DROP…) para abrir esta guía.
             </div>
-            <GlossaryBody />
+            <GlossaryBody showTopButton />
           </div>
         )}
         {tab === "atlas" && <AtlasTab />}
