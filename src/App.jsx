@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v38";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v39";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -31,7 +31,7 @@ const P = {
   s2: "#241619",
   s3: "#301B1F",
   s4: "#3D1F24",
-  line: "#5C2129",
+  line: "#7A2A33",
   text: "#FFFFFF",
   dim: "#D9D4D6",
   faint: "#9C9296",
@@ -41,6 +41,14 @@ const P = {
   red: "#E01A1A",
   blue: "#DAD4D6",
   glow: "rgba(224,26,26,.5)",
+  // Fondo general de pantalla completa: ya no negro plano. Diagonal oscuro
+  // a rojo sangre con dos brillos radiales (arriba-derecha y abajo-
+  // izquierda), igual que una imagen de portada — pero con el rojo tope
+  // acotado (nunca pasa de un rojo profundo) para que el texto blanco y
+  // las tarjetas sigan leyéndose con contraste alto encima.
+  bgGrad: "radial-gradient(130% 85% at 88% -4%, rgba(255,70,70,.38), rgba(122,16,16,.16) 42%, rgba(0,0,0,0) 68%), " +
+    "radial-gradient(110% 80% at 6% 106%, rgba(224,26,26,.20), rgba(0,0,0,0) 55%), " +
+    "linear-gradient(158deg, #050203 0%, #170608 30%, #310A0C 54%, #591010 76%, #7A1414 100%)",
 };
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
@@ -1106,20 +1114,24 @@ const GlobalStyle = () => (
     .fj .pulse { animation: fjPulse 1.6s ease-in-out infinite; }
     @keyframes fjUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
     .fj .sheetIn { animation: fjUp .22s ease; }
-    /* Splash de arranque: el ícono "golpea" hacia su tamaño final con un
-       leve rebote, un anillo rojo se expande como onda de impacto, y el
-       nombre converge desde letras separadas. Todo entra en ~1.4s. */
+    /* Splash de arranque: el fondo entra con un fundido suave, el ícono
+       "golpea" hacia su tamaño final con un leve rebote, un anillo rojo se
+       expande como onda de impacto, y el nombre converge desde letras
+       separadas. La salida (fundido a 0 + achique leve) la controla React
+       vía la prop "exiting" con una transición inline, no un keyframe. */
+    @keyframes splashFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .fj .splashFadeIn { animation: splashFadeIn .7s ease both; }
     @keyframes splashIcon { 0% { transform: scale(0) rotate(-10deg); opacity: 0; }
       55% { transform: scale(1.14) rotate(3deg); opacity: 1; }
       75% { transform: scale(.95) rotate(-1deg); } 100% { transform: scale(1) rotate(0deg); opacity: 1; } }
-    .fj .splashIcon { animation: splashIcon .9s cubic-bezier(.2,.9,.3,1.2) both; }
+    .fj .splashIcon { animation: splashIcon 1.2s cubic-bezier(.2,.9,.3,1.2) both; }
     @keyframes splashRing { 0% { transform: scale(.4); opacity: .9; } 100% { transform: scale(2.6); opacity: 0; } }
-    .fj .splashRing { animation: splashRing .8s ease-out .55s both; }
+    .fj .splashRing { animation: splashRing 1.05s ease-out .7s both; }
     @keyframes splashWord { 0% { opacity: 0; transform: translateY(8px); letter-spacing: .5em; }
       100% { opacity: 1; transform: translateY(0); letter-spacing: .22em; } }
-    .fj .splashWord { animation: splashWord .7s ease .68s both; }
+    .fj .splashWord { animation: splashWord .9s ease .95s both; }
     @keyframes splashTag { from { opacity: 0; } to { opacity: 1; } }
-    .fj .splashTag { animation: splashTag .5s ease 1.25s both; }
+    .fj .splashTag { animation: splashTag .6s ease 1.7s both; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
     /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
        inferior fija (TabBar) queda "transparente" al puntero: si no, al
@@ -1134,7 +1146,10 @@ const GlobalStyle = () => (
 // interacción que se le cuelgue a una Card se pierde en silencio.
 // Sombra + reflejo superior sutil: da a las tarjetas un relieve suave
 // ("3D discreto") en vez de quedar completamente planas sobre el fondo.
-const CARD_LIFT = "0 1px 0 rgba(255,255,255,.06) inset, 0 10px 26px -16px rgba(0,0,0,.85)";
+// Con el fondo ahora en degradado (ya no negro plano), las tarjetas necesitan
+// más separación para no perderse contra las zonas más claras/rojizas del
+// fondo: sombra inferior más profunda + un halo sutil detrás de cada tarjeta.
+const CARD_LIFT = "0 1px 0 rgba(255,255,255,.07) inset, 0 14px 34px -14px rgba(0,0,0,.92), 0 0 0 1px rgba(0,0,0,.35)";
 // Efecto "3D" de la ficha que se está arrastrando: se agranda, se levanta
 // (translateY negativo) y una sombra profunda + anillo rojo la separan del
 // resto, como si se despegara de la pantalla hacia el usuario.
@@ -1250,11 +1265,15 @@ const Logo = ({ size = 26 }) => (
   </div>
 );
 
-// Splash de arranque: el ícono aparece con un golpe/rebote y una onda roja de
-// impacto, y el nombre converge después. Toda la coreografía dura ~1.4s (muy
-// por debajo del límite de 4s) y respeta prefers-reduced-motion (regla global).
-const SplashScreen = () => (
-  <div className="fj" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+// Splash de arranque: el fondo entra con un fundido, el ícono aparece con un
+// golpe/rebote y una onda roja de impacto, y el nombre converge después.
+// Toda la coreografía dura ~2.3s y la salida (cuando `exiting` se activa
+// desde App) es otro fundido suave de .7s — nunca un corte abrupto. El total
+// (entrada + espera + salida) queda bajo el límite de 4s. Respeta
+// prefers-reduced-motion (regla global).
+const SplashScreen = ({ exiting }) => (
+  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center",
+    opacity: exiting ? 0 : 1, transform: exiting ? "scale(.97)" : "scale(1)", transition: "opacity .7s ease, transform .7s ease" }}>
     <GlobalStyle />
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
       <div style={{ position: "relative", width: 74, height: 74, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2597,7 +2616,7 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
         if (e.target.closest && e.target.closest("[data-cmt]")) return;
         setCmtKey(null);
       }}
-      style={{ position: "fixed", inset: 0, zIndex: 90, background: P.bg, display: "flex", flexDirection: "column",
+      style={{ position: "fixed", inset: 0, zIndex: 90, background: P.bgGrad, display: "flex", flexDirection: "column",
         paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)", overscrollBehavior: "contain" }}>
 
       {/* Cabecera: tiempo, posición y salidas */}
@@ -6883,7 +6902,7 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
   const [pickingTeam, setPickingTeam] = useState(false);
   if (pickingTeam) {
     return (
-      <div className="fj" style={{ minHeight: "100vh", background: P.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div className="fj" style={{ minHeight: "100vh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
         <GlobalStyle />
         <div style={{ width: "100%", maxWidth: 420 }}>
           <button onClick={() => setPickingTeam(false)} style={{ display: "flex", alignItems: "center", gap: 6, color: P.faint, fontSize: 13.5, marginBottom: 14 }}>
@@ -6915,7 +6934,7 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
     );
   }
   return (
-  <div className="fj" style={{ minHeight: "100vh", background: P.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+  <div className="fj" style={{ minHeight: "100vh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
     <GlobalStyle />
     <div style={{ width: "100%", maxWidth: 420 }}>
       <div style={{ textAlign: "center", marginBottom: 22 }}><Logo size={34} /></div>
@@ -7018,10 +7037,21 @@ const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove }) => 
 
 const App = () => {
   const [loading, setLoading] = useState(true);
-  // El splash se ve al menos 1.6s (para que la animación de entrada
-  // termine de jugarse) aunque los datos ya hayan llegado antes.
+  // El splash se ve al menos 2.6s (para que toda la coreografía de entrada
+  // termine de jugarse con calma) aunque los datos ya hayan llegado antes.
+  // Al cumplirse el mínimo y ya no estar cargando, entra en "exiting"
+  // (fundido de salida de .7s vía la prop `exiting`) y solo después de ese
+  // fundido se desmonta de verdad — nunca un corte abrupto a la app real.
   const [splashMinDone, setSplashMinDone] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setSplashMinDone(true), 1600); return () => clearTimeout(t); }, []);
+  const [splashExiting, setSplashExiting] = useState(false);
+  const [splashGone, setSplashGone] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setSplashMinDone(true), 2600); return () => clearTimeout(t); }, []);
+  useEffect(() => {
+    if (loading || !splashMinDone || splashGone) return;
+    setSplashExiting(true);
+    const t = setTimeout(() => setSplashGone(true), 700);
+    return () => clearTimeout(t);
+  }, [loading, splashMinDone, splashGone]);
   const [ready, setReady] = useState(false);
   const [roster, setRoster] = useState({ v: ROSTER_VERSION, students: [] });
   const [mode, setMode] = useState("coach");
@@ -7295,8 +7325,8 @@ const App = () => {
     ? TABS.coach.filter((t) => roleTabAccess[t.id])
     : TABS.alumno;
 
-  if (loading || !splashMinDone) {
-    return <SplashScreen />;
+  if (!splashGone) {
+    return <SplashScreen exiting={splashExiting} />;
   }
 
   if (!ready) {
@@ -7307,7 +7337,7 @@ const App = () => {
   }
 
   return (
-    <div className="fj" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bg }}>
+    <div className="fj" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
       <div style={{ maxWidth: 520, margin: "0 auto", paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
         <div style={{ display: "flex", flexWrap: "wrap", rowGap: 8, alignItems: "center", justifyContent: "space-between", gap: 8, padding: "calc(10px + env(safe-area-inset-top)) 14px 0" }}>
