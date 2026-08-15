@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v46";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v47";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -1171,24 +1171,38 @@ const GlobalStyle = () => (
     .fj .pulse { animation: fjPulse 1.6s ease-in-out infinite; }
     @keyframes fjUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
     .fj .sheetIn { animation: fjUp .22s ease; }
-    /* Splash de arranque: el fondo entra con un fundido suave, el ícono
-       "golpea" hacia su tamaño final con un leve rebote, un anillo rojo se
-       expande como onda de impacto, y el nombre converge desde letras
-       separadas. La salida (fundido a 0 + achique leve) la controla React
-       vía la prop "exiting" con una transición inline, no un keyframe. */
+    /* Splash de arranque: el fondo entra con un fundido, un doble anillo de
+       impacto se expande, el ícono "golpea" hacia su tamaño final con
+       rebote y un destello radial, el nombre FORJA aparece letra por letra,
+       y mientras se termina de cargar todo queda "vivo" (glow que respira +
+       barra de carga indeterminada) en vez de congelarse. La salida
+       (fundido a 0 + zoom leve) la controla React vía la prop "exiting" con
+       una transición inline, no un keyframe. */
     @keyframes splashFadeIn { from { opacity: 0; } to { opacity: 1; } }
-    .fj .splashFadeIn { animation: splashFadeIn .7s ease both; }
-    @keyframes splashIcon { 0% { transform: scale(0) rotate(-10deg); opacity: 0; }
-      55% { transform: scale(1.14) rotate(3deg); opacity: 1; }
-      75% { transform: scale(.95) rotate(-1deg); } 100% { transform: scale(1) rotate(0deg); opacity: 1; } }
-    .fj .splashIcon { animation: splashIcon 1.2s cubic-bezier(.2,.9,.3,1.2) both; }
-    @keyframes splashRing { 0% { transform: scale(.4); opacity: .9; } 100% { transform: scale(2.6); opacity: 0; } }
-    .fj .splashRing { animation: splashRing 1.05s ease-out .7s both; }
-    @keyframes splashWord { 0% { opacity: 0; transform: translateY(8px); letter-spacing: .5em; }
-      100% { opacity: 1; transform: translateY(0); letter-spacing: .22em; } }
-    .fj .splashWord { animation: splashWord .9s ease .95s both; }
-    @keyframes splashTag { from { opacity: 0; } to { opacity: 1; } }
-    .fj .splashTag { animation: splashTag .6s ease 1.7s both; }
+    .fj .splashFadeIn { animation: splashFadeIn .9s ease both; }
+    @keyframes splashGlowBreathe { 0%, 100% { opacity: .45; transform: scale(1); } 50% { opacity: .85; transform: scale(1.12); } }
+    .fj .splashGlow { animation: splashGlowBreathe 3.2s ease-in-out infinite; }
+    @keyframes splashFlash { 0% { opacity: 0; transform: scale(.3); } 35% { opacity: .6; } 100% { opacity: 0; transform: scale(2.4); } }
+    .fj .splashFlash { animation: splashFlash .6s ease-out .5s both; }
+    @keyframes splashIcon { 0% { transform: scale(0) rotate(-16deg); opacity: 0; }
+      50% { transform: scale(1.22) rotate(5deg); opacity: 1; }
+      68% { transform: scale(.92) rotate(-2deg); } 84% { transform: scale(1.05) rotate(1deg); }
+      100% { transform: scale(1) rotate(0deg); opacity: 1; } }
+    .fj .splashIcon { animation: splashIcon 1.3s cubic-bezier(.2,.9,.3,1.25) both; }
+    @keyframes splashPulseLoop { 0%, 100% { opacity: .55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.07); } }
+    .fj .splashPulseLoop { animation: splashPulseLoop 1.9s ease-in-out 2.3s infinite; }
+    @keyframes splashRing { 0% { transform: scale(.4); opacity: .9; } 100% { transform: scale(2.8); opacity: 0; } }
+    .fj .splashRing { animation: splashRing 1.1s ease-out .5s both; }
+    .fj .splashRing2 { animation: splashRing 1.3s ease-out .78s both; }
+    @keyframes splashLetter { 0% { opacity: 0; transform: translateY(16px) scale(.7); filter: blur(5px); }
+      100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } }
+    .fj .splashLetter { display: inline-block; animation: splashLetter .6s cubic-bezier(.2,.8,.3,1) both; }
+    @keyframes splashTag { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .fj .splashTag { animation: splashTag .6s ease 1.95s both; }
+    @keyframes splashBarIn { from { opacity: 0; } to { opacity: 1; } }
+    .fj .splashBar { animation: splashBarIn .5s ease 2.15s both; }
+    @keyframes splashBarSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(240%); } }
+    .fj .splashBarSweep { animation: splashBarSweep 1.3s ease-in-out 2.3s infinite; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
     /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
        inferior fija (TabBar) queda "transparente" al puntero: si no, al
@@ -1322,20 +1336,28 @@ const Logo = ({ size = 26 }) => (
   </div>
 );
 
-// Splash de arranque: el fondo entra con un fundido, el ícono aparece con un
-// golpe/rebote y una onda roja de impacto, y el nombre converge después.
-// Toda la coreografía dura ~2.3s y la salida (cuando `exiting` se activa
-// desde App) es otro fundido suave de .7s — nunca un corte abrupto. El total
-// (entrada + espera + salida) queda bajo el límite de 4s. Respeta
-// prefers-reduced-motion (regla global).
+// Splash de arranque: el fondo entra con un fundido, un doble anillo de
+// impacto se expande junto a un destello radial cuando el ícono "golpea"
+// hacia su tamaño final, el nombre FORJA aparece letra por letra, y una vez
+// terminada la entrada (~2.3s) el ícono queda respirando suavemente con una
+// barra de carga indeterminada debajo — así los ~4.6s mínimos en pantalla
+// se sienten vivos, no una espera vacía. La salida (cuando `exiting` se
+// activa desde App) es un fundido + leve zoom hacia adelante de .7s — nunca
+// un corte abrupto. Respeta prefers-reduced-motion (regla global).
 const SplashScreen = ({ exiting }) => (
   <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center",
-    opacity: exiting ? 0 : 1, transform: exiting ? "scale(.97)" : "scale(1)", transition: "opacity .7s ease, transform .7s ease" }}>
+    opacity: exiting ? 0 : 1, transform: exiting ? "scale(1.06)" : "scale(1)", transition: "opacity .7s ease, transform .7s ease" }}>
     <GlobalStyle />
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-      <div style={{ position: "relative", width: 74, height: 74, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+      <div className="splashPulseLoop" style={{ position: "relative", width: 74, height: 74, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div className="splashGlow" style={{ position: "absolute", inset: -30, borderRadius: "50%",
+          background: `radial-gradient(circle, ${P.glow} 0%, rgba(224,26,26,0) 70%)` }} />
         <div className="splashRing" style={{ position: "absolute", inset: 0, borderRadius: "50%",
           border: `2px solid ${P.ember}`, boxShadow: `0 0 30px 6px ${P.glow}` }} />
+        <div className="splashRing2" style={{ position: "absolute", inset: 0, borderRadius: "50%",
+          border: `2px solid ${P.ember2}`, boxShadow: `0 0 20px 4px ${P.glow}` }} />
+        <div className="splashFlash" style={{ position: "absolute", inset: -14, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(255,255,255,.9) 0%, rgba(255,255,255,0) 70%)" }} />
         <div className="splashIcon" style={{ width: 74, height: 74, borderRadius: 18, display: "flex", alignItems: "center", justifyContent: "center",
           background: "#FFFFFF", boxShadow: "0 8px 30px rgba(255,255,255,.25)" }}>
           <svg viewBox="0 0 24 24" width={40} height={40} aria-hidden="true">
@@ -1349,9 +1371,17 @@ const SplashScreen = ({ exiting }) => (
           </svg>
         </div>
       </div>
-      <div className="disp splashWord" style={{ fontSize: 34, fontWeight: 800, letterSpacing: ".22em", color: P.text }}>FORJA</div>
+      <div className="disp" style={{ fontSize: 34, fontWeight: 800, letterSpacing: ".22em", color: P.text }}>
+        {"FORJA".split("").map((ch, i) => (
+          <span key={i} className="splashLetter" style={{ animationDelay: `${0.95 + i * 0.08}s` }}>{ch}</span>
+        ))}
+      </div>
       <div className="splashTag" style={{ fontSize: 12.5, color: P.faint, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".14em" }}>
         Entrenamiento · Nutrición · Progreso
+      </div>
+      <div className="splashBar" style={{ width: 130, height: 3, borderRadius: 999, background: "rgba(255,255,255,.12)", overflow: "hidden", marginTop: 2 }}>
+        <div className="splashBarSweep" style={{ width: "40%", height: "100%", borderRadius: 999,
+          background: `linear-gradient(90deg, rgba(255,255,255,0), ${P.ember2}, rgba(255,255,255,0))` }} />
       </div>
     </div>
   </div>
@@ -7661,15 +7691,18 @@ const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove }) => 
 
 const App = () => {
   const [loading, setLoading] = useState(true);
-  // El splash se ve al menos 2.6s (para que toda la coreografía de entrada
-  // termine de jugarse con calma) aunque los datos ya hayan llegado antes.
+  // El splash se ve al menos 4.6s (2s más que antes, a pedido: un arranque
+  // más "épico" necesita más tiempo en pantalla) aunque los datos ya hayan
+  // llegado antes. La coreografía de entrada dura ~2.3s y el resto del
+  // mínimo el ícono queda "vivo" (glow que respira + barra indeterminada),
+  // así la espera extra se siente intencional, no una pantalla congelada.
   // Al cumplirse el mínimo y ya no estar cargando, entra en "exiting"
   // (fundido de salida de .7s vía la prop `exiting`) y solo después de ese
   // fundido se desmonta de verdad — nunca un corte abrupto a la app real.
   const [splashMinDone, setSplashMinDone] = useState(false);
   const [splashExiting, setSplashExiting] = useState(false);
   const [splashGone, setSplashGone] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setSplashMinDone(true), 2600); return () => clearTimeout(t); }, []);
+  useEffect(() => { const t = setTimeout(() => setSplashMinDone(true), 4600); return () => clearTimeout(t); }, []);
   useEffect(() => {
     if (loading || !splashMinDone || splashGone) return;
     setSplashExiting(true);
