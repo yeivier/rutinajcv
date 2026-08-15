@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v52";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v53";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -25,38 +25,40 @@ const BUILD = "v52";   // sube al cambiar el bundle: sirve para saber qué versi
 // dejan como están porque son prosa, no elementos de marca visual.
 const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso" };
 
-// Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
-// bloques planos: superficies con calidez rojiza para dar profundidad
-// (nada de negro neutro plano), el borde de cada tarjeta ya lleva ese
-// tinte rojo para que las "cajas" se destaquen, y el rojo de acento es
-// un rojo sangre profundo (no rosado) reservado a degradados/CTA — nunca
-// como relleno plano de texto completo, para que no se vea "parchado".
+// Paleta FORJA: negro neutro y verde neón — en capas, no en bloques planos:
+// superficies grises oscuras para dar profundidad (nada de negro plano),
+// y el verde de acento (el de la instrucción original: #39FF14) reservado
+// a degradados/CTA — nunca como relleno plano de texto completo, para que
+// no se vea "parchado". "red" se mantiene como color real de peligro/error
+// (vencido, eliminar, validación) — separado del acento de marca a
+// propósito: un botón de eliminar en verde sería confuso.
 // "green"/"blue" son nombres heredados de una paleta anterior; hoy
-// funcionan como matices de blanco (positivo/informativo).
+// funcionan como matices de blanco (positivo/informativo), sin relación
+// con el verde neón de marca.
 const P = {
-  bg: "#0C0708",
-  s1: "#1A1214",
-  s2: "#241619",
-  s3: "#301B1F",
-  s4: "#3D1F24",
-  line: "#7A2A33",
+  bg: "#121212",
+  s1: "#1A1A1A",
+  s2: "#202020",
+  s3: "#262626",
+  s4: "#2E2E2E",
+  line: "#333333",
   text: "#FFFFFF",
-  dim: "#D9D4D6",
-  faint: "#9C9296",
-  ember: "#E01A1A",
-  ember2: "#FF3B3B",
+  dim: "#A0A0A0",
+  faint: "#6B6B6B",
+  ember: "#39FF14",
+  ember2: "#5CFF3D",
   green: "#FFFFFF",
   red: "#E01A1A",
   blue: "#DAD4D6",
-  glow: "rgba(224,26,26,.5)",
-  // Fondo general de pantalla completa: ya no negro plano. Diagonal oscuro
-  // a rojo sangre con dos brillos radiales (arriba-derecha y abajo-
-  // izquierda), igual que una imagen de portada — pero con el rojo tope
-  // acotado (nunca pasa de un rojo profundo) para que el texto blanco y
-  // las tarjetas sigan leyéndose con contraste alto encima.
-  bgGrad: "radial-gradient(130% 85% at 88% -4%, rgba(255,70,70,.38), rgba(122,16,16,.16) 42%, rgba(0,0,0,0) 68%), " +
-    "radial-gradient(110% 80% at 6% 106%, rgba(224,26,26,.20), rgba(0,0,0,0) 55%), " +
-    "linear-gradient(158deg, #050203 0%, #170608 30%, #310A0C 54%, #591010 76%, #7A1414 100%)",
+  glow: "rgba(57,255,20,.5)",
+  // Fondo general de pantalla completa: ya no negro plano. Diagonal gris muy
+  // oscuro con dos brillos radiales verdes tenues (arriba-derecha y abajo-
+  // izquierda), igual que una imagen de portada — pero acotado (nunca pasa
+  // de un verde apagado) para que el texto blanco y las tarjetas sigan
+  // leyéndose con contraste alto encima.
+  bgGrad: "radial-gradient(130% 85% at 88% -4%, rgba(57,255,20,.16), rgba(20,60,10,.10) 42%, rgba(0,0,0,0) 68%), " +
+    "radial-gradient(110% 80% at 6% 106%, rgba(57,255,20,.10), rgba(0,0,0,0) 55%), " +
+    "linear-gradient(158deg, #050505 0%, #0E0E0E 30%, #141814 54%, #171D16 76%, #1A211A 100%)",
 };
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
@@ -1141,7 +1143,11 @@ function volumeByMuscle(plan) {
   return { basis, rows, total: rows.reduce((a, r) => a + r.sets, 0) };
 }
 
-const VOL_COLORS = { bajo: P.red, mínimo: P.ember2, óptimo: P.green, alto: P.ember2, "sobre MRV": P.red, "sin referencia": P.faint };
+// Ámbar (no el verde de marca) para las zonas límite: "mínimo"/"alto" son
+// un aviso de que hay que prestar atención, no un "todo bien" — usar el
+// verde de acento acá se leería como positivo cuando en realidad es una
+// advertencia intermedia entre "bajo"/"sobre MRV" (rojo) y "óptimo".
+const VOL_COLORS = { bajo: P.red, mínimo: "#E8AE4D", óptimo: P.green, alto: "#E8AE4D", "sobre MRV": P.red, "sin referencia": P.faint };
 
 /* ============================================================
    Átomos de interfaz
@@ -1233,7 +1239,7 @@ const CARD_LIFT = "0 1px 0 rgba(255,255,255,.07) inset, 0 14px 34px -14px rgba(0
 // (translateY negativo) y una sombra profunda + anillo rojo la separan del
 // resto, como si se despegara de la pantalla hacia el usuario.
 const DRAG_LIFT_TRANSFORM = "scale(1.07) translateY(-6px)";
-const DRAG_LIFT_SHADOW = "0 0 0 2px rgba(224,26,26,.55), 0 30px 54px -14px rgba(0,0,0,.8)";
+const DRAG_LIFT_SHADOW = "0 0 0 2px rgba(57,255,20,.55), 0 30px 54px -14px rgba(0,0,0,.8)";
 const Card = ({ children, style, onClick, ...rest }) => (
   <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: 18,
     boxShadow: CARD_LIFT, ...style }}>{children}</div>
@@ -1248,8 +1254,8 @@ const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...res
   const kinds = {
     // Degradado de 3 puntos (no un solo rojo plano) + brillo interior arriba
     // y sombra de color abajo: se lee como un botón con volumen, no un parche.
-    ember: { background: `linear-gradient(160deg, #FF4747, ${P.ember} 55%, #7A0808)`, color: "#FFFFFF",
-      boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(255,40,60,.55)" },
+    ember: { background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 55%, #0D3306)`, color: "#FFFFFF",
+      boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(57,255,20,.55)" },
     ghost: { background: `linear-gradient(165deg, ${P.s3}, ${P.s2})`, border: `1px solid ${P.line}`, color: P.text,
       boxShadow: "0 1px 0 rgba(255,255,255,.07) inset, 0 6px 16px -10px rgba(0,0,0,.7)" },
     line:  { background: "transparent", border: `1px solid ${P.line}`, color: P.dim },
@@ -1359,7 +1365,7 @@ const SplashScreen = ({ exiting }) => (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
       <div className="splashPulseLoop" style={{ position: "relative", width: 74, height: 74, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div className="splashGlow" style={{ position: "absolute", inset: -30, borderRadius: "50%",
-          background: `radial-gradient(circle, ${P.glow} 0%, rgba(224,26,26,0) 70%)` }} />
+          background: `radial-gradient(circle, ${P.glow} 0%, rgba(57,255,20,0) 70%)` }} />
         <div className="splashRing" style={{ position: "absolute", inset: 0, borderRadius: "50%",
           border: `2px solid ${P.ember}`, boxShadow: `0 0 30px 6px ${P.glow}` }} />
         <div className="splashRing2" style={{ position: "absolute", inset: 0, borderRadius: "50%",
@@ -1470,8 +1476,8 @@ const GlossaryBody = ({ focusId, showTopButton }) => {
         <button onClick={scrollToTop} aria-label="Subir al inicio"
           style={{ position: "fixed", right: 16, bottom: "calc(96px + env(safe-area-inset-bottom))", zIndex: 40,
             width: 46, height: 46, borderRadius: 23, display: "flex", alignItems: "center", justifyContent: "center",
-            background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`, color: "#FFFFFF",
-            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(224,26,26,.6)" }}>
+            background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`, color: "#FFFFFF",
+            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(57,255,20,.6)" }}>
           <ChevronUp size={22} />
         </button>
       )}
@@ -3391,8 +3397,8 @@ const AchievementGrid = ({ history }) => {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px",
         background: P.s1, border: `1px solid ${P.line}`, borderRadius: 14, boxShadow: CARD_LIFT }}>
         <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-          background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`,
-          boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(224,26,26,.6)" }}>
+          background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`,
+          boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(57,255,20,.6)" }}>
           <Trophy size={20} color="#FFFFFF" />
         </div>
         <div><div style={{ fontWeight: 700, fontSize: 17 }}>{earnedCount} de {list.length} logros</div>
@@ -3408,8 +3414,8 @@ const AchievementGrid = ({ history }) => {
                 border: `1px solid ${a.earned ? `${P.ember}55` : P.line}`,
                 boxShadow: a.earned ? CARD_LIFT : "none", opacity: a.earned ? 1 : .68 }}>
                 <div style={{ width: 44, height: 44, borderRadius: 14, margin: "0 auto 8px", display: "flex", alignItems: "center", justifyContent: "center",
-                  background: a.earned ? `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)` : P.s2,
-                  boxShadow: a.earned ? "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(224,26,26,.6)" : "none" }}>
+                  background: a.earned ? `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)` : P.s2,
+                  boxShadow: a.earned ? "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(57,255,20,.6)" : "none" }}>
                   {a.earned ? <a.Icon size={21} color="#FFFFFF" /> : <Lock size={17} color={P.faint} />}
                 </div>
                 <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25, marginBottom: 4 }}>{a.label}</div>
@@ -5034,8 +5040,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.ember}1F, ${P.s1} 55%)`, borderColor: `${P.ember}4A` }}>
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`,
-            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(255,40,60,.6)" }}>
+            background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`,
+            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(57,255,20,.6)" }}>
             <Sparkles size={20} color="#FFFFFF" />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -5070,8 +5076,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 boxShadow: CARD_LIFT, textAlign: "left" }}>
               <span style={{ flexShrink: 0, minWidth: 36, height: 36, borderRadius: 11, padding: "0 4px",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`,
-                boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(255,40,60,.6)",
+                background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`,
+                boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(57,255,20,.6)",
                 color: "#FFFFFF", fontWeight: 800, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="disp" style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase", color: P.text, lineHeight: 1.1 }}>{g.label}</div>
@@ -5373,8 +5379,8 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
         <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.ember}1F, ${P.s1} 55%)`, borderColor: `${P.ember}4A` }}>
           <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`,
-              boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(224,26,26,.6)" }}>
+              background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`,
+              boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(57,255,20,.6)" }}>
               <Utensils size={19} color="#FFFFFF" />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -5748,7 +5754,7 @@ const RankingsTab = ({ roster, toast }) => {
         <Card key={r.id} style={{ padding: "11px 13px", marginBottom: 8, display: "flex", alignItems: "center", gap: 11 }}>
           <div className="disp" style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
             fontWeight: 800, fontSize: 14,
-            background: i === 0 ? `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)` : P.s2,
+            background: i === 0 ? `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)` : P.s2,
             color: i === 0 ? "#FFFFFF" : P.faint, border: i === 0 ? "none" : `1px solid ${P.line}` }}>
             {i === 0 ? <Medal size={15} /> : i + 1}
           </div>
@@ -7934,7 +7940,7 @@ const Toast = ({ msg }) => !msg ? null : (
   <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 86, zIndex: 80,
     width: "calc(100% - 32px)", maxWidth: 488 }}>
     <div className="sheetIn" style={{ background: "rgba(30,10,13,.92)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
-      border: `1px solid rgba(224,26,26,.55)`, color: "#FFFFFF",
+      border: `1px solid rgba(57,255,20,.55)`, color: "#FFFFFF",
       borderRadius: 14, padding: "12px 15px", fontSize: 15.5, lineHeight: 1.4,
       boxShadow: "0 1px 0 rgba(255,255,255,.1) inset, 0 12px 30px rgba(0,0,0,.55)" }}>{msg}</div>
   </div>
@@ -8075,8 +8081,8 @@ const TabBar = ({ tabs, tab, setTab }) => (
             {/* La pestaña activa se ve como una placa con relieve (degradado +
                 brillo), no solo un ícono coloreado: más volumen, más clara. */}
             <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 25, borderRadius: 9,
-              background: on ? `linear-gradient(160deg, #FF4747, ${P.ember} 75%)` : "transparent",
-              boxShadow: on ? "0 1px 0 rgba(255,255,255,.3) inset, 0 4px 12px -4px rgba(255,40,60,.6)" : "none",
+              background: on ? `linear-gradient(160deg, #8CFF6B, ${P.ember} 75%)` : "transparent",
+              boxShadow: on ? "0 1px 0 rgba(255,255,255,.3) inset, 0 4px 12px -4px rgba(57,255,20,.6)" : "none",
               transition: "background .15s, box-shadow .15s" }}>
               <Icon size={18} strokeWidth={on ? 2.3 : 2} color={on ? "#FFFFFF" : P.faint} />
             </span>
@@ -8107,7 +8113,7 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
           <div style={{ color: P.dim, fontSize: 14, marginBottom: 16, lineHeight: 1.4 }}>Elige tu nombre del equipo — así ves solo lo que corresponde a tu rol.</div>
           <Card onClick={() => onEnterTeam(null)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer", borderColor: `${P.ember}55` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(160deg, #FF4747, ${P.ember} 70%, #7A0808)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#FFF" }}>★</div>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#FFF" }}>★</div>
               <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 15.5 }}>Tú (Head Coach)</div><div style={{ fontSize: 12.5, color: P.dim }}>El dueño de este dispositivo</div></div>
               <ChevronRight size={17} color={P.faint} />
             </div>
