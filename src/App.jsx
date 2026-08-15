@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v54";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v55";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -35,16 +35,22 @@ const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso
 // "green"/"blue" son nombres heredados de una paleta anterior; hoy
 // funcionan como matices de blanco (positivo/informativo), sin relación
 // con el verde neón de marca.
+// "line" (marcos/bordes) y "faint" (texto secundario/íconos apagados) se
+// subieron de #333333/#6B6B6B a estos tonos: los originales quedaban casi
+// invisibles sobre los fondos oscuros (contraste real ~3:1, por debajo del
+// mínimo legible), sobre todo en la barra inferior y los bordes de tarjeta.
+// Al ser tokens únicos usados en toda la app, este solo cambio sube el
+// contraste de marcos y texto secundario en todas las pantallas a la vez.
 const P = {
   bg: "#121212",
   s1: "#1A1A1A",
   s2: "#202020",
   s3: "#262626",
   s4: "#2E2E2E",
-  line: "#333333",
+  line: "#404040",
   text: "#FFFFFF",
   dim: "#A0A0A0",
-  faint: "#6B6B6B",
+  faint: "#8A8A8A",
   ember: "#39FF14",
   ember2: "#5CFF3D",
   green: "#FFFFFF",
@@ -241,6 +247,42 @@ function elementUnderY(elements, y) {
     if (dist < bestDist) { bestDist = dist; best = el; }
   }
   return best;
+}
+
+// Mientras se arrastra, calcula cuánto debe correrse (translateY) cada
+// elemento vecino para "abrir hueco" justo donde va a caer el que se está
+// moviendo — así se ve con claridad que la lista entera se está
+// reordenando (no solo qué tarjeta es el destino) y en qué sentido, arriba
+// o abajo, se está desplazando. `elements` son los candidatos en su orden
+// real en el DOM (el orden de datos todavía no cambia mientras se arrastra,
+// eso pasa recién al soltar); `keyAttr` es el atributo data-* que identifica
+// a cada uno. Devuelve un objeto { key: offsetEnPx }, vacío si no hay nada
+// que desplazar.
+function computeShiftOffsets(elements, keyAttr, draggingKey, overKey) {
+  const offsets = {};
+  if (!draggingKey || !overKey || draggingKey === overKey) return offsets;
+  const list = Array.from(elements);
+  const sourceIdx = list.findIndex((el) => el.getAttribute(keyAttr) === draggingKey);
+  const overIdx = list.findIndex((el) => el.getAttribute(keyAttr) === overKey);
+  if (sourceIdx < 0 || overIdx < 0) return offsets;
+  const sourceRect = list[sourceIdx].getBoundingClientRect();
+  // El espacio entre tarjetas (margin-bottom) se mide contra el vecino
+  // siguiente y, si no hay (es el último), contra el anterior — pero en ese
+  // caso el hueco queda ARRIBA de la fuente, no abajo, así que se resta al
+  // revés para no calcular un "pitch" gigante y desplazar todo de más.
+  let gap = 0;
+  if (list[sourceIdx + 1]) gap = list[sourceIdx + 1].getBoundingClientRect().top - sourceRect.bottom;
+  else if (list[sourceIdx - 1]) gap = sourceRect.top - list[sourceIdx - 1].getBoundingClientRect().bottom;
+  const pitch = sourceRect.height + Math.max(gap, 0);
+  if (overIdx > sourceIdx) {
+    // El destino está más abajo: todo lo que queda entre medio sube un
+    // lugar, para ocupar el hueco que deja la tarjeta arrastrada.
+    for (let i = sourceIdx + 1; i <= overIdx; i++) offsets[list[i].getAttribute(keyAttr)] = -pitch;
+  } else {
+    // El destino está más arriba: todo lo que queda entre medio baja un lugar.
+    for (let i = overIdx; i < sourceIdx; i++) offsets[list[i].getAttribute(keyAttr)] = pitch;
+  }
+  return offsets;
 }
 
 /* Une o separa exs[i] de exs[i+1]. Si alguno ya pertenece a un bloque, se
@@ -1246,10 +1288,16 @@ const GlobalStyle = () => (
 // fondo: sombra inferior más profunda + un halo sutil detrás de cada tarjeta.
 const CARD_LIFT = "0 1px 0 rgba(255,255,255,.07) inset, 0 14px 34px -14px rgba(0,0,0,.92), 0 0 0 1px rgba(0,0,0,.35)";
 // Efecto "3D" de la ficha que se está arrastrando: se agranda, se levanta
-// (translateY negativo) y una sombra profunda + anillo rojo la separan del
-// resto, como si se despegara de la pantalla hacia el usuario.
-const DRAG_LIFT_TRANSFORM = "scale(1.07) translateY(-6px)";
-const DRAG_LIFT_SHADOW = "0 0 0 2px rgba(57,255,20,.55), 0 30px 54px -14px rgba(0,0,0,.8)";
+// (translateY negativo) y una sombra profunda + anillo verde neón la separan
+// del resto, como si se despegara de la pantalla hacia el usuario. El marco
+// (DRAG_LIFT_BORDER) es aparte del anillo de sombra para que el borde real
+// de la tarjeta también cambie de color, no solo su halo.
+const DRAG_LIFT_TRANSFORM = "scale(1.08) translateY(-8px)";
+const DRAG_LIFT_SHADOW = "0 0 0 2px rgba(57,255,20,.6), 0 34px 60px -16px rgba(0,0,0,.85)";
+const DRAG_LIFT_BORDER = `1px solid ${P.ember}99`;
+// Transición usada para el desplazamiento "hueco" (translateY) de los
+// elementos vecinos durante un arrastre — ver computeShiftOffsets().
+const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
 const Card = ({ children, style, onClick, ...rest }) => (
   <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: 18,
     boxShadow: CARD_LIFT, ...style }}>{children}</div>
@@ -4735,6 +4783,9 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
   // suéltalo sobre otro. Si el destino está en otra rutina, adopta esa rutina.
   const [dragging, setDragging] = useState(null);
   const [dragOver, setDragOver] = useState(null);
+  // Cuánto se corre (translateY) cada día vecino mientras se arrastra otro
+  // por encima/debajo suyo — ver computeShiftOffsets().
+  const [dayShiftOffsets, setDayShiftOffsets] = useState({});
   const dragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const move = (arr, i, dir) => { const j = i + dir; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; normalizeGroups(arr); };
@@ -4802,7 +4853,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       }
     }
     st.activated = false;
-    setDragging(null); setDragOver(null);
+    setDragging(null); setDragOver(null); setDayShiftOffsets({});
   };
   // Mientras arrastras, los eventos van al documento (así funciona aunque el
   // dedo salga de la tarjeta original), y el scroll queda bloqueado.
@@ -4810,9 +4861,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     if (!dragging) return;
     const move = (e) => {
       autoScrollNearEdge(e.clientY);
-      const card = elementUnderY(document.querySelectorAll("[data-day-card]"), e.clientY);
+      const els = document.querySelectorAll("[data-day-card]");
+      const card = elementUnderY(els, e.clientY);
       const overId = card ? card.getAttribute("data-day-card") : null;
       setDragOver((prev) => (prev === overId ? prev : overId));
+      setDayShiftOffsets(computeShiftOffsets(els, "data-day-card", dragging, overId));
       e.preventDefault();
     };
     const up = () => endDrag();
@@ -4897,6 +4950,9 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
   // encabezado, mismo mecanismo de mantener pulsado que días y ejercicios.
   const [routineDragging, setRoutineDragging] = useState(null); // key
   const [routineDragOver, setRoutineDragOver] = useState(null); // key
+  // Cuánto se corre (translateY) cada bloque de rutina vecino mientras se
+  // arrastra otro por encima/debajo suyo — ver computeShiftOffsets().
+  const [routineShiftOffsets, setRoutineShiftOffsets] = useState({});
   const routineDragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
   const startRoutineDrag = (key, e) => {
     e.preventDefault();
@@ -4927,15 +4983,17 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       }
     }
     st.activated = false;
-    setRoutineDragging(null); setRoutineDragOver(null);
+    setRoutineDragging(null); setRoutineDragOver(null); setRoutineShiftOffsets({});
   };
   useEffect(() => {
     if (!routineDragging) return;
     const move = (e) => {
       autoScrollNearEdge(e.clientY);
-      const card = elementUnderY(document.querySelectorAll("[data-routine-group]"), e.clientY);
+      const els = document.querySelectorAll("[data-routine-group]");
+      const card = elementUnderY(els, e.clientY);
       const overKey = card ? card.getAttribute("data-routine-group") : null;
       setRoutineDragOver((prev) => (prev === overKey ? prev : overKey));
+      setRoutineShiftOffsets(computeShiftOffsets(els, "data-routine-group", routineDragging, overKey));
       e.preventDefault();
     };
     const up = () => endRoutineDrag();
@@ -5073,8 +5131,13 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           style={{ marginBottom: 26, borderRadius: 16,
             background: routineDragging === g.key ? P.s2 : (routineDragOver === g.key && routineDragging ? P.s1 : "transparent"),
             boxShadow: routineDragging === g.key ? DRAG_LIFT_SHADOW : "none",
-            transform: routineDragging === g.key ? DRAG_LIFT_TRANSFORM : "none",
-            transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
+            border: routineDragging === g.key ? DRAG_LIFT_BORDER : "1px solid transparent",
+            // Si esta rutina no es la que se arrastra pero cae "en el camino"
+            // entre el origen y el destino, se corre para abrir el hueco: así
+            // se ve, en tiempo real, cuál se movió y hacia dónde.
+            transform: routineDragging === g.key ? DRAG_LIFT_TRANSFORM
+              : routineShiftOffsets[g.key] ? `translateY(${routineShiftOffsets[g.key]}px)` : "none",
+            transition: `background .12s ease, box-shadow .14s ease, border-color .14s ease, ${SHIFT_TRANSITION}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: open ? 12 : 0 }}>
             {/* Encabezado de rutina como tarjeta propia con relieve: la letra
                 va en una placa con degradado (el acento rojo vive ahí, no en
@@ -5133,17 +5196,21 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               style={{ marginBottom: 12, overflow: "hidden", position: "relative",
                 // Al engancharla, la ficha se despega del fondo con efecto 3D:
                 // se agranda y se levanta hacia el usuario, como si fuera a
-                // salir de la pantalla, con sombra profunda + anillo rojo.
+                // salir de la pantalla, con sombra profunda + marco verde
+                // neón. Los días que quedan "en el camino" del arrastre se
+                // corren para abrir hueco (mismo mecanismo que las rutinas).
                 background: dragging === d.id ? P.s3 : (dragOver === d.id && dragging ? P.s2 : P.s1),
                 boxShadow: dragging === d.id ? DRAG_LIFT_SHADOW : "none",
-                transform: dragging === d.id ? DRAG_LIFT_TRANSFORM : (dragOver === d.id && dragging ? "scale(.98)" : "none"),
+                border: dragging === d.id ? DRAG_LIFT_BORDER : `1px solid ${P.line}`,
+                transform: dragging === d.id ? DRAG_LIFT_TRANSFORM
+                  : dayShiftOffsets[d.id] ? `translateY(${dayShiftOffsets[d.id]}px)` : "none",
                 // "auto" cuando no se arrastra: un z-index numérico aquí (aunque
                 // sea bajo) crea un contexto de apilamiento que atrapa a los
                 // descendientes (p.ej. el asa "Mantén pulsado para mover", con
                 // z-index:60) y les impide ganarle a la barra inferior fija
                 // (z-index:50) cuando el asa cae en esa franja de la pantalla.
                 zIndex: dragging === d.id ? 5 : "auto",
-                transition: "background .12s ease, box-shadow .14s ease, transform .14s ease",
+                transition: `background .12s ease, box-shadow .14s ease, border-color .14s ease, ${SHIFT_TRANSITION}`,
                 WebkitUserSelect: dragging ? "none" : "auto", userSelect: dragging ? "none" : "auto" }}>
               <div style={{ display: "flex", flexWrap: "wrap", rowGap: 4, alignItems: "center", gap: 6, padding: "11px 12px" }}>
                 <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ flex: 1, minWidth: 150, textAlign: "left" }}>
@@ -8078,25 +8145,32 @@ const TabBar = ({ tabs, tab, setTab }) => (
     background: `${P.s1}F0`, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderTop: `1px solid ${P.line}`,
     boxShadow: "0 1px 0 rgba(255,255,255,.05) inset, 0 -14px 30px -16px rgba(0,0,0,.7)" }}>
     <div style={{ display: "flex", width: "100%", maxWidth: 520, padding: "7px 2px calc(8px + env(safe-area-inset-bottom))",
-      overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+      overflowX: "auto", WebkitOverflowScrolling: "touch", scrollSnapType: "x proximity" }}>
       {tabs.map(({ id, label, Icon }) => {
         const on = tab === id;
         return (
-          // flex-basis mínimo en vez de flex:1 puro: con pocas pestañas se
-          // reparten el ancho como siempre, pero al agregar más (ej. Cobros)
-          // no se aplastan hasta ser ilegibles — la barra scrollea en vez de
-          // eso una vez que no entran todas.
-          <button key={id} onClick={() => setTab(id)} style={{ flex: "1 1 56px", display: "flex", flexDirection: "column",
-            alignItems: "center", gap: 3, padding: "5px 1px 4px", color: on ? P.ember2 : P.faint, minWidth: 0 }}>
+          // flexShrink:0 (antes shrinkeaba con flex:"1 1 56px") es lo que
+          // realmente evita el aplastamiento: con shrink permitido, el texto
+          // de cada pestaña quedaba más angosto que su ancho real y se
+          // desbordaba visualmente sobre la vecina (el solapamiento en
+          // Indicac./Activ./Rankings/Cobros). flexGrow:1 se mantiene para
+          // que con pocas pestañas (alumno) se sigan repartiendo todo el
+          // ancho como siempre; con muchas (coach) ya no entran todas y acá
+          // sí es donde la barra debe scrollear en vez de aplastarse.
+          <button key={id} onClick={() => setTab(id)} style={{ flex: "1 0 60px", minWidth: 60, scrollSnapAlign: "start",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "5px 2px 4px",
+            color: on ? P.ember2 : P.faint }}>
             {/* La pestaña activa se ve como una placa con relieve (degradado +
-                brillo), no solo un ícono coloreado: más volumen, más clara. */}
+                brillo) y marco propio, no solo un ícono coloreado: más
+                volumen, más clara y más fácil de distinguir de las inactivas. */}
             <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 25, borderRadius: 9,
               background: on ? `linear-gradient(160deg, #8CFF6B, ${P.ember} 75%)` : "transparent",
+              border: on ? "1px solid rgba(255,255,255,.25)" : "1px solid transparent",
               boxShadow: on ? "0 1px 0 rgba(255,255,255,.3) inset, 0 4px 12px -4px rgba(57,255,20,.6)" : "none",
-              transition: "background .15s, box-shadow .15s" }}>
+              transition: "background .15s, box-shadow .15s, border-color .15s" }}>
               <Icon size={18} strokeWidth={on ? 2.3 : 2} color={on ? "#FFFFFF" : P.faint} />
             </span>
-            <span style={{ fontSize: 11, fontWeight: on ? 700 : 500 }}>{label}</span>
+            <span style={{ fontSize: 11, fontWeight: on ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 64 }}>{label}</span>
           </button>
         );
       })}
