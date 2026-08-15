@@ -6,7 +6,7 @@ import {
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
-  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet
+  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard
 } from "lucide-react";
 
 /* ============================================================
@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v51";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v52";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -5838,6 +5838,64 @@ const EditPackForm = ({ row, onSave }) => {
   );
 };
 
+// Preparación de cobro online — a propósito NO hace cobros reales todavía.
+// Mercado Pago (y cualquier pasarela real) exige una clave secreta
+// ("Access Token") para crear preferencias de pago del lado del servidor;
+// esta app no tiene backend propio (solo Supabase como base de datos), así
+// que esa clave NUNCA debe vivir en este bundle — cualquiera que abra el
+// código fuente del navegador la vería. Por eso acá solo se guarda la
+// Public Key (pensada para exponerse en el cliente) y se explica que la
+// clave secreta necesita una función de servidor (Supabase Edge Function)
+// que se arma aparte, cuando el coach esté listo para cobrar de verdad.
+const BILLING_PROVIDERS = [
+  { id: "mercadopago", label: "Mercado Pago", note: "Recomendado para Chile/LatAm — Webpay, transferencia y tarjetas locales." },
+  { id: "stripe", label: "Stripe", note: "Para cobrar en USD a clientes fuera de Chile (Stripe no habilita cuentas de cobro para negocios chilenos)." },
+];
+const emptyBillingConfig = () => ({ provider: "mercadopago", publicKey: "", connected: false });
+const BillingConfigCard = () => {
+  const [cfg, setCfg] = useState(emptyBillingConfig());
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(emptyBillingConfig());
+  useEffect(() => { (async () => { const c = await sGet("forja-billing-config"); if (c && c.provider) { setCfg(c); setDraft(c); } })(); }, []);
+  const save = async () => {
+    const next = { ...draft, connected: !!draft.publicKey.trim() };
+    await sSet("forja-billing-config", next);
+    setCfg(next); setOpen(false);
+  };
+  return (
+    <Card style={{ padding: "13px 15px", marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <CreditCard size={17} color={cfg.connected ? P.green : P.faint} style={{ flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Cobro online</div>
+          <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>
+            {cfg.connected ? `${BILLING_PROVIDERS.find((p) => p.id === cfg.provider)?.label} · clave pública configurada` : "No conectado — los pagos de arriba se registran a mano"}
+          </div>
+        </div>
+        <Btn kind="line" small onClick={() => setOpen(true)}>{cfg.connected ? "Editar" : "Configurar"}</Btn>
+      </div>
+      <Sheet open={open} onClose={() => setOpen(false)} title="Cobro online">
+        <div style={{ fontSize: 13, color: P.dim, lineHeight: 1.5, marginBottom: 14, padding: "10px 12px", background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10 }}>
+          Esto todavía no cobra de verdad: guarda la configuración para cuando conectemos la pasarela. La clave secreta de Mercado Pago/Stripe no puede vivir en la app (se vería en el código del navegador) — necesita una función de servidor aparte, que armamos juntos cuando quieras activar el cobro real.
+        </div>
+        <Field label="Pasarela">
+          {BILLING_PROVIDERS.map((p) => (
+            <button key={p.id} onClick={() => setDraft({ ...draft, provider: p.id })} style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px", marginBottom: 8,
+              borderRadius: 11, border: `1px solid ${draft.provider === p.id ? P.ember : P.line}`, background: draft.provider === p.id ? `${P.ember}0E` : P.s2 }}>
+              <div style={{ fontWeight: 700, fontSize: 14.5 }}>{p.label}</div>
+              <div style={{ fontSize: 12, color: P.faint, marginTop: 2 }}>{p.note}</div>
+            </button>
+          ))}
+        </Field>
+        <Field label="Public Key" hint="La clave pública (no la secreta) de tu cuenta de Mercado Pago o Stripe.">
+          <Inp value={draft.publicKey} onChange={(e) => setDraft({ ...draft, publicKey: e.target.value })} placeholder="APP_USR-... / pk_live_..." />
+        </Field>
+        <Btn kind="ember" onClick={save} style={{ width: "100%" }}>Guardar</Btn>
+      </Sheet>
+    </Card>
+  );
+};
+
 const CobrosTab = ({ roster, toast }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, pay }
@@ -5896,6 +5954,8 @@ const CobrosTab = ({ roster, toast }) => {
       <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 16, lineHeight: 1.45 }}>
         Define el pack de cada alumno, registra los pagos y mirá quién está al día de un vistazo. Es un registro manual — no cobra automáticamente por vos.
       </div>
+
+      <BillingConfigCard />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
         <Card style={{ padding: "14px 15px" }}>
