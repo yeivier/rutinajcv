@@ -15,7 +15,15 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v47";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v48";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+
+// Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
+// splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
+// (hardcodeado) en el JSX. Sirve para poder re-marcar la app (nombre propio
+// de otro coach/estudio) tocando solo estas dos líneas — el resto de las
+// menciones a "FORJA" dentro de textos de copy (glosario, IA, logros) se
+// dejan como están porque son prosa, no elementos de marca visual.
+const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso" };
 
 // Paleta FORJA: negro, rojo sangre y blanco intenso — en capas, no en
 // bloques planos: superficies con calidez rojiza para dar profundidad
@@ -1332,7 +1340,7 @@ const Logo = ({ size = 26 }) => (
         </g>
       </svg>
     </div>
-    <div className="disp" style={{ fontSize: size * 0.72, fontWeight: 700, letterSpacing: ".18em", color: P.text }}>FORJA</div>
+    <div className="disp" style={{ fontSize: size * 0.72, fontWeight: 700, letterSpacing: ".18em", color: P.text }}>{BRAND.name}</div>
   </div>
 );
 
@@ -1372,12 +1380,12 @@ const SplashScreen = ({ exiting }) => (
         </div>
       </div>
       <div className="disp" style={{ fontSize: 34, fontWeight: 800, letterSpacing: ".22em", color: P.text }}>
-        {"FORJA".split("").map((ch, i) => (
+        {BRAND.name.split("").map((ch, i) => (
           <span key={i} className="splashLetter" style={{ animationDelay: `${0.95 + i * 0.08}s` }}>{ch}</span>
         ))}
       </div>
       <div className="splashTag" style={{ fontSize: 12.5, color: P.faint, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".14em" }}>
-        Entrenamiento · Nutrición · Progreso
+        {BRAND.tagline}
       </div>
       <div className="splashBar" style={{ width: 130, height: 3, borderRadius: 999, background: "rgba(255,255,255,.12)", overflow: "hidden", marginTop: 2 }}>
         <div className="splashBarSweep" style={{ width: "40%", height: "100%", borderRadius: 999,
