@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v49";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v50";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -5957,6 +5957,168 @@ const CobrosTab = ({ roster, toast }) => {
 };
 
 /* ============================================================
+   ADQUISICIÓN DE CLIENTES — embudo de leads (prospectos), del primer
+   contacto a convertirse en alumno pagando. Los leads hoy se cargan a
+   mano (o pegados desde una planilla); cuando haya cuentas de
+   publicidad reales conectadas (Meta/Google/YouTube Ads), llegarán
+   acá solos con `source` ya marcado — el resto del flujo no cambia.
+   Avanzar a "Rutina de prueba" crea de una vez al alumno en el
+   roster (con plan y guía en blanco) para que el coach le arme algo
+   real dentro de FORJA, en vez de dejarlo como una nota suelta.
+   ============================================================ */
+const LEAD_SOURCES = [
+  { id: "meta_ads", label: "Meta Ads" },
+  { id: "google_ads", label: "Google Ads" },
+  { id: "youtube_ads", label: "YouTube Ads" },
+  { id: "referido", label: "Referido" },
+  { id: "manual", label: "Otro / manual" },
+];
+const LEAD_STAGES = [
+  { id: "nuevo", label: "Nuevo", next: "contactado", nextLabel: "Marcar contactado" },
+  { id: "contactado", label: "Contactado", next: "prueba", nextLabel: "Asignar rutina de prueba" },
+  { id: "prueba", label: "Rutina de prueba", next: "convertido", nextLabel: "Convertir a cliente" },
+  { id: "convertido", label: "Convertido", next: null, nextLabel: null },
+];
+const leadSourceLabel = (id) => (LEAD_SOURCES.find((s) => s.id === id) || LEAD_SOURCES[4]).label;
+const waLink = (phone) => { const digits = (phone || "").replace(/[^\d]/g, ""); return digits ? `https://wa.me/${digits}` : null; };
+
+const LeadCard = ({ lead, onAdvance, onLost, onRestore, onManageStudent }) => {
+  const stage = LEAD_STAGES.find((s) => s.id === lead.stage);
+  const wa = waLink(lead.phone);
+  const daysIn = Math.max(0, Math.round((parseDate(isoDate(new Date())) - parseDate((lead.createdAt || "").slice(0, 10))) / 86400000));
+  return (
+    <Card style={{ padding: "12px 13px", marginBottom: 9 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>{lead.name}</div>
+          <div style={{ fontSize: 12, color: P.faint, marginTop: 1 }}>{leadSourceLabel(lead.source)}{lead.phone ? ` · ${lead.phone}` : ""}</div>
+        </div>
+        {lead.stage !== "convertido" && lead.stage !== "perdido" && (
+          <button onClick={() => onLost(lead.id)} title="Marcar como perdido" aria-label={`Marcar ${lead.name} como perdido`} style={{ color: P.faint, padding: 3, flexShrink: 0 }}>
+            <X size={15} />
+          </button>
+        )}
+        {lead.stage === "perdido" && (
+          <button onClick={() => onRestore(lead.id)} title="Recuperar lead" aria-label={`Recuperar ${lead.name}`} style={{ color: P.faint, padding: 3, flexShrink: 0 }}>
+            <RotateCcw size={14} />
+          </button>
+        )}
+      </div>
+      {lead.note && <div style={{ fontSize: 13, color: P.dim, marginTop: 6, lineHeight: 1.4 }}>{lead.note}</div>}
+      <div style={{ fontSize: 11, color: P.faint, marginTop: 6 }}>{daysIn === 0 ? "Hoy" : `Hace ${daysIn} día${daysIn !== 1 ? "s" : ""}`}</div>
+      <div style={{ display: "flex", gap: 6, marginTop: 9, flexWrap: "wrap" }}>
+        {wa && (
+          <a href={wa} target="_blank" rel="noreferrer" style={{ flex: "1 1 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
+            padding: "7px 10px", borderRadius: 11, fontSize: 12.5, fontWeight: 600, background: "rgba(255,255,255,.08)", border: `1px solid ${P.line}`, color: P.text }}>
+            <MessageSquare size={13} /> WhatsApp
+          </a>
+        )}
+        {stage && stage.next && lead.stage !== "perdido" && (
+          <Btn kind="ember" small onClick={() => onAdvance(lead, stage.next)} style={{ flex: "1 1 auto" }}>{stage.nextLabel}</Btn>
+        )}
+        {lead.stage === "convertido" && lead.studentId && (
+          <Btn kind="line" small onClick={() => onManageStudent(lead.studentId)} style={{ flex: "1 1 auto" }}><Users size={13} /> Ver en Alumnos</Btn>
+        )}
+      </div>
+    </Card>
+  );
+};
+
+const LeadsTab = ({ onCreateStudent, onManageStudent, toast }) => {
+  const [loading, setLoading] = useState(true);
+  const [leads, setLeads] = useState([]);
+  const [showLost, setShowLost] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState({ name: "", phone: "", source: "manual", note: "" });
+
+  useEffect(() => { (async () => { setLoading(true); const d = await sGet("forja-leads"); setLeads((d && d.leads) || []); setLoading(false); })(); }, []);
+  const save = async (next) => { setLeads(next); await sSet("forja-leads", { leads: next }); };
+
+  const addLead = async () => {
+    if (!draft.name.trim()) return;
+    const lead = { id: uid(), name: draft.name.trim(), phone: draft.phone.trim(), source: draft.source, note: draft.note.trim(),
+      stage: "nuevo", studentId: null, createdAt: isoDate(new Date()) };
+    await save([lead, ...leads]);
+    setAdding(false); setDraft({ name: "", phone: "", source: "manual", note: "" });
+    toast && toast(`✓ Lead «${lead.name}» agregado`);
+  };
+
+  const advance = async (lead, nextStage) => {
+    let studentId = lead.studentId;
+    // Al pasar a "prueba" (o directo a "convertido" si se saltó ese paso) se
+    // crea el alumno real en el roster, para poder armarle una rutina.
+    if (!studentId && (nextStage === "prueba" || nextStage === "convertido")) {
+      const created = await onCreateStudent(lead.name);
+      studentId = created ? created.id : null;
+    }
+    const next = leads.map((l) => (l.id === lead.id ? { ...l, stage: nextStage, studentId } : l));
+    await save(next);
+    if (nextStage === "prueba") toast && toast(`✓ ${lead.name} ya está en Alumnos — arma su rutina de prueba en Rutina.`);
+    if (nextStage === "convertido") toast && toast(`🎉 ${lead.name} convertido en cliente`);
+  };
+  const markLost = async (id) => save(leads.map((l) => (l.id === id ? { ...l, stage: "perdido" } : l)));
+  const restore = async (id) => save(leads.map((l) => (l.id === id ? { ...l, stage: "nuevo" } : l)));
+
+  const board = LEAD_STAGES.map((s) => ({ ...s, items: leads.filter((l) => l.stage === s.id) }));
+  const lost = leads.filter((l) => l.stage === "perdido");
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando leads…</div>;
+
+  return (
+    <div style={{ padding: "18px 16px 30px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <Zap size={22} color={P.ember} />
+        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Adquisición</h1>
+      </div>
+      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 14, lineHeight: 1.45 }}>
+        Embudo de prospectos hasta convertirse en alumno. Hoy se cargan a mano — cuando conectes campañas reales de Meta/Google/YouTube Ads, van a caer acá solas.
+      </div>
+
+      <Btn kind="ember" onClick={() => setAdding(true)} style={{ width: "100%", marginBottom: 14 }}><Plus size={15} /> Nuevo lead</Btn>
+
+      <div style={{ display: "flex", gap: 10, overflowX: "auto", WebkitOverflowScrolling: "touch", scrollSnapType: "x mandatory", margin: "0 -16px", padding: "0 16px 6px" }}>
+        {board.map((col) => (
+          <div key={col.id} style={{ flex: "0 0 84%", maxWidth: 340, scrollSnapAlign: "start" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "0 2px" }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: P.faint }}>{col.label}</div>
+              <div style={{ fontSize: 11.5, color: P.faint, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 999, padding: "1px 7px" }}>{col.items.length}</div>
+            </div>
+            {col.items.length === 0
+              ? <div style={{ fontSize: 12.5, color: P.faint, padding: "10px 2px" }}>Sin leads acá</div>
+              : col.items.map((l) => <LeadCard key={l.id} lead={l} onAdvance={advance} onLost={markLost} onRestore={restore} onManageStudent={onManageStudent} />)}
+          </div>
+        ))}
+      </div>
+
+      {lost.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <button onClick={() => setShowLost((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 6, color: P.faint, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>
+            {showLost ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Perdidos ({lost.length})
+          </button>
+          {showLost && (
+            <div style={{ marginTop: 10 }}>
+              {lost.map((l) => <LeadCard key={l.id} lead={l} onAdvance={advance} onLost={markLost} onRestore={restore} onManageStudent={onManageStudent} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      <Sheet open={adding} onClose={() => setAdding(false)} title="Nuevo lead">
+        <Field label="Nombre"><Inp value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Nombre del prospecto" /></Field>
+        <Field label="Teléfono (WhatsApp)"><Inp value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} placeholder="+56 9 1234 5678" /></Field>
+        <Field label="Origen">
+          <select value={draft.source} onChange={(e) => setDraft({ ...draft, source: e.target.value })} style={{ width: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+            {LEAD_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Nota (opcional)"><Txt rows={2} value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} placeholder="Ej: pregunta por plan de hipertrofia, prefiere entrenar de tarde…" /></Field>
+        <Btn kind="ember" disabled={!draft.name.trim()} onClick={addLead} style={{ width: "100%" }}>Agregar lead</Btn>
+      </Sheet>
+    </div>
+  );
+};
+
+/* ============================================================
    Chrome global: banner de storage, toast, tabs y App raíz
    ============================================================ */
 /* ============================================================
@@ -7651,7 +7813,7 @@ const ROLE_META = {
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "timer", "guia", "atlas"];
+const TABS_COACH_IDS = ["rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "timer", "guia", "atlas"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -7705,6 +7867,7 @@ const TABS = {
     { id: "actividad", label: "Activ.", Icon: Users },
     { id: "rankings", label: "Rankings", Icon: Trophy },
     { id: "cobros", label: "Cobros", Icon: Wallet },
+    { id: "leads", label: "Leads", Icon: Zap },
     { id: "timer", label: "Timer", Icon: Timer },
     { id: "guia", label: "Guía", Icon: BookOpen },
     { id: "atlas", label: "Atlas", Icon: Library },
@@ -8145,19 +8308,32 @@ const App = () => {
     sDel(`forja-active:${sidRef.current}`);
   }, []);
 
-  const addStudent = async (enterAsAlumno) => {
-    const name = (typeof window !== "undefined" && window.prompt ? window.prompt("Nombre del nuevo alumno:") : "") || "";
-    const trimmed = name.trim();
-    if (!trimmed) return;
+  // Crea un alumno con un nombre ya definido (sin prompt()) — usado tanto
+  // por "Agregar alumno" como por el embudo de Adquisición al pasar un lead
+  // a "rutina de prueba" o "convertido". Devuelve el id y el roster ya
+  // actualizado (para no depender del estado, que puede estar stale justo
+  // después de este mismo await).
+  const createStudentNamed = async (name) => {
+    const trimmed = (name || "").trim();
+    if (!trimmed) return null;
     const id = uid();
     const r = { ...roster, students: [...roster.students, { id, name: trimmed, createdAt: todayISO() }] };
     await sSet(`forja-plan:${id}`, emptyPlan());
     await sSet(`forja-history:${id}`, emptyHistory());
     await sSet("forja-roster", r);
     setRoster(r);
-    if (enterAsAlumno) openIdentity("alumno", id, r);
-    else { setRosterOpen(false); openIdentity("coach", id, r, myTeamId); }
+    return { id, roster: r };
   };
+
+  const addStudent = async (enterAsAlumno) => {
+    const name = (typeof window !== "undefined" && window.prompt ? window.prompt("Nombre del nuevo alumno:") : "") || "";
+    const created = await createStudentNamed(name);
+    if (!created) return;
+    if (enterAsAlumno) openIdentity("alumno", created.id, created.roster);
+    else { setRosterOpen(false); openIdentity("coach", created.id, created.roster, myTeamId); }
+  };
+
+  const manageStudent = (studentId) => { setRosterOpen(false); openIdentity("coach", studentId, roster, myTeamId); };
 
   // Actualiza campos sueltos del alumno (hoy: qué rutinas puede ver).
   const updateStudent = async (studentId, patch) => {
@@ -8287,6 +8463,11 @@ const App = () => {
         {mode === "coach" && tab === "cobros" && (
           <ReadOnlyLock active={roleTabAccess.cobros === "view"} toast={toast}>
             <CobrosTab roster={roster} toast={toast} />
+          </ReadOnlyLock>
+        )}
+        {mode === "coach" && tab === "leads" && (
+          <ReadOnlyLock active={roleTabAccess.leads === "view"} toast={toast}>
+            <LeadsTab onCreateStudent={createStudentNamed} onManageStudent={manageStudent} toast={toast} />
           </ReadOnlyLock>
         )}
         {tab === "timer" && <TimerTab />}
