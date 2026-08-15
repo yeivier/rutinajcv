@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v50";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v51";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -3213,7 +3213,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
 /* ============================================================
    Hoy (inicio del alumno)
    ============================================================ */
-const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines }) => {
+const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid }) => {
   const [showInstr, setShowInstr] = useState(false);
   const wk = weekKey(todayISO());
   const weekSessions = history.sessions.filter((s) => weekKey(s.date) === wk);
@@ -3241,6 +3241,7 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines }) => 
       </div>
 
       <EventReminderBanner events={plan.events} />
+      <NextBookingBanner bookings={bookings} sid={sid} />
 
       {active ? (
         <Card style={{ padding: 16, marginBottom: 14, borderColor: `${P.ember}66`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
@@ -7396,6 +7397,38 @@ const upcomingEvents = (events) => (events || [])
   .filter((e) => e._in >= 0 && e._in <= (e.remind || 0))
   .sort((a, b) => a._in - b._in);
 
+// Reservas de sesión — un solo calendario global (ver comentario junto a
+// `bookings` en App), así que estas funciones filtran/ordenan sobre TODAS
+// las reservas, no las de un plan puntual. "Cancelada" no se borra: queda
+// en el registro para que tanto el coach como el alumno vean que hubo una
+// reserva que no se concretó, en vez de que desaparezca sin dejar rastro.
+const activeBookingsOnDate = (slots, iso) => (slots || []).filter((b) => b.date === iso && b.status !== "cancelada").sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+const bookingsOnDate = (slots, iso) => (slots || []).filter((b) => b.date === iso).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+const studentUpcomingBookings = (slots, studentId) => (slots || [])
+  .filter((b) => b.studentId === studentId && b.status !== "cancelada" && daysUntil(b.date) >= 0)
+  .sort((a, b) => a.date === b.date ? (a.time || "").localeCompare(b.time || "") : a.date.localeCompare(b.date));
+
+// Aviso en Hoy de la próxima sesión reservada (solo la más próxima, para no
+// competir con el banner de recordatorios): "hoy"/"mañana" cuando aplica,
+// si no la fecha completa.
+const NextBookingBanner = ({ bookings, sid }) => {
+  const next = studentUpcomingBookings(bookings, sid)[0];
+  if (!next) return null;
+  const inDays = daysUntil(next.date);
+  const when = inDays === 0 ? "Hoy" : inDays === 1 ? "Mañana" : fmtDateFull(next.date);
+  return (
+    <Card style={{ padding: "12px 14px", marginBottom: 14, borderColor: "#7DA6C755" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Timer size={18} color="#7DA6C7" style={{ flexShrink: 0 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14.5, fontWeight: 700 }}>Sesión reservada con tu coach</div>
+          <div style={{ fontSize: 13, color: P.dim, marginTop: 1 }}>{when} a las {next.time}{next.durationMin ? ` · ${next.durationMin} min` : ""}</div>
+        </div>
+      </div>
+    </Card>
+  );
+};
+
 const EventReminderBanner = ({ events }) => {
   const list = upcomingEvents(events);
   if (!list.length) return null;
@@ -7426,7 +7459,7 @@ const EventReminderBanner = ({ events }) => {
 /* Calendario mensual/semanal reutilizado por la Agenda del coach y del
    alumno — mismo look que un Google Calendar simplificado: navegación por
    mes o semana, celdas con puntitos de color por cada evento del día. */
-const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected, dayFor, eventsFor, sessionsOnDate }) => {
+const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected, dayFor, eventsFor, sessionsOnDate, bookingsFor }) => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
   const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
@@ -7455,6 +7488,7 @@ const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected,
     const evs = eventsFor(iso);
     const sess = sessionsOnDate(iso);
     const hasSession = sess.length > 0;
+    const bks = bookingsFor ? bookingsFor(iso) : [];
     return (
       <button key={iso} onClick={() => setSelected(iso)}
         style={{ position: "relative", aspectRatio: "1", padding: 3, borderRadius: 8,
@@ -7462,6 +7496,12 @@ const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected,
           border: `1px solid ${isSel ? P.ember : isTodayCell ? P.ember2 + "55" : "transparent"}`,
           opacity: isCurMonth || view === "week" ? 1 : 0.35, display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "flex-start", gap: 2 }}>
+        {bks.length > 0 && (
+          <span title={`${bks.length} sesión${bks.length !== 1 ? "es" : ""} reservada${bks.length !== 1 ? "s" : ""}`}
+            style={{ position: "absolute", top: 2, right: 3, display: "flex", alignItems: "center", gap: 1, fontSize: 9, fontWeight: 700, color: "#7DA6C7" }}>
+            <Timer size={8} strokeWidth={3} />{bks.length > 1 ? bks.length : ""}
+          </span>
+        )}
         <span style={{ fontSize: 13, fontWeight: isTodayCell ? 700 : 500, color: isSel ? P.ember : P.text }}>{d.getDate()}</span>
         {day && <div style={{ width: "80%", height: 3, borderRadius: 2, background: hasSession ? P.green : P.ember }} />}
         {!day && !hasSession && evs.length === 0 && <div style={{ width: 3, height: 3, borderRadius: 999, background: P.faint, opacity: 0.5 }} />}
@@ -7503,12 +7543,13 @@ const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected,
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 3, background: P.ember, borderRadius: 2 }} />Entrenamiento</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 3, background: P.green, borderRadius: 2 }} />Realizado</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 6, height: 6, background: eventColorDot("blue"), borderRadius: 999 }} />Evento</span>
+        {bookingsFor && <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Timer size={10} color="#7DA6C7" strokeWidth={3} />Sesión reservada</span>}
       </div>
     </Card>
   );
 };
 
-const CalendarTab = ({ plan, history, onGoTrain }) => {
+const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking }) => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const [view, setView] = useState("month"); // week | month
   const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
@@ -7521,11 +7562,15 @@ const CalendarTab = ({ plan, history, onGoTrain }) => {
   };
   const eventsFor = (iso) => (plan.events || []).filter((e) => e.date === iso);
   const sessionsOnDate = (iso) => history.sessions.filter((s) => s.date === iso);
+  // El alumno solo ve SUS propias reservas en el calendario (no las de
+  // otros alumnos, que solo el coach ve todas juntas en su Agenda).
+  const myBookingsFor = (iso) => activeBookingsOnDate(bookings, iso).filter((b) => b.studentId === sid);
 
   const selDate = parseDate(selected);
   const selDay = dayFor(selDate);
   const selEvents = eventsFor(selected);
   const selSessions = sessionsOnDate(selected);
+  const selBookings = myBookingsFor(selected);
   const isToday = selected === isoDate(today);
 
   return (
@@ -7535,7 +7580,7 @@ const CalendarTab = ({ plan, history, onGoTrain }) => {
       <EventReminderBanner events={plan.events} />
 
       <CalendarGrid cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
-        dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} />
+        dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} bookingsFor={myBookingsFor} />
 
       <Card style={{ padding: "13px 15px" }}>
         <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 3 }}>
@@ -7564,6 +7609,22 @@ const CalendarTab = ({ plan, history, onGoTrain }) => {
           <div style={{ marginTop: 8, fontSize: 15, color: P.dim }}>Día de descanso · sin entrenamiento programado</div>
         )}
 
+        {selBookings.length > 0 && (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
+            <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Sesión reservada con tu coach</div>
+            {selBookings.map((b) => (
+              <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", background: "#7DA6C718", border: "1px solid #7DA6C755", borderRadius: 9, marginBottom: 6 }}>
+                <Timer size={15} color="#7DA6C7" style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600 }}>{b.time || "Hora sin definir"}{b.durationMin ? ` · ${b.durationMin} min` : ""}</div>
+                  {b.note && <div style={{ fontSize: 13, color: P.dim, marginTop: 1 }}>{b.note}</div>}
+                </div>
+                <Btn kind="line" small onClick={() => onCancelBooking && onCancelBooking(b.id)}>Cancelar</Btn>
+              </div>
+            ))}
+          </div>
+        )}
+
         {selEvents.length > 0 && (
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
             <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Recordatorios del coach</div>
@@ -7586,13 +7647,14 @@ const CalendarTab = ({ plan, history, onGoTrain }) => {
 /* Agenda en modo coach: mismo calendario que ve el alumno, más la
    configuración de la semana tipo. Tocar cualquier día abre el detalle y
    permite agregar o editar un evento con fecha, color y aviso previo. */
-const ScheduleEditor = ({ plan, history, savePlan }) => {
+const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBookings }) => {
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const [view, setView] = useState("month");
   const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selected, setSelected] = useState(isoDate(today));
   const [eventSheet, setEventSheet] = useState(null); // { id?, date, title, note, color, remind }
+  const [bookingSheet, setBookingSheet] = useState(null); // { id?, date, studentId, time, durationMin, note }
 
   const dayFor = (dateObj) => {
     const key = DAY_KEYS[dateObj.getDay()];
@@ -7601,10 +7663,14 @@ const ScheduleEditor = ({ plan, history, savePlan }) => {
   };
   const eventsFor = (iso) => (plan.events || []).filter((e) => e.date === iso);
   const sessionsOnDate = (iso) => (history ? history.sessions.filter((s) => s.date === iso) : []);
+  const slots = (bookings && bookings.slots) || [];
+  const bookingsForDay = (iso) => activeBookingsOnDate(slots, iso);
 
   const selDate = parseDate(selected);
   const selDay = dayFor(selDate);
   const selEvents = eventsFor(selected);
+  const selBookings = bookingsOnDate(slots, selected); // acá sí se ven las canceladas, para llevar registro
+  const studentName = (id) => (roster ? (roster.students.find((s) => s.id === id) || {}).name : "") || "Alumno eliminado";
 
   const openNewEvent = (date) => setEventSheet({ date: date || selected, title: "", note: "", color: "ember", remind: 0 });
   const saveEvent = () => {
@@ -7622,15 +7688,26 @@ const ScheduleEditor = ({ plan, history, savePlan }) => {
   };
   const deleteEvent = (id) => { mut((p) => { p.events = p.events.filter((x) => x.id !== id); }); setEventSheet(null); };
 
+  const openNewBooking = (date) => setBookingSheet({ date: date || selected, studentId: (roster && roster.students[0] && roster.students[0].id) || "", time: "09:00", durationMin: 60, note: "" });
+  const saveBooking = () => {
+    if (!bookingSheet.studentId || !bookingSheet.time) return;
+    const next = bookingSheet.id
+      ? slots.map((s) => (s.id === bookingSheet.id ? { ...s, ...bookingSheet } : s))
+      : [...slots, { id: uid(), status: "reservada", createdAt: todayISO(), ...bookingSheet }];
+    onSaveBookings && onSaveBookings(next);
+    setBookingSheet(null);
+  };
+  const cancelBooking = (id) => { onSaveBookings && onSaveBookings(slots.map((s) => (s.id === id ? { ...s, status: "cancelada" } : s))); setBookingSheet(null); };
+
   return (
     <div style={{ padding: "18px 16px 30px" }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Agenda</h1>
-      <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Toca cualquier día del calendario para ver qué entrena tu alumno y agregar recordatorios (fotos de progreso, chequeos, etc.). Abajo configuras qué rutina toca cada día de la semana.</div>
+      <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Toca cualquier día del calendario para ver qué entrena tu alumno, reservar sesiones y agregar recordatorios. Abajo configuras qué rutina toca cada día de la semana.</div>
 
       <EventReminderBanner events={plan.events} />
 
       <CalendarGrid cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
-        dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} />
+        dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} bookingsFor={bookingsForDay} />
 
       <Card style={{ padding: "13px 15px", marginBottom: 14 }}>
         <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 3 }}>
@@ -7642,6 +7719,27 @@ const ScheduleEditor = ({ plan, history, savePlan }) => {
           </div>
         ) : (
           <div style={{ marginTop: 6, fontSize: 14.5, color: P.faint }}>Día de descanso, según la semana tipo de abajo</div>
+        )}
+
+        {roster && (
+          <div style={{ marginTop: 12 }}>
+            {selBookings.map((b) => {
+              const lost = b.status === "cancelada";
+              return (
+                <button key={b.id} onClick={() => setBookingSheet({ ...b })} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 9, padding: "8px 10px",
+                  background: P.s2, border: `1px solid ${P.line}`, borderRadius: 9, marginBottom: 6, opacity: lost ? 0.55 : 1 }}>
+                  <Timer size={15} color={lost ? P.faint : "#7DA6C7"} style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14.5, fontWeight: 600, textDecoration: lost ? "line-through" : "none" }}>{b.time} · {studentName(b.studentId)}</div>
+                    <div style={{ fontSize: 12, color: P.faint, marginTop: 1 }}>{b.durationMin} min{lost ? " · cancelada" : ""}{b.note ? ` · ${b.note}` : ""}</div>
+                  </div>
+                </button>
+              );
+            })}
+            <Btn kind="line" small onClick={() => openNewBooking(selected)} style={{ width: "100%", marginTop: 4 }}>
+              <Timer size={13} /> Reservar sesión el {selDate.getDate()} de {MONTH_LABELS[selDate.getMonth()].toLowerCase()}
+            </Btn>
+          </div>
         )}
 
         {selEvents.length > 0 && (
@@ -7712,6 +7810,31 @@ const ScheduleEditor = ({ plan, history, savePlan }) => {
           </>
         )}
       </Sheet>
+
+      {roster && (
+        <Sheet open={!!bookingSheet} onClose={() => setBookingSheet(null)} title={bookingSheet && bookingSheet.id ? "Editar reserva" : "Reservar sesión"}>
+          {bookingSheet && (
+            <>
+              <Field label="Alumno">
+                <select value={bookingSheet.studentId} onChange={(e) => setBookingSheet({ ...bookingSheet, studentId: e.target.value })} style={{ width: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+                  {roster.students.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Fecha"><Inp type="date" value={bookingSheet.date} onChange={(e) => setBookingSheet({ ...bookingSheet, date: e.target.value })} /></Field>
+              <Field label="Hora"><Inp type="time" value={bookingSheet.time} onChange={(e) => setBookingSheet({ ...bookingSheet, time: e.target.value })} /></Field>
+              <Field label="Duración (minutos)"><Inp type="number" inputMode="numeric" value={bookingSheet.durationMin} onChange={(e) => setBookingSheet({ ...bookingSheet, durationMin: +e.target.value || 0 })} /></Field>
+              <Field label="Nota (opcional)"><Inp value={bookingSheet.note} onChange={(e) => setBookingSheet({ ...bookingSheet, note: e.target.value })} placeholder="Ej: primera sesión, evaluación inicial…" /></Field>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                {bookingSheet.id && bookingSheet.status !== "cancelada" && (
+                  <button onClick={() => cancelBooking(bookingSheet.id)} style={{ padding: "0 12px", color: P.red }} aria-label="Cancelar reserva"><Trash2 size={17} /></button>
+                )}
+                <Btn kind="line" onClick={() => setBookingSheet(null)} style={{ flex: 1 }}>Cerrar</Btn>
+                <Btn kind="ember" disabled={!bookingSheet.studentId || !bookingSheet.time} onClick={saveBooking} style={{ flex: 2 }}>Guardar</Btn>
+              </div>
+            </>
+          )}
+        </Sheet>
+      )}
     </div>
   );
 };
@@ -7977,27 +8100,73 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
   );
 };
 
-/* ---- Gestión de alumnos (coach) ---- */
-const RosterSheet = ({ open, onClose, roster, sid, onEnter, onAdd, onRename, onRemove }) => (
-  <Sheet open={open} onClose={onClose} title="Alumnos" tall>
-    <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 14 }}>Cada alumno tiene su propia rutina, historial y progreso, guardados por separado y sincronizados en todos los dispositivos que abran esta plataforma.</div>
-    {roster.students.map((s) => (
-      <Card key={s.id} style={{ padding: "12px 14px", marginBottom: 10, borderColor: s.id === sid ? `${P.ember}66` : P.line }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <div className="disp" style={{ width: 34, height: 34, borderRadius: 9, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2 }}>{s.name.slice(0, 1).toUpperCase()}</div>
-          <div style={{ flex: 1, fontWeight: 700, fontSize: 16 }}>{s.name}{s.id === sid && <span style={{ fontSize: 12, color: P.ember2, marginLeft: 8 }}>· gestionando</span>}</div>
-        </div>
-        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-          <Btn kind="ember" small onClick={() => onEnter("coach", s.id)}><ClipboardList size={13} /> Gestionar</Btn>
-          <Btn kind="line" small onClick={() => onEnter("alumno", s.id)}><Dumbbell size={13} /> Entrar como alumno</Btn>
-          <Btn kind="line" small onClick={() => onRename(s)}><PencilLine size={13} /> Renombrar</Btn>
-          {roster.students.length > 1 && <Btn kind="line" small onClick={() => onRemove(s)} style={{ color: P.red }}><Trash2 size={13} /></Btn>}
-        </div>
-      </Card>
-    ))}
-    <Btn kind="line" onClick={onAdd} style={{ width: "100%", marginTop: 4 }}><Plus size={15} /> Agregar alumno</Btn>
-  </Sheet>
-);
+/* ---- Gestión de alumnos (coach) — CRM liviano: junta lo que ya se guarda
+   por separado (pago, peso, última sesión, rutina) en una sola tarjeta por
+   alumno, para no tener que saltar entre Cobros/Rankings/Rutina solo para
+   ver el estado general de cada uno. No agrega ningún dato nuevo — es una
+   vista, no una fuente de verdad adicional. */
+const rosterPill = (color) => ({ fontSize: 11, fontWeight: 700, color, background: `${color}1A`, border: `1px solid ${color}55`, borderRadius: 999, padding: "3px 8px" });
+const RosterSheet = ({ open, onClose, roster, sid, onEnter, onAdd, onRename, onRemove }) => {
+  const [crm, setCrm] = useState({}); // { [studentId]: { pay, weight, lastSessionDaysAgo, dayCount } }
+  const [loadingCrm, setLoadingCrm] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingCrm(true);
+      const out = {};
+      for (const s of roster.students) {
+        const [pay, plan, history] = await Promise.all([
+          sGet(`forja-payments:${s.id}`), sGet(`forja-plan:${s.id}`), sGet(`forja-history:${s.id}`),
+        ]);
+        const sessions = (history && history.sessions) || [];
+        const lastSession = sessions[sessions.length - 1];
+        out[s.id] = {
+          pay: (pay && typeof pay.amount === "number") ? pay : emptyPayments(),
+          weight: numN(((plan && plan.athlete) || {}).weight),
+          lastSessionDaysAgo: lastSession ? Math.max(0, Math.round((parseDate(isoDate(new Date())) - parseDate(lastSession.date)) / 86400000)) : null,
+          dayCount: plan ? (plan.days || []).length : 0,
+        };
+      }
+      if (!cancelled) { setCrm(out); setLoadingCrm(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [open, roster]);
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Alumnos" tall>
+      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 14 }}>Cada alumno tiene su propia rutina, historial y progreso, guardados por separado y sincronizados en todos los dispositivos que abran esta plataforma.</div>
+      {roster.students.map((s) => {
+        const c = crm[s.id];
+        const st = c ? paymentStatus(c.pay.nextDue) : null;
+        return (
+          <Card key={s.id} style={{ padding: "12px 14px", marginBottom: 10, borderColor: s.id === sid ? `${P.ember}66` : P.line }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 9 }}>
+              <div className="disp" style={{ width: 34, height: 34, borderRadius: 9, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2, flexShrink: 0 }}>{s.name.slice(0, 1).toUpperCase()}</div>
+              <div style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 16 }}>{s.name}{s.id === sid && <span style={{ fontSize: 12, color: P.ember2, marginLeft: 8 }}>· gestionando</span>}</div>
+            </div>
+            {!loadingCrm && c && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                <span style={rosterPill(st.color)}>{st.key === "sin_fecha" ? "Sin pack" : st.label}</span>
+                <span style={rosterPill(P.faint)}>{c.lastSessionDaysAgo == null ? "Sin sesiones" : c.lastSessionDaysAgo === 0 ? "Entrenó hoy" : `Entrenó hace ${c.lastSessionDaysAgo}d`}</span>
+                {c.weight > 0 && <span style={rosterPill(P.faint)}>{c.weight} kg</span>}
+                <span style={rosterPill(P.faint)}>{c.dayCount} día{c.dayCount !== 1 ? "s" : ""} en su rutina</span>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+              <Btn kind="ember" small onClick={() => onEnter("coach", s.id)}><ClipboardList size={13} /> Gestionar</Btn>
+              <Btn kind="line" small onClick={() => onEnter("alumno", s.id)}><Dumbbell size={13} /> Entrar como alumno</Btn>
+              <Btn kind="line" small onClick={() => onRename(s)}><PencilLine size={13} /> Renombrar</Btn>
+              {roster.students.length > 1 && <Btn kind="line" small onClick={() => onRemove(s)} style={{ color: P.red }}><Trash2 size={13} /></Btn>}
+            </div>
+          </Card>
+        );
+      })}
+      <Btn kind="line" onClick={onAdd} style={{ width: "100%", marginTop: 4 }}><Plus size={15} /> Agregar alumno</Btn>
+    </Sheet>
+  );
+};
 
 /* ---- Gestión del equipo (solo Head Coach) ---- */
 const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove }) => {
@@ -8080,6 +8249,14 @@ const App = () => {
   const saveLibrary = useCallback((exercises) => {
     setLibrary(exercises);
     sSet("forja-library", { exercises });
+  }, []);
+  // Reservas de sesión: igual que la biblioteca, es un solo calendario
+  // compartido entre todos los alumnos (el coach ve las de todos a la vez
+  // en su Agenda), no algo que viva dentro del plan de cada uno.
+  const [bookings, setBookings] = useState({ slots: [] });
+  const saveBookings = useCallback((slots) => {
+    setBookings({ slots });
+    sSet("forja-bookings", { slots });
   }, []);
   const [myTeamId, setMyTeamId] = useState(null);
   const [equipoOpen, setEquipoOpen] = useState(false);
@@ -8168,6 +8345,8 @@ const App = () => {
       if (t && Array.isArray(t.members)) setTeam(t);
       const lib = await sGet("forja-library");
       if (lib && Array.isArray(lib.exercises)) setLibrary(lib.exercises);
+      const bk = await sGet("forja-bookings");
+      if (bk && Array.isArray(bk.slots)) setBookings({ slots: bk.slots });
       const dev = await sGet("forja-device", false);
       const known = dev && dev.sid && r.students.some((s) => s.id === dev.sid);
       if (dev && dev.mode && known) await openIdentity(dev.mode, dev.sid, r, dev.teamId);
@@ -8405,10 +8584,12 @@ const App = () => {
         <StorageBanner />
 
         {mode === "alumno" && tab === "hoy" && (
-          <TodayTab plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} allowedRoutines={currentStudent && currentStudent.allowedRoutines} />
+          <TodayTab plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} allowedRoutines={currentStudent && currentStudent.allowedRoutines}
+            bookings={bookings.slots} sid={sid} />
         )}
         {mode === "alumno" && tab === "agenda" && (
-          <CalendarTab plan={plan} history={history} onGoTrain={() => setTab("entrenar")} />
+          <CalendarTab plan={plan} history={history} onGoTrain={() => setTab("entrenar")}
+            bookings={bookings.slots} sid={sid} onCancelBooking={(id) => saveBookings(bookings.slots.map((s) => (s.id === id ? { ...s, status: "cancelada" } : s)))} />
         )}
         {mode === "alumno" && tab === "entrenar" && (
           <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive}
@@ -8434,7 +8615,7 @@ const App = () => {
         )}
         {mode === "coach" && tab === "agenda" && (
           <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
-            <ScheduleEditor plan={plan} history={history} savePlan={savePlan} />
+            <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && tab === "nutricion" && (
