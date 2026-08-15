@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v55";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v56";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -4759,6 +4759,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
   const [importOpen, setImportOpen] = useState(false);
   const [copiedEx, setCopiedEx] = useState(null);
   const [copiedDay, setCopiedDay] = useState(null);
+  const [copiedBlock, setCopiedBlock] = useState(null); // {kind, size, exs}: bloque de superserie/triserie/gigante
   const [fichaEx, setFichaEx] = useState(null); // ejercicio con la ficha técnica abierta (vista previa del coach)
   const [viewImg, setViewImg] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
@@ -4806,9 +4807,40 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     const pasted = structuredClone(copiedEx);
     pasted.id = uid();
     delete pasted.isNew;
+    // Un ejercicio copiado suelto no debe arrastrar el `group` del original:
+    // si el día de destino tuviera (por casualidad, o al pegar en el mismo
+    // día) otro ejercicio con ese mismo group, el pegado se "colaría" como
+    // miembro silencioso de esa superserie/triserie en vez de quedar solo.
+    delete pasted.group;
+    delete pasted.groupRounds;
     pasted.sets = (pasted.sets || []).map((s) => ({ ...s, id: uid() }));
     mut((p) => p.days.find((day) => day.id === dayId).exs.push(pasted));
     if (toast) toast(`✓ «${pasted.name}» pegado con series, indicaciones y adjuntos`);
+  };
+  // Copia el bloque completo (superserie/triserie/serie gigante) al que
+  // pertenece el ejercicio con id `blockKey`: todos sus ejercicios, en su
+  // orden interno, con series e indicaciones — para pegarlo entero en
+  // cualquier día (incluido el mismo, para duplicarlo).
+  const copyBlock = (day, blockKey) => {
+    const b = exBlocks(day.exs).find((bl) => bl.key === blockKey);
+    if (!b) return;
+    const exs = structuredClone(day.exs.slice(b.start, b.end));
+    setCopiedBlock({ kind: groupKindFor(exs.length), size: exs.length, exs });
+    if (toast) toast(`✓ ${GROUP_KINDS[groupKindFor(exs.length)].label} copiada: ${exs.length} ejercicios`);
+  };
+  // Pega el bloque copiado al final del día indicado, como un bloque nuevo e
+  // independiente: nuevo `group` compartido por todos sus ejercicios (para
+  // no quedar ligado, ni por casualidad, al bloque original ni a ningún otro
+  // ya presente en el día), e ids nuevos en ejercicios y series.
+  const pasteBlock = (dayId) => {
+    if (!copiedBlock) return;
+    const newGroup = uid();
+    const pasted = copiedBlock.exs.map((e) => ({
+      ...structuredClone(e), id: uid(), group: newGroup,
+      sets: (e.sets || []).map((s) => ({ ...s, id: uid() })),
+    }));
+    mut((p) => p.days.find((day) => day.id === dayId).exs.push(...pasted));
+    if (toast) toast(`✓ ${GROUP_KINDS[copiedBlock.kind].label} pegada: ${pasted.length} ejercicios`);
   };
   // El arrastre arranca solo desde el asa de puntos, así el resto de la
   // tarjeta se sigue pudiendo tocar y el móvil no activa la selección de texto.
@@ -5268,6 +5300,14 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                           onChange={(ev) => { const raw = ev.target.value.replace(/[^0-9]/g, "");
                             mut((p) => p.days[di].exs.forEach((x) => { if (x.group === e.group) x.groupRounds = raw; })); }}
                           style={{ width: 46, padding: "5px 4px", fontSize: 14, textAlign: "center" }} />
+                        <button onClick={() => copyBlock(d, blockKey)}
+                          aria-label={`Copiar el bloque completo (${GROUP_KINDS[gr.kind].label.toLowerCase()})`}
+                          title="Copiar el bloque completo: todos sus ejercicios, series y rondas"
+                          style={{ fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 4,
+                            color: copiedBlock && copiedBlock.exs[0] && copiedBlock.exs[0].id === blockKey ? P.ember2 : P.faint,
+                            padding: "3px 7px", borderRadius: 7, border: `1px solid ${P.line}` }}>
+                          <Copy size={12} /> Copiar bloque
+                        </button>
                         <button onClick={() => mut((p) => { const grp = e.group; p.days[di].exs.forEach((x) => { if (x.group === grp) { delete x.group; delete x.groupRounds; } }); })}
                           aria-label="Deshacer el bloque" title="Deshacer el bloque (los ejercicios quedan sueltos)"
                           style={{ fontSize: 12, fontWeight: 600, color: P.faint, padding: "3px 7px", borderRadius: 7, border: `1px solid ${P.line}` }}>
@@ -5343,6 +5383,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                     {copiedDay && copiedDay.id !== d.id && (copiedDay.exs || []).length > 0 && (
                       <Btn kind="line" small onClick={() => pasteDayExercises(d.id)} style={{ flex: 1.5, minWidth: 200 }}>
                         <ClipboardList size={15} /> Pegar {copiedDay.exs.length} ejercicios de «{copiedDay.name}»
+                      </Btn>
+                    )}
+                    {copiedBlock && (
+                      <Btn kind="line" small onClick={() => pasteBlock(d.id)} style={{ flex: 1.5, minWidth: 200 }}>
+                        <ClipboardList size={15} /> Pegar {GROUP_KINDS[copiedBlock.kind].label.toLowerCase()} ({copiedBlock.size} ejercicios)
                       </Btn>
                     )}
                   </div>
