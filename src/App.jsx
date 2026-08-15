@@ -6,7 +6,7 @@ import {
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
-  Trophy, Medal, Gift, Lock, Eye, EyeOff
+  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet
 } from "lucide-react";
 
 /* ============================================================
@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v48";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v49";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -5776,6 +5776,187 @@ const RankingsTab = ({ roster, toast }) => {
 };
 
 /* ============================================================
+   COBROS — seguimiento de pagos por alumno: el pack contratado
+   (monto, moneda, ciclo), el historial de pagos y el próximo
+   vencimiento, con un panel único que resume "los números del
+   negocio" (ingresos del mes, cuántos alumnos están al día o
+   atrasados). Es un REGISTRO manual, no una pasarela de cobro: no
+   mueve dinero real, solo lo que el coach anota. Cada alumno guarda
+   su propio objeto en forja-payments:<id>, separado de plan/history
+   igual que ya se hace con esos dos.
+   ============================================================ */
+const CYCLES = {
+  mensual:    { label: "Mensual", months: 1 },
+  trimestral: { label: "Trimestral", months: 3 },
+  semestral:  { label: "Semestral", months: 6 },
+  anual:      { label: "Anual", months: 12 },
+  sesion:     { label: "Por sesión", months: 0 },
+};
+const PAY_CURRENCIES = ["CLP", "USD", "ARS", "MXN", "COP", "PEN"];
+const emptyPayments = () => ({ amount: 0, currency: "CLP", cycle: "mensual", nextDue: null, payments: [] });
+// Ciclo "por sesión" no tiene vencimiento automático — el coach cobra cada
+// vez que corresponde, no en una fecha fija.
+const advanceDue = (fromISO, cycle) => {
+  const months = (CYCLES[cycle] || CYCLES.mensual).months;
+  if (!months) return null;
+  const d = parseDate(fromISO);
+  d.setMonth(d.getMonth() + months);
+  return isoDate(d);
+};
+const fmtMoney = (amount, currency) => {
+  try { return new Intl.NumberFormat("es-CL", { style: "currency", currency: currency || "CLP", maximumFractionDigits: 0 }).format(amount || 0); }
+  catch { return `${amount || 0} ${currency || "CLP"}`; }
+};
+const paymentStatus = (nextDue) => {
+  if (!nextDue) return { key: "sin_fecha", label: "Sin vencimiento", color: P.faint };
+  const days = daysUntil(nextDue);
+  if (days < 0) return { key: "vencido", label: `Vencido hace ${-days} día${-days !== 1 ? "s" : ""}`, color: P.red };
+  if (days <= 5) return { key: "por_vencer", label: days === 0 ? "Vence hoy" : `Vence en ${days} día${days !== 1 ? "s" : ""}`, color: "#E8AE4D" };
+  return { key: "al_dia", label: "Al día", color: P.green };
+};
+
+const EditPackForm = ({ row, onSave }) => {
+  const [amount, setAmount] = useState(row.pay.amount ? String(row.pay.amount) : "");
+  const [currency, setCurrency] = useState(row.pay.currency || "CLP");
+  const [cycle, setCycle] = useState(row.pay.cycle || "mensual");
+  return (
+    <>
+      <Field label="Monto del pack"><Inp type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></Field>
+      <Field label="Moneda">
+        <select value={currency} onChange={(e) => setCurrency(e.target.value)} style={{ width: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+          {PAY_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </Field>
+      <Field label="Ciclo de cobro" hint="Define cada cuánto vence el próximo pago al registrar uno nuevo.">
+        <select value={cycle} onChange={(e) => setCycle(e.target.value)} style={{ width: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+          {Object.entries(CYCLES).map(([k, c]) => <option key={k} value={k}>{c.label}</option>)}
+        </select>
+      </Field>
+      <Btn kind="ember" onClick={() => onSave({ ...row.pay, amount: numN(amount), currency, cycle })} style={{ width: "100%" }}>Guardar pack</Btn>
+    </>
+  );
+};
+
+const CobrosTab = ({ roster, toast }) => {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]); // { id, name, pay }
+  const [editing, setEditing] = useState(null); // id del alumno cuyo pack se edita
+  const [payingId, setPayingId] = useState(null); // id del alumno al que se le registra un pago
+  const [amountDraft, setAmountDraft] = useState("");
+  const [noteDraft, setNoteDraft] = useState("");
+
+  const reload = async () => {
+    setLoading(true);
+    const out = [];
+    for (const s of roster.students) {
+      const p = await sGet(`forja-payments:${s.id}`);
+      out.push({ id: s.id, name: s.name, pay: (p && typeof p.amount === "number") ? p : emptyPayments() });
+    }
+    setRows(out);
+    setLoading(false);
+  };
+  useEffect(() => { reload(); }, [roster]);
+
+  const savePay = async (id, pay) => {
+    await sSet(`forja-payments:${id}`, pay);
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, pay } : r)));
+  };
+
+  const monthKey = monthKeyOf(todayISO());
+  const monthRevenue = rows.reduce((a, r) => a + (r.pay.payments || [])
+    .filter((p) => monthKeyOf(p.date) === monthKey).reduce((s, p) => s + (p.amount || 0), 0), 0);
+  const counts = rows.reduce((acc, r) => { const st = paymentStatus(r.pay.nextDue).key; acc[st] = (acc[st] || 0) + 1; return acc; }, {});
+  const atRisk = (counts.vencido || 0) + (counts.por_vencer || 0);
+
+  const editRow = rows.find((r) => r.id === editing);
+  const payRow = rows.find((r) => r.id === payingId);
+
+  const registerPayment = async () => {
+    if (!payRow) return;
+    const amt = numN(amountDraft);
+    if (!amt) return;
+    const date = isoDate(new Date());
+    const next = { ...payRow.pay };
+    next.payments = [{ id: uid(), date, amount: amt, note: noteDraft.trim() }, ...(next.payments || [])];
+    next.nextDue = advanceDue(date, next.cycle);
+    await savePay(payRow.id, next);
+    setPayingId(null); setAmountDraft(""); setNoteDraft("");
+    if (toast) toast(`✓ Pago de ${fmtMoney(amt, next.currency)} registrado para ${payRow.name}`);
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando cobros de todos los alumnos…</div>;
+
+  return (
+    <div style={{ padding: "18px 16px 30px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <Wallet size={22} color={P.ember} />
+        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Cobros</h1>
+      </div>
+      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 16, lineHeight: 1.45 }}>
+        Define el pack de cada alumno, registra los pagos y mirá quién está al día de un vistazo. Es un registro manual — no cobra automáticamente por vos.
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+        <Card style={{ padding: "14px 15px" }}>
+          <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Ingresos este mes</div>
+          <div className="disp" style={{ fontSize: 22, fontWeight: 800, color: P.ember2, marginTop: 4 }}>{fmtMoney(monthRevenue, "CLP")}</div>
+        </Card>
+        <Card style={{ padding: "14px 15px" }}>
+          <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Vencidos / por vencer</div>
+          <div className="disp" style={{ fontSize: 22, fontWeight: 800, color: counts.vencido ? P.red : (counts.por_vencer ? "#E8AE4D" : P.green), marginTop: 4 }}>{atRisk}</div>
+        </Card>
+      </div>
+
+      {rows.length === 0 && <Empty icon={Wallet} title="Sin alumnos" body="Agrega alumnos para llevar el registro de sus pagos." />}
+
+      {rows.map((r) => {
+        const st = paymentStatus(r.pay.nextDue);
+        const lastPay = (r.pay.payments || [])[0];
+        return (
+          <Card key={r.id} style={{ padding: "12px 14px", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 15.5 }}>{r.name}</div>
+                <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>
+                  {r.pay.amount ? `${fmtMoney(r.pay.amount, r.pay.currency)} · ${(CYCLES[r.pay.cycle] || CYCLES.mensual).label}` : "Sin pack configurado"}
+                </div>
+              </div>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: st.color, background: `${st.color}1A`, border: `1px solid ${st.color}55`, borderRadius: 999, padding: "4px 9px", flexShrink: 0, whiteSpace: "nowrap" }}>
+                {st.label}
+              </span>
+            </div>
+            {lastPay && <div style={{ fontSize: 12, color: P.faint, marginTop: 6 }}>Último pago: {fmtDateFull(lastPay.date)} · {fmtMoney(lastPay.amount, r.pay.currency)}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <Btn kind="line" small onClick={() => setEditing(r.id)} style={{ flex: 1 }}><PencilLine size={13} /> Pack</Btn>
+              <Btn kind="ember" small onClick={() => { setPayingId(r.id); setAmountDraft(r.pay.amount ? String(r.pay.amount) : ""); setNoteDraft(""); }} style={{ flex: 1 }}><Check size={13} /> Registrar pago</Btn>
+            </div>
+          </Card>
+        );
+      })}
+
+      <Sheet open={!!editRow} onClose={() => setEditing(null)} title={editRow ? `Pack de ${editRow.name}` : "Pack"}>
+        {editRow && <EditPackForm row={editRow} onSave={async (pay) => { await savePay(editRow.id, pay); setEditing(null); }} />}
+      </Sheet>
+
+      <Sheet open={!!payRow} onClose={() => setPayingId(null)} title={payRow ? `Registrar pago · ${payRow.name}` : "Registrar pago"}>
+        {payRow && (
+          <>
+            <Field label="Monto"><Inp type="number" inputMode="decimal" value={amountDraft} onChange={(e) => setAmountDraft(e.target.value)} placeholder="0" /></Field>
+            <Field label="Nota (opcional)"><Inp value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="Ej: Pack de agosto" /></Field>
+            <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 10 }}>
+              {payRow.pay.cycle !== "sesion"
+                ? `El próximo vencimiento queda en ${(CYCLES[payRow.pay.cycle] || CYCLES.mensual).label.toLowerCase()} desde hoy.`
+                : "Ciclo «por sesión»: no se calcula vencimiento automático."}
+            </div>
+            <Btn kind="ember" disabled={!numN(amountDraft)} onClick={registerPayment} style={{ width: "100%" }}>Guardar pago</Btn>
+          </>
+        )}
+      </Sheet>
+    </div>
+  );
+};
+
+/* ============================================================
    Chrome global: banner de storage, toast, tabs y App raíz
    ============================================================ */
 /* ============================================================
@@ -7470,7 +7651,7 @@ const ROLE_META = {
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "timer", "guia", "atlas"];
+const TABS_COACH_IDS = ["rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "timer", "guia", "atlas"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -7523,6 +7704,7 @@ const TABS = {
     { id: "indicaciones", label: "Indicac.", Icon: StickyNote },
     { id: "actividad", label: "Activ.", Icon: Users },
     { id: "rankings", label: "Rankings", Icon: Trophy },
+    { id: "cobros", label: "Cobros", Icon: Wallet },
     { id: "timer", label: "Timer", Icon: Timer },
     { id: "guia", label: "Guía", Icon: BookOpen },
     { id: "atlas", label: "Atlas", Icon: Library },
@@ -7533,11 +7715,16 @@ const TabBar = ({ tabs, tab, setTab }) => (
   <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
     background: `${P.s1}F0`, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderTop: `1px solid ${P.line}`,
     boxShadow: "0 1px 0 rgba(255,255,255,.05) inset, 0 -14px 30px -16px rgba(0,0,0,.7)" }}>
-    <div style={{ display: "flex", width: "100%", maxWidth: 520, padding: "7px 2px calc(8px + env(safe-area-inset-bottom))" }}>
+    <div style={{ display: "flex", width: "100%", maxWidth: 520, padding: "7px 2px calc(8px + env(safe-area-inset-bottom))",
+      overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       {tabs.map(({ id, label, Icon }) => {
         const on = tab === id;
         return (
-          <button key={id} onClick={() => setTab(id)} style={{ flex: 1, display: "flex", flexDirection: "column",
+          // flex-basis mínimo en vez de flex:1 puro: con pocas pestañas se
+          // reparten el ancho como siempre, pero al agregar más (ej. Cobros)
+          // no se aplastan hasta ser ilegibles — la barra scrollea en vez de
+          // eso una vez que no entran todas.
+          <button key={id} onClick={() => setTab(id)} style={{ flex: "1 1 56px", display: "flex", flexDirection: "column",
             alignItems: "center", gap: 3, padding: "5px 1px 4px", color: on ? P.ember2 : P.faint, minWidth: 0 }}>
             {/* La pestaña activa se ve como una placa con relieve (degradado +
                 brillo), no solo un ícono coloreado: más volumen, más clara. */}
@@ -8095,6 +8282,11 @@ const App = () => {
         {mode === "coach" && tab === "rankings" && (
           <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
             <RankingsTab roster={roster} toast={toast} />
+          </ReadOnlyLock>
+        )}
+        {mode === "coach" && tab === "cobros" && (
+          <ReadOnlyLock active={roleTabAccess.cobros === "view"} toast={toast}>
+            <CobrosTab roster={roster} toast={toast} />
           </ReadOnlyLock>
         )}
         {tab === "timer" && <TimerTab />}
