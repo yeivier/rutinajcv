@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v53";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v54";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -60,6 +60,16 @@ const P = {
     "radial-gradient(110% 80% at 6% 106%, rgba(57,255,20,.10), rgba(0,0,0,0) 55%), " +
     "linear-gradient(158deg, #050505 0%, #0E0E0E 30%, #141814 54%, #171D16 76%, #1A211A 100%)",
 };
+
+// Padding-bottom mínimo de CUALQUIER pantalla de pestaña (todo lo que se
+// renderiza directo debajo de <TabBar>): antes cada pantalla tenía "30px"
+// fijo, que no alcanza para despejar la barra inferior fija (ícono +
+// etiqueta + su propio padding + el safe-area del dispositivo terminan
+// pesando ~70-100px reales) — la última tarjeta de cada pestaña quedaba
+// tapada. Esto ya se rompió más de una vez al ir agregando pestañas
+// nuevas; de acá en más TODA pantalla de pestaña debe usar esta constante
+// en vez de un número inventado, para que no vuelva a pasar.
+const TAB_BOTTOM_PAD = "calc(92px + env(safe-area-inset-bottom))";
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
 // reconozcan de un vistazo durante el entrenamiento (el resto de la app
@@ -3000,7 +3010,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
 
   if (listMode) {
     return (
-      <div style={{ padding: "18px 16px 30px" }}>
+      <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Entrenar</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego un día para ver los ejercicios. Solo cuando aprietes «Iniciar entrenamiento» se creará la sesión y empezarán los cronómetros.</div>
         {active && (
@@ -3240,7 +3250,7 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
     }
   }
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Logo />
         <div style={{ fontSize: 13, color: P.faint, textAlign: "right" }}>{fmtDateFull(todayISO())}</div>
@@ -3469,7 +3479,7 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
   );
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Progreso</h1>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
         {subBtn("ex", "Ejercicios")}{subBtn("ses", "Sesiones")}{subBtn("vol", "Volumen")}{subBtn("body", "Cuerpo")}{subBtn("logros", "Logros")}
@@ -3597,7 +3607,7 @@ const NutritionView = ({ n }) => {
   const hasMacros = (+n.kcal || 0) > 0 || (+n.p || 0) > 0 || (+n.c || 0) > 0 || (+n.f || 0) > 0;
   const v = macroSolve(n, n.solve || "kcal");
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Nutrición</h1>
       {hasMacros && (
         <>
@@ -5373,7 +5383,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
     );
   };
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Nutrición</h1>
       {onOpenNutritionAI && (
         <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.ember}1F, ${P.s1} 55%)`, borderColor: `${P.ember}4A` }}>
@@ -5497,7 +5507,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
 const InstructionsEditor = ({ plan, savePlan }) => {
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Indicaciones</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Instrucciones generales del plan (cardio, pasos, sueño, suplementos…). El alumno las ve en su inicio.</div>
       {plan.instructions.map((it, i) => (
@@ -5534,7 +5544,7 @@ const ActivityTab = ({ plan, history }) => {
   const commented = history.sessions.filter((s) => s.hasComments).length;
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Actividad del alumno</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>{history.sessions.length} sesiones registradas{commented ? ` · ${commented} con comentarios` : ""}. Revisa pesos, RIR, notas y fotos de cada entrenamiento.</div>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
@@ -5702,7 +5712,7 @@ const RankingsTab = ({ roster, toast }) => {
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando rankings de todos los alumnos…</div>;
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Trophy size={22} color={P.ember} />
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Rankings</h1>
@@ -5952,7 +5962,7 @@ const CobrosTab = ({ roster, toast }) => {
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando cobros de todos los alumnos…</div>;
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Wallet size={22} color={P.ember} />
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Cobros</h1>
@@ -6132,7 +6142,7 @@ const LeadsTab = ({ onCreateStudent, onManageStudent, toast }) => {
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando leads…</div>;
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Zap size={22} color={P.ember} />
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Adquisición</h1>
@@ -6445,7 +6455,7 @@ REGLAS:
   if (!keyLoaded) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando…</div>;
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Sparkles size={22} color={P.ember} />
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>IA Nutrición</h1>
@@ -7364,7 +7374,7 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
   }
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <SubNav sub={sub} setSub={setSub} />
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -7640,7 +7650,7 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
   const isToday = selected === isoDate(today);
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 8px" }}>Agenda</h1>
 
       <EventReminderBanner events={plan.events} />
@@ -7766,7 +7776,7 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
   const cancelBooking = (id) => { onSaveBookings && onSaveBookings(slots.map((s) => (s.id === id ? { ...s, status: "cancelada" } : s))); setBookingSheet(null); };
 
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Agenda</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Toca cualquier día del calendario para ver qué entrena tu alumno, reservar sesiones y agregar recordatorios. Abajo configuras qué rutina toca cada día de la semana.</div>
 
@@ -7908,7 +7918,7 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
 const TimerTab = () => {
   const [sub, setSub] = useState("interval");
   return (
-    <div style={{ padding: "18px 16px 30px" }}>
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Timer</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Cronómetro, temporizador e intervalos de trabajo/descanso. Suena y vibra en cada cambio.</div>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 18 }}>
@@ -8719,7 +8729,7 @@ const App = () => {
         )}
         {tab === "timer" && <TimerTab />}
         {tab === "guia" && (
-          <div style={{ padding: "18px 16px 30px" }}>
+          <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
             <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Guía de términos</h1>
             <div style={{ color: P.dim, fontSize: 15, marginBottom: 6 }}>
               Todo lo que aparece en la rutina, explicado en simple. Durante el entrenamiento también puedes tocar cualquier etiqueta (TOP, B-O, DROP…) para abrir esta guía.
