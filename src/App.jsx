@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v60";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v61";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -1556,10 +1556,14 @@ const Empty = ({ icon: Icon, title, body }) => (
 const Logo = ({ size = 26 }) => (
   <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 6, lineHeight: 1 }}>
     <div style={{ width: size + 14, height: size + 14, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center",
-      background: "#FFFFFF", boxShadow: "0 2px 14px rgba(255,255,255,.20)" }}>
-      {/* Mancuerna en negro sobre placa blanca: contraste blanco y negro puro. */}
+      background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`, boxShadow: "0 2px 14px rgba(255,255,255,.15)" }}>
+      {/* Mancuerna en blanco sobre placa negro pastel — antes era al revés
+          (placa blanca + mancuerna casi negra): mismos "cuadros en negro"
+          que en el logo de referencia, pero acá vivía en el propio código.
+          Ahora coincide con el resto de las placas de ícono de la app y con
+          el favicon. */}
       <svg viewBox="0 0 24 24" width={size * 0.72} height={size * 0.72} aria-hidden="true">
-        <g fill="#0B0B0C">
+        <g fill="#FFFFFF">
           <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
           <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
           <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
@@ -1594,10 +1598,17 @@ const SplashScreen = ({ exiting }) => (
           border: `2px solid ${P.ember2}`, boxShadow: `0 0 20px 4px ${P.glow}` }} />
         <div className="splashFlash" style={{ position: "absolute", inset: -14, borderRadius: "50%",
           background: "radial-gradient(circle, #FFFFFF 0%, rgba(255,255,255,0) 70%)" }} />
+        {/* Placa "negro pastel" con la mancuerna en blanco — antes era al
+            revés (plato blanco + barras casi negras, "#0C0708"): el mismo
+            problema de "cuadros en negro" que en el logo de referencia,
+            pero acá vivía en el propio código del splash, no en un archivo
+            de imagen. Ahora coincide con el resto de las placas de ícono de
+            la app (avatar, CTA…) y con el favicon, que ya tenía las barras
+            en blanco sobre negro. */}
         <div className="splashIcon" style={{ width: 74, height: 74, borderRadius: 18, display: "flex", alignItems: "center", justifyContent: "center",
-          background: "#FFFFFF", boxShadow: "0 8px 30px rgba(255,255,255,.25)" }}>
+          background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`, boxShadow: "0 8px 30px rgba(255,255,255,.2)" }}>
           <svg viewBox="0 0 24 24" width={40} height={40} aria-hidden="true">
-            <g fill="#0C0708">
+            <g fill="#FFFFFF">
               <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
               <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
               <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
