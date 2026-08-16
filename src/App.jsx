@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v62";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v63";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -81,6 +81,11 @@ const P = {
 // cambien juntas — antes eran 13 degradados hardcodeados por separado.
 const PLATE_GRAD = "linear-gradient(160deg, #FFFFFF, #F1EDE2 60%, #E3DCC9)";
 const PLATE_FG = "#171512";
+// Texto/ícono secundario sobre una placa clara (equivalente a P.faint, pero
+// para fondo blanco pastel en vez de fondo oscuro) y el borde neutro que
+// separa una placa de otra sin recurrir a alpha.
+const PLATE_DIM = "#6E6A5F";
+const PLATE_BORDER = "#D8D2C2";
 
 // Padding-bottom mínimo de CUALQUIER pantalla de pestaña (todo lo que se
 // renderiza directo debajo de <TabBar>): antes cada pantalla tenía "30px"
@@ -2682,26 +2687,32 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
 
 // Campo numérico grande: acepta coma o punto, flechas para subir/bajar
 // respetando los decimales escritos, y una X para vaciarlo de un toque.
+// Casilla de Peso/Reps/RIR en focus mode: a pedido explícito, blanco pastel
+// (antes gris oscuro) — es "el cuadro donde se ingresan los datos" durante
+// el entrenamiento, así que necesita el mismo tratamiento que el resto de
+// las placas de la app, con el texto en gris casi negro para que siga
+// siendo legible (el input hereda blanco del estilo global de <input>, por
+// eso acá se pisa explícitamente con PLATE_FG).
 const FocusField = ({ label, value, placeholder, onChange, onClear }) => (
   <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
     <div style={{ display: "flex", alignItems: "center", gap: 4, height: 14 }}>
-      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", color: P.faint, textTransform: "uppercase" }}>{label}</span>
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", color: PLATE_DIM, textTransform: "uppercase" }}>{label}</span>
       {value !== "" && (
         <button onClick={onClear} aria-label={`Borrar ${label}`} title={`Borrar ${label}`}
-          style={{ color: P.faint, lineHeight: 0, padding: 1 }}><X size={11} strokeWidth={3} /></button>
+          style={{ color: PLATE_DIM, lineHeight: 0, padding: 1 }}><X size={11} strokeWidth={3} /></button>
       )}
     </div>
     <button onClick={() => onChange(stepNumeric(value, +1))} aria-label={`Subir ${label}`}
-      style={{ width: "100%", padding: "3px 0", color: P.dim, background: P.s3, border: `1px solid ${P.line}`, borderRadius: "9px 9px 0 0" }}>
+      style={{ width: "100%", padding: "3px 0", color: PLATE_FG, background: "#FFFFFF", border: `1px solid ${PLATE_BORDER}`, borderRadius: "9px 9px 0 0" }}>
       <ChevronUp size={20} strokeWidth={2.5} />
     </button>
     <input type="text" inputMode="decimal" enterKeyHint="done" placeholder={placeholder} value={value}
       onChange={(e) => onChange(e.target.value.replace(/[^0-9.,]/g, ""))}
-      style={{ width: "100%", padding: "9px 2px", textAlign: "center", fontWeight: 700, fontSize: 20,
-        background: value !== "" ? "rgba(255,255,255,.08)" : P.s2,
-        borderColor: value !== "" ? "rgba(255,255,255,.35)" : P.line, borderRadius: 0 }} />
+      style={{ width: "100%", padding: "9px 2px", textAlign: "center", fontWeight: 700, fontSize: 20, color: PLATE_FG,
+        background: value !== "" ? "#FFFFFF" : "#F6F3EA",
+        borderColor: value !== "" ? PLATE_FG : PLATE_BORDER, borderRadius: 0 }} />
     <button onClick={() => onChange(stepNumeric(value, -1))} aria-label={`Bajar ${label}`}
-      style={{ width: "100%", padding: "3px 0", color: P.dim, background: P.s3, border: `1px solid ${P.line}`, borderRadius: "0 0 9px 9px" }}>
+      style={{ width: "100%", padding: "3px 0", color: PLATE_FG, background: "#FFFFFF", border: `1px solid ${PLATE_BORDER}`, borderRadius: "0 0 9px 9px" }}>
       <ChevronDown size={20} strokeWidth={2.5} />
     </button>
   </div>
@@ -3009,26 +3020,31 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
     const target = (s.rest != null && s.rest !== "" ? +s.rest : (exx.rest || 0));
     const over = target > 0 && restEl >= target;
     return (
-      <div key={s.id} style={{ background: P.s1, border: `1px solid ${s.done ? "rgba(255,255,255,.35)" : P.line}`,
+      // Tarjeta de la ronda en blanco pastel (antes gris oscuro P.s1) — a
+      // pedido explícito, "el cuadro que contiene donde ingresar los
+      // datos" durante el entrenamiento. Sus hijos (texto, íconos, botón
+      // de hecho) se recolorean a juego más abajo para seguir siendo
+      // legibles sobre el fondo claro.
+      <div key={s.id} style={{ background: PLATE_GRAD, border: `1px solid ${s.done ? PLATE_FG : PLATE_BORDER}`,
         borderRadius: 14, padding: "9px 10px 10px", marginBottom: 9 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
-          <span className="disp" style={{ fontSize: 16, fontWeight: 700, color: kindColor || P.text }}>{label}</span>
+          <span className="disp" style={{ fontSize: 16, fontWeight: 700, color: kindColor || PLATE_FG }}>{label}</span>
           <TypeBadge type={s.type} />
-          <span style={{ fontSize: 12.5, color: P.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <span style={{ fontSize: 12.5, color: PLATE_DIM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {s.repsT || "—"} reps{s.rirT !== "" ? ` @ RIR ${s.rirT}` : ""}
           </span>
           <div style={{ flex: 1 }} />
           <button onClick={() => clearSet(ei, si)} aria-label={`Borrar los datos de ${label}`}
-            style={{ padding: 5, color: P.faint }}><Trash2 size={16} /></button>
+            style={{ padding: 5, color: PLATE_DIM }}><Trash2 size={16} /></button>
           <button data-cmt onClick={() => (cmtKey === ck ? setCmtKey(null) : openCmt(ck))} aria-label={`Comentario de ${label}`}
-            style={{ padding: 5, color: s.comment ? P.ember2 : P.faint }}>
-            <MessageSquare size={17} fill={s.comment ? "rgba(220,220,226,.25)" : "none"} />
+            style={{ padding: 5, color: s.comment ? PLATE_FG : PLATE_DIM }}>
+            <MessageSquare size={17} fill={s.comment ? "rgba(23,21,18,.15)" : "none"} />
           </button>
           <button onClick={() => toggleRest(ei, si)} aria-label={`Cronómetro de descanso de ${label}`}
-            style={{ padding: 5, color: started ? P.ember : P.faint }}><Timer size={17} /></button>
+            style={{ padding: 5, color: started ? PLATE_FG : PLATE_DIM }}><Timer size={17} /></button>
           <button onClick={() => patchSet(ei, si, { done: !s.done })} aria-label={s.done ? "Desmarcar serie" : "Marcar serie hecha"}
             style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-              background: s.done ? P.green : P.s3, color: s.done ? "#000000" : P.dim, border: `1px solid ${s.done ? P.green : P.line}` }}>
+              background: s.done ? PLATE_FG : "#FFFFFF", color: s.done ? "#FFFFFF" : PLATE_DIM, border: `1px solid ${s.done ? PLATE_FG : PLATE_BORDER}` }}>
             <Check size={17} strokeWidth={3} />
           </button>
         </div>
