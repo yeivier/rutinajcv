@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v59";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v60";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -128,43 +128,118 @@ const GROUP_KINDS = {
 const groupKindFor = (n) => (n >= 4 ? "giant" : n === 3 ? "triset" : "superset");
 
 // FORJA no tiene un campo de tempo propio: se anota como texto al principio
-// de las notas del ejercicio ("Tempo 3/0/1/0 (excéntrico/pausa/…)."). Esta
+// de las notas del ejercicio ("Tempo 3/0/1/0 (excéntrico/pausa/…)." o con
+// una "X" en la fase concéntrica para indicar explosivo, ej. "31X0"). Esta
 // función lo extrae para poder mostrarlo como insignia compacta en la lista
 // de la rutina, en vez de que quede escondido dentro de las notas y solo
-// visible al abrir el ejercicio.
-const TEMPO_RE = /^Tempo\s+([\d.]+\/[\d.]+\/[\d.]+\/[\d.]+)/i;
+// visible al abrir el ejercicio. Acepta tanto "3/1/2/0" (con barras) como
+// "31X0" (4 dígitos pegados, formato que también usan varios coaches) —
+// se normaliza a la forma con barras internamente.
+const TEMPO_RE = /^Tempo\s+([\dXx.]+(?:\/[\dXx.]+){3}|[\dXx]{4})\b/i;
 const parseTempo = (notes) => {
   const m = TEMPO_RE.exec((notes || "").trim());
-  return m ? m[1] : null;
+  if (!m) return null;
+  const raw = m[1];
+  // "31X0" (4 caracteres pegados, sin barras) -> "3/1/X/0"
+  return raw.includes("/") ? raw : raw.split("").join("/");
 };
 
-// Traduce el tempo (4 números en segundos: excéntrica-pausa abajo-
-// concéntrica-pausa arriba) a una instrucción concreta para ESTE ejercicio
-// — no la definición genérica del glosario, sino qué hacer con los números
-// que el coach realmente puso. "0" se explica como "sin pausa"/"lo más
-// rápido posible", nunca como "0 segundos" (más claro de leer a mitad de
-// una serie, con el peso en la mano). Formatea el número tal cual viene
-// (admite decimales, ej. "1.5") para no perder precisión.
+// Palabras clave (sin acentos, en minúscula) de ejercicios que arrancan la
+// repetición en fase CONCÉNTRICA — tirando/contrayendo desde una posición
+// estirada (jalón, curl, remo, dominada, peso muerto…). Todo lo que no
+// matchee acá se asume que arranca en EXCÉNTRICA — bajando/resistiendo
+// desde la posición extendida (press, sentadilla, fondos…), que es el caso
+// más común. Es una heurística por nombre, no perfecta para casos raros,
+// pero cubre bien los patrones de movimiento habituales.
+const CONCENTRIC_START_KEYWORDS = [
+  "curl", "jalon", "pulldown", "pull-down", "pull down", "remo", "row",
+  "dominada", "pull-up", "pullup", "chin-up", "chinup", "peso muerto", "deadlift",
+  "encogimiento", "shrug", "hip thrust", "puente de gluteo", "face pull",
+  "extension de cuadriceps", "leg extension", "curl femoral", "leg curl",
+];
+function startsConcentric(exerciseName) {
+  const n = searchNorm(exerciseName || "");
+  return CONCENTRIC_START_KEYWORDS.some((kw) => n.includes(kw));
+}
+
+// Un consejo de conexión mente-músculo por grupo muscular — breve, concreto,
+// pensado para leerse en 2 segundos entre series. No sustituye una
+// indicación técnica del coach (eso ya vive en ex.notes); es un empujón
+// extra específico del grupo que se está trabajando.
+const MUSCLE_CONNECTION_TIPS = {
+  "Pecho": "Aprieta el pecho en el punto de máxima contracción, como si quisieras juntar las manos por delante.",
+  "Espalda": "Lleva el codo hacia atrás y aprieta el omóplato — no tires solo con el brazo.",
+  "Hombro": "Mantén el trapecio relajado: el movimiento sale del hombro, no de encogerte.",
+  "Bíceps": "Aprieta fuerte arriba, como si quisieras «exprimir» el bíceps un segundo antes de bajar.",
+  "Tríceps": "Bloquea bien el codo arriba sin perder tensión — no dejes que el peso «descanse» en la extensión.",
+  "Cuádriceps": "Empuja con el mediopié y aprieta el cuádriceps arriba, sin bloquear la rodilla de golpe.",
+  "Femoral": "Siente el jalón en la parte de atrás del muslo, no en la zona lumbar.",
+  "Glúteo": "Aprieta bien el glúteo arriba antes de bajar — es lo que más suma para hipertrofia aquí.",
+  "Gemelo": "Sube hasta la punta del pie y haz una pausa arriba antes de bajar controlado.",
+  "Core": "Mantén el abdomen firme (como si te fueran a empujar) durante todo el movimiento, no solo al final.",
+  "Antebrazo": "Agarra fuerte y sostén la tensión en el antebrazo durante toda la serie.",
+  "Trapecio": "Sube los hombros bien derecho hacia las orejas, sin rodar los hombros hacia adelante.",
+  "Otro": "Enfócate en sentir el músculo objetivo trabajando en cada fase, no solo en mover el peso.",
+};
+
+// Formatea un valor de tempo tal cual viene (admite decimales, ej. "1.5",
+// para no perder precisión) o "X" (explosivo). "0" se explica como "sin
+// pausa"/"lo más rápido posible", nunca como "0 segundos" — más claro de
+// leer a mitad de una serie, con el peso en la mano.
+const isExplosiveTempo = (raw) => /^x$/i.test(String(raw).trim());
+const isZeroTempo = (raw) => !isExplosiveTempo(raw) && parseFloat(raw) === 0;
 const fmtTempoNum = (raw) => {
   const n = parseFloat(raw);
   const clean = String(raw).replace(/^0+(?=\d)/, "");
   return n === 1 ? "1 segundo" : `${clean} segundos`;
 };
-function explainTempo(tempoStr) {
+
+// Traduce el tempo de ESTE ejercicio puntual a instrucciones paso a paso en
+// el orden real en que se ejecutan — no la definición genérica del
+// glosario. El formato del tempo siempre es [Excéntrica]/[Pausa abajo]/
+// [Concéntrica]/[Pausa arriba], pero el ejercicio no siempre EMPIEZA por la
+// excéntrica: un jalón al pecho o un curl de bíceps arrancan tirando
+// (concéntrica) desde estirado, así que la narración arranca ahí y da la
+// vuelta al final (concéntrica → pausa arriba → excéntrica → pausa abajo),
+// mientras que una sentadilla o un press siguen el orden tal cual viene.
+// Devuelve { phases: [...4], tip } o null si el tempo no es válido.
+function explainTempo(tempoStr, exerciseName, muscle) {
   const parts = (tempoStr || "").split("/");
-  if (parts.length !== 4 || parts.some((p) => isNaN(parseFloat(p)))) return null;
+  const isValid = (p) => isExplosiveTempo(p) || !isNaN(parseFloat(p));
+  if (parts.length !== 4 || parts.some((p) => !isValid(p))) return null;
   const [ecc, pauseBottom, con, pauseTop] = parts;
-  const isZero = (v) => parseFloat(v) === 0;
-  return [
-    { Icon: ArrowDown, label: "Bajada (excéntrica)",
-      text: isZero(ecc) ? "lo más rápido posible, sin controlar la bajada" : `${fmtTempoNum(ecc)}, controlando el peso todo el trayecto` },
-    { Icon: Pause, label: "Pausa abajo",
-      text: isZero(pauseBottom) ? "sin pausa — seguí directo a subir, sin rebotar" : `quedate quieto ${fmtTempoNum(pauseBottom)} en el punto más bajo, sin rebotar` },
-    { Icon: ArrowUp, label: "Subida (concéntrica)",
-      text: isZero(con) ? "lo más explosiva/rápida posible" : `${fmtTempoNum(con)}` },
-    { Icon: Pause, label: "Pausa arriba",
-      text: isZero(pauseTop) ? "sin pausa — pasá directo a la siguiente repetición" : `aguantá ${fmtTempoNum(pauseTop)} arriba antes de bajar de nuevo` },
-  ];
+  const concentricFirst = startsConcentric(exerciseName);
+
+  // Verbos de acción según el patrón de movimiento: en un ejercicio que
+  // arranca tirando, la fase "concéntrica" es una tracción y la
+  // "excéntrica" es soltar/estirar con control de vuelta — al revés que en
+  // un press/sentadilla, donde la excéntrica es bajar y la concéntrica es
+  // empujar.
+  const eccVerb = concentricFirst ? "Estira los brazos de nuevo" : "Baja el peso";
+  const conVerb = concentricFirst ? "Tracciona" : "Empuja (o sube)";
+
+  const eccText = isExplosiveTempo(ecc) ? `${eccVerb} sin frenarlo, dejándolo caer con control mínimo.`
+    : isZeroTempo(ecc) ? `${eccVerb} lo más rápido posible, sin controlar el recorrido.`
+    : `${eccVerb} en ${fmtTempoNum(ecc)}, resistiendo el peso todo el trayecto.`;
+  const pauseBottomText = isZeroTempo(pauseBottom) ? "Sin pausa — sigue directo hacia la fase siguiente, sin rebotar."
+    : `Mantén la posición ${fmtTempoNum(pauseBottom)} abajo (en el estiramiento), sin rebotar.`;
+  const conText = isExplosiveTempo(con) ? `${conVerb} lo más explosivo posible, con la máxima velocidad que puedas.`
+    : isZeroTempo(con) ? `${conVerb} lo más rápido posible.`
+    : `${conVerb} en ${fmtTempoNum(con)}, con control.`;
+  const pauseTopText = isZeroTempo(pauseTop) ? "Sin pausa — pasa directo a la siguiente repetición."
+    : `Mantén la contracción ${fmtTempoNum(pauseTop)} arriba antes de volver.`;
+
+  const eccPhase = { Icon: ArrowDown, text: eccText };
+  const pauseBottomPhase = { Icon: Pause, text: pauseBottomText };
+  const conPhase = { Icon: ArrowUp, text: conText };
+  const pauseTopPhase = { Icon: Pause, text: pauseTopText };
+
+  const ordered = concentricFirst
+    ? [conPhase, pauseTopPhase, eccPhase, pauseBottomPhase]
+    : [eccPhase, pauseBottomPhase, conPhase, pauseTopPhase];
+  const phases = ordered.map((p, i) => ({ ...p, label: i === 0 ? "Fase 1 (la salida)" : `Fase ${i + 1}` }));
+
+  return { phases, tip: MUSCLE_CONNECTION_TIPS[muscle] || MUSCLE_CONNECTION_TIPS.Otro };
 }
 
 // Índice de bloque (A=0, B=1, C=2…) en la posición `idx` de `exs`: cuenta
@@ -1374,43 +1449,56 @@ const TypeBadge = ({ type, onInfo, big }) => {
 // cada una de las 4 fases con los números concretos de ESTE ejercicio (no
 // una definición genérica) — pensada para consultarse en el momento, entre
 // series, sin salir de la pantalla de entrenamiento.
-const TempoBadge = ({ tempo, big }) => {
+const TempoBadge = ({ tempo, exerciseName, muscle, big }) => {
   const [open, setOpen] = useState(false);
-  const phases = useMemo(() => explainTempo(tempo), [tempo]);
-  if (!phases) return null;
+  const result = useMemo(() => explainTempo(tempo, exerciseName, muscle), [tempo, exerciseName, muscle]);
+  if (!result) return null;
   return (
     <div>
       <button onClick={() => setOpen((v) => !v)}
-        aria-expanded={open} aria-label={`Tempo ${tempo}: cómo hacer cada fase`}
+        aria-expanded={open} aria-label={`Tempo ${tempo}: cómo aplicarlo en este ejercicio`}
         style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: big ? 13.5 : 12.5, fontWeight: 700,
           color: open ? P.ember : P.dim, border: `1px solid ${open ? P.ember : P.line}`, borderRadius: 7,
           padding: big ? "3px 9px" : "2px 7px" }}>
         Tempo {tempo} {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
       </button>
-      {open && (
-        <div className="sheetIn" style={{ marginTop: 8, padding: "10px 11px", borderRadius: 12, background: P.s2, border: `1px solid ${P.line}` }}>
-          <div style={{ fontSize: 11.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
-            Cómo hacer cada repetición con este tempo
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {phases.map(({ Icon, label, text }) => (
-              <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
-                <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: P.s3, color: P.ember2 }}>
-                  <Icon size={14} strokeWidth={2.5} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: P.text }}>{label}</div>
-                  <div style={{ fontSize: 13, color: P.dim, lineHeight: 1.4 }}>{text}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {open && <TempoExplainer result={result} tempo={tempo} />}
     </div>
   );
 };
+
+// Bloque de fases + tip de conexión, compartido entre TempoBadge (toggle,
+// para consultar rápido a mitad de una serie) y ExerciseInfoSheet (siempre
+// desplegado, dentro de la ficha completa).
+const TempoExplainer = ({ result, tempo }) => (
+  <div className="sheetIn" style={{ marginTop: 8, padding: "10px 11px", borderRadius: 12, background: P.s2, border: `1px solid ${P.line}` }}>
+    <div style={{ fontSize: 11.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
+      Cómo aplicar tu tempo ({tempo}) en este ejercicio
+    </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {result.phases.map(({ Icon, label, text }) => (
+        <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+          <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            background: P.s3, color: P.ember2 }}>
+            <Icon size={14} strokeWidth={2.5} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: P.text }}>{label}</div>
+            <div style={{ fontSize: 13, color: P.dim, lineHeight: 1.4 }}>{text}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+    {result.tip && (
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 7, marginTop: 10, paddingTop: 9, borderTop: `1px solid ${P.line}` }}>
+        <span style={{ flexShrink: 0 }}>💡</span>
+        <div style={{ fontSize: 13, color: P.dim, lineHeight: 1.4 }}>
+          <span style={{ fontWeight: 700, color: P.text }}>Tip de conexión: </span>{result.tip}
+        </div>
+      </div>
+    )}
+  </div>
+);
 
 const Sheet = ({ open, onClose, title, children, tall }) => {
   if (!open) return null;
@@ -2019,7 +2107,7 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError })
   const addFormPhoto = (id) => onPatchEx && onPatchEx({ formPhotoIds: [...formPhotos, id].slice(0, 2) });
   const removeFormPhoto = (id) => onPatchEx && onPatchEx({ formPhotoIds: formPhotos.filter((x) => x !== id) });
   const tempo = parseTempo(ex.notes);
-  const tempoPhases = tempo ? explainTempo(tempo) : null;
+  const tempoResult = tempo ? explainTempo(tempo, ex.name, ex.muscle) : null;
   return (
     <Sheet open={open} onClose={onClose} title={`Ficha · ${ex.name}`} tall>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
@@ -2035,25 +2123,9 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError })
           pensado para consultar rápido a mitad de una serie): acá el alumno
           ya está leyendo la ficha completa, así que la explicación va de
           una vez, con los números concretos de este ejercicio. */}
-      {tempoPhases && (
-        <div style={{ marginBottom: 16, padding: "11px 12px", borderRadius: 12, background: P.s2, border: `1px solid ${P.ember}` }}>
-          <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>
-            Tempo {tempo} · cómo hacer cada repetición
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {tempoPhases.map(({ Icon, label, text }) => (
-              <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
-                <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: P.s3, color: P.ember2 }}>
-                  <Icon size={14} strokeWidth={2.5} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>{label}</div>
-                  <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.4 }}>{text}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+      {tempoResult && (
+        <div style={{ marginBottom: 16 }}>
+          <TempoExplainer result={tempoResult} tempo={tempo} />
         </div>
       )}
 
@@ -2783,7 +2855,7 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
         </div>
         {parseTempo(exx.notes) && (
           <div style={{ marginTop: 8 }}>
-            <TempoBadge tempo={parseTempo(exx.notes)} big={big} />
+            <TempoBadge tempo={parseTempo(exx.notes)} exerciseName={exx.name} muscle={exx.muscle} big={big} />
           </div>
         )}
         <div style={{ maxHeight: noteOpen ? 200 : 0, opacity: noteOpen ? 1 : 0, overflow: "hidden",
@@ -4503,7 +4575,7 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
     const st = mesoDragRef.current;
     if (e && st.holdTimer && !st.activated) {
       const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
-      if (dx > 8 || dy > 8) clearTimeout(st.holdTimer);
+      if (dx > 12 || dy > 12) clearTimeout(st.holdTimer);
     }
   };
   const endMesoDrag = () => {
@@ -4966,10 +5038,12 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
   };
   const cancelPress = (e) => {
     const st = dragRef.current;
-    // Si el dedo se mueve más de 8 px antes de activarse, no era mantener pulsado
+    // Si el dedo se mueve más de 12 px antes de activarse, no era mantener pulsado
+    // (12 en vez de 8: en pantalla táctil real el dedo tiembla un poco incluso
+    // quieto — con 8 se cancelaba el arrastre por error demasiado seguido).
     if (e && st.holdTimer && !st.activated) {
       const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
-      if (dx > 8 || dy > 8) clearTimeout(st.holdTimer);
+      if (dx > 12 || dy > 12) clearTimeout(st.holdTimer);
     }
   };
   const endDrag = () => {
@@ -5045,7 +5119,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     const st = exDragRef.current;
     if (e && st.holdTimer && !st.activated) {
       const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
-      if (dx > 8 || dy > 8) clearTimeout(st.holdTimer);
+      if (dx > 12 || dy > 12) clearTimeout(st.holdTimer);
     }
   };
   const endExDrag = () => {
@@ -5110,7 +5184,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     const st = routineDragRef.current;
     if (e && st.holdTimer && !st.activated) {
       const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
-      if (dx > 8 || dy > 8) clearTimeout(st.holdTimer);
+      if (dx > 12 || dy > 12) clearTimeout(st.holdTimer);
     }
   };
   const endRoutineDrag = () => {
