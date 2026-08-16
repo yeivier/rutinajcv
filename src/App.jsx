@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v61";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v62";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -71,6 +71,16 @@ const P = {
   // sólido de grises, más oscuro en las puntas y más claro al centro.
   bgGrad: "linear-gradient(158deg, #050505 0%, #101010 30%, #161616 54%, #181818 76%, #1C1C1C 100%)",
 };
+
+// "Placa" (plate) de ícono: el fondo cuadrado/redondeado que lleva un ícono
+// o letra encima (logo, splash, badges de rutina, CTA con ícono, medallas…).
+// Era un degradado negro pastel con el glifo en blanco; a pedido explícito
+// se invirtió: ahora la placa es blanco pastel y el glifo va en un gris
+// casi negro encima, para que "los cuadros" dejen de leerse como negro
+// puro. Centralizado en dos constantes para que TODAS las placas de la app
+// cambien juntas — antes eran 13 degradados hardcodeados por separado.
+const PLATE_GRAD = "linear-gradient(160deg, #FFFFFF, #F1EDE2 60%, #E3DCC9)";
+const PLATE_FG = "#171512";
 
 // Padding-bottom mínimo de CUALQUIER pantalla de pestaña (todo lo que se
 // renderiza directo debajo de <TabBar>): antes cada pantalla tenía "30px"
@@ -144,22 +154,101 @@ const parseTempo = (notes) => {
   return raw.includes("/") ? raw : raw.split("").join("/");
 };
 
-// Palabras clave (sin acentos, en minúscula) de ejercicios que arrancan la
-// repetición en fase CONCÉNTRICA — tirando/contrayendo desde una posición
-// estirada (jalón, curl, remo, dominada, peso muerto…). Todo lo que no
-// matchee acá se asume que arranca en EXCÉNTRICA — bajando/resistiendo
-// desde la posición extendida (press, sentadilla, fondos…), que es el caso
-// más común. Es una heurística por nombre, no perfecta para casos raros,
-// pero cubre bien los patrones de movimiento habituales.
-const CONCENTRIC_START_KEYWORDS = [
-  "curl", "jalon", "pulldown", "pull-down", "pull down", "remo", "row",
-  "dominada", "pull-up", "pullup", "chin-up", "chinup", "peso muerto", "deadlift",
-  "encogimiento", "shrug", "hip thrust", "puente de gluteo", "face pull",
-  "extension de cuadriceps", "leg extension", "curl femoral", "leg curl",
+// Base de patrones de movimiento reales, uno por familia de ejercicio — NO
+// una explicación genérica de "sube/baja el peso". Cada patrón describe QUÉ
+// hace el cuerpo en cada fase (qué articulación se mueve, hacia dónde, con
+// qué foco) y en qué posición cae cada pausa. `concentricFirst` marca si el
+// ejercicio arranca la repetición tirando/empujando desde estirado (jalón,
+// curl, remo, dominada, peso muerto, hip thrust…) en vez de bajando desde
+// extendido (press, sentadilla…) — determina el orden de narración, NUNCA
+// a qué fase corresponde cada número del tempo (ver explainTempo: el
+// número 1 del tempo es SIEMPRE la excéntrica, sin importar el ejercicio).
+// El orden del arreglo importa: las entradas más específicas ("curl
+// femoral") van antes que las genéricas que comparten palabra ("curl") para
+// no matchear mal. Es una heurística por nombre — no cubre absolutamente
+// todos los ejercicios existentes, pero sí los patrones de movimiento más
+// comunes de un gimnasio; lo que no matchea cae a un fallback razonable.
+const EXERCISE_PATTERNS = [
+  { keywords: ["peso muerto", "deadlift", "rdl", "rumano"], concentricFirst: true,
+    conAction: "Empuja el piso con los pies y extiende cadera y rodillas a la vez, manteniendo la barra pegada a las piernas, hasta quedar de pie",
+    eccAction: "Baja la barra pegada a las piernas, empujando la cadera hacia atrás, hasta el punto inicial",
+    topPos: "de pie, con cadera y rodillas extendidas y el glúteo apretado", bottomPos: "justo antes de que la barra toque el piso, con la espalda neutra" },
+  { keywords: ["sentadilla", "squat", "hack", "prensa", "leg press", "zancada", "lunge", "bulgara"], concentricFirst: false,
+    eccAction: "Baja doblando cadera y rodillas a la vez, manteniendo el pecho arriba y el core apretado",
+    conAction: "Empuja el piso con los talones y extiende cadera y rodillas a la vez hasta quedar de pie",
+    bottomPos: "abajo, con el pliegue de la cadera a la altura de la rodilla o más bajo", topPos: "arriba, con las piernas casi extendidas, apretando cuádriceps y glúteo" },
+  { keywords: ["fondos", "dips", "dip"], concentricFirst: false,
+    eccAction: "Baja el cuerpo doblando los codos hasta sentir un buen estiramiento en pecho y hombro",
+    conAction: "Empuja hacia arriba extendiendo los codos hasta la posición inicial",
+    bottomPos: "abajo, con un estiramiento marcado en el pecho/hombro", topPos: "arriba, con los codos casi extendidos" },
+  { keywords: ["press pecho", "chest press", "bench press", "press inclinado", "press declinado", "press plano", "banca", ["press", "banca"]], concentricFirst: false,
+    eccAction: "Baja la barra o las mancuernas de forma controlada hacia la parte baja del pecho, con los codos a unos 45°",
+    conAction: "Empuja el peso hacia arriba en línea recta hasta extender los codos, sin bloquearlos de golpe",
+    bottomPos: "abajo, con la barra rozando el pecho", topPos: "arriba, con los brazos extendidos, apretando el pecho" },
+  { keywords: ["shoulder press", "overhead press", "military press", "press arnold", "press tras nuca", ["press", "hombro"], ["press", "militar"]], concentricFirst: false,
+    eccAction: "Baja la barra o las mancuernas de forma controlada hasta la altura de los hombros",
+    conAction: "Empuja el peso hacia arriba hasta extender los codos, sin arquear la espalda baja",
+    bottomPos: "abajo, con el peso a la altura de los hombros", topPos: "arriba, con los brazos extendidos sobre la cabeza" },
+  { keywords: ["elevacion lateral", "elevaciones laterales", "lateral raise", "elevacion frontal", "elevaciones frontales", "front raise"], concentricFirst: false,
+    eccAction: "Baja los brazos de forma controlada hasta los costados del cuerpo",
+    conAction: "Eleva los brazos hacia el lado (o al frente) hasta la altura del hombro, con un leve quiebre en el codo",
+    bottomPos: "abajo, con los brazos junto al cuerpo", topPos: "arriba, a la altura del hombro, sin encoger el trapecio" },
+  { keywords: ["curl femoral", "leg curl"], concentricFirst: true,
+    conAction: "Flexiona la rodilla llevando el peso hacia los glúteos",
+    eccAction: "Extiende la rodilla bajando el peso de forma controlada",
+    topPos: "con la rodilla flexionada al máximo y el femoral apretado", bottomPos: "con la pierna casi extendida" },
+  { keywords: ["extension de cuadriceps", "leg extension"], concentricFirst: true,
+    conAction: "Extiende la rodilla levantando el peso hasta casi bloquear la pierna",
+    eccAction: "Baja el peso de forma controlada, sintiendo el estiramiento en el cuádriceps",
+    topPos: "con la pierna casi extendida y el cuádriceps apretado", bottomPos: "con la rodilla flexionada, en el punto de mayor estiramiento" },
+  { keywords: ["gemelo", "calf raise", "elevacion de talon", "elevacion de talones"], concentricFirst: false,
+    eccAction: "Baja los talones de forma controlada hasta sentir el estiramiento en la pantorrilla",
+    conAction: "Sube hasta la punta del pie, apretando la pantorrilla arriba",
+    bottomPos: "abajo, con los talones bien estirados", topPos: "arriba, en la punta del pie" },
+  { keywords: ["hip thrust", "puente de gluteo"], concentricFirst: true,
+    conAction: "Empuja con los talones y extiende la cadera hacia arriba, apretando fuerte el glúteo",
+    eccAction: "Baja la cadera de forma controlada hasta casi tocar el piso",
+    topPos: "con la cadera totalmente extendida y el glúteo apretado al máximo", bottomPos: "con la cadera casi tocando el piso" },
+  { keywords: ["encogimiento", "shrug"], concentricFirst: true,
+    conAction: "Eleva los hombros directo hacia las orejas, sin rodarlos hacia adelante ni atrás",
+    eccAction: "Baja los hombros de forma controlada hasta la posición inicial",
+    topPos: "con los hombros lo más arriba posible", bottomPos: "con los hombros relajados y los brazos extendidos" },
+  { keywords: ["face pull"], concentricFirst: true,
+    conAction: "Tracciona la cuerda hacia la cara, separando las manos y llevando los codos hacia atrás y arriba",
+    eccAction: "Vuelve de forma controlada a la posición inicial con los brazos extendidos hacia adelante",
+    topPos: "con la cuerda cerca de la cara y los omóplatos apretados", bottomPos: "con los brazos extendidos hacia adelante" },
+  { keywords: ["press frances", "skull crusher", "patada de triceps", "kickback", "extension de triceps", "jalon de triceps", "pushdown", "triceps pushdown"], concentricFirst: false,
+    eccAction: "Baja el peso doblando solo el codo, llevándolo hacia la frente o detrás de la cabeza, sin mover el hombro",
+    conAction: "Extiende el codo empujando el peso de vuelta arriba, sin mover el hombro",
+    bottomPos: "abajo, con un buen estiramiento en el tríceps", topPos: "arriba, con el codo casi bloqueado y el tríceps apretado" },
+  { keywords: ["dominada", "pull-up", "pullup", "chin-up", "chinup"], concentricFirst: true,
+    conAction: "Tracciona tu cuerpo hacia arriba hasta que la barbilla pase la barra, llevando los codos hacia abajo y atrás",
+    eccAction: "Baja tu cuerpo de forma controlada hasta la extensión completa de los brazos",
+    topPos: "con la barbilla por encima de la barra", bottomPos: "con los brazos totalmente extendidos, colgando" },
+  { keywords: ["jalon al pecho", "jalon", "pulldown", "pull-down", "pull down"], concentricFirst: true,
+    conAction: "Tracciona la barra hacia la parte alta del pecho, llevando los codos hacia abajo y atrás, sacando pecho",
+    eccAction: "Deja que los brazos se estiren de nuevo de forma controlada hasta la posición inicial, sintiendo el estiramiento en el dorsal",
+    topPos: "con la barra cerca del pecho y los codos pegados al cuerpo", bottomPos: "con los brazos extendidos por encima de la cabeza" },
+  { keywords: ["remo", "row"], concentricFirst: true,
+    conAction: "Tracciona el peso hacia el abdomen o la cadera, llevando el codo hacia atrás y apretando el omóplato",
+    eccAction: "Estira los brazos de nuevo de forma controlada hasta sentir el estiramiento en la espalda",
+    topPos: "con el codo atrás y el omóplato apretado", bottomPos: "con los brazos casi extendidos" },
+  { keywords: ["curl martillo", "curl predicador", "curl scott", "curl concentrado", "curl de biceps", "curl biceps", "curl"], concentricFirst: true,
+    conAction: "Flexiona el codo llevando el peso hacia el hombro, sin balancear el torso",
+    eccAction: "Extiende el codo bajando el peso de forma controlada hasta casi la extensión completa",
+    topPos: "con el bíceps contraído al máximo", bottomPos: "con el brazo casi extendido, sin perder tensión" },
 ];
-function startsConcentric(exerciseName) {
+
+// Cada `keyword` puede ser un texto simple (substring directo, ej. "curl")
+// o un arreglo de palabras que deben aparecer TODAS en el nombre, en
+// cualquier orden y con lo que sea en el medio (ej. ["press","banca"]
+// matchea tanto "Press banca" como "Press de banca plano" o "Banca press
+// con mancuernas") — necesario porque un coach no siempre escribe el
+// nombre del ejercicio como una frase pegada.
+function findExercisePattern(exerciseName) {
   const n = searchNorm(exerciseName || "");
-  return CONCENTRIC_START_KEYWORDS.some((kw) => n.includes(kw));
+  const kwMatches = (kw) => Array.isArray(kw) ? kw.every((w) => n.includes(w)) : n.includes(kw);
+  return EXERCISE_PATTERNS.find((p) => p.keywords.some(kwMatches)) || null;
 }
 
 // Un consejo de conexión mente-músculo por grupo muscular — breve, concreto,
@@ -194,50 +283,68 @@ const fmtTempoNum = (raw) => {
   return n === 1 ? "1 segundo" : `${clean} segundos`;
 };
 
-// Traduce el tempo de ESTE ejercicio puntual a instrucciones paso a paso en
-// el orden real en que se ejecutan — no la definición genérica del
-// glosario. El formato del tempo siempre es [Excéntrica]/[Pausa abajo]/
-// [Concéntrica]/[Pausa arriba], pero el ejercicio no siempre EMPIEZA por la
-// excéntrica: un jalón al pecho o un curl de bíceps arrancan tirando
-// (concéntrica) desde estirado, así que la narración arranca ahí y da la
-// vuelta al final (concéntrica → pausa arriba → excéntrica → pausa abajo),
-// mientras que una sentadilla o un press siguen el orden tal cual viene.
+// Describe cuánto dura una fase, en el mismo tono directo del resto de la
+// frase ("...durante 3 segundos", "...sin frenarlo", "...lo más rápido
+// posible"). Se ensambla al final de la acción específica del ejercicio, no
+// al revés, para que lea como una instrucción única y no como una plantilla
+// con un dato pegado.
+function timeClause(raw, isCon) {
+  if (isExplosiveTempo(raw)) return isCon ? "de forma explosiva, con la máxima velocidad que puedas" : "sin frenarlo, dejándolo caer con control mínimo (nunca de golpe)";
+  if (isZeroTempo(raw)) return isCon ? "lo más rápido posible" : "lo más rápido posible, sin controlar el recorrido";
+  return `durante ${fmtTempoNum(raw)}`;
+}
+
+// Traduce el tempo de ESTE ejercicio puntual a instrucciones paso a paso,
+// con la acción física real del ejercicio (no una plantilla de "sube/baja
+// el peso") y en el orden en que se ejecutan de verdad — no el orden en
+// que están escritos los números del tempo.
+//
+// Regla fija, que NO cambia según el ejercicio: el formato del tempo
+// siempre es [1 Excéntrica]/[2 Pausa abajo]/[3 Concéntrica]/[4 Pausa
+// arriba] — el número 1 SIEMPRE es la fase excéntrica (bajar el peso o
+// estirar el músculo) y el número 3 SIEMPRE es la concéntrica (contraer),
+// sin importar con cuál de las dos arranca el movimiento real. `ecc`/`con`
+// abajo toman siempre esos mismos dos números; lo único que cambia con el
+// ejercicio es el ORDEN en que se narran y qué acción física describen:
+// - Arranca en excéntrica (sentadilla, press, press francés…): se narra
+//   1→2→3→4 tal cual, empezando por bajar/estirar.
+// - Arranca en concéntrica (jalón, curl, remo, dominada, peso muerto…): se
+//   narra 3→4→1→2, empezando por tirar/empujar desde estirado, y recién
+//   después baja — pero el número 1 sigue siendo, siempre, la excéntrica.
 // Devuelve { phases: [...4], tip } o null si el tempo no es válido.
 function explainTempo(tempoStr, exerciseName, muscle) {
   const parts = (tempoStr || "").split("/");
   const isValid = (p) => isExplosiveTempo(p) || !isNaN(parseFloat(p));
   if (parts.length !== 4 || parts.some((p) => !isValid(p))) return null;
   const [ecc, pauseBottom, con, pauseTop] = parts;
-  const concentricFirst = startsConcentric(exerciseName);
 
-  // Verbos de acción según el patrón de movimiento: en un ejercicio que
-  // arranca tirando, la fase "concéntrica" es una tracción y la
-  // "excéntrica" es soltar/estirar con control de vuelta — al revés que en
-  // un press/sentadilla, donde la excéntrica es bajar y la concéntrica es
-  // empujar.
-  const eccVerb = concentricFirst ? "Estira los brazos de nuevo" : "Baja el peso";
-  const conVerb = concentricFirst ? "Tracciona" : "Empuja (o sube)";
+  const pattern = findExercisePattern(exerciseName);
+  // Sin match específico: heurística genérica por familia de patrón de
+  // movimiento (empujar/bajar vs. tirar/estirar), igual de válida pero sin
+  // el detalle articular exacto de un patrón reconocido.
+  const p = pattern || {
+    concentricFirst: false,
+    eccAction: "Baja el peso de forma controlada, resistiéndolo durante todo el recorrido",
+    conAction: "Empuja o levanta el peso de vuelta hasta la posición inicial, con control",
+    bottomPos: "en el punto de mayor estiramiento", topPos: "en el punto de máxima contracción",
+  };
 
-  const eccText = isExplosiveTempo(ecc) ? `${eccVerb} sin frenarlo, dejándolo caer con control mínimo.`
-    : isZeroTempo(ecc) ? `${eccVerb} lo más rápido posible, sin controlar el recorrido.`
-    : `${eccVerb} en ${fmtTempoNum(ecc)}, resistiendo el peso todo el trayecto.`;
+  const eccText = `${p.eccAction}, ${timeClause(ecc, false)}.`;
+  const conText = `${p.conAction}, ${timeClause(con, true)}.`;
   const pauseBottomText = isZeroTempo(pauseBottom) ? "Sin pausa — sigue directo hacia la fase siguiente, sin rebotar."
-    : `Mantén la posición ${fmtTempoNum(pauseBottom)} abajo (en el estiramiento), sin rebotar.`;
-  const conText = isExplosiveTempo(con) ? `${conVerb} lo más explosivo posible, con la máxima velocidad que puedas.`
-    : isZeroTempo(con) ? `${conVerb} lo más rápido posible.`
-    : `${conVerb} en ${fmtTempoNum(con)}, con control.`;
+    : `Mantén la posición ${fmtTempoNum(pauseBottom)}, ${p.bottomPos}, sin rebotar.`;
   const pauseTopText = isZeroTempo(pauseTop) ? "Sin pausa — pasa directo a la siguiente repetición."
-    : `Mantén la contracción ${fmtTempoNum(pauseTop)} arriba antes de volver.`;
+    : `Mantén la contracción ${fmtTempoNum(pauseTop)}, ${p.topPos}.`;
 
   const eccPhase = { Icon: ArrowDown, text: eccText };
   const pauseBottomPhase = { Icon: Pause, text: pauseBottomText };
   const conPhase = { Icon: ArrowUp, text: conText };
   const pauseTopPhase = { Icon: Pause, text: pauseTopText };
 
-  const ordered = concentricFirst
+  const ordered = p.concentricFirst
     ? [conPhase, pauseTopPhase, eccPhase, pauseBottomPhase]
     : [eccPhase, pauseBottomPhase, conPhase, pauseTopPhase];
-  const phases = ordered.map((p, i) => ({ ...p, label: i === 0 ? "Fase 1 (la salida)" : `Fase ${i + 1}` }));
+  const phases = ordered.map((ph, i) => ({ ...ph, label: i === 0 ? "Fase 1 (la salida)" : `Fase ${i + 1}` }));
 
   return { phases, tip: MUSCLE_CONNECTION_TIPS[muscle] || MUSCLE_CONNECTION_TIPS.Otro };
 }
@@ -1421,8 +1528,8 @@ const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...res
   const kinds = {
     // Degradado de 3 puntos (no un solo rojo plano) + brillo interior arriba
     // y sombra de color abajo: se lee como un botón con volumen, no un parche.
-    ember: { background: `linear-gradient(160deg, #3D3D3D, #161616 55%, #000000)`, color: "#FFFFFF",
-      boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(0,0,0,.55)" },
+    ember: { background: PLATE_GRAD, color: PLATE_FG,
+      boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 10px 22px -8px rgba(0,0,0,.55)" },
     ghost: { background: `linear-gradient(165deg, ${P.s3}, ${P.s2})`, border: `1px solid ${P.line}`, color: P.text,
       boxShadow: "0 1px 0 rgba(255,255,255,.07) inset, 0 6px 16px -10px rgba(0,0,0,.7)" },
     line:  { background: "transparent", border: `1px solid ${P.line}`, color: P.dim },
@@ -1556,14 +1663,19 @@ const Empty = ({ icon: Icon, title, body }) => (
 const Logo = ({ size = 26 }) => (
   <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 6, lineHeight: 1 }}>
     <div style={{ width: size + 14, height: size + 14, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center",
-      background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`, boxShadow: "0 2px 14px rgba(255,255,255,.15)" }}>
-      {/* Mancuerna en blanco sobre placa negro pastel — antes era al revés
-          (placa blanca + mancuerna casi negra): mismos "cuadros en negro"
-          que en el logo de referencia, pero acá vivía en el propio código.
-          Ahora coincide con el resto de las placas de ícono de la app y con
-          el favicon. */}
+      background: PLATE_GRAD, boxShadow: "0 2px 14px rgba(255,255,255,.15)" }}>
+      {/* Mancuerna en gris casi negro sobre placa blanco pastel — antes era
+          al revés (placa negra + mancuerna blanca): a pedido explícito se
+          invirtió para que "los cuadros" dejen de leerse como negros.
+          Mismo glifo que el favicon y el splash, coherente con PLATE_GRAD. */}
       <svg viewBox="0 0 24 24" width={size * 0.72} height={size * 0.72} aria-hidden="true">
-        <g fill="#FFFFFF">
+        <defs>
+          <linearGradient id="logoBarGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#3A3733" />
+            <stop offset="100%" stopColor={PLATE_FG} />
+          </linearGradient>
+        </defs>
+        <g fill="url(#logoBarGrad)">
           <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
           <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
           <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
@@ -1598,17 +1710,21 @@ const SplashScreen = ({ exiting }) => (
           border: `2px solid ${P.ember2}`, boxShadow: `0 0 20px 4px ${P.glow}` }} />
         <div className="splashFlash" style={{ position: "absolute", inset: -14, borderRadius: "50%",
           background: "radial-gradient(circle, #FFFFFF 0%, rgba(255,255,255,0) 70%)" }} />
-        {/* Placa "negro pastel" con la mancuerna en blanco — antes era al
-            revés (plato blanco + barras casi negras, "#0C0708"): el mismo
-            problema de "cuadros en negro" que en el logo de referencia,
-            pero acá vivía en el propio código del splash, no en un archivo
-            de imagen. Ahora coincide con el resto de las placas de ícono de
-            la app (avatar, CTA…) y con el favicon, que ya tenía las barras
-            en blanco sobre negro. */}
+        {/* Placa "blanco pastel" con la mancuerna en gris casi negro — antes
+            era al revés (plato negro + barras blancas): a pedido explícito
+            se invirtió para que "los cuadros" dejen de leerse como negros.
+            Coincide con el resto de las placas de ícono de la app (Logo,
+            avatar, CTA…) y con el favicon/íconos PWA. */}
         <div className="splashIcon" style={{ width: 74, height: 74, borderRadius: 18, display: "flex", alignItems: "center", justifyContent: "center",
-          background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`, boxShadow: "0 8px 30px rgba(255,255,255,.2)" }}>
+          background: PLATE_GRAD, boxShadow: "0 8px 30px rgba(255,255,255,.2)" }}>
           <svg viewBox="0 0 24 24" width={40} height={40} aria-hidden="true">
-            <g fill="#FFFFFF">
+            <defs>
+              <linearGradient id="splashBarGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#3A3733" />
+                <stop offset="100%" stopColor={PLATE_FG} />
+              </linearGradient>
+            </defs>
+            <g fill="url(#splashBarGrad)">
               <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
               <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
               <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
@@ -1709,8 +1825,8 @@ const GlossaryBody = ({ focusId, showTopButton }) => {
         <button onClick={scrollToTop} aria-label="Subir al inicio"
           style={{ position: "fixed", right: 16, bottom: "calc(96px + env(safe-area-inset-bottom))", zIndex: 40,
             width: 46, height: 46, borderRadius: 23, display: "flex", alignItems: "center", justifyContent: "center",
-            background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`, color: "#FFFFFF",
-            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(0,0,0,.6)" }}>
+            background: PLATE_GRAD, color: PLATE_FG,
+            boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 10px 22px -8px rgba(0,0,0,.6)" }}>
           <ChevronUp size={22} />
         </button>
       )}
@@ -3646,9 +3762,9 @@ const AchievementGrid = ({ history }) => {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px",
         background: P.s1, border: `1px solid ${P.line}`, borderRadius: 14, boxShadow: CARD_LIFT }}>
         <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-          background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`,
-          boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
-          <Trophy size={20} color="#FFFFFF" />
+          background: PLATE_GRAD,
+          boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
+          <Trophy size={20} color={PLATE_FG} />
         </div>
         <div><div style={{ fontWeight: 700, fontSize: 17 }}>{earnedCount} de {list.length} logros</div>
           <div style={{ fontSize: 12.5, color: P.faint }}>Sigue entrenando para desbloquear el resto</div></div>
@@ -3663,9 +3779,9 @@ const AchievementGrid = ({ history }) => {
                 border: `1px solid ${a.earned ? `${P.dim}` : P.line}`,
                 boxShadow: a.earned ? CARD_LIFT : "none", opacity: a.earned ? 1 : .68 }}>
                 <div style={{ width: 44, height: 44, borderRadius: 14, margin: "0 auto 8px", display: "flex", alignItems: "center", justifyContent: "center",
-                  background: a.earned ? `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)` : P.s2,
-                  boxShadow: a.earned ? "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(0,0,0,.6)" : "none" }}>
-                  {a.earned ? <a.Icon size={21} color="#FFFFFF" /> : <Lock size={17} color={P.faint} />}
+                  background: a.earned ? PLATE_GRAD : P.s2,
+                  boxShadow: a.earned ? "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)" : "none" }}>
+                  {a.earned ? <a.Icon size={21} color={PLATE_FG} /> : <Lock size={17} color={P.faint} />}
                 </div>
                 <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25, marginBottom: 4 }}>{a.label}</div>
                 <div style={{ fontSize: 11, color: P.faint }}>{a.fmt(a.value)}{!a.earned ? ` de ${a.fmt(a.need)}` : ""}</div>
@@ -5336,9 +5452,9 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.s4}, ${P.s1} 55%)`, borderColor: `${P.faint}` }}>
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`,
-            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
-            <Sparkles size={20} color="#FFFFFF" />
+            background: PLATE_GRAD,
+            boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
+            <Sparkles size={20} color={PLATE_FG} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 16.5 }}>Importar rutina con IA</div>
@@ -5377,9 +5493,9 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 boxShadow: CARD_LIFT, textAlign: "left" }}>
               <span style={{ flexShrink: 0, minWidth: 36, height: 36, borderRadius: 11, padding: "0 4px",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`,
-                boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(0,0,0,.6)",
-                color: "#FFFFFF", fontWeight: 800, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
+                background: PLATE_GRAD,
+                boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)",
+                color: PLATE_FG, fontWeight: 800, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="disp" style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase", color: P.text, lineHeight: 1.1 }}>{g.label}</div>
                 <div style={{ fontSize: 13, color: P.faint, marginTop: 2 }}>
@@ -5700,9 +5816,9 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
         <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.s4}, ${P.s1} 55%)`, borderColor: `${P.faint}` }}>
           <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`,
-              boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
-              <Utensils size={19} color="#FFFFFF" />
+              background: PLATE_GRAD,
+              boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
+              <Utensils size={19} color={PLATE_FG} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 16.5 }}>Coach IA de nutrición</div>
@@ -6075,8 +6191,8 @@ const RankingsTab = ({ roster, toast }) => {
         <Card key={r.id} style={{ padding: "11px 13px", marginBottom: 8, display: "flex", alignItems: "center", gap: 11 }}>
           <div className="disp" style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
             fontWeight: 800, fontSize: 14,
-            background: i === 0 ? `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)` : P.s2,
-            color: i === 0 ? "#FFFFFF" : P.faint, border: i === 0 ? "none" : `1px solid ${P.line}` }}>
+            background: i === 0 ? PLATE_GRAD : P.s2,
+            color: i === 0 ? PLATE_FG : P.faint, border: i === 0 ? "none" : `1px solid ${P.line}` }}>
             {i === 0 ? <Medal size={15} /> : i + 1}
           </div>
           <div style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 15, overflowWrap: "break-word" }}>{r.name}</div>
@@ -8412,11 +8528,11 @@ const TabBar = ({ tabs, tab, setTab }) => (
                 brillo) y marco propio, no solo un ícono coloreado: más
                 volumen, más clara y más fácil de distinguir de las inactivas. */}
             <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 25, borderRadius: 9,
-              background: on ? `linear-gradient(160deg, #3D3D3D, #000000 75%)` : "transparent",
+              background: on ? PLATE_GRAD : "transparent",
               border: on ? `1px solid ${P.ember2}` : "1px solid transparent",
-              boxShadow: on ? "0 1px 0 rgba(255,255,255,.3) inset, 0 4px 12px -4px rgba(0,0,0,.6)" : "none",
+              boxShadow: on ? "0 1px 0 rgba(255,255,255,.6) inset, 0 4px 12px -4px rgba(0,0,0,.6)" : "none",
               transition: "background .15s, box-shadow .15s, border-color .15s" }}>
-              <Icon size={18} strokeWidth={on ? 2.3 : 2} color={on ? "#FFFFFF" : P.faint} />
+              <Icon size={18} strokeWidth={on ? 2.3 : 2} color={on ? PLATE_FG : P.faint} />
             </span>
             <span style={{ fontSize: 11, fontWeight: on ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 64 }}>{label}</span>
           </button>
@@ -8445,7 +8561,7 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
           <div style={{ color: P.dim, fontSize: 14, marginBottom: 16, lineHeight: 1.4 }}>Elige tu nombre del equipo — así ves solo lo que corresponde a tu rol.</div>
           <Card onClick={() => onEnterTeam(null)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer", borderColor: `${P.dim}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#FFF" }}>★</div>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: PLATE_FG }}>★</div>
               <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 15.5 }}>Tú (Head Coach)</div><div style={{ fontSize: 12.5, color: P.dim }}>El dueño de este dispositivo</div></div>
               <ChevronRight size={17} color={P.faint} />
             </div>
