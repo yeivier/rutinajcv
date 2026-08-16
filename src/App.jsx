@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v57";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v58";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -25,22 +25,29 @@ const BUILD = "v57";   // sube al cambiar el bundle: sirve para saber qué versi
 // dejan como están porque son prosa, no elementos de marca visual.
 const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso" };
 
-// Paleta FORJA: negro neutro y verde neón — en capas, no en bloques planos:
-// superficies grises oscuras para dar profundidad (nada de negro plano),
-// y el verde de acento (el de la instrucción original: #39FF14) reservado
-// a degradados/CTA — nunca como relleno plano de texto completo, para que
-// no se vea "parchado". "red" se mantiene como color real de peligro/error
-// (vencido, eliminar, validación) — separado del acento de marca a
-// propósito: un botón de eliminar en verde sería confuso.
+// Paleta FORJA: negro pastel y blanco — en capas, no en bloques planos:
+// superficies grises oscuras para dar profundidad (nada de negro plano), y
+// el acento de marca es monocromo (blanco sobre negro pastel), sin ningún
+// verde ni ningún otro color de acento. "red" se mantiene como color real
+// de peligro/error (vencido, eliminar, validación) — separado del acento
+// de marca a propósito: un botón de eliminar del mismo color que "confirmar"
+// sería confuso.
 // "green"/"blue" son nombres heredados de una paleta anterior; hoy
-// funcionan como matices de blanco (positivo/informativo), sin relación
-// con el verde neón de marca.
+// funcionan como matices de blanco (positivo/informativo).
 // "line" (marcos/bordes) y "faint" (texto secundario/íconos apagados) se
 // subieron de #333333/#6B6B6B a estos tonos: los originales quedaban casi
 // invisibles sobre los fondos oscuros (contraste real ~3:1, por debajo del
 // mínimo legible), sobre todo en la barra inferior y los bordes de tarjeta.
 // Al ser tokens únicos usados en toda la app, este solo cambio sube el
 // contraste de marcos y texto secundario en todas las pantallas a la vez.
+// "ember"/"ember2" son nombres heredados del acento verde original; hoy
+// son blanco puro y un blanco levemente suavizado — se mantiene el nombre
+// para no tener que tocar los ~190 lugares que ya los usan, pero el color
+// real es monocromo. Ninguno de los dos lleva canal alpha en ningún lugar
+// donde se usan (a pedido explícito: nada de colores transparentes ni
+// translúcidos en el acento de marca) — los degradados/brillos/bordes que
+// antes eran verde con alpha ahora son tonos sólidos y opacos de esta
+// misma escala de grises.
 const P = {
   bg: "#121212",
   s1: "#1A1A1A",
@@ -51,20 +58,18 @@ const P = {
   text: "#FFFFFF",
   dim: "#A0A0A0",
   faint: "#8A8A8A",
-  ember: "#39FF14",
-  ember2: "#5CFF3D",
+  ember: "#FFFFFF",
+  ember2: "#E8E8E8",
   green: "#FFFFFF",
   red: "#E01A1A",
   blue: "#DAD4D6",
-  glow: "rgba(57,255,20,.5)",
-  // Fondo general de pantalla completa: ya no negro plano. Diagonal gris muy
-  // oscuro con dos brillos radiales verdes tenues (arriba-derecha y abajo-
-  // izquierda), igual que una imagen de portada — pero acotado (nunca pasa
-  // de un verde apagado) para que el texto blanco y las tarjetas sigan
-  // leyéndose con contraste alto encima.
-  bgGrad: "radial-gradient(130% 85% at 88% -4%, rgba(57,255,20,.16), rgba(20,60,10,.10) 42%, rgba(0,0,0,0) 68%), " +
-    "radial-gradient(110% 80% at 6% 106%, rgba(57,255,20,.10), rgba(0,0,0,0) 55%), " +
-    "linear-gradient(158deg, #050505 0%, #0E0E0E 30%, #141814 54%, #171D16 76%, #1A211A 100%)",
+  glow: "#FFFFFF",
+  // Fondo general de pantalla completa: ya no negro plano. Diagonal gris
+  // neutro (sin ningún tinte de color) que da profundidad como una imagen
+  // de portada, sin recurrir a brillos radiales translúcidos — antes eran
+  // dos radial-gradient verdes con canal alpha; ahora es un solo degradado
+  // sólido de grises, más oscuro en las puntas y más claro al centro.
+  bgGrad: "linear-gradient(158deg, #050505 0%, #101010 30%, #161616 54%, #181818 76%, #1C1C1C 100%)",
 };
 
 // Padding-bottom mínimo de CUALQUIER pantalla de pestaña (todo lo que se
@@ -1293,8 +1298,8 @@ const CARD_LIFT = "0 1px 0 rgba(255,255,255,.07) inset, 0 14px 34px -14px rgba(0
 // (DRAG_LIFT_BORDER) es aparte del anillo de sombra para que el borde real
 // de la tarjeta también cambie de color, no solo su halo.
 const DRAG_LIFT_TRANSFORM = "scale(1.08) translateY(-8px)";
-const DRAG_LIFT_SHADOW = "0 0 0 2px rgba(57,255,20,.6), 0 34px 60px -16px rgba(0,0,0,.85)";
-const DRAG_LIFT_BORDER = `1px solid ${P.ember}99`;
+const DRAG_LIFT_SHADOW = "0 0 0 2px #FFFFFF, 0 34px 60px -16px rgba(0,0,0,.85)";
+const DRAG_LIFT_BORDER = `1px solid ${P.text}`;
 // Transición usada para el desplazamiento "hueco" (translateY) de los
 // elementos vecinos durante un arrastre — ver computeShiftOffsets().
 const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
@@ -1312,8 +1317,8 @@ const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...res
   const kinds = {
     // Degradado de 3 puntos (no un solo rojo plano) + brillo interior arriba
     // y sombra de color abajo: se lee como un botón con volumen, no un parche.
-    ember: { background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 55%, #0D3306)`, color: "#FFFFFF",
-      boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(57,255,20,.55)" },
+    ember: { background: `linear-gradient(160deg, #3D3D3D, #161616 55%, #000000)`, color: "#FFFFFF",
+      boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(0,0,0,.55)" },
     ghost: { background: `linear-gradient(165deg, ${P.s3}, ${P.s2})`, border: `1px solid ${P.line}`, color: P.text,
       boxShadow: "0 1px 0 rgba(255,255,255,.07) inset, 0 6px 16px -10px rgba(0,0,0,.7)" },
     line:  { background: "transparent", border: `1px solid ${P.line}`, color: P.dim },
@@ -1423,13 +1428,13 @@ const SplashScreen = ({ exiting }) => (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
       <div className="splashPulseLoop" style={{ position: "relative", width: 74, height: 74, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div className="splashGlow" style={{ position: "absolute", inset: -30, borderRadius: "50%",
-          background: `radial-gradient(circle, ${P.glow} 0%, rgba(57,255,20,0) 70%)` }} />
+          background: `radial-gradient(circle, ${P.glow} 0%, rgba(255,255,255,0) 70%)` }} />
         <div className="splashRing" style={{ position: "absolute", inset: 0, borderRadius: "50%",
           border: `2px solid ${P.ember}`, boxShadow: `0 0 30px 6px ${P.glow}` }} />
         <div className="splashRing2" style={{ position: "absolute", inset: 0, borderRadius: "50%",
           border: `2px solid ${P.ember2}`, boxShadow: `0 0 20px 4px ${P.glow}` }} />
         <div className="splashFlash" style={{ position: "absolute", inset: -14, borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(255,255,255,.9) 0%, rgba(255,255,255,0) 70%)" }} />
+          background: "radial-gradient(circle, #FFFFFF 0%, rgba(255,255,255,0) 70%)" }} />
         <div className="splashIcon" style={{ width: 74, height: 74, borderRadius: 18, display: "flex", alignItems: "center", justifyContent: "center",
           background: "#FFFFFF", boxShadow: "0 8px 30px rgba(255,255,255,.25)" }}>
           <svg viewBox="0 0 24 24" width={40} height={40} aria-hidden="true">
@@ -1534,8 +1539,8 @@ const GlossaryBody = ({ focusId, showTopButton }) => {
         <button onClick={scrollToTop} aria-label="Subir al inicio"
           style={{ position: "fixed", right: 16, bottom: "calc(96px + env(safe-area-inset-bottom))", zIndex: 40,
             width: 46, height: 46, borderRadius: 23, display: "flex", alignItems: "center", justifyContent: "center",
-            background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`, color: "#FFFFFF",
-            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(57,255,20,.6)" }}>
+            background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`, color: "#FFFFFF",
+            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 10px 22px -8px rgba(0,0,0,.6)" }}>
           <ChevronUp size={22} />
         </button>
       )}
@@ -1862,7 +1867,7 @@ const ExerciseProgress = ({ entries }) => {
               const diff = prev ? x.best - prev.best : null;
               const isBest = x.best === allTimeBest;
               return (
-                <tr key={x.en.sessionId} style={{ borderTop: `1px solid ${P.line}`, background: isBest ? `${P.ember}0c` : "transparent" }}>
+                <tr key={x.en.sessionId} style={{ borderTop: `1px solid ${P.line}`, background: isBest ? `${P.s3}` : "transparent" }}>
                   <td style={{ padding: "6px 6px", whiteSpace: "nowrap" }}>{fmtDate(x.en.date)}</td>
                   <td style={{ padding: "6px 6px" }}>{x.setsDone}</td>
                   <td style={{ padding: "6px 6px" }}>{x.totalReps}</td>
@@ -2009,7 +2014,7 @@ const InlineRest = ({ timer, onAdjust, onDismiss }) => {
   const col = over ? P.green : P.ember;
   return (
     <div style={{ marginTop: 8, padding: "8px 9px", borderRadius: 10,
-      background: over ? "rgba(255,255,255,.10)" : `${P.ember}12`, border: `1px solid ${over ? "rgba(255,255,255,.45)" : `${P.ember}44`}` }}>
+      background: over ? "rgba(255,255,255,.10)" : `${P.s4}`, border: `1px solid ${over ? "rgba(255,255,255,.45)" : `${P.faint}`}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
         <Timer size={16} color={col} className={over ? "" : "pulse"} />
         <span style={{ fontSize: 12.5, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>
@@ -2053,7 +2058,7 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
     <div className={done ? "quench" : ""} style={{ borderRadius: 12, padding: "8px 8px 8px 10px", marginBottom: 6,
       background: done ? "rgba(255,255,255,.10)" : P.s2, border: `1px solid ${done ? "rgba(255,255,255,.3)" : P.line}` }}>
       {(coachNote || coachAttachIds.length > 0 || set.coachVideo) && (
-        <div style={{ marginBottom: 7, padding: "7px 9px", background: `${P.ember}12`, border: `1px solid ${P.ember}33`, borderRadius: 8 }}>
+        <div style={{ marginBottom: 7, padding: "7px 9px", background: `${P.s4}`, border: `1px solid ${P.line}`, borderRadius: 8 }}>
           {coachNote && <div style={{ fontSize: 13.5, color: P.ember2, lineHeight: 1.4 }}>{coachNote}</div>}
           {set.coachVideo && (
             <a href={set.coachVideo} target="_blank" rel="noopener noreferrer"
@@ -2224,7 +2229,7 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
           </div>
 
           {(ex.coachAttachIds || []).length > 0 && (
-            <div style={{ marginBottom: 10, padding: "8px 10px", background: `${P.ember}12`, border: `1px solid ${P.ember}33`, borderRadius: 10 }}>
+            <div style={{ marginBottom: 10, padding: "8px 10px", background: `${P.s4}`, border: `1px solid ${P.line}`, borderRadius: 10 }}>
               <div style={{ fontSize: 12, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Demostración del coach</div>
               <div style={{ display: "flex", gap: 7, overflowX: "auto" }}>
                 {(ex.coachAttachIds || []).map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={62} />)}
@@ -2667,7 +2672,7 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
             aria-label="Indicación del coach: toca para verla 6 segundos, mantén pulsado para dejarla fija"
             style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: big ? 34 : 30, height: big ? 34 : 30, borderRadius: 17,
               border: `1.5px solid ${exx.notes ? (noteOpen ? P.ember : P.dim) : P.line}`, color: exx.notes ? (noteOpen ? P.ember : P.dim) : P.line,
-              background: noteOpen ? `${P.ember}18` : "transparent", touchAction: "manipulation", transition: "color .15s ease, border-color .15s ease" }}>
+              background: noteOpen ? `${P.s4}` : "transparent", touchAction: "manipulation", transition: "color .15s ease, border-color .15s ease" }}>
             <Info size={big ? 19 : 17} />
           </button>
           <button data-keep onClick={() => setFicha(ei)} aria-label="Ver ficha técnica completa del ejercicio"
@@ -2685,7 +2690,7 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
         <div style={{ maxHeight: noteOpen ? 200 : 0, opacity: noteOpen ? 1 : 0, overflow: "hidden",
           transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
           {noteOpen && (
-            <div data-keep onClick={hideInstr} style={{ background: `${P.ember}12`, border: `1px solid ${P.ember}44`, borderRadius: 11,
+            <div data-keep onClick={hideInstr} style={{ background: `${P.s4}`, border: `1px solid ${P.faint}`, borderRadius: 11,
               padding: "9px 11px", margin: "6px 0 2px", fontSize: 13.5, color: P.ember2, lineHeight: 1.45, maxHeight: 180, overflowY: "auto" }}>
               {exx.notes}
             </div>
@@ -2741,8 +2746,8 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
 
         {started && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "6px 9px", borderRadius: 9,
-            background: over ? "rgba(255,255,255,.10)" : `${P.ember}12`,
-            border: `1px solid ${over ? "rgba(255,255,255,.45)" : `${P.ember}44`}` }}>
+            background: over ? "rgba(255,255,255,.10)" : `${P.s4}`,
+            border: `1px solid ${over ? "rgba(255,255,255,.45)" : `${P.faint}`}` }}>
             <Timer size={15} color={over ? P.green : P.ember} />
             <span className="disp" style={{ fontSize: 19, fontWeight: 700, color: over ? P.green : P.ember }}>{bigTime(restEl)}</span>
             <span style={{ fontSize: 12.5, color: P.faint }}>descansando{target ? ` · objetivo ${target}s` : ""}</span>
@@ -2970,7 +2975,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             ))}
           </div>
           {summary.prs.length > 0 && (
-            <div style={{ background: "rgba(255,255,255,.08)", border: `1px solid ${P.ember}55`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+            <div style={{ background: "rgba(255,255,255,.08)", border: `1px solid ${P.dim}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
               <div style={{ fontWeight: 700, color: P.ember2, marginBottom: 6 }}><Award size={15} style={{ verticalAlign: -2, marginRight: 5 }} />Récords personales de peso</div>
               {summary.prs.map((p) => <div key={p} style={{ fontSize: 15, color: P.text, padding: "2px 0" }}>• {p}</div>)}
             </div>
@@ -3043,7 +3048,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
                 <Btn kind="line" onClick={() => setPreviewDay(null)} style={{ flex: 1 }}><X size={16} /> Salir sin iniciar</Btn>
                 <Btn kind="ember" onClick={() => startSession(d)} style={{ flex: 2 }}><Play size={16} /> Iniciar entrenamiento</Btn>
               </div>
-              <Btn kind="ghost" onClick={() => startSession(d, true)} style={{ width: "100%", borderColor: `${P.ember}55` }}>
+              <Btn kind="ghost" onClick={() => startSession(d, true)} style={{ width: "100%", borderColor: `${P.dim}` }}>
                 <Zap size={16} color={P.ember2} /> Iniciar focus mode
               </Btn>
               <div style={{ fontSize: 12.5, color: P.faint, textAlign: "center", lineHeight: 1.4 }}>
@@ -3066,7 +3071,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Entrenar</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego un día para ver los ejercicios. Solo cuando aprietes «Iniciar entrenamiento» se creará la sesión y empezarán los cronómetros.</div>
         {active && (
-          <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.ember}66`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
+          <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.dim}`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
             <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 3 }}>Sesión en curso: {active.dayName}</div>
             <div style={{ fontSize: 13.5, color: P.dim, marginBottom: 10 }}>Estás mirando la rutina. Tu registro sigue guardado tal como lo dejaste.</div>
             <Btn kind="ember" small onClick={() => { setPreviewDay(null); setBrowsing(false); }} style={{ width: "100%" }}>
@@ -3080,12 +3085,12 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
           const open = openRoutines.includes(g.key);
           return (
             <Card key={g.key} style={{ marginBottom: 12, overflow: "hidden",
-              borderColor: open ? `${P.ember}55` : P.line,
-              background: open ? `linear-gradient(160deg, ${P.ember}12, ${P.s1})` : P.s1 }}>
+              borderColor: open ? `${P.dim}` : P.line,
+              background: open ? `linear-gradient(160deg, ${P.s4}, ${P.s1})` : P.s1 }}>
               <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
                 style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
                 <div className="disp" style={{ width: 38, height: 38, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: `linear-gradient(140deg, ${P.ember}22, ${P.ember}0A)`, border: `1px solid ${P.ember}44`, color: P.ember, fontSize: 18, fontWeight: 700, flexShrink: 0 }}>{g.key}</div>
+                  background: `linear-gradient(140deg, ${P.line}, ${P.s3})`, border: `1px solid ${P.faint}`, color: P.ember, fontSize: 18, fontWeight: 700, flexShrink: 0 }}>{g.key}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="disp" style={{ fontWeight: 700, fontSize: 18, textTransform: "uppercase" }}>{g.label}</div>
                   <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>
@@ -3103,7 +3108,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
                       <Card key={d.id} style={{ marginBottom: 10, background: P.s2 }}>
                         <button onClick={() => setPreviewDay(d)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
                           <div className="disp" style={{ width: 38, height: 38, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
-                            background: `linear-gradient(140deg, ${P.ember}22, ${P.ember}0A)`, border: `1px solid ${P.ember}44`, color: P.ember, fontSize: 18, fontWeight: 700 }}>{i + 1}</div>
+                            background: `linear-gradient(140deg, ${P.line}, ${P.s3})`, border: `1px solid ${P.faint}`, color: P.ember, fontSize: 18, fontWeight: 700 }}>{i + 1}</div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 700, fontSize: 16.5 }}>{d.name}</div>
                             <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>
@@ -3312,7 +3317,7 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
       <NextBookingBanner bookings={bookings} sid={sid} />
 
       {active ? (
-        <Card style={{ padding: 16, marginBottom: 14, borderColor: `${P.ember}66`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
+        <Card style={{ padding: 16, marginBottom: 14, borderColor: `${P.dim}`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
           <div style={{ fontWeight: 700, fontSize: 16.5, marginBottom: 4 }}>Tienes una sesión en curso</div>
           <div style={{ fontSize: 14.5, color: P.dim, marginBottom: 12 }}>{active.dayName} — todos tus datos están guardados. Puedes retomarla exactamente donde quedaste, aunque cierres la app.</div>
           <Btn kind="ember" onClick={goTrain} style={{ width: "100%" }}><Play size={16} /> Continuar sesión</Btn>
@@ -3332,7 +3337,7 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
 
       {streak > 0 && (
         <Card style={{ padding: "13px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12,
-          borderColor: `${P.ember}55`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
+          borderColor: `${P.dim}`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
           <Flame size={26} color={P.ember2} className="pulse" />
           <div style={{ flex: 1 }}>
             <div className="disp" style={{ fontSize: 19, fontWeight: 700, lineHeight: 1.15 }}>{streak} semana{streak !== 1 ? "s" : ""} seguida{streak !== 1 ? "s" : ""}</div>
@@ -3459,8 +3464,8 @@ const AchievementGrid = ({ history }) => {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px",
         background: P.s1, border: `1px solid ${P.line}`, borderRadius: 14, boxShadow: CARD_LIFT }}>
         <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-          background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`,
-          boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(57,255,20,.6)" }}>
+          background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`,
+          boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
           <Trophy size={20} color="#FFFFFF" />
         </div>
         <div><div style={{ fontWeight: 700, fontSize: 17 }}>{earnedCount} de {list.length} logros</div>
@@ -3473,11 +3478,11 @@ const AchievementGrid = ({ history }) => {
             {list.filter((a) => a.group === g).map((a) => (
               <div key={a.id} style={{ padding: "13px 10px", borderRadius: 13, textAlign: "center",
                 background: a.earned ? `linear-gradient(160deg, ${P.s3}, ${P.s2})` : P.s1,
-                border: `1px solid ${a.earned ? `${P.ember}55` : P.line}`,
+                border: `1px solid ${a.earned ? `${P.dim}` : P.line}`,
                 boxShadow: a.earned ? CARD_LIFT : "none", opacity: a.earned ? 1 : .68 }}>
                 <div style={{ width: 44, height: 44, borderRadius: 14, margin: "0 auto 8px", display: "flex", alignItems: "center", justifyContent: "center",
-                  background: a.earned ? `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)` : P.s2,
-                  boxShadow: a.earned ? "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(57,255,20,.6)" : "none" }}>
+                  background: a.earned ? `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)` : P.s2,
+                  boxShadow: a.earned ? "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(0,0,0,.6)" : "none" }}>
                   {a.earned ? <a.Icon size={21} color="#FFFFFF" /> : <Lock size={17} color={P.faint} />}
                 </div>
                 <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25, marginBottom: 4 }}>{a.label}</div>
@@ -4029,7 +4034,7 @@ REGLAS ESTRICTAS:
   return (
     <Sheet open={open} onClose={close} title="Importar rutina desde archivo" tall>
       {!apiKey && (
-        <Card style={{ padding: 12, marginBottom: 12, borderColor: `${P.ember}66`, background: `${P.ember}0A` }}>
+        <Card style={{ padding: 12, marginBottom: 12, borderColor: `${P.dim}`, background: `${P.s3}` }}>
           <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5 }}>
             <b style={{ color: P.ember2 }}>Falta la API key.</b> Para usar el importador con IA, primero configura tu API key de Anthropic en la pestaña <b>IA</b> del modo Coach.
           </div>
@@ -4253,7 +4258,7 @@ REGLAS ESTRICTAS:
   return (
     <Sheet open={open} onClose={close} title="Importar mesociclo con IA" tall>
       {!apiKey && (
-        <Card style={{ padding: 12, marginBottom: 12, borderColor: `${P.ember}66`, background: `${P.ember}0A` }}>
+        <Card style={{ padding: 12, marginBottom: 12, borderColor: `${P.dim}`, background: `${P.s3}` }}>
           <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5 }}>
             <b style={{ color: P.ember2 }}>Falta la API key.</b> Configúrala en la pestaña <b>IA</b> del modo Coach.
           </div>
@@ -4463,8 +4468,8 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
           <button onClick={() => setCurrentMesociclo(null)}
             style={{ width: "100%", textAlign: "left", padding: "10px 12px", marginBottom: 10, borderRadius: 12,
               display: "flex", alignItems: "center", gap: 10,
-              border: `1px solid ${state.currentMesoId === null ? `${P.ember}66` : P.line}`,
-              background: state.currentMesoId === null ? `${P.ember}0A` : P.s2 }}>
+              border: `1px solid ${state.currentMesoId === null ? `${P.dim}` : P.line}`,
+              background: state.currentMesoId === null ? `${P.s3}` : P.s2 }}>
             {state.currentMesoId === null
               ? <span title="Sin mesociclo asignado" style={{ width: 8, height: 8, borderRadius: 4, background: P.ember, flexShrink: 0 }} />
               : <span style={{ width: 8, height: 8, borderRadius: 4, border: `1px solid ${P.line}`, flexShrink: 0 }} />}
@@ -4483,8 +4488,8 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
               <div key={m.id} data-mesociclo={m.id}
                 onClickCapture={(e) => { if (Date.now() < (mesoDragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
                 style={{ marginBottom: 10, borderRadius: 12, overflow: "hidden",
-                  border: `1px solid ${isCurrent ? `${P.ember}66` : P.line}`,
-                  background: dragging ? P.s3 : (mesoDragOver === m.id && mesoDragging ? P.s1 : (isCurrent ? `${P.ember}0A` : P.s2)),
+                  border: `1px solid ${isCurrent ? `${P.dim}` : P.line}`,
+                  background: dragging ? P.s3 : (mesoDragOver === m.id && mesoDragging ? P.s1 : (isCurrent ? `${P.s3}` : P.s2)),
                   boxShadow: dragging ? DRAG_LIFT_SHADOW : "none",
                   transform: dragging ? DRAG_LIFT_TRANSFORM : "none",
                   transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
@@ -4522,7 +4527,7 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
                     </div>
                     {m.weeks.map((w, i) => (
                       <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 9px", marginBottom: 6, borderRadius: 10,
-                        background: i === m.current ? `${P.ember}14` : P.s1, border: `1px solid ${i === m.current ? `${P.ember}66` : P.line}` }}>
+                        background: i === m.current ? `${P.s4}` : P.s1, border: `1px solid ${i === m.current ? `${P.dim}` : P.line}` }}>
                         <button onClick={() => setCurrentWeekOf(m.id, i)} title="Marcar como semana en curso" aria-label={`Marcar ${w.name} como semana en curso`}
                           style={{ width: 20, height: 20, borderRadius: 10, flexShrink: 0,
                             border: `2px solid ${i === m.current ? P.ember : P.line}`, background: i === m.current ? P.ember : "transparent" }} />
@@ -4685,7 +4690,7 @@ const LibraryPanel = ({ plan, history, library, onSaveLibrary, onInfo, toast, on
 
   const chip = (label, active, onClick) => (
     <button key={label} onClick={onClick} style={{ padding: "5px 10px", borderRadius: 8, fontSize: 13, fontWeight: 600, flexShrink: 0,
-      background: active ? `${P.ember}22` : P.s2, border: `1px solid ${active ? `${P.ember}66` : P.line}`, color: active ? P.ember2 : P.dim }}>{label}</button>
+      background: active ? `${P.line}` : P.s2, border: `1px solid ${active ? `${P.dim}` : P.line}`, color: active ? P.ember2 : P.dim }}>{label}</button>
   );
 
   return (
@@ -5144,11 +5149,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       {view === "dias" && (<>
       <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} />
 
-      <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.ember}1F, ${P.s1} 55%)`, borderColor: `${P.ember}4A` }}>
+      <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.s4}, ${P.s1} 55%)`, borderColor: `${P.faint}` }}>
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`,
-            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(57,255,20,.6)" }}>
+            background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`,
+            boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
             <Sparkles size={20} color="#FFFFFF" />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -5188,8 +5193,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 boxShadow: CARD_LIFT, textAlign: "left" }}>
               <span style={{ flexShrink: 0, minWidth: 36, height: 36, borderRadius: 11, padding: "0 4px",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`,
-                boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(57,255,20,.6)",
+                background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`,
+                boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(0,0,0,.6)",
                 color: "#FFFFFF", fontWeight: 800, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="disp" style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase", color: P.text, lineHeight: 1.1 }}>{g.label}</div>
@@ -5500,7 +5505,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
           value={derived ? v[key] : (n[key] === "" || n[key] == null ? "" : n[key])}
           onChange={(e) => setMacro(key, e.target.value)}
           title={derived ? "La app calcula este valor a partir de los otros tres" : ""}
-          style={{ textAlign: "center", background: derived ? P.s3 : undefined, color: derived ? P.ember2 : undefined, fontWeight: derived ? 700 : undefined, borderColor: derived ? `${P.ember}66` : undefined }} />
+          style={{ textAlign: "center", background: derived ? P.s3 : undefined, color: derived ? P.ember2 : undefined, fontWeight: derived ? 700 : undefined, borderColor: derived ? `${P.dim}` : undefined }} />
       </div>
     );
   };
@@ -5508,11 +5513,11 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Nutrición</h1>
       {onOpenNutritionAI && (
-        <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.ember}1F, ${P.s1} 55%)`, borderColor: `${P.ember}4A` }}>
+        <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.s4}, ${P.s1} 55%)`, borderColor: `${P.faint}` }}>
           <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`,
-              boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(57,255,20,.6)" }}>
+              background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`,
+              boxShadow: "0 1px 0 rgba(255,255,255,.35) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
               <Utensils size={19} color="#FFFFFF" />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -5552,7 +5557,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
           <div style={{ fontSize: 13.5, color: P.text, fontWeight: 700, marginTop: 6 }}>Total: {v.tot} kcal</div>
         </div>
         {/* Objetivo calórico según fase */}
-        <div style={{ marginTop: 11, padding: "10px 11px", background: `${P.ember}0E`, border: `1px solid ${P.ember}33`, borderRadius: 10 }}>
+        <div style={{ marginTop: 11, padding: "10px 11px", background: `${P.s3}`, border: `1px solid ${P.line}`, borderRadius: 10 }}>
           <div style={{ fontSize: 12, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 7 }}>Objetivo calórico</div>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 120 }}>
@@ -5843,7 +5848,7 @@ const RankingsTab = ({ roster, toast }) => {
         Compara a tus alumnos por distintos criterios. Las calorías son una estimación (duración × peso corporal) — FORJA no mide gasto real.
       </div>
 
-      <Card style={{ padding: 14, marginBottom: 16, background: `linear-gradient(150deg, ${P.ember}1F, ${P.s1} 55%)`, borderColor: `${P.ember}4A` }}>
+      <Card style={{ padding: 14, marginBottom: 16, background: `linear-gradient(150deg, ${P.s4}, ${P.s1} 55%)`, borderColor: `${P.faint}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <Gift size={17} color={P.ember} />
           <div style={{ fontWeight: 700, fontSize: 15.5, textTransform: "capitalize" }}>Premio de {monthLabel}</div>
@@ -5886,7 +5891,7 @@ const RankingsTab = ({ roster, toast }) => {
         <Card key={r.id} style={{ padding: "11px 13px", marginBottom: 8, display: "flex", alignItems: "center", gap: 11 }}>
           <div className="disp" style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
             fontWeight: 800, fontSize: 14,
-            background: i === 0 ? `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)` : P.s2,
+            background: i === 0 ? `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)` : P.s2,
             color: i === 0 ? "#FFFFFF" : P.faint, border: i === 0 ? "none" : `1px solid ${P.line}` }}>
             {i === 0 ? <Medal size={15} /> : i + 1}
           </div>
@@ -6019,7 +6024,7 @@ const BillingConfigCard = () => {
         <Field label="Pasarela">
           {BILLING_PROVIDERS.map((p) => (
             <button key={p.id} onClick={() => setDraft({ ...draft, provider: p.id })} style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px", marginBottom: 8,
-              borderRadius: 11, border: `1px solid ${draft.provider === p.id ? P.ember : P.line}`, background: draft.provider === p.id ? `${P.ember}0E` : P.s2 }}>
+              borderRadius: 11, border: `1px solid ${draft.provider === p.id ? P.ember : P.line}`, background: draft.provider === p.id ? `${P.s3}` : P.s2 }}>
               <div style={{ fontWeight: 700, fontSize: 14.5 }}>{p.label}</div>
               <div style={{ fontSize: 12, color: P.faint, marginTop: 2 }}>{p.note}</div>
             </button>
@@ -6587,7 +6592,7 @@ REGLAS:
       </div>
 
       {!apiKey || showKeyEdit ? (
-        <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.ember}66` }}>
+        <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.dim}` }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
             <AlertTriangle size={16} color={P.ember2} />
             <div style={{ fontWeight: 700, fontSize: 15 }}>Configura tu API key de Anthropic</div>
@@ -6626,8 +6631,8 @@ REGLAS:
         {messages.map((m, i) => (
           <div key={i} style={{ marginBottom: 10, display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
             <div style={{ maxWidth: "85%", padding: "10px 13px", borderRadius: 14,
-              background: m.role === "user" ? `${P.ember}22` : P.s2,
-              border: `1px solid ${m.role === "user" ? `${P.ember}55` : P.line}`,
+              background: m.role === "user" ? `${P.line}` : P.s2,
+              border: `1px solid ${m.role === "user" ? `${P.dim}` : P.line}`,
               fontSize: 14.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
               {m.content}
             </div>
@@ -6969,7 +6974,7 @@ const AthleteForm = ({ plan, savePlan }) => {
               const on = (a.weakPoints || []).includes(m);
               return (
                 <button key={m} onClick={() => toggleWeak(m)} style={{ padding: "6px 10px", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
-                  background: on ? `${P.ember}22` : P.s2, border: `1px solid ${on ? `${P.ember}66` : P.line}`, color: on ? P.ember2 : P.dim }}>{m}</button>
+                  background: on ? `${P.line}` : P.s2, border: `1px solid ${on ? `${P.dim}` : P.line}`, color: on ? P.ember2 : P.dim }}>{m}</button>
               );
             })}
           </div>
@@ -7304,7 +7309,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
           return (
             <button key={id} onClick={() => setSpecialty(id)} style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
               padding: "7px 11px", borderRadius: 10, fontSize: 13.5, fontWeight: 600,
-              background: on ? `${P.ember}1F` : P.s2, border: `1px solid ${on ? `${P.ember}66` : P.line}`, color: on ? P.ember2 : P.dim }}>
+              background: on ? `${P.s4}` : P.s2, border: `1px solid ${on ? `${P.dim}` : P.line}`, color: on ? P.ember2 : P.dim }}>
               <Icon size={13} /> {label}
             </button>
           );
@@ -7335,8 +7340,8 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
                   </div>
                 )}
                 {m.content && (
-                  <div style={{ maxWidth: "85%", padding: "10px 13px", borderRadius: 14, background: `${P.ember}22`,
-                    border: `1px solid ${P.ember}55`, fontSize: 14.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{m.content}</div>
+                  <div style={{ maxWidth: "85%", padding: "10px 13px", borderRadius: 14, background: `${P.line}`,
+                    border: `1px solid ${P.dim}`, fontSize: 14.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{m.content}</div>
                 )}
               </div>
             );
@@ -7355,7 +7360,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
                   const days = act.data.days || [];
                   const exCount = days.reduce((a, d) => a + (d.exs || []).length, 0);
                   return (
-                    <Card key={key} style={{ padding: "12px 13px", marginTop: 8, borderColor: `${P.ember}55`, background: `${P.ember}0A` }}>
+                    <Card key={key} style={{ padding: "12px 13px", marginTop: 8, borderColor: `${P.dim}`, background: `${P.s3}` }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
                         <ClipboardList size={15} color={P.ember2} />
                         <div style={{ fontWeight: 700, fontSize: 14.5, flex: 1 }}>{act.data.titulo || "Bloque de entrenamiento"}</div>
@@ -7508,7 +7513,7 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
       </div>
 
       {(!apiKey || showKeyEdit) && (
-        <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.ember}66` }}>
+        <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.dim}` }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
             <AlertTriangle size={16} color={P.ember2} />
             <div style={{ fontWeight: 700, fontSize: 15 }}>Configura tu API key de Anthropic</div>
@@ -7631,7 +7636,7 @@ const EventReminderBanner = ({ events }) => {
   const list = upcomingEvents(events);
   if (!list.length) return null;
   return (
-    <Card style={{ padding: "12px 14px", marginBottom: 14, borderColor: `${P.ember}55` }}>
+    <Card style={{ padding: "12px 14px", marginBottom: 14, borderColor: `${P.dim}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <Bell size={16} color={P.ember2} />
         <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>
@@ -7690,7 +7695,7 @@ const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected,
     return (
       <button key={iso} onClick={() => setSelected(iso)}
         style={{ position: "relative", aspectRatio: "1", padding: 3, borderRadius: 8,
-          background: isSel ? `${P.ember}22` : isTodayCell ? P.s3 : "transparent",
+          background: isSel ? `${P.line}` : isTodayCell ? P.s3 : "transparent",
           border: `1px solid ${isSel ? P.ember : isTodayCell ? P.ember2 + "55" : "transparent"}`,
           opacity: isCurMonth || view === "week" ? 1 : 0.35, display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "flex-start", gap: 2 }}>
@@ -7722,7 +7727,7 @@ const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected,
           ))}
         </div>
         <div style={{ flex: 1 }} />
-        <button onClick={goToday} style={{ padding: "4px 8px", fontSize: 12, color: P.ember, fontWeight: 700, borderRadius: 6, border: `1px solid ${P.ember}55` }}>HOY</button>
+        <button onClick={goToday} style={{ padding: "4px 8px", fontSize: 12, color: P.ember, fontWeight: 700, borderRadius: 6, border: `1px solid ${P.dim}` }}>HOY</button>
       </div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
         <button onClick={goPrev} aria-label="Período anterior" style={{ padding: 6, color: P.dim }}><ChevronLeft size={18} /></button>
@@ -8071,10 +8076,14 @@ const StorageBanner = () => storageOK ? null : (
 const Toast = ({ msg }) => !msg ? null : (
   <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 86, zIndex: 80,
     width: "calc(100% - 32px)", maxWidth: 488 }}>
-    <div className="sheetIn" style={{ background: "rgba(30,10,13,.92)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
-      border: `1px solid rgba(57,255,20,.55)`, color: "#FFFFFF",
+    {/* Fondo sólido y opaco (antes rgba(30,10,13,.92) con blur detrás: un
+        tinte rojizo heredado de la paleta previa a v53, translúcido) y borde
+        blanco opaco (antes verde con alpha) — nada de blur ni canal alpha
+        en el acento. */}
+    <div className="sheetIn" style={{ background: P.s2,
+      border: `1px solid ${P.ember}`, color: "#FFFFFF",
       borderRadius: 14, padding: "12px 15px", fontSize: 15.5, lineHeight: 1.4,
-      boxShadow: "0 1px 0 rgba(255,255,255,.1) inset, 0 12px 30px rgba(0,0,0,.55)" }}>{msg}</div>
+      boxShadow: "0 12px 30px rgba(0,0,0,.55)" }}>{msg}</div>
   </div>
 );
 
@@ -8219,9 +8228,9 @@ const TabBar = ({ tabs, tab, setTab }) => (
                 brillo) y marco propio, no solo un ícono coloreado: más
                 volumen, más clara y más fácil de distinguir de las inactivas. */}
             <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 25, borderRadius: 9,
-              background: on ? `linear-gradient(160deg, #8CFF6B, ${P.ember} 75%)` : "transparent",
-              border: on ? "1px solid rgba(255,255,255,.25)" : "1px solid transparent",
-              boxShadow: on ? "0 1px 0 rgba(255,255,255,.3) inset, 0 4px 12px -4px rgba(57,255,20,.6)" : "none",
+              background: on ? `linear-gradient(160deg, #3D3D3D, #000000 75%)` : "transparent",
+              border: on ? `1px solid ${P.ember2}` : "1px solid transparent",
+              boxShadow: on ? "0 1px 0 rgba(255,255,255,.3) inset, 0 4px 12px -4px rgba(0,0,0,.6)" : "none",
               transition: "background .15s, box-shadow .15s, border-color .15s" }}>
               <Icon size={18} strokeWidth={on ? 2.3 : 2} color={on ? "#FFFFFF" : P.faint} />
             </span>
@@ -8250,9 +8259,9 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
           </button>
           <h1 style={{ fontSize: 22, textTransform: "uppercase", margin: "0 0 4px" }}>¿Quién eres?</h1>
           <div style={{ color: P.dim, fontSize: 14, marginBottom: 16, lineHeight: 1.4 }}>Elige tu nombre del equipo — así ves solo lo que corresponde a tu rol.</div>
-          <Card onClick={() => onEnterTeam(null)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer", borderColor: `${P.ember}55` }}>
+          <Card onClick={() => onEnterTeam(null)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer", borderColor: `${P.dim}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(160deg, #8CFF6B, ${P.ember} 70%, #0D3306)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#FFF" }}>★</div>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(160deg, #3D3D3D, #161616 70%, #000000)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#FFF" }}>★</div>
               <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 15.5 }}>Tú (Head Coach)</div><div style={{ fontSize: 12.5, color: P.dim }}>El dueño de este dispositivo</div></div>
               <ChevronRight size={17} color={P.faint} />
             </div>
@@ -8282,10 +8291,10 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
       <div style={{ color: P.dim, fontSize: 14.5, textAlign: "center", marginBottom: 20, lineHeight: 1.45 }}>
         Este dispositivo recordará tu elección. Podrás cambiarla cuando quieras desde el encabezado.
       </div>
-      <Card onClick={() => hasTeam ? setPickingTeam(true) : onEnter("coach", roster.students[0]?.id)} style={{ padding: "15px 16px", marginBottom: 16, borderColor: `${P.ember}55`, cursor: "pointer",
+      <Card onClick={() => hasTeam ? setPickingTeam(true) : onEnter("coach", roster.students[0]?.id)} style={{ padding: "15px 16px", marginBottom: 16, borderColor: `${P.dim}`, cursor: "pointer",
         background: `linear-gradient(150deg, rgba(255,255,255,.10), ${P.s1})` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 12, background: `${P.ember}22`, border: `1px solid ${P.ember}55`, display: "flex", alignItems: "center", justifyContent: "center" }}><ClipboardList size={20} color={P.ember} /></div>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: `${P.line}`, border: `1px solid ${P.dim}`, display: "flex", alignItems: "center", justifyContent: "center" }}><ClipboardList size={20} color={P.ember} /></div>
           <div><div style={{ fontWeight: 700, fontSize: 16 }}>Soy el coach</div><div style={{ fontSize: 13.5, color: P.dim }}>{hasTeam ? "Elige quién del equipo eres" : "Crear y editar rutinas, ver la actividad de todos"}</div></div>
         </div>
       </Card>
@@ -8346,7 +8355,7 @@ const RosterSheet = ({ open, onClose, roster, sid, onEnter, onAdd, onRename, onR
         const c = crm[s.id];
         const st = c ? paymentStatus(c.pay.nextDue) : null;
         return (
-          <Card key={s.id} style={{ padding: "12px 14px", marginBottom: 10, borderColor: s.id === sid ? `${P.ember}66` : P.line }}>
+          <Card key={s.id} style={{ padding: "12px 14px", marginBottom: 10, borderColor: s.id === sid ? `${P.dim}` : P.line }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 9 }}>
               <div className="disp" style={{ width: 34, height: 34, borderRadius: 9, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2, flexShrink: 0 }}>{s.name.slice(0, 1).toUpperCase()}</div>
               <div style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 16 }}>{s.name}{s.id === sid && <span style={{ fontSize: 12, color: P.ember2, marginLeft: 8 }}>· gestionando</span>}</div>
