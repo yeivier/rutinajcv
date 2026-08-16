@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v56";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v57";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -2037,10 +2037,14 @@ const InlineRest = ({ timer, onAdjust, onDismiss }) => {
 const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpenImg, onAttachError, restSec, timer, onStartRest, onAdjustRest, onDismissRest }) => {
   const [showCmt, setShowCmt] = useState(false);
   const done = set.done;
+  // minHeight 48: son los inputs que más se tocan durante el entrenamiento
+  // (peso/reps/RIR, serie tras serie, a veces con las manos sudadas) — el
+  // padding solo (antes ~37px de alto) quedaba por debajo del mínimo táctil
+  // recomendado (Apple/Google: 44-48px).
   const inp = (field, ph, w) => (
     <input type="number" inputMode="decimal" step="any" placeholder={ph} value={set[field]}
       onChange={(e) => onPatch({ [field]: e.target.value })}
-      style={{ width: w, padding: "9px 4px", textAlign: "center", fontWeight: 600, fontSize: 16,
+      style={{ width: w, minHeight: 48, padding: "9px 4px", textAlign: "center", fontWeight: 600, fontSize: 16,
         background: done ? "rgba(255,255,255,.07)" : P.s3, borderColor: done ? "rgba(255,255,255,.35)" : P.line }} />
   );
   const coachNote = set.coachNote || "";
@@ -2112,10 +2116,10 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
           </button>
         </div>
         <button onClick={onToggleDone} title={done ? "Desmarcar" : "Serie completada"}
-          style={{ width: 40, height: 40, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
+          style={{ width: 48, height: 48, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center",
             background: done ? P.green : P.s3, color: done ? "#000000" : P.dim,
             border: `1px solid ${done ? P.green : P.line}` }}>
-          <Check size={19} strokeWidth={3} />
+          <Check size={21} strokeWidth={3} />
         </button>
       </div>
       {set.type === "drop" && (
@@ -2125,11 +2129,11 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
               <span style={{ fontSize: 12, color: SET_TYPES.drop.color, fontWeight: 700 }}>↓{di + 1}</span>
               <input type="number" inputMode="decimal" step="any" placeholder="kg" value={d.weight}
                 onChange={(e) => onPatch({ drops: set.drops.map((x, xi) => xi === di ? { ...x, weight: e.target.value } : x) })}
-                style={{ width: 74, padding: "7px 4px", textAlign: "center", fontSize: 15 }} />
+                style={{ width: 74, minHeight: 48, padding: "7px 4px", textAlign: "center", fontSize: 15 }} />
               <span style={{ color: P.faint, fontSize: 13 }}>×</span>
               <input type="number" inputMode="numeric" placeholder="reps" value={d.reps}
                 onChange={(e) => onPatch({ drops: set.drops.map((x, xi) => xi === di ? { ...x, reps: e.target.value } : x) })}
-                style={{ width: 66, padding: "7px 4px", textAlign: "center", fontSize: 15 }} />
+                style={{ width: 66, minHeight: 48, padding: "7px 4px", textAlign: "center", fontSize: 15 }} />
               <button onClick={() => onPatch({ drops: set.drops.filter((_, xi) => xi !== di) })} style={{ color: P.faint, padding: 5 }}><X size={14} /></button>
             </div>
           ))}
@@ -5112,8 +5116,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     // barra de navegación fija tapa el final de la lista y, sin este espacio
     // extra, un bloque de superserie/triserie (más alto que un ejercicio
     // suelto) puede quedar atrapado detrás de la barra sin forma de
-    // desplazarlo a la vista para poder arrastrarlo.
-    <div style={{ padding: "18px 16px calc(100px + env(safe-area-inset-bottom))" }}>
+    // desplazarlo a la vista para poder arrastrarlo. Se expresa como
+    // TAB_BOTTOM_PAD + margen extra (en vez de un número aparte) para que
+    // los botones finales ("Nueva rutina"/"Añadir día") no queden pegados
+    // contra la barra — con solo TAB_BOTTOM_PAD respiran, pero muy justo.
+    <div style={{ padding: `18px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
       <h1 style={{ fontSize: 28, textTransform: "uppercase", margin: "4px 0 6px" }}>Rutina</h1>
       <div style={{ color: P.dim, fontSize: 15.5, marginBottom: 8 }}>Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante.</div>
       {student && student.allowedRoutines && student.allowedRoutines.length > 0 && (
@@ -5416,7 +5423,10 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           <Plus size={16} /> Añadir día de entrenamiento
         </Btn>
       )}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: plan.days.length === 0 ? 10 : 0 }}>
+      {/* Separado del resto con su propio margen (no solo el padding del
+          contenedor): así "Nueva rutina" nunca queda pegada visualmente
+          contra la última tarjeta ni contra la barra inferior. */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: plan.days.length === 0 ? 10 : 22 }}>
         <Btn kind="line" onClick={() => mut((p) => { const key = nextRoutineKey(p.days); p.days.push({ id: uid(), name: "Día 1", routine: key, exs: [] }); setOpenRoutines((o) => [...o, key]); })} style={{ flex: 1, minWidth: 180 }}>
           <Plus size={16} /> Nueva rutina
         </Btn>
