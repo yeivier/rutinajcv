@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v58";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v59";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -137,6 +137,35 @@ const parseTempo = (notes) => {
   const m = TEMPO_RE.exec((notes || "").trim());
   return m ? m[1] : null;
 };
+
+// Traduce el tempo (4 números en segundos: excéntrica-pausa abajo-
+// concéntrica-pausa arriba) a una instrucción concreta para ESTE ejercicio
+// — no la definición genérica del glosario, sino qué hacer con los números
+// que el coach realmente puso. "0" se explica como "sin pausa"/"lo más
+// rápido posible", nunca como "0 segundos" (más claro de leer a mitad de
+// una serie, con el peso en la mano). Formatea el número tal cual viene
+// (admite decimales, ej. "1.5") para no perder precisión.
+const fmtTempoNum = (raw) => {
+  const n = parseFloat(raw);
+  const clean = String(raw).replace(/^0+(?=\d)/, "");
+  return n === 1 ? "1 segundo" : `${clean} segundos`;
+};
+function explainTempo(tempoStr) {
+  const parts = (tempoStr || "").split("/");
+  if (parts.length !== 4 || parts.some((p) => isNaN(parseFloat(p)))) return null;
+  const [ecc, pauseBottom, con, pauseTop] = parts;
+  const isZero = (v) => parseFloat(v) === 0;
+  return [
+    { Icon: ArrowDown, label: "Bajada (excéntrica)",
+      text: isZero(ecc) ? "lo más rápido posible, sin controlar la bajada" : `${fmtTempoNum(ecc)}, controlando el peso todo el trayecto` },
+    { Icon: Pause, label: "Pausa abajo",
+      text: isZero(pauseBottom) ? "sin pausa — seguí directo a subir, sin rebotar" : `quedate quieto ${fmtTempoNum(pauseBottom)} en el punto más bajo, sin rebotar` },
+    { Icon: ArrowUp, label: "Subida (concéntrica)",
+      text: isZero(con) ? "lo más explosiva/rápida posible" : `${fmtTempoNum(con)}` },
+    { Icon: Pause, label: "Pausa arriba",
+      text: isZero(pauseTop) ? "sin pausa — pasá directo a la siguiente repetición" : `aguantá ${fmtTempoNum(pauseTop)} arriba antes de bajar de nuevo` },
+  ];
+}
 
 // Índice de bloque (A=0, B=1, C=2…) en la posición `idx` de `exs`: cuenta
 // cuántos bloques hay ANTES de esa posición, tratando cada grupo contiguo
@@ -1341,6 +1370,48 @@ const TypeBadge = ({ type, onInfo, big }) => {
   );
 };
 
+// Insignia de tempo, tocable: al tocarla despliega, ahí mismo, qué hacer en
+// cada una de las 4 fases con los números concretos de ESTE ejercicio (no
+// una definición genérica) — pensada para consultarse en el momento, entre
+// series, sin salir de la pantalla de entrenamiento.
+const TempoBadge = ({ tempo, big }) => {
+  const [open, setOpen] = useState(false);
+  const phases = useMemo(() => explainTempo(tempo), [tempo]);
+  if (!phases) return null;
+  return (
+    <div>
+      <button onClick={() => setOpen((v) => !v)}
+        aria-expanded={open} aria-label={`Tempo ${tempo}: cómo hacer cada fase`}
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: big ? 13.5 : 12.5, fontWeight: 700,
+          color: open ? P.ember : P.dim, border: `1px solid ${open ? P.ember : P.line}`, borderRadius: 7,
+          padding: big ? "3px 9px" : "2px 7px" }}>
+        Tempo {tempo} {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+      </button>
+      {open && (
+        <div className="sheetIn" style={{ marginTop: 8, padding: "10px 11px", borderRadius: 12, background: P.s2, border: `1px solid ${P.line}` }}>
+          <div style={{ fontSize: 11.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
+            Cómo hacer cada repetición con este tempo
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {phases.map(({ Icon, label, text }) => (
+              <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: P.s3, color: P.ember2 }}>
+                  <Icon size={14} strokeWidth={2.5} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: P.text }}>{label}</div>
+                  <div style={{ fontSize: 13, color: P.dim, lineHeight: 1.4 }}>{text}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Sheet = ({ open, onClose, title, children, tall }) => {
   if (!open) return null;
   return (
@@ -1947,6 +2018,8 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError })
   const canEdit = !!onPatchEx;
   const addFormPhoto = (id) => onPatchEx && onPatchEx({ formPhotoIds: [...formPhotos, id].slice(0, 2) });
   const removeFormPhoto = (id) => onPatchEx && onPatchEx({ formPhotoIds: formPhotos.filter((x) => x !== id) });
+  const tempo = parseTempo(ex.notes);
+  const tempoPhases = tempo ? explainTempo(tempo) : null;
   return (
     <Sheet open={open} onClose={onClose} title={`Ficha · ${ex.name}`} tall>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
@@ -1957,6 +2030,32 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError })
           </span>
         ))}
       </div>
+
+      {/* Siempre desplegado (a diferencia de TempoBadge, que es un toggle
+          pensado para consultar rápido a mitad de una serie): acá el alumno
+          ya está leyendo la ficha completa, así que la explicación va de
+          una vez, con los números concretos de este ejercicio. */}
+      {tempoPhases && (
+        <div style={{ marginBottom: 16, padding: "11px 12px", borderRadius: 12, background: P.s2, border: `1px solid ${P.ember}` }}>
+          <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>
+            Tempo {tempo} · cómo hacer cada repetición
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {tempoPhases.map(({ Icon, label, text }) => (
+              <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: P.s3, color: P.ember2 }}>
+                  <Icon size={14} strokeWidth={2.5} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>{label}</div>
+                  <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.4 }}>{text}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Técnica</div>
@@ -2659,11 +2758,6 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
         </div>
         <div className="disp" style={{ fontSize: big ? 23 : 18.5, fontWeight: 700, lineHeight: 1.15, margin: "3px 0 6px" }}>{exx.name}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {parseTempo(exx.notes) && (
-            <span style={{ fontSize: 13, fontWeight: 700, color: P.dim, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>
-              Tempo {parseTempo(exx.notes)}
-            </span>
-          )}
           <button
             onPointerDown={() => { heldRef.current = false; holdTimer.current = setTimeout(() => { heldRef.current = true; showInstr(ei, true); }, 380); }}
             onPointerUp={() => { clearTimeout(holdTimer.current); if (!heldRef.current) (noteOpen ? hideInstr() : showInstr(ei, false)); }}
@@ -2687,6 +2781,11 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
             </a>
           )}
         </div>
+        {parseTempo(exx.notes) && (
+          <div style={{ marginTop: 8 }}>
+            <TempoBadge tempo={parseTempo(exx.notes)} big={big} />
+          </div>
+        )}
         <div style={{ maxHeight: noteOpen ? 200 : 0, opacity: noteOpen ? 1 : 0, overflow: "hidden",
           transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
           {noteOpen && (
