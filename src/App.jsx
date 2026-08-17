@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v67";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v68";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -136,6 +136,52 @@ const ThemeToggle = () => {
         background: P.s3, border: `1px solid ${P.line}`, color: P.dim, flexShrink: 0 }}>
       {isLight ? <Moon size={16} /> : <Sun size={16} />}
     </button>
+  );
+};
+
+// ---------------- ForjaMode / Easy Mode ----------------
+// "ForjaMode" es la plataforma tal cual está, sin ningún cambio — el
+// nombre solo existe para poder nombrar la otra opción del switch.
+// "Easy Mode" no es una pantalla nueva: son los MISMOS componentes de
+// crear/editar ejercicio, mostrando menos campos — los avanzados (equipo,
+// músculos secundarios, video de técnica, fotos/videos de demostración,
+// objetivos por semana del mesociclo, "en superserie con", y las columnas
+// −%/Desc de cada serie) se ocultan, dejando solo lo esencial para armar
+// una rutina rápido. Nada de esto borra datos: si ya había algo cargado
+// en un campo oculto, se mantiene tal cual — Easy Mode solo lo deja de
+// mostrar, no lo vacía. Mismo patrón de preferencia por dispositivo que
+// el tema y la unidad de peso.
+let EASY_MODE = false;
+try { EASY_MODE = window.localStorage.getItem("forja-easy-mode") === "1"; } catch {}
+const easyModeListeners = new Set();
+function setEasyMode(v) {
+  EASY_MODE = v;
+  try { window.localStorage.setItem("forja-easy-mode", v ? "1" : "0"); } catch {}
+  easyModeListeners.forEach((fn) => fn(v));
+}
+function useEasyMode() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    easyModeListeners.add(fn);
+    return () => easyModeListeners.delete(fn);
+  }, []);
+  return [EASY_MODE, setEasyMode];
+}
+// Switch de dos posiciones (no un simple toggle on/off): deja los dos
+// nombres a la vista todo el tiempo, "ForjaMode" y "Easy Mode", en vez de
+// un ícono solo que hay que interpretar.
+const EasyModeSwitch = () => {
+  const [easy, setEasy] = useEasyMode();
+  return (
+    <div style={{ display: "flex", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3, gap: 3, flexShrink: 0 }}>
+      {[["forja", "ForjaMode", false], ["easy", "Easy Mode", true]].map(([id, label, val]) => (
+        <button key={id} onClick={() => setEasy(val)} title={val ? "Interfaz simplificada, solo lo esencial" : "Plataforma completa, sin recortes"}
+          style={{ padding: "5px 9px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+            background: easy === val ? P.s3 : "transparent", color: easy === val ? P.text : P.faint,
+            border: `1px solid ${easy === val ? P.line : "transparent"}` }}>{label}</button>
+      ))}
+    </div>
   );
 };
 
@@ -4230,6 +4276,7 @@ const NutritionView = ({ n }) => {
    MODO COACH — constructor de rutina
    ============================================================ */
 const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
+  const [easy] = useEasyMode();
   const [expanded, setExpanded] = useState(null);
   const [attachErr, setAttachErr] = useState("");
   const [preview, setPreview] = useState(null);
@@ -4241,7 +4288,12 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
   return (
     <div>
       <div style={{ display: "flex", gap: 5, fontSize: 11.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", padding: "0 2px 4px" }}>
-        <span style={{ width: 88 }}>Tipo</span><span style={{ flex: 1, minWidth: 60 }}>Reps</span><span style={{ width: 42 }}>RIR</span><span style={{ width: 46 }}>Desc</span><span style={{ width: 42 }}>−%</span><span style={{ width: 26 }} />
+        <span style={{ width: 88 }}>Tipo</span><span style={{ flex: 1, minWidth: 60 }}>Reps</span><span style={{ width: 42 }}>RIR</span>
+        {/* Desc (segundos de descanso por serie) y −% (bajada de carga) son
+            avanzados: Easy Mode las oculta — siguen guardadas si ya tenían
+            algo cargado, solo dejan de mostrarse. */}
+        {!easy && <><span style={{ width: 46 }}>Desc</span><span style={{ width: 42 }}>−%</span></>}
+        <span style={{ width: 26 }} />
       </div>
       {sets.map((s, i) => {
         const hasExtras = (s.coachNote || "").length > 0 || (s.coachAttachIds || []).length > 0;
@@ -4253,13 +4305,15 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
               </select>
               <input placeholder="8-10" value={s.repsT} onChange={(e) => upd(i, { repsT: e.target.value })} style={{ flex: 1, minWidth: 60, padding: "8px 6px", fontSize: 15 }} />
               <input placeholder="2" value={s.rirT} onChange={(e) => upd(i, { rirT: e.target.value })} style={{ width: 42, padding: "8px 4px", fontSize: 15, textAlign: "center" }} />
-              <input type="number" inputMode="numeric" placeholder={String(exRest ?? 90)} value={s.rest ?? ""} title="Descanso de esta serie en segundos (vacío = usa el del ejercicio)"
-                onChange={(e) => upd(i, { rest: e.target.value === "" ? undefined : (+e.target.value || 0) })}
-                style={{ width: 46, padding: "8px 4px", fontSize: 14, textAlign: "center" }} />
-              <input type="number" inputMode="numeric" placeholder="15" value={s.pct ?? ""}
-                title={PCT_HINT[s.type] || "Porcentaje de bajada de carga para esta serie (libre para cualquier tipo)"}
-                onChange={(e) => upd(i, { pct: e.target.value === "" ? undefined : (+e.target.value || 0) })}
-                style={{ width: 42, padding: "8px 4px", fontSize: 14, textAlign: "center" }} />
+              {!easy && <>
+                <input type="number" inputMode="numeric" placeholder={String(exRest ?? 90)} value={s.rest ?? ""} title="Descanso de esta serie en segundos (vacío = usa el del ejercicio)"
+                  onChange={(e) => upd(i, { rest: e.target.value === "" ? undefined : (+e.target.value || 0) })}
+                  style={{ width: 46, padding: "8px 4px", fontSize: 14, textAlign: "center" }} />
+                <input type="number" inputMode="numeric" placeholder="15" value={s.pct ?? ""}
+                  title={PCT_HINT[s.type] || "Porcentaje de bajada de carga para esta serie (libre para cualquier tipo)"}
+                  onChange={(e) => upd(i, { pct: e.target.value === "" ? undefined : (+e.target.value || 0) })}
+                  style={{ width: 42, padding: "8px 4px", fontSize: 14, textAlign: "center" }} />
+              </>}
               <button onClick={() => setExpanded(expanded === i ? null : i)} style={{ color: hasExtras ? P.ember : P.faint, padding: 4 }} title="Nota y adjuntos de esta serie">
                 <MessageSquare size={15} />
               </button>
@@ -4295,9 +4349,11 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
         <Btn kind="line" small onClick={() => onInfo("topset")}><Info size={14} /> Tipos</Btn>
       </div>
       <div style={{ fontSize: 12.5, color: P.faint, marginTop: 6, lineHeight: 1.4 }}>
-        <b>Desc</b>: segundos de descanso de esa serie (déjalo vacío para usar el del ejercicio). <b>−%</b> es el
-        porcentaje de bajada de carga de esa serie y está libre para cualquier tipo (top, back-off, drop, AMRAP o
-        cualquiera): déjalo vacío si no aplica. Icono 💬: nota, video y adjuntos específicos de esa serie.
+        {easy ? <>Icono 💬: nota, video y adjuntos específicos de esa serie.</> : <>
+          <b>Desc</b>: segundos de descanso de esa serie (déjalo vacío para usar el del ejercicio). <b>−%</b> es el
+          porcentaje de bajada de carga de esa serie y está libre para cualquier tipo (top, back-off, drop, AMRAP o
+          cualquiera): déjalo vacío si no aplica. Icono 💬: nota, video y adjuntos específicos de esa serie.
+        </>}
       </div>
       <ImageViewer src={preview} onClose={() => setPreview(null)} />
     </div>
@@ -4305,6 +4361,7 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
 };
 
 const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
+  const [easy] = useEasyMode();
   const [d, setD] = useState(ex);
   const [attachErr, setAttachErr] = useState("");
   const [preview, setPreview] = useState(null);
@@ -4321,6 +4378,12 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
           </select></Field></div>
         <div style={{ width: 130 }}><Field label="Descanso ejercicio (seg)"><Inp type="number" inputMode="numeric" value={d.rest} onChange={(e) => set({ rest: +e.target.value || 0 })} /></Field></div>
       </div>
+      {/* Easy Mode: se ocultan los campos avanzados (equipo, músculos
+          secundarios, video de técnica, fotos/videos, objetivos por semana
+          del mesociclo, "en superserie con") — si ya tenían algo cargado
+          antes de activar Easy Mode, el dato se mantiene, solo deja de
+          mostrarse el campo. */}
+      {!easy && <>
       <Field label="Equipo (opcional)" hint="Sirve para buscar y filtrar en la biblioteca de ejercicios.">
         <select value={d.equipment || ""} onChange={(e) => set({ equipment: e.target.value })} style={{ width: "100%", padding: "10px 10px" }}>
           <option value="">— Sin especificar —</option>
@@ -4347,6 +4410,7 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
           set({ secondary: [...(d.secondary || []), { muscle: opt, pct: 50 }] });
         }}><Plus size={14} /> Añadir músculo secundario</Btn>
       </Field>
+      </>}
       <Field label="Series"><SetsEditor sets={d.sets} onChange={(sets) => set({ sets })} onInfo={onInfo} exRest={d.rest} /></Field>
       <Field label="Vista previa del alumno" hint="Así verá el alumno este ejercicio al entrenar. Para armar una superserie/triserie une este ejercicio con el siguiente usando el clip de la lista de ejercicios.">
         <div style={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 11, padding: "11px 12px" }}>
@@ -4372,6 +4436,7 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
         </div>
       </Field>
       <Field label="Indicaciones técnicas (las verá el alumno en cada sesión)"><Txt value={d.notes} placeholder="Ej: agarre neutro, controla 3 s la bajada, pausa de 1 s abajo…" onChange={(e) => set({ notes: e.target.value })} /></Field>
+      {!easy && <>
       <Field label="Video de técnica (link opcional)"><Inp value={d.video} placeholder="https://youtube.com/…" onChange={(e) => set({ video: e.target.value })} /></Field>
       <Field label="Videos y fotos de demostración" hint="Se suben a la plataforma y el alumno los ve dentro del ejercicio. Videos hasta 50 MB.">
         <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
@@ -4388,7 +4453,8 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
         )}
         {attachErr && <div style={{ fontSize: 12.5, color: P.red, marginTop: 7, lineHeight: 1.4 }}>{attachErr}</div>}
       </Field>
-      {meso && meso.weeks.length > 1 && (
+      </>}
+      {!easy && meso && meso.weeks.length > 1 && (
         <Field label="Objetivos por semana del mesociclo"
           hint="Déjalo vacío para usar las reps y el RIR de arriba. Lo que escribas aquí manda en esa semana.">
           <div style={{ overflowX: "auto" }}>
@@ -4424,8 +4490,10 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
           </div>
         </Field>
       )}
+      {!easy && (
       <Field label="En superserie con (opcional)" hint="Para bloques reales usa el clip de la lista de ejercicios: une este con el siguiente y quedan como superserie, triserie o serie gigante con sus rondas.">
         <Inp value={d.superset} placeholder="Ej: Curl martillo con mancuernas" onChange={(e) => set({ superset: e.target.value })} /></Field>
+      )}
       <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
         <Btn kind="line" onClick={onClose} style={{ flex: 1 }}>Cancelar</Btn>
         <Btn kind="ember" disabled={!d.name.trim()} onClick={() => onSave(d)} style={{ flex: 2 }}>Guardar ejercicio</Btn>
@@ -9582,8 +9650,9 @@ const App = () => {
               <div style={{ fontSize: 10.5, color: P.faint, textTransform: "uppercase", letterSpacing: ".05em", whiteSpace: "nowrap" }}>modo {mode} · cambiar · {BUILD}</div>
             </div>
           </button>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <ThemeToggle />
+            {mode === "coach" && <EasyModeSwitch />}
             {mode === "coach" && <Btn kind="ember" small onClick={() => setRosterOpen(true)}><Users size={14} /> Alumnos</Btn>}
             {mode === "coach" && myRoleMeta.manageTeam && <Btn kind="ember" small onClick={() => setEquipoOpen(true)}><Award size={14} /> Equipo</Btn>}
             <div style={{ display: "flex", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3, gap: 3 }}>
