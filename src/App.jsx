@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v68";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v69";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -5580,6 +5580,12 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
   const routineDragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
   const startRoutineDrag = (key, e) => {
     e.preventDefault();
+    // Fija el puntero al asa apenas se toca: sin esto, en algunos
+    // navegadores/dispositivos el gesto se puede "perder" si el dedo se
+    // desvía un poco del elemento original antes de que pase el tiempo de
+    // espera, y el arrastre nunca llega a activarse — mismo fix que ya
+    // funciona en el botón flotante de IA.
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
     const st = routineDragRef.current;
     clearTimeout(st.holdTimer);
     st.activated = false;
@@ -5751,8 +5757,14 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
       )}
 
-      {groupDaysByRoutine(plan.days, plan.routineNames).map((g) => { const open = openRoutines.includes(g.key);
-        const routineVisible = !student || isRoutineVisible(student.allowedRoutines, g.key); return (
+      {(() => { const routineGroups = groupDaysByRoutine(plan.days, plan.routineNames); return routineGroups.map((g, gi) => { const open = openRoutines.includes(g.key);
+        const routineVisible = !student || isRoutineVisible(student.allowedRoutines, g.key);
+        const moveRoutineStep = (dir) => {
+          const neighbor = routineGroups[gi + dir];
+          if (!neighbor) return;
+          mut((p) => moveRoutineGroup(p, g.key, neighbor.key));
+        };
+        return (
         <div key={g.key} data-routine-group={g.key}
           onClickCapture={(e) => { if (Date.now() < (routineDragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
           style={{ marginBottom: 26, borderRadius: 16,
@@ -5801,6 +5813,13 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               style={{ padding: 6, color: P.faint }}><PencilLine size={15} /></button>
             <button onClick={() => copyRoutine(g)} title="Copiar la rutina completa" aria-label={`Copiar ${g.label} completa`}
               style={{ padding: 6, color: P.faint }}><Copy size={15} /></button>
+            {/* Alternativa siempre confiable al arrastre: sube/baja la
+                rutina un lugar por toque, sin depender de mantener
+                pulsado. Deshabilitado en los extremos (primera/última). */}
+            <button onClick={() => moveRoutineStep(-1)} disabled={gi === 0} title="Subir rutina" aria-label={`Subir ${g.label}`}
+              style={{ padding: 6, color: gi === 0 ? P.line : P.faint }}><ArrowUp size={15} /></button>
+            <button onClick={() => moveRoutineStep(+1)} disabled={gi === routineGroups.length - 1} title="Bajar rutina" aria-label={`Bajar ${g.label}`}
+              style={{ padding: 6, color: gi === routineGroups.length - 1 ? P.line : P.faint }}><ArrowDown size={15} /></button>
             <button
               onPointerDown={(e) => startRoutineDrag(g.key, e)}
               onPointerMove={cancelRoutinePress}
@@ -5809,7 +5828,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               onContextMenu={(e) => e.preventDefault()}
               title="Mantén pulsado aquí y arrastra para mover la rutina completa"
               aria-label={`Mover ${g.label}`}
-              style={{ padding: "6px 2px", color: routineDragging === g.key ? P.ember : P.faint, cursor: "grab",
+              style={{ padding: "13px 10px", margin: "-7px -4px", minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center",
+                color: routineDragging === g.key ? P.ember : P.faint, cursor: "grab",
                 position: "relative", zIndex: 60,
                 touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
               <GripVertical size={17} />
@@ -6005,7 +6025,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           </div>
           </>)}
         </div>
-      );})}
+      );});})()}
       {plan.days.length === 0 && (
         <Btn kind="ember" onClick={() => mut((p) => p.days.push({ id: uid(), name: "Día 1", routine: ROUTINE_A, exs: [] }))} style={{ width: "100%" }}>
           <Plus size={16} /> Añadir día de entrenamiento
