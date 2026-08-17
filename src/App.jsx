@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v63";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v64";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -49,12 +49,16 @@ const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso
 // antes eran verde con alpha ahora son tonos sólidos y opacos de esta
 // misma escala de grises.
 const P = {
-  bg: "#121212",
-  s1: "#1A1A1A",
-  s2: "#202020",
-  s3: "#262626",
-  s4: "#2E2E2E",
-  line: "#404040",
+  bg: "#26221C",
+  s1: "#332F27",
+  s2: "#3A362D",
+  s3: "#423D33",
+  s4: "#4B453A",
+  // Se sube de tono y se entibia (antes #404040, gris neutro casi
+  // invisible sobre el fondo oscuro anterior): ahora es un marco tenue
+  // pero real, coherente con el resto de la paleta cálida — el marco
+  // "destacado" de una ficha (P.frame, ver abajo) sigue siendo otra cosa.
+  line: "#5C5546",
   text: "#FFFFFF",
   dim: "#A0A0A0",
   faint: "#8A8A8A",
@@ -64,12 +68,19 @@ const P = {
   red: "#E01A1A",
   blue: "#DAD4D6",
   glow: "#FFFFFF",
-  // Fondo general de pantalla completa: ya no negro plano. Diagonal gris
-  // neutro (sin ningún tinte de color) que da profundidad como una imagen
-  // de portada, sin recurrir a brillos radiales translúcidos — antes eran
-  // dos radial-gradient verdes con canal alpha; ahora es un solo degradado
-  // sólido de grises, más oscuro en las puntas y más claro al centro.
-  bgGrad: "linear-gradient(158deg, #050505 0%, #101010 30%, #161616 54%, #181818 76%, #1C1C1C 100%)",
+  // Marco "destacado en blanco" para el borde de una ficha de sección
+  // (tarjeta de Rutina A/B, resumen de logros, etc.) — a pedido explícito,
+  // en vez del P.line oscuro que ahí se leía casi invisible. Mismo crema
+  // pastel que PLATE_BORDER, para que la ficha y las placas que contiene
+  // se sientan parte de un mismo sistema, no piezas sueltas.
+  frame: "#D6CBA8",
+  // Fondo general de pantalla completa: gris cálido opaco (antes casi
+  // negro puro, #050505→#1C1C1C) — a pedido explícito, para que el salto
+  // contra las placas blanco pastel sea de gris a crema, no de negro a
+  // blanco, y todo se sienta un solo sistema en vez de piezas incrustadas
+  // unas sobre otras. Sigue siendo bien oscuro (modo oscuro real, no un
+  // fondo claro), solo que ya no lee como negro.
+  bgGrad: "linear-gradient(158deg, #332F27 0%, #2C2820 30%, #262219 54%, #201C14 76%, #1B1710 100%)",
 };
 
 // "Placa" (plate) de ícono: el fondo cuadrado/redondeado que lleva un ícono
@@ -77,15 +88,18 @@ const P = {
 // Era un degradado negro pastel con el glifo en blanco; a pedido explícito
 // se invirtió: ahora la placa es blanco pastel y el glifo va en un gris
 // casi negro encima, para que "los cuadros" dejen de leerse como negro
-// puro. Centralizado en dos constantes para que TODAS las placas de la app
-// cambien juntas — antes eran 13 degradados hardcodeados por separado.
-const PLATE_GRAD = "linear-gradient(160deg, #FFFFFF, #F1EDE2 60%, #E3DCC9)";
+// puro. Se pidió, en una segunda vuelta, "más pastel aún": el tope ya no
+// es blanco puro (#FFFFFF) sino un crema suave, para que se note el matiz
+// pastel en toda la placa, no solo en el borde. Centralizado en dos
+// constantes para que TODAS las placas de la app cambien juntas — antes
+// eran 13 degradados hardcodeados por separado.
+const PLATE_GRAD = "linear-gradient(160deg, #FBF6E9, #F0E7CE 55%, #DFD1A8 100%)";
 const PLATE_FG = "#171512";
 // Texto/ícono secundario sobre una placa clara (equivalente a P.faint, pero
 // para fondo blanco pastel en vez de fondo oscuro) y el borde neutro que
 // separa una placa de otra sin recurrir a alpha.
 const PLATE_DIM = "#6E6A5F";
-const PLATE_BORDER = "#D8D2C2";
+const PLATE_BORDER = "#D0C39A";
 
 // Padding-bottom mínimo de CUALQUIER pantalla de pestaña (todo lo que se
 // renderiza directo debajo de <TabBar>): antes cada pantalla tenía "30px"
@@ -1347,7 +1361,9 @@ function daysFromAIJson(rawDays) {
         type: Object.keys(SET_TYPES).includes(s.type) ? s.type : "normal",
         repsT: String(s.repsT || "8-10"),
         rirT: s.rirT != null ? String(s.rirT) : "",
-        pct: 15,
+        // Sin 15% predeterminado: el "−%" queda vacío salvo que la IA haya
+        // devuelto uno explícito, a pedido explícito del coach.
+        pct: s.pct != null ? +s.pct : undefined,
       })),
     })),
   }));
@@ -1519,8 +1535,12 @@ const DRAG_LIFT_BORDER = `1px solid ${P.text}`;
 // Transición usada para el desplazamiento "hueco" (translateY) de los
 // elementos vecinos durante un arrastre — ver computeShiftOffsets().
 const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
+// Marco en P.frame (blanco/crema pastel) en vez de P.line: a pedido
+// explícito, cada "ficha" de sección se destaca con un borde claro en vez
+// de uno oscuro casi invisible, para que se sienta parte del mismo sistema
+// que las placas blanco pastel que suele contener.
 const Card = ({ children, style, onClick, ...rest }) => (
-  <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: 18,
+  <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: 18,
     boxShadow: CARD_LIFT, ...style }}>{children}</div>
 );
 
@@ -3776,7 +3796,7 @@ const AchievementGrid = ({ history }) => {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px",
-        background: P.s1, border: `1px solid ${P.line}`, borderRadius: 14, boxShadow: CARD_LIFT }}>
+        background: P.s1, border: `1px solid ${P.frame}`, borderRadius: 14, boxShadow: CARD_LIFT }}>
         <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
           background: PLATE_GRAD,
           boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
@@ -4091,7 +4111,7 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
         );
       })}
       <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
-        <Btn kind="line" small onClick={() => onChange([...sets, { id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }])}><Plus size={14} /> Serie</Btn>
+        <Btn kind="line" small onClick={() => onChange([...sets, { id: uid(), type: "normal", repsT: "8-10", rirT: "2" }])}><Plus size={14} /> Serie</Btn>
         {sets.length > 0 && <Btn kind="line" small onClick={() => onChange([...sets, { ...sets[sets.length - 1], id: uid() }])}><Copy size={14} /> Duplicar última</Btn>}
         <Btn kind="line" small onClick={() => onInfo("topset")}><Info size={14} /> Tipos</Btn>
       </div>
@@ -4946,8 +4966,8 @@ function libraryExercisesFromPlanAndHistory(plan, history) {
         type: Object.keys(SET_TYPES).includes(s.type) ? s.type : "normal",
         repsT: s.repsT || "8-10",
         rirT: s.rirT || "",
-        pct: s.pct != null ? s.pct : 15,
-      })) : [{ type: "normal", repsT: "8-10", rirT: "", pct: 15 }],
+        pct: s.pct,
+      })) : [{ type: "normal", repsT: "8-10", rirT: "" }],
     });
   });
 
@@ -4976,7 +4996,7 @@ const LibraryPanel = ({ plan, history, library, onSaveLibrary, onInfo, toast, on
     return true;
   });
 
-  const newExTemplate = () => ({ id: uid(), isNew: true, name: "", muscle: MUSCLES[0], equipment: "", rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] });
+  const newExTemplate = () => ({ id: uid(), isNew: true, name: "", muscle: MUSCLES[0], equipment: "", rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] });
 
   // Suma a la biblioteca todo lo que ya está registrado en las rutinas (A/B/C…)
   // y en el historial de sesiones del alumno que se está gestionando (por si
@@ -4994,7 +5014,7 @@ const LibraryPanel = ({ plan, history, library, onSaveLibrary, onInfo, toast, on
           rest: c.rest || 90, notes: c.notes || "", video: c.video || "", superset: "",
           secondary: (c.secondary || []).map((s) => ({ ...s })),
           coachAttachIds: c.coachAttachIds ? [...c.coachAttachIds] : [],
-          sets: (c.sets && c.sets.length ? c.sets : [{ type: "normal", repsT: "8-10", rirT: "", pct: 15 }])
+          sets: (c.sets && c.sets.length ? c.sets : [{ type: "normal", repsT: "8-10", rirT: "" }])
             .map((s) => ({ id: uid(), type: s.type, repsT: s.repsT, rirT: s.rirT, pct: s.pct })),
         });
       });
@@ -5505,7 +5525,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 como un simple texto rojo "pegado" sobre el fondo. */}
             <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
               style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12,
-                background: P.s1, border: `1px solid ${P.line}`, borderRadius: 14, padding: "11px 13px",
+                background: P.s1, border: `1px solid ${P.frame}`, borderRadius: 14, padding: "11px 13px",
                 boxShadow: CARD_LIFT, textAlign: "left" }}>
               <span style={{ flexShrink: 0, minWidth: 36, height: 36, borderRadius: 11, padding: "0 4px",
                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -5700,7 +5720,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                     <Paperclip size={12} /> Toca el clip de un ejercicio para unirlo con el de abajo. Dos = superserie, tres = triserie, cuatro o más = serie gigante. Une otro más para agrandar el bloque.
                   </div>
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                    <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2", pct: 15 }] } })} style={{ flex: 1, minWidth: 150 }}>
+                    <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] } })} style={{ flex: 1, minWidth: 150 }}>
                       <Plus size={15} /> Añadir ejercicio
                     </Btn>
                     {copiedEx && (
@@ -7606,7 +7626,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
       id: uid(), name: data.name || "Ejercicio", muscle: MUSCLES.includes(data.muscle) ? data.muscle : MUSCLES[0],
       equipment: EQUIPMENT.includes(data.equipment) ? data.equipment : "", rest: +data.rest || 90, notes: data.notes || "",
       video: "", superset: "", secondary: [],
-      sets: (data.sets || []).map((s) => ({ id: uid(), type: SET_TYPES[s.type] ? s.type : "normal", repsT: s.repsT || "8-12", rirT: s.rirT || "2", pct: 15 })),
+      sets: (data.sets || []).map((s) => ({ id: uid(), type: SET_TYPES[s.type] ? s.type : "normal", repsT: s.repsT || "8-12", rirT: s.rirT || "2", pct: s.pct != null ? +s.pct : undefined })),
     }];
     onSaveLibrary(next);
     setApplied((a) => ({ ...a, [key]: true }));
@@ -8607,10 +8627,10 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
       <div style={{ color: P.dim, fontSize: 14.5, textAlign: "center", marginBottom: 20, lineHeight: 1.45 }}>
         Este dispositivo recordará tu elección. Podrás cambiarla cuando quieras desde el encabezado.
       </div>
-      <Card onClick={() => hasTeam ? setPickingTeam(true) : onEnter("coach", roster.students[0]?.id)} style={{ padding: "15px 16px", marginBottom: 16, borderColor: `${P.dim}`, cursor: "pointer",
+      <Card onClick={() => hasTeam ? setPickingTeam(true) : onEnter("coach", roster.students[0]?.id)} style={{ padding: "15px 16px", marginBottom: 16, borderColor: P.frame, cursor: "pointer",
         background: `linear-gradient(150deg, rgba(255,255,255,.10), ${P.s1})` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 12, background: `${P.line}`, border: `1px solid ${P.dim}`, display: "flex", alignItems: "center", justifyContent: "center" }}><ClipboardList size={20} color={P.ember} /></div>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}><ClipboardList size={20} color={PLATE_FG} /></div>
           <div><div style={{ fontWeight: 700, fontSize: 16 }}>Soy el coach</div><div style={{ fontSize: 13.5, color: P.dim }}>{hasTeam ? "Elige quién del equipo eres" : "Crear y editar rutinas, ver la actividad de todos"}</div></div>
         </div>
       </Card>
@@ -8618,7 +8638,7 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
       {roster.students.map((s) => (
         <Card key={s.id} onClick={() => onEnter("alumno", s.id)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-            <div className="disp" style={{ width: 36, height: 36, borderRadius: 10, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2 }}>{s.name.slice(0, 1).toUpperCase()}</div>
+            <div className="disp" style={{ width: 36, height: 36, borderRadius: 10, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: PLATE_FG }}>{s.name.slice(0, 1).toUpperCase()}</div>
             <div style={{ flex: 1, fontWeight: 600, fontSize: 16 }}>{s.name}</div>
             <ChevronRight size={17} color={P.faint} />
           </div>
