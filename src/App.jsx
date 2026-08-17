@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v69";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v70";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -603,6 +603,125 @@ function computeShiftOffsets(elements, keyAttr, draggingKey, overKey) {
   }
   return offsets;
 }
+
+/* ---------------- Asa de "mantén pulsado y arrastra" ----------------
+   Reescrito con listeners NATIVOS (addEventListener) en vez de los
+   eventos sintéticos de React. Ese es el motivo real por el que el
+   arrastre "no funcionaba en el celular pero sí en el navegador de
+   escritorio": React registra touchmove como PASSIVE, así que el
+   preventDefault() que hacíamos dentro de onPointerMove/onTouchMove se
+   ignoraba en silencio — el navegador interpretaba el gesto como scroll
+   de la página, se llevaba el puntero y disparaba pointercancel, que
+   mataba el temporizador de "mantener pulsado" antes de que llegara a
+   activarse. Con addEventListener(..., {passive:false}) el
+   preventDefault sí manda y el gesto queda nuestro.
+
+   Además los eventos touch (a diferencia de los pointer) se re-dirigen
+   SOLOS al elemento donde empezó el toque durante todo el gesto: el
+   dedo puede salirse del asa sin que se pierda el arrastre, sin
+   depender de setPointerCapture. */
+function useHoldDragHandle({ onActivate, onDragMove, onDragEnd, holdMs = 240, deadzone = 16 }) {
+  const ref = useRef(null);
+  // Las callbacks se leen desde un ref para que los listeners nativos
+  // (registrados una sola vez) siempre vean la versión más nueva, sin
+  // tener que re-registrarlos en cada render.
+  const cbs = useRef(null);
+  cbs.current = { onActivate, onDragMove, onDragEnd };
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const st = { timer: null, activated: false, startX: 0, startY: 0 };
+    const clearHold = () => { if (st.timer) { clearTimeout(st.timer); st.timer = null; } };
+
+    const begin = (x, y) => {
+      st.activated = false; st.startX = x; st.startY = y;
+      clearHold();
+      st.timer = setTimeout(() => {
+        st.timer = null;
+        st.activated = true;
+        try { navigator.vibrate && navigator.vibrate(25); } catch {}
+        cbs.current.onActivate && cbs.current.onActivate();
+      }, holdMs);
+    };
+    const moved = (x, y, e) => {
+      if (st.activated) {
+        // Ya estamos arrastrando: bloquea el scroll del navegador (acá
+        // sí funciona, el listener es non-passive) y reporta la posición.
+        if (e && e.cancelable) e.preventDefault();
+        cbs.current.onDragMove && cbs.current.onDragMove(y);
+        return;
+      }
+      // Todavía en la espera: si el dedo se va lejos, no era "mantener
+      // pulsado" sino un scroll — se cancela.
+      if (st.timer && (Math.abs(x - st.startX) > deadzone || Math.abs(y - st.startY) > deadzone)) clearHold();
+    };
+    const finish = () => {
+      clearHold();
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      if (st.activated) { st.activated = false; cbs.current.onDragEnd && cbs.current.onDragEnd(); }
+    };
+
+    const onTouchStart = (e) => { const t = e.touches[0]; if (t) begin(t.clientX, t.clientY); };
+    const onTouchMove = (e) => { const t = e.touches[0]; if (t) moved(t.clientX, t.clientY, e); };
+    const onMouseMove = (e) => moved(e.clientX, e.clientY, null);
+    const onMouseUp = () => finish();
+    const onMouseDown = (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      begin(e.clientX, e.clientY);
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    };
+    const noMenu = (e) => e.preventDefault();
+
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", finish);
+    el.addEventListener("touchcancel", finish);
+    el.addEventListener("mousedown", onMouseDown);
+    el.addEventListener("contextmenu", noMenu);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", finish);
+      el.removeEventListener("touchcancel", finish);
+      el.removeEventListener("mousedown", onMouseDown);
+      el.removeEventListener("contextmenu", noMenu);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      clearHold();
+    };
+  }, [holdMs, deadzone]);
+
+  return ref;
+}
+
+/* Asa visible. Es un componente aparte (y no el hook suelto) porque cada
+   fila de la lista necesita su propia instancia del hook, y las reglas de
+   hooks no permiten llamarlo dentro de un .map(). */
+const DragHandle = ({ onActivate, onDragMove, onDragEnd, active, label, block, style }) => {
+  const ref = useHoldDragHandle({ onActivate, onDragMove, onDragEnd });
+  const base = {
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+    cursor: "grab", position: "relative", zIndex: 60,
+    // touch-action:none le pide al navegador que ni intente scrollear
+    // desde acá; el preventDefault del hook es el respaldo real.
+    touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none",
+    color: active ? P.ember : P.faint,
+  };
+  return (
+    <div ref={ref} role="button" tabIndex={0} aria-label={label} title={label}
+      style={block
+        ? { ...base, width: "100%", marginTop: 8, padding: "10px 0", borderRadius: 8,
+            border: `1px dashed ${active ? P.ember : P.line}`, fontSize: 12.5, fontWeight: 600, ...style }
+        : { ...base, minWidth: 44, minHeight: 44, padding: "13px 10px", margin: "-7px -4px", ...style }}>
+      <GripVertical size={block ? 15 : 17} />
+      {block && <span>Mantén pulsado para mover{typeof block === "string" ? block : ""}</span>}
+    </div>
+  );
+};
 
 /* Une o separa exs[i] de exs[i+1]. Si alguno ya pertenece a un bloque, se
    fusionan en el mismo; al separar, el resto del bloque pasa a uno nuevo. */
@@ -1648,6 +1767,13 @@ const GlobalStyle = () => (
     }
     .fj input::placeholder, .fj textarea::placeholder { color: ${P.faint}; }
     .fj button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+    /* Easy Mode: todo un punto más grande y con más aire. Se hace con una
+       sola clase en la raíz (no tocando cada componente) para que valga
+       en toda la app de una sola vez — texto más grande, casillas más
+       altas y botones con más área para el dedo. */
+    .fj-easy { font-size: 17px; }
+    .fj-easy input, .fj-easy textarea, .fj-easy select { font-size: 17px; min-height: 50px; }
+    .fj-easy button { line-height: 1.3; }
     .fj ::-webkit-scrollbar { width: 6px; height: 6px; }
     .fj ::-webkit-scrollbar-thumb { background: ${P.line}; border-radius: 3px; }
     @keyframes fjQuench { 0% { background-color: rgba(255,255,255,.35); } 100% { background-color: rgba(255,255,255,.10); } }
@@ -4287,24 +4413,32 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
   };
   return (
     <div>
-      <div style={{ display: "flex", gap: 5, fontSize: 11.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", padding: "0 2px 4px" }}>
-        <span style={{ width: 88 }}>Tipo</span><span style={{ flex: 1, minWidth: 60 }}>Reps</span><span style={{ width: 42 }}>RIR</span>
-        {/* Desc (segundos de descanso por serie) y −% (bajada de carga) son
-            avanzados: Easy Mode las oculta — siguen guardadas si ya tenían
-            algo cargado, solo dejan de mostrarse. */}
+      <div style={{ display: "flex", gap: 5, fontSize: easy ? 12.5 : 11.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", padding: "0 2px 4px" }}>
+        {/* En Easy Mode se cae el selector de Tipo (12 opciones técnicas:
+            top set, back-off, rest-pause…): toda serie nueva es "serie de
+            trabajo", que es lo normal. Desc (descanso por serie) y −%
+            (bajada de carga) también se ocultan. Nada se borra: si ya
+            había algo cargado, el dato queda, solo deja de mostrarse. */}
+        {!easy && <span style={{ width: 88 }}>Tipo</span>}
+        {easy && <span style={{ width: 34 }}>N°</span>}
+        <span style={{ flex: 1, minWidth: 60 }}>Repeticiones</span><span style={{ width: easy ? 52 : 42 }}>RIR</span>
         {!easy && <><span style={{ width: 46 }}>Desc</span><span style={{ width: 42 }}>−%</span></>}
         <span style={{ width: 26 }} />
       </div>
       {sets.map((s, i) => {
         const hasExtras = (s.coachNote || "").length > 0 || (s.coachAttachIds || []).length > 0;
         return (
-          <div key={s.id} style={{ marginBottom: 6 }}>
+          <div key={s.id} style={{ marginBottom: easy ? 8 : 6 }}>
             <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
-              <select value={s.type} onChange={(e) => upd(i, { type: e.target.value })} style={{ width: 88, padding: "8px 4px", fontSize: 13.5 }}>
-                {Object.entries(SET_TYPES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}
-              </select>
-              <input placeholder="8-10" value={s.repsT} onChange={(e) => upd(i, { repsT: e.target.value })} style={{ flex: 1, minWidth: 60, padding: "8px 6px", fontSize: 15 }} />
-              <input placeholder="2" value={s.rirT} onChange={(e) => upd(i, { rirT: e.target.value })} style={{ width: 42, padding: "8px 4px", fontSize: 15, textAlign: "center" }} />
+              {easy
+                ? <span className="disp" style={{ width: 34, textAlign: "center", fontWeight: 800, fontSize: 17, color: P.dim }}>{i + 1}</span>
+                : (
+                  <select value={s.type} onChange={(e) => upd(i, { type: e.target.value })} style={{ width: 88, padding: "8px 4px", fontSize: 13.5 }}>
+                    {Object.entries(SET_TYPES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}
+                  </select>
+                )}
+              <input placeholder="8-10" value={s.repsT} onChange={(e) => upd(i, { repsT: e.target.value })} style={{ flex: 1, minWidth: 60, padding: "8px 6px", fontSize: easy ? 17 : 15 }} />
+              <input placeholder="2" value={s.rirT} onChange={(e) => upd(i, { rirT: e.target.value })} style={{ width: easy ? 52 : 42, padding: "8px 4px", fontSize: easy ? 17 : 15, textAlign: "center" }} />
               {!easy && <>
                 <input type="number" inputMode="numeric" placeholder={String(exRest ?? 90)} value={s.rest ?? ""} title="Descanso de esta serie en segundos (vacío = usa el del ejercicio)"
                   onChange={(e) => upd(i, { rest: e.target.value === "" ? undefined : (+e.target.value || 0) })}
@@ -4969,58 +5103,31 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
   const [mesoDragging, setMesoDragging] = useState(null); // id
   const [mesoDragOver, setMesoDragOver] = useState(null); // id
   const mesoDragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
-  const startMesoDrag = (id, e) => {
-    e.preventDefault();
-    const st = mesoDragRef.current;
-    clearTimeout(st.holdTimer);
-    st.activated = false;
-    st.startX = e.clientX; st.startY = e.clientY;
-    st.holdTimer = setTimeout(() => {
-      st.activated = true;
-      setMesoDragging(id);
-      try { navigator.vibrate && navigator.vibrate(25); } catch {}
-    }, 220);
+  const mesoFromRef = useRef(null);
+  const mesoOverRef = useRef(null);
+  const startMesoDrag = (id) => {
+    mesoFromRef.current = id; mesoOverRef.current = null;
+    setMesoDragging(id);
+    document.body.classList.add("fj-dragging");
   };
-  const cancelMesoPress = (e) => {
-    const st = mesoDragRef.current;
-    if (e && st.holdTimer && !st.activated) {
-      const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
-      if (dx > 12 || dy > 12) clearTimeout(st.holdTimer);
-    }
+  const mesoDragMove = (clientY) => {
+    if (!mesoFromRef.current) return;
+    autoScrollNearEdge(clientY);
+    const card = elementUnderY(document.querySelectorAll("[data-mesociclo]"), clientY);
+    const overId = card ? card.getAttribute("data-mesociclo") : null;
+    mesoOverRef.current = overId;
+    setMesoDragOver((prev) => (prev === overId ? prev : overId));
   };
   const endMesoDrag = () => {
-    const st = mesoDragRef.current;
-    clearTimeout(st.holdTimer);
-    if (mesoDragging) {
-      st.blockUntil = Date.now() + 250;
-      if (mesoDragOver && mesoDragOver !== mesoDragging) {
-        mut((p) => moveMesociclo(p, mesoDragging, mesoDragOver));
-      }
+    const from = mesoFromRef.current, to = mesoOverRef.current;
+    if (from) {
+      mesoDragRef.current.blockUntil = Date.now() + 250;
+      if (to && to !== from) mut((p) => moveMesociclo(p, from, to));
     }
-    st.activated = false;
+    mesoFromRef.current = null; mesoOverRef.current = null;
+    document.body.classList.remove("fj-dragging");
     setMesoDragging(null); setMesoDragOver(null);
   };
-  useEffect(() => {
-    if (!mesoDragging) return;
-    const move = (e) => {
-      autoScrollNearEdge(e.clientY);
-      const card = elementUnderY(document.querySelectorAll("[data-mesociclo]"), e.clientY);
-      const overId = card ? card.getAttribute("data-mesociclo") : null;
-      setMesoDragOver((prev) => (prev === overId ? prev : overId));
-      e.preventDefault();
-    };
-    const up = () => endMesoDrag();
-    window.addEventListener("pointermove", move, { passive: false });
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    document.body.classList.add("fj-dragging");
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-      document.body.classList.remove("fj-dragging");
-    };
-  }, [mesoDragging, mesoDragOver]);
 
   const cm = currentMesociclo(plan);
   const delTarget = confirmDel ? state.mesociclos.find((m) => m.id === confirmDel) : null;
@@ -5083,18 +5190,11 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
                     </div>
                     {open ? <ChevronUp size={16} color={P.faint} /> : <ChevronDown size={16} color={P.faint} />}
                   </button>
-                  <button
-                    onPointerDown={(e) => startMesoDrag(m.id, e)}
-                    onPointerMove={cancelMesoPress}
-                    onPointerUp={() => { const st = mesoDragRef.current; if (!mesoDragging) clearTimeout(st.holdTimer); }}
-                    onPointerCancel={() => { const st = mesoDragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
-                    onContextMenu={(e) => e.preventDefault()}
-                    title="Mantén pulsado aquí y arrastra para reordenar" aria-label={`Mover ${m.name}`}
-                    style={{ padding: "6px 10px 6px 4px", color: dragging ? P.ember : P.faint, cursor: "grab",
-                      position: "relative", zIndex: 60,
-                      touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
-                    <GripVertical size={17} />
-                  </button>
+                  <DragHandle active={dragging}
+                    label={`Mantén pulsado y arrastra para reordenar ${m.name}`}
+                    onActivate={() => startMesoDrag(m.id)}
+                    onDragMove={mesoDragMove}
+                    onDragEnd={endMesoDrag} />
                 </div>
                 {open && (
                   <div style={{ padding: "0 12px 12px" }}>
@@ -5342,6 +5442,7 @@ const LibraryPanel = ({ plan, history, library, onSaveLibrary, onInfo, toast, on
 };
 
 const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent, library, onSaveLibrary }) => {
+  const [easy] = useEasyMode();
   const [view, setView] = useState("dias"); // 'dias' | 'biblioteca'
   const [openDay, setOpenDay] = useState(null);
   const [editEx, setEditEx] = useState(null); // {dayId, ex}
@@ -5434,39 +5535,36 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
   };
   // El arrastre arranca solo desde el asa de puntos, así el resto de la
   // tarjeta se sigue pudiendo tocar y el móvil no activa la selección de texto.
-  const startDrag = (dayId, e) => {
-    e.preventDefault();
-    const st = dragRef.current;
-    clearTimeout(st.holdTimer);
-    st.activated = false;
-    st.startX = e.clientX; st.startY = e.clientY;
-    st.holdTimer = setTimeout(() => {
-      st.activated = true;
-      setDragging(dayId);
-      try { navigator.vibrate && navigator.vibrate(25); } catch {}
-    }, 220);
+  // Mismo esquema que las rutinas: el asa (DragHandle) usa listeners
+  // nativos y sus callbacks leen de refs, no del estado del render.
+  const dayFromRef = useRef(null);
+  const dayOverRef = useRef(null);
+  const startDrag = (dayId) => {
+    dayFromRef.current = dayId; dayOverRef.current = null;
+    setDragging(dayId);
+    document.body.classList.add("fj-dragging");
   };
-  const cancelPress = (e) => {
-    const st = dragRef.current;
-    // Si el dedo se mueve más de 12 px antes de activarse, no era mantener pulsado
-    // (12 en vez de 8: en pantalla táctil real el dedo tiembla un poco incluso
-    // quieto — con 8 se cancelaba el arrastre por error demasiado seguido).
-    if (e && st.holdTimer && !st.activated) {
-      const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
-      if (dx > 12 || dy > 12) clearTimeout(st.holdTimer);
-    }
+  const dayDragMove = (clientY) => {
+    const from = dayFromRef.current;
+    if (!from) return;
+    autoScrollNearEdge(clientY);
+    const els = document.querySelectorAll("[data-day-card]");
+    const card = elementUnderY(els, clientY);
+    const overId = card ? card.getAttribute("data-day-card") : null;
+    dayOverRef.current = overId;
+    setDragOver((prev) => (prev === overId ? prev : overId));
+    setDayShiftOffsets(computeShiftOffsets(els, "data-day-card", from, overId));
   };
   const endDrag = () => {
-    const st = dragRef.current;
-    clearTimeout(st.holdTimer);
-    if (dragging) {
+    const fromId = dayFromRef.current, toId = dayOverRef.current;
+    if (fromId) {
       // Se ignora el clic que cierra el arrastre, pero solo ese: con un flag
       // suelto, el siguiente toque en cualquier tarjeta se perdía.
-      st.blockUntil = Date.now() + 250;
-      if (dragOver && dragOver !== dragging) {
+      dragRef.current.blockUntil = Date.now() + 250;
+      if (toId && toId !== fromId) {
         mut((p) => {
-          const from = p.days.findIndex((d) => d.id === dragging);
-          const to = p.days.findIndex((d) => d.id === dragOver);
+          const from = p.days.findIndex((d) => d.id === fromId);
+          const to = p.days.findIndex((d) => d.id === toId);
           if (from < 0 || to < 0 || from === to) return;
           const [moved] = p.days.splice(from, 1);
           const insertAt = to > from ? to - 1 : to;
@@ -5476,99 +5574,48 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         });
       }
     }
-    st.activated = false;
+    dayFromRef.current = null; dayOverRef.current = null;
+    document.body.classList.remove("fj-dragging");
     setDragging(null); setDragOver(null); setDayShiftOffsets({});
   };
-  // Mientras arrastras, los eventos van al documento (así funciona aunque el
-  // dedo salga de la tarjeta original), y el scroll queda bloqueado.
-  useEffect(() => {
-    if (!dragging) return;
-    const move = (e) => {
-      autoScrollNearEdge(e.clientY);
-      const els = document.querySelectorAll("[data-day-card]");
-      const card = elementUnderY(els, e.clientY);
-      const overId = card ? card.getAttribute("data-day-card") : null;
-      setDragOver((prev) => (prev === overId ? prev : overId));
-      setDayShiftOffsets(computeShiftOffsets(els, "data-day-card", dragging, overId));
-      e.preventDefault();
-    };
-    const up = () => endDrag();
-    window.addEventListener("pointermove", move, { passive: false });
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    // El scroll de la página se deja activo a propósito (para el
-    // auto-scroll de arriba): touch-action:none en el asa ya evita que el
-    // navegador confunda el gesto con un scroll nativo mientras se arrastra.
-    document.body.classList.add("fj-dragging");
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-      document.body.classList.remove("fj-dragging");
-    };
-  }, [dragging, dragOver]);
 
   // Reordenar ejercicios (o bloques enteros de superserie/triserie/gigante)
   // dentro de un mismo día, mismo mecanismo de mantener pulsado que los días.
   const [exDragging, setExDragging] = useState(null);   // {dayId, blockKey}
   const [exDragOver, setExDragOver] = useState(null);   // {dayId, blockKey}
   const exDragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
-  const startExDrag = (dayId, blockKey, e) => {
-    e.preventDefault();
-    const st = exDragRef.current;
-    clearTimeout(st.holdTimer);
-    st.activated = false;
-    st.startX = e.clientX; st.startY = e.clientY;
-    st.holdTimer = setTimeout(() => {
-      st.activated = true;
-      setExDragging({ dayId, blockKey });
-      try { navigator.vibrate && navigator.vibrate(25); } catch {}
-    }, 220);
+  const exFromRef = useRef(null);
+  const exOverRef = useRef(null);
+  const startExDrag = (dayId, blockKey) => {
+    exFromRef.current = { dayId, blockKey }; exOverRef.current = null;
+    setExDragging({ dayId, blockKey });
+    document.body.classList.add("fj-dragging");
   };
-  const cancelExPress = (e) => {
-    const st = exDragRef.current;
-    if (e && st.holdTimer && !st.activated) {
-      const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
-      if (dx > 12 || dy > 12) clearTimeout(st.holdTimer);
-    }
+  const exDragMove = (clientY) => {
+    const from = exFromRef.current;
+    if (!from) return;
+    autoScrollNearEdge(clientY);
+    const candidates = Array.from(document.querySelectorAll("[data-ex-block]")).filter((c) => c.getAttribute("data-ex-day") === from.dayId);
+    const card = elementUnderY(candidates, clientY);
+    const overKey = card ? card.getAttribute("data-ex-block") : null;
+    exOverRef.current = overKey ? { dayId: from.dayId, blockKey: overKey } : null;
+    setExDragOver(exOverRef.current);
   };
   const endExDrag = () => {
-    const st = exDragRef.current;
-    clearTimeout(st.holdTimer);
-    if (exDragging) {
-      st.blockUntil = Date.now() + 250;
-      if (exDragOver && exDragOver.dayId === exDragging.dayId && exDragOver.blockKey !== exDragging.blockKey) {
+    const from = exFromRef.current, to = exOverRef.current;
+    if (from) {
+      exDragRef.current.blockUntil = Date.now() + 250;
+      if (to && to.dayId === from.dayId && to.blockKey !== from.blockKey) {
         mut((p) => {
-          const day = p.days.find((d) => d.id === exDragging.dayId);
-          if (day) moveBlock(day.exs, exDragging.blockKey, exDragOver.blockKey);
+          const day = p.days.find((d) => d.id === from.dayId);
+          if (day) moveBlock(day.exs, from.blockKey, to.blockKey);
         });
       }
     }
-    st.activated = false;
+    exFromRef.current = null; exOverRef.current = null;
+    document.body.classList.remove("fj-dragging");
     setExDragging(null); setExDragOver(null);
   };
-  useEffect(() => {
-    if (!exDragging) return;
-    const move = (e) => {
-      autoScrollNearEdge(e.clientY);
-      const candidates = Array.from(document.querySelectorAll("[data-ex-block]")).filter((c) => c.getAttribute("data-ex-day") === exDragging.dayId);
-      const card = elementUnderY(candidates, e.clientY);
-      const overKey = card ? card.getAttribute("data-ex-block") : null;
-      setExDragOver((prev) => (overKey ? { dayId: exDragging.dayId, blockKey: overKey } : null));
-      e.preventDefault();
-    };
-    const up = () => endExDrag();
-    window.addEventListener("pointermove", move, { passive: false });
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    document.body.classList.add("fj-dragging");
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-      document.body.classList.remove("fj-dragging");
-    };
-  }, [exDragging, exDragOver]);
 
   // Reordenar rutinas completas (bloques A/B/C…) arrastrando el asa de su
   // encabezado, mismo mecanismo de mantener pulsado que días y ejercicios.
@@ -5577,67 +5624,39 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
   // Cuánto se corre (translateY) cada bloque de rutina vecino mientras se
   // arrastra otro por encima/debajo suyo — ver computeShiftOffsets().
   const [routineShiftOffsets, setRoutineShiftOffsets] = useState({});
-  const routineDragRef = useRef({ holdTimer: null, activated: false, blockUntil: 0, startX: 0, startY: 0 });
-  const startRoutineDrag = (key, e) => {
-    e.preventDefault();
-    // Fija el puntero al asa apenas se toca: sin esto, en algunos
-    // navegadores/dispositivos el gesto se puede "perder" si el dedo se
-    // desvía un poco del elemento original antes de que pase el tiempo de
-    // espera, y el arrastre nunca llega a activarse — mismo fix que ya
-    // funciona en el botón flotante de IA.
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-    const st = routineDragRef.current;
-    clearTimeout(st.holdTimer);
-    st.activated = false;
-    st.startX = e.clientX; st.startY = e.clientY;
-    st.holdTimer = setTimeout(() => {
-      st.activated = true;
-      setRoutineDragging(key);
-      try { navigator.vibrate && navigator.vibrate(25); } catch {}
-    }, 220);
+  const routineDragRef = useRef({ blockUntil: 0 });
+  // El asa (DragHandle) registra sus listeners una sola vez, así que sus
+  // callbacks no pueden depender del estado del render — el origen y el
+  // destino del arrastre viven en refs, y el estado solo maneja lo visual.
+  const routineFromRef = useRef(null);
+  const routineOverRef = useRef(null);
+  const startRoutineDrag = (key) => {
+    routineFromRef.current = key;
+    routineOverRef.current = null;
+    setRoutineDragging(key);
+    document.body.classList.add("fj-dragging");
   };
-  const cancelRoutinePress = (e) => {
-    const st = routineDragRef.current;
-    if (e && st.holdTimer && !st.activated) {
-      const dx = Math.abs(e.clientX - st.startX), dy = Math.abs(e.clientY - st.startY);
-      if (dx > 12 || dy > 12) clearTimeout(st.holdTimer);
-    }
+  const routineDragMove = (clientY) => {
+    const from = routineFromRef.current;
+    if (!from) return;
+    autoScrollNearEdge(clientY);
+    const els = document.querySelectorAll("[data-routine-group]");
+    const card = elementUnderY(els, clientY);
+    const overKey = card ? card.getAttribute("data-routine-group") : null;
+    routineOverRef.current = overKey;
+    setRoutineDragOver((prev) => (prev === overKey ? prev : overKey));
+    setRoutineShiftOffsets(computeShiftOffsets(els, "data-routine-group", from, overKey));
   };
   const endRoutineDrag = () => {
-    const st = routineDragRef.current;
-    clearTimeout(st.holdTimer);
-    if (routineDragging) {
-      st.blockUntil = Date.now() + 250;
-      if (routineDragOver && routineDragOver !== routineDragging) {
-        mut((p) => moveRoutineGroup(p, routineDragging, routineDragOver));
-      }
+    const from = routineFromRef.current, to = routineOverRef.current;
+    if (from) {
+      routineDragRef.current.blockUntil = Date.now() + 250;
+      if (to && to !== from) mut((p) => moveRoutineGroup(p, from, to));
     }
-    st.activated = false;
+    routineFromRef.current = null; routineOverRef.current = null;
+    document.body.classList.remove("fj-dragging");
     setRoutineDragging(null); setRoutineDragOver(null); setRoutineShiftOffsets({});
   };
-  useEffect(() => {
-    if (!routineDragging) return;
-    const move = (e) => {
-      autoScrollNearEdge(e.clientY);
-      const els = document.querySelectorAll("[data-routine-group]");
-      const card = elementUnderY(els, e.clientY);
-      const overKey = card ? card.getAttribute("data-routine-group") : null;
-      setRoutineDragOver((prev) => (prev === overKey ? prev : overKey));
-      setRoutineShiftOffsets(computeShiftOffsets(els, "data-routine-group", routineDragging, overKey));
-      e.preventDefault();
-    };
-    const up = () => endRoutineDrag();
-    window.addEventListener("pointermove", move, { passive: false });
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    document.body.classList.add("fj-dragging");
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-      document.body.classList.remove("fj-dragging");
-    };
-  }, [routineDragging, routineDragOver]);
 
   const [copiedRoutine, setCopiedRoutine] = useState(null);
   // Copia la rutina completa: todos sus días, con todos sus ejercicios y series.
@@ -5716,7 +5735,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     // contra la barra — con solo TAB_BOTTOM_PAD respiran, pero muy justo.
     <div style={{ padding: `18px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
       <h1 style={{ fontSize: 28, textTransform: "uppercase", margin: "4px 0 6px" }}>Rutina</h1>
-      <div style={{ color: P.dim, fontSize: 15.5, marginBottom: 8 }}>Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante.</div>
+      <div style={{ color: P.dim, fontSize: easy ? 17 : 15.5, marginBottom: 8, lineHeight: 1.5 }}>
+        {easy
+          ? "Aquí armas el entrenamiento. Toca una rutina para abrirla y ver sus días."
+          : "Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante."}
+      </div>
       {student && student.allowedRoutines && student.allowedRoutines.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, padding: "8px 11px", marginBottom: 14 }}>
           <EyeOff size={14} color={P.ember2} style={{ flexShrink: 0 }} />
@@ -5724,6 +5747,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         </div>
       )}
 
+      {/* En Easy Mode no hay pestañas Días/Biblioteca ni panel de
+          Mesociclos: se entra directo a las rutinas, que es a lo que el
+          coach viene la mayoría de las veces. Todo eso sigue existiendo
+          y vuelve al instante con el switch ForjaMode. */}
+      {!easy && (
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 13, padding: 4, marginBottom: 22, boxShadow: CARD_LIFT }}>
         {[["dias", "Días", ClipboardList], ["biblioteca", "Biblioteca", Library]].map(([id, label, Icon]) => (
           <button key={id} onClick={() => setView(id)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 4px", borderRadius: 10, fontSize: 14.5, fontWeight: 600,
@@ -5732,11 +5760,12 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           </button>
         ))}
       </div>
+      )}
 
-      {view === "biblioteca" && <LibraryPanel plan={plan} history={history} library={library} onSaveLibrary={onSaveLibrary} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
+      {!easy && view === "biblioteca" && <LibraryPanel plan={plan} history={history} library={library} onSaveLibrary={onSaveLibrary} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
 
-      {view === "dias" && (<>
-      <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} />
+      {(easy || view === "dias") && (<>
+      {!easy && <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} />}
 
       <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.s4}, ${P.s1} 55%)`, borderColor: `${P.faint}` }}>
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -5777,14 +5806,14 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
             transform: routineDragging === g.key ? DRAG_LIFT_TRANSFORM
               : routineShiftOffsets[g.key] ? `translateY(${routineShiftOffsets[g.key]}px)` : "none",
             transition: `background .12s ease, box-shadow .14s ease, border-color .14s ease, ${SHIFT_TRANSITION}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: open ? 12 : 0 }}>
-            {/* Encabezado de rutina como tarjeta propia con relieve: la letra
-                va en una placa con degradado (el acento rojo vive ahí, no en
-                todo el texto), y el nombre queda en blanco — así no se ve
-                como un simple texto rojo "pegado" sobre el fondo. */}
+          {/* La tarjeta ocupa TODA la fila y los botones van en una fila
+              propia debajo: al meter los seis íconos al lado de la tarjeta,
+              esta quedaba tan angosta que "RUTINA A" y sus estadísticas se
+              partían en cuatro renglones. */}
+          <div style={{ marginBottom: open ? 12 : 0 }}>
             <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12,
-                background: P.s1, border: `1px solid ${P.frame}`, borderRadius: 14, padding: "11px 13px",
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 12,
+                background: P.s1, border: `1px solid ${P.frame}`, borderRadius: 14, padding: "13px 14px",
                 boxShadow: CARD_LIFT, textAlign: "left" }}>
               <span style={{ flexShrink: 0, minWidth: 36, height: 36, borderRadius: 11, padding: "0 4px",
                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -5792,48 +5821,41 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)",
                 color: PLATE_FG, fontWeight: 800, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="disp" style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase", color: P.text, lineHeight: 1.1 }}>{g.label}</div>
-                <div style={{ fontSize: 13, color: P.faint, marginTop: 2 }}>
+                <div className="disp" style={{ fontSize: 19, fontWeight: 700, textTransform: "uppercase", color: P.text, lineHeight: 1.15 }}>{g.label}</div>
+                <div style={{ fontSize: 13.5, color: P.faint, marginTop: 3 }}>
                   {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series
                   {!routineVisible && <span style={{ color: P.ember2, fontWeight: 700 }}> · Oculta para {student.name}</span>}
                 </div>
               </div>
-              {open ? <ChevronUp size={18} color={P.ember} /> : <ChevronDown size={18} color={P.faint} />}
+              {open ? <ChevronUp size={20} color={P.ember} /> : <ChevronDown size={20} color={P.faint} />}
             </button>
-            {student && onUpdateStudent && (
-              <button onClick={() => toggleRoutineVisible(g.key)}
-                title={routineVisible ? `Ocultar ${g.label} para ${student.name}` : `Mostrarle ${g.label} a ${student.name}`}
-                aria-label={routineVisible ? `Ocultar ${g.label}` : `Mostrar ${g.label}`}
-                style={{ padding: 6, color: routineVisible ? P.faint : P.ember2 }}>
-                {routineVisible ? <Eye size={15} /> : <EyeOff size={15} />}
-              </button>
-            )}
-            <button onClick={() => { const name = prompt("Nombre de la rutina:", g.label); if (name && name.trim()) mut((p) => { if (!p.routineNames) p.routineNames = {}; p.routineNames[g.key] = name.trim(); }); }}
-              title="Renombrar la rutina" aria-label={`Renombrar ${g.label}`}
-              style={{ padding: 6, color: P.faint }}><PencilLine size={15} /></button>
-            <button onClick={() => copyRoutine(g)} title="Copiar la rutina completa" aria-label={`Copiar ${g.label} completa`}
-              style={{ padding: 6, color: P.faint }}><Copy size={15} /></button>
-            {/* Alternativa siempre confiable al arrastre: sube/baja la
-                rutina un lugar por toque, sin depender de mantener
-                pulsado. Deshabilitado en los extremos (primera/última). */}
-            <button onClick={() => moveRoutineStep(-1)} disabled={gi === 0} title="Subir rutina" aria-label={`Subir ${g.label}`}
-              style={{ padding: 6, color: gi === 0 ? P.line : P.faint }}><ArrowUp size={15} /></button>
-            <button onClick={() => moveRoutineStep(+1)} disabled={gi === routineGroups.length - 1} title="Bajar rutina" aria-label={`Bajar ${g.label}`}
-              style={{ padding: 6, color: gi === routineGroups.length - 1 ? P.line : P.faint }}><ArrowDown size={15} /></button>
-            <button
-              onPointerDown={(e) => startRoutineDrag(g.key, e)}
-              onPointerMove={cancelRoutinePress}
-              onPointerUp={() => { const st = routineDragRef.current; if (!routineDragging) clearTimeout(st.holdTimer); }}
-              onPointerCancel={() => { const st = routineDragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
-              onContextMenu={(e) => e.preventDefault()}
-              title="Mantén pulsado aquí y arrastra para mover la rutina completa"
-              aria-label={`Mover ${g.label}`}
-              style={{ padding: "13px 10px", margin: "-7px -4px", minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center",
-                color: routineDragging === g.key ? P.ember : P.faint, cursor: "grab",
-                position: "relative", zIndex: 60,
-                touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
-              <GripVertical size={17} />
-            </button>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, marginTop: 6, paddingRight: 4 }}>
+              {student && onUpdateStudent && (
+                <button onClick={() => toggleRoutineVisible(g.key)}
+                  title={routineVisible ? `Ocultar ${g.label} para ${student.name}` : `Mostrarle ${g.label} a ${student.name}`}
+                  aria-label={routineVisible ? `Ocultar ${g.label}` : `Mostrar ${g.label}`}
+                  style={{ padding: 8, color: routineVisible ? P.faint : P.ember2 }}>
+                  {routineVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+                </button>
+              )}
+              <button onClick={() => { const name = prompt("Nombre de la rutina:", g.label); if (name && name.trim()) mut((p) => { if (!p.routineNames) p.routineNames = {}; p.routineNames[g.key] = name.trim(); }); }}
+                title="Renombrar la rutina" aria-label={`Renombrar ${g.label}`}
+                style={{ padding: 8, color: P.faint }}><PencilLine size={16} /></button>
+              <button onClick={() => copyRoutine(g)} title="Copiar la rutina completa" aria-label={`Copiar ${g.label} completa`}
+                style={{ padding: 8, color: P.faint }}><Copy size={16} /></button>
+              {/* Alternativa siempre confiable al arrastre: sube/baja la
+                  rutina un lugar por toque, sin depender de mantener
+                  pulsado. Deshabilitado en los extremos (primera/última). */}
+              <button onClick={() => moveRoutineStep(-1)} disabled={gi === 0} title="Subir rutina" aria-label={`Subir ${g.label}`}
+                style={{ padding: 8, color: gi === 0 ? P.line : P.faint }}><ArrowUp size={17} /></button>
+              <button onClick={() => moveRoutineStep(+1)} disabled={gi === routineGroups.length - 1} title="Bajar rutina" aria-label={`Bajar ${g.label}`}
+                style={{ padding: 8, color: gi === routineGroups.length - 1 ? P.line : P.faint }}><ArrowDown size={17} /></button>
+              <DragHandle active={routineDragging === g.key}
+                label={`Mantén pulsado y arrastra para mover ${g.label}`}
+                onActivate={() => startRoutineDrag(g.key)}
+                onDragMove={routineDragMove}
+                onDragEnd={endRoutineDrag} />
+            </div>
           </div>
           {open && (<>
           {g.items.map(({ day: d, index: di }) => (
@@ -5872,19 +5894,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                   <button onClick={() => { const name = prompt("Nombre del día:", d.name); if (name) mut((p) => { p.days[di].name = name; }); }} style={{ padding: 6, color: P.faint }}><PencilLine size={15} /></button>
                   <button onClick={() => setDel({ type: "day", dayId: d.id, name: d.name })} style={{ padding: 6, color: P.faint }}><Trash2 size={15} /></button>
                   <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ padding: 6, color: P.faint }}>{openDay === d.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
-                  <button
-                    onPointerDown={(e) => startDrag(d.id, e)}
-                    onPointerMove={cancelPress}
-                    onPointerUp={() => { const st = dragRef.current; if (!dragging) clearTimeout(st.holdTimer); }}
-                    onPointerCancel={() => { const st = dragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
-                    onContextMenu={(e) => e.preventDefault()}
-                    title="Mantén pulsado aquí y arrastra para mover el día"
-                    aria-label={`Mover el día ${d.name}`}
-                    style={{ padding: "6px 2px", color: dragging === d.id ? P.ember : P.faint, cursor: "grab",
-                      position: "relative", zIndex: 60,
-                      touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
-                    <GripVertical size={17} />
-                  </button>
+                  <DragHandle active={dragging === d.id}
+                    label={`Mantén pulsado y arrastra para mover el día ${d.name}`}
+                    onActivate={() => startDrag(d.id)}
+                    onDragMove={dayDragMove}
+                    onDragEnd={endDrag} />
                 </div>
               </div>
               {openDay === d.id && (
@@ -5964,21 +5978,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                       <button onClick={() => setDel({ type: "ex", dayId: d.id, exId: e.id, name: e.name })} style={{ padding: 5, color: P.faint }}><Trash2 size={14} /></button>
                     </div>
                     {gr.first && (
-                      <button
-                        onPointerDown={(ev) => startExDrag(d.id, blockKey, ev)}
-                        onPointerMove={cancelExPress}
-                        onPointerUp={() => { const st = exDragRef.current; if (!exDragging) clearTimeout(st.holdTimer); }}
-                        onPointerCancel={() => { const st = exDragRef.current; clearTimeout(st.holdTimer); st.activated = false; }}
-                        onContextMenu={(ev) => ev.preventDefault()}
-                        title={gr.kind ? "Mantén pulsado y arrastra para mover todo el bloque" : "Mantén pulsado y arrastra para mover el ejercicio"}
-                        aria-label={`Mover ${gr.kind ? "el bloque de " : ""}${e.name}`}
-                        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                          marginTop: 8, padding: "8px 0", borderRadius: 8, border: `1px dashed ${exDraggingHere ? P.ember : P.line}`,
-                          color: exDraggingHere ? P.ember : P.faint, fontSize: 12.5, fontWeight: 600, cursor: "grab",
-                          position: "relative", zIndex: 60,
-                          touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
-                        <GripVertical size={15} /> Mantén pulsado para mover{gr.kind ? " el bloque" : ""}
-                      </button>
+                      <DragHandle active={exDraggingHere} block={gr.kind ? " el bloque" : true}
+                        label={gr.kind ? `Mantén pulsado y arrastra para mover el bloque de ${e.name}` : `Mantén pulsado y arrastra para mover ${e.name}`}
+                        onActivate={() => startExDrag(d.id, blockKey)}
+                        onDragMove={exDragMove}
+                        onDragEnd={endExDrag} />
                     )}
                     </div>
                     </div>
@@ -8967,6 +8971,15 @@ const TABS = {
   ],
 };
 
+// Easy Mode deja solo lo imprescindible en la barra inferior: de 12
+// pestañas (coach) y 8 (alumno) a 4 — así no hay que scrollear la barra
+// ni decidir entre once secciones para hacer lo de siempre. Todo lo
+// demás sigue existiendo: vuelve al toque con el switch ForjaMode.
+const EASY_TAB_IDS = { coach: ["rutina", "agenda", "nutricion", "ia"], alumno: ["hoy", "entrenar", "progreso", "nutricion"] };
+// Etiquetas más largas y en palabras completas (en Easy Mode entran, son
+// solo cuatro): "Nutric." abreviado no se entiende de un vistazo.
+const EASY_TAB_LABELS = { rutina: "Rutina", agenda: "Agenda", nutricion: "Comida", ia: "Ayuda IA", hoy: "Hoy", entrenar: "Entrenar", progreso: "Progreso" };
+
 const TabBar = ({ tabs, tab, setTab }) => (
   <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
     background: `${P.s1}F0`, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderTop: `1px solid ${P.line}`,
@@ -9317,6 +9330,7 @@ const App = () => {
   // raíz vuelva a renderizar para que el cambio se propague a todos sus
   // hijos, sin importar en qué pantalla esté montado <ThemeToggle/>.
   useTheme();
+  const [easyMode] = useEasyMode();
   const [loading, setLoading] = useState(true);
   // El splash se ve al menos 4.6s (2s más que antes, a pedido: un arranque
   // más "épico" necesita más tiempo en pantalla) aunque los datos ya hayan
@@ -9641,9 +9655,17 @@ const App = () => {
 
   const switchMode = (m) => openIdentity(m, sidRef.current, roster, myTeamId);
   const currentStudent = roster.students.find((s) => s.id === sid);
-  const tabs = mode === "coach"
+  const allTabs = mode === "coach"
     ? TABS.coach.filter((t) => roleTabAccess[t.id])
     : TABS.alumno;
+  const tabs = easyMode
+    ? allTabs.filter((t) => EASY_TAB_IDS[mode].includes(t.id)).map((t) => ({ ...t, label: EASY_TAB_LABELS[t.id] || t.label }))
+    : allTabs;
+  // Si la pestaña abierta desaparece al entrar en Easy Mode, se cae a la
+  // primera disponible en vez de quedar en una pantalla sin pestaña.
+  useEffect(() => {
+    if (ready && tabs.length && !tabs.some((t) => t.id === tab)) setTab(tabs[0].id);
+  }, [easyMode, mode, ready]);
 
   if (!splashGone) {
     return <SplashScreen exiting={splashExiting} />;
@@ -9657,7 +9679,7 @@ const App = () => {
   }
 
   return (
-    <div className="fj" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
+    <div className={easyMode ? "fj fj-easy" : "fj"} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
       <div style={{ maxWidth: 520, margin: "0 auto", paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
         <div style={{ display: "flex", flexWrap: "wrap", rowGap: 8, alignItems: "center", justifyContent: "space-between", gap: 8, padding: "calc(10px + env(safe-area-inset-top)) 14px 0" }}>
