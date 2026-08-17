@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v64";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v65";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -60,8 +60,15 @@ const P = {
   // "destacado" de una ficha (P.frame, ver abajo) sigue siendo otra cosa.
   line: "#5C5546",
   text: "#FFFFFF",
-  dim: "#A0A0A0",
-  faint: "#8A8A8A",
+  // Ambos subidos de brillo a pedido explícito: contra el nuevo fondo gris
+  // cálido (más claro que el negro casi puro de antes), el gris medio
+  // anterior (#A0A0A0/#8A8A8A) se leía como "blanco difuso" en vez de un
+  // blanco marcado — sobre todo en párrafos largos (ej. la descripción de
+  // Mesociclos). Se suben a un crema claro, bien por encima del punto
+  // donde el ojo lo confunde con gris apagado, manteniendo igual la
+  // jerarquía (dim > faint > line) un escalón por debajo del blanco puro.
+  dim: "#D4CFC0",
+  faint: "#BAB5A4",
   ember: "#FFFFFF",
   ember2: "#E8E8E8",
   green: "#FFFFFF",
@@ -4788,11 +4795,11 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 15.5 }}>Mesociclos</div>
-            <div style={{ fontSize: 13, color: P.dim, marginTop: 2 }}>{state.mesociclos.length} mesociclo{state.mesociclos.length !== 1 ? "s" : ""} · en curso: {cm ? cm.name : "sin mesociclo asignado"}</div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: P.dim, marginTop: 2 }}>{state.mesociclos.length} mesociclo{state.mesociclos.length !== 1 ? "s" : ""} · en curso: {cm ? cm.name : "sin mesociclo asignado"}</div>
           </div>
         </div>
         <div style={{ padding: "10px 14px 14px" }}>
-          <div style={{ fontSize: 13, color: P.faint, lineHeight: 1.45, marginBottom: 10 }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: P.dim, lineHeight: 1.5, marginBottom: 10 }}>
             Cada mesociclo agrupa varias semanas. El que está «en curso» es el que ve el alumno; dentro de cada semana marcas cuál es la activa. Los objetivos por semana de cada ejercicio se editan dentro del ejercicio. Mantén pulsado el asa para reordenarlos.
           </div>
 
