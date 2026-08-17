@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v65";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v66";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -7253,6 +7253,61 @@ No uses estos bloques si el coach solo pregunta algo teórico: son para cambios 
 ${ctx}`;
 }
 
+// Glosario completo (GLOSSARY, definido más arriba) serializado como texto
+// plano: se lo pasamos al asistente del alumno para que explique términos
+// de la app (RIR, tempo, MEV/MAV/MRV, tipos de serie…) con la MISMA
+// definición que ya ve en la Guía de la app, en vez de inventar la suya.
+const GLOSSARY_KNOWLEDGE = GLOSSARY.map((g) => `- ${g.term}: ${g.def}`).join("\n");
+
+// Resumen breve de la sesión que el alumno tiene abierta en este momento
+// (si hay una en curso): qué ejercicio/serie ya marcó y cuáles le faltan,
+// para que el asistente pueda responder "qué me toca ahora" sin que el
+// alumno tenga que explicarlo. `null` si no hay sesión activa.
+function buildActiveSessionSummary(active) {
+  if (!active || !active.exs) return null;
+  const lines = active.exs.map((ex) => {
+    const done = ex.sets.filter((s) => s.done).length;
+    return `  · ${ex.name} [${ex.muscle}]: ${done}/${ex.sets.length} series marcadas como hechas`;
+  }).join("\n");
+  return `SESIÓN DE HOY EN CURSO: ${active.dayName}\n${lines}`;
+}
+
+// Asistente que ve el ALUMNO (no el coach): mismo contexto completo del
+// plan (buildAthleteContext, reutilizado tal cual), pero un system prompt
+// totalmente distinto — habla EN SEGUNDA PERSONA con el alumno, de tú (no
+// de vos), y a diferencia del agente del coach NO tiene ninguna acción para
+// modificar el plan: solo explica, orienta y responde dudas. Si el alumno
+// pide un cambio real (más peso, otro ejercicio, cambiar un día), lo remite
+// a su coach en vez de simular que lo aplicó.
+function buildStudentSystemPrompt(ctx, studentName, activeSummary) {
+  return `Eres el asistente de IA de FORJA, la plataforma de entrenamiento que usa ${studentName || "este alumno"}. Hablas directamente CON el alumno, de tú (nunca de "vos" ni de "usted"), en un tono cercano, directo y motivador — como un coach que conoce su caso a fondo, no un buscador genérico.
+
+QUÉ SABES DE ESTE ALUMNO
+Tienes su ficha completa, rutina, volumen por músculo, historial de sesiones, peso corporal y nutrición cargados abajo. Úsalos siempre que la pregunta se relacione con su entrenamiento — cita el dato real (qué le toca hoy, cuántas series lleva, su último PR, etc.) en vez de responder en genérico.
+${activeSummary ? `\n${activeSummary}\n` : ""}
+QUÉ PUEDES HACER
+- Explicar cualquier término o concepto de la app (RIR, tempo, tipos de serie, MEV/MAV/MRV, back-off, drop set, etc.) usando exactamente estas definiciones:
+${GLOSSARY_KNOWLEDGE}
+- Explicar CÓMO ejecutar un ejercicio de su rutina, su tempo asignado, o por qué está programado así.
+- Decirle qué le toca hoy o en los próximos días según su cronograma.
+- Resolver dudas sobre su progreso, nutrición o cualquier pantalla de la app.
+- Dar ánimo y contexto técnico breve cuando lo pida.
+
+LÍMITE INNEGOCIABLE: NO PUEDES MODIFICAR SU PLAN
+No tienes ninguna acción para cambiar su rutina, sus pesos objetivo, sus macros ni nada del programa — eso lo decide su coach. Si te pide un cambio real ("súbeme el peso", "cámbiame este ejercicio", "quiero un día más"), explícale brevemente el porqué técnico si corresponde, pero dile con claridad que eso lo debe pedir directamente a su coach — nunca simules que ya lo aplicaste ni inventes que "quedó guardado".
+
+OTROS LÍMITES
+- No eres médico ni nutricionista clínico: ante dolor con señales de alarma, lesión, patología, medicación o trastorno de la conducta alimentaria, dile que lo hable con su coach y/o un profesional de la salud.
+- No hables de esteroides, hormonas, SARMs ni sustancias de prescripción/dopantes más allá de derivarlo a un médico si pregunta.
+- No inventes datos que no estén en su ficha (si falta algo, dilo en vez de suponerlo).
+
+CÓMO RESPONDES
+- Español, tono cercano y directo, de tú. Nada de relleno motivacional vacío.
+- Respuestas cortas y concretas: máximo 4-5 párrafos cortos o una lista breve. Si el tema da para más, entrega lo esencial y ofrece profundizar si te lo piden.
+
+${ctx}`;
+}
+
 /* ---- Ficha del atleta ---- */
 const AthleteForm = ({ plan, savePlan }) => {
   const a = plan.athlete || emptyAthlete();
@@ -7801,6 +7856,111 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
         </div>
       )}
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
+    </div>
+  );
+};
+
+// Chat de IA que ve el ALUMNO — versión reducida de BodybuildingChat: mismo
+// contexto (buildAthleteContext) y misma API de Claude, pero sin selector de
+// especialidad ni bloques "forja-*" que apliquen cambios al plan (el alumno
+// solo pregunta, nunca edita). La conversación se guarda aparte de la del
+// coach (`forja-student-chat:` en vez de `forja-bb-chat:`) para que cada
+// una tenga su propio hilo. Si el coach todavía no cargó una API key, no se
+// le pide una al alumno (esa configuración es del coach) — se le avisa.
+const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
+  const sid = student?.id;
+  const [messages, setMessages] = useState([]);
+  const [loadedFor, setLoadedFor] = useState(null);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (!sid) return;
+    let alive = true;
+    (async () => {
+      const saved = await sGet(`forja-student-chat:${sid}`);
+      if (!alive) return;
+      setMessages(Array.isArray(saved) ? saved : []);
+      setLoadedFor(sid);
+    })();
+    return () => { alive = false; };
+  }, [sid]);
+
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy]);
+
+  const persist = (msgs) => { if (sid) sSet(`forja-student-chat:${sid}`, msgs); };
+  const clearChat = () => { setMessages([]); persist([]); };
+
+  const send = async (preset) => {
+    const text = (preset != null ? preset : input).trim();
+    if (!text || busy) return;
+    if (!apiKey) { setErr("Tu coach todavía no activó el asistente de IA."); return; }
+    setErr("");
+    const nextMsgs = [...messages, { role: "user", content: text }];
+    setMessages(nextMsgs); setInput(""); setBusy(true);
+    try {
+      const ctx = buildAthleteContext({ plan, history, athlete: plan.athlete, student });
+      const data = await callClaudeAPI(apiKey, {
+        model: AI_MODEL,
+        max_tokens: 1400,
+        system: buildStudentSystemPrompt(ctx, student?.name, buildActiveSessionSummary(active)),
+        messages: nextMsgs,
+      });
+      const answer = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n") || "(sin respuesta)";
+      const final = [...nextMsgs, { role: "assistant", content: answer }];
+      setMessages(final); persist(final);
+    } catch (e) {
+      setErr(e.message || "Error de conexión");
+    } finally { setBusy(false); }
+  };
+
+  if (sid && loadedFor !== sid) return <div style={{ padding: 30, textAlign: "center", color: P.faint }}>Cargando…</div>;
+
+  if (!apiKey) {
+    return (
+      <div style={{ textAlign: "center", padding: "30px 10px", color: P.faint }}>
+        <Sparkles size={30} style={{ marginBottom: 10, opacity: .6 }} />
+        <div style={{ fontWeight: 600, color: P.dim, marginBottom: 5 }}>El asistente todavía no está activo</div>
+        <div style={{ fontSize: 14.5, lineHeight: 1.5 }}>Tu coach necesita activarlo desde su pestaña IA. Avísale y en un momento vas a poder preguntarle lo que quieras acá mismo.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {messages.length === 0 && (
+        <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5, marginBottom: 12 }}>
+          Pregúntame lo que sea sobre tu entrenamiento: qué te toca hoy, cómo hacer un ejercicio, qué significa tu tempo o tu RIR, cómo vas con tu volumen, o cualquier duda de la app.
+        </div>
+      )}
+      <div ref={scrollRef} style={{ maxHeight: "48dvh", overflowY: "auto", WebkitOverflowScrolling: "touch", marginBottom: 10 }}>
+        {messages.map((m, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 8 }}>
+            <div style={{ maxWidth: "88%", padding: "9px 12px", borderRadius: 14, fontSize: 14.5, lineHeight: 1.45, whiteSpace: "pre-wrap",
+              background: m.role === "user" ? PLATE_GRAD : P.s2, color: m.role === "user" ? PLATE_FG : P.text,
+              border: m.role === "user" ? "none" : `1px solid ${P.line}` }}>{m.content}</div>
+          </div>
+        ))}
+        {busy && <div style={{ fontSize: 13, color: P.faint, padding: "4px 2px" }}>Pensando…</div>}
+      </div>
+      {err && <div style={{ fontSize: 13, color: P.red, marginBottom: 8 }}>{err}</div>}
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        <VoiceDictateButton disabled={busy} onError={setErr} onResult={(text) => setInput((v) => (v ? `${v} ${text}` : text))} />
+        <textarea rows={2} placeholder="Escribe tu pregunta…" disabled={busy}
+          value={input} onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+          style={{ flex: 1, padding: "10px 12px", fontSize: 15, minWidth: 0, resize: "none" }} />
+        <Btn kind="ember" disabled={!input.trim() || busy} onClick={() => send()} style={{ padding: "12px 14px", minWidth: 0 }}>
+          <Send size={16} />
+        </Btn>
+      </div>
+      {messages.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <Btn kind="line" small onClick={clearChat}><Trash2 size={12} /> Reiniciar conversación</Btn>
+        </div>
+      )}
     </div>
   );
 };
@@ -8773,6 +8933,123 @@ const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove }) => 
   );
 };
 
+// Posición del botón flotante de IA, persistida por dispositivo (no por
+// alumno/coach: es una preferencia de layout de ESTA pantalla, no un dato
+// de la app) — localStorage directo, no sGet/sSet: no necesita viajar a
+// Supabase ni compartirse entre dispositivos, y así queda disponible al
+// instante en el primer render, sin parpadeo.
+const AI_FAB_POS_KEY = "forja-ai-fab-pos";
+const AI_FAB_SIZE = 56;
+function loadFabPos() {
+  try {
+    const raw = window.localStorage.getItem(AI_FAB_POS_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (typeof p.right === "number" && typeof p.bottom === "number") return p;
+  } catch {}
+  return null;
+}
+function saveFabPos(pos) {
+  try { window.localStorage.setItem(AI_FAB_POS_KEY, JSON.stringify(pos)); } catch {}
+}
+function clampFabPos(p) {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  return {
+    right: Math.min(Math.max(p.right, 4), Math.max(4, vw - AI_FAB_SIZE - 4)),
+    bottom: Math.min(Math.max(p.bottom, 4), Math.max(4, vh - AI_FAB_SIZE - 4)),
+  };
+}
+
+// Botón flotante de IA: visible en TODA la app (alumno y coach), incluido
+// el focus mode y la sesión de entrenamiento normal — se monta una sola
+// vez a nivel raíz de <App>, con un z-index por encima de esas pantallas a
+// pantalla completa (90), así queda siempre arriba de todo en vez de
+// quedar tapado. Se arrastra libremente (por si cubre algo en la pantalla)
+// y su posición se recuerda en este dispositivo; un toque sin arrastre lo
+// abre. En modo coach abre la pestaña IA de siempre (con todas sus
+// herramientas); en modo alumno abre un chat nuevo, de solo consulta.
+const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, toast }) => {
+  const [pos, setPos] = useState(() => clampFabPos(loadFabPos() || { right: 16, bottom: 110 }));
+  const [dragging, setDragging] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const dragRef = useRef({ startX: 0, startY: 0, startRight: 0, startBottom: 0, moved: false });
+
+  useEffect(() => {
+    const onResize = () => setPos((p) => clampFabPos(p));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // La API key la carga el coach desde la pestaña IA (sGet/sSet con
+  // shared=true: vive en Supabase, no en este dispositivo) — el alumno la
+  // reutiliza tal cual, sin que se le pida configurar nada.
+  useEffect(() => {
+    if (mode !== "alumno") return;
+    let alive = true;
+    (async () => { const k = await sGet("forja-ai-key"); if (alive) setApiKey(k || ""); })();
+    return () => { alive = false; };
+  }, [mode, chatOpen]);
+
+  const onPointerDown = (e) => {
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startRight: pos.right, startBottom: pos.bottom, moved: false };
+    setDragging(true);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  };
+  const onPointerMove = (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - dragRef.current.startX, dy = e.clientY - dragRef.current.startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragRef.current.moved = true;
+    if (dragRef.current.moved) setPos(clampFabPos({ right: dragRef.current.startRight - dx, bottom: dragRef.current.startBottom - dy }));
+  };
+  const onPointerUp = () => {
+    setDragging(false);
+    if (dragRef.current.moved) { saveFabPos(pos); return; }
+    if (mode === "coach") onOpenCoachTab && onOpenCoachTab();
+    else setChatOpen(true);
+  };
+
+  return (
+    <>
+      <button
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+        onContextMenu={(e) => e.preventDefault()}
+        aria-label="Asistente de IA — mantén pulsado y arrastra para moverlo, toca para abrirlo"
+        title="Asistente de IA"
+        style={{ position: "fixed", right: pos.right, bottom: pos.bottom, width: AI_FAB_SIZE, height: AI_FAB_SIZE, borderRadius: AI_FAB_SIZE / 2,
+          zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: dragging ? "0 1px 0 rgba(255,255,255,.6) inset, 0 16px 34px -8px rgba(0,0,0,.8)" : "0 1px 0 rgba(255,255,255,.6) inset, 0 10px 26px -8px rgba(0,0,0,.7)",
+          transform: dragging ? "scale(1.06)" : "scale(1)",
+          transition: dragging ? "none" : "transform .15s ease, box-shadow .15s ease",
+          touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", cursor: "grab" }}>
+        <Sparkles size={24} strokeWidth={2.2} />
+      </button>
+      {chatOpen && mode === "alumno" && (
+        <div onClick={() => setChatOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 96, background: "rgba(5,3,3,.68)",
+          display: "flex", alignItems: "flex-end", justifyContent: "center",
+          paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
+          <div className="sheetIn" onClick={(e) => e.stopPropagation()}
+            style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 520,
+              maxHeight: "88dvh", minHeight: "55dvh", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px",
+              paddingTop: "max(14px, env(safe-area-inset-top))", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Sparkles size={18} color={P.ember2} />
+                <h2 className="disp" style={{ margin: 0, fontSize: 19, textTransform: "uppercase" }}>Asistente IA</h2>
+              </div>
+              <button onClick={() => setChatOpen(false)} aria-label="Cerrar" style={{ color: P.dim, padding: 6 }}><X size={20} /></button>
+            </div>
+            <div style={{ overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "14px 18px calc(20px + env(safe-area-inset-bottom))", flex: 1, minHeight: 0 }}>
+              <StudentAIChat plan={plan} history={history} student={student} active={active} apiKey={apiKey} toast={toast} />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
 const App = () => {
   const [loading, setLoading] = useState(true);
   // El splash se ve al menos 4.6s (2s más que antes, a pedido: un arranque
@@ -9247,6 +9524,8 @@ const App = () => {
       <Sheet open={gloss.open} onClose={() => setGloss({ open: false, focus: null })} title="Guía rápida" tall>
         <GlossaryBody focusId={gloss.focus} />
       </Sheet>
+      <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
+        onOpenCoachTab={() => setTab("ia")} toast={toast} />
       <Toast msg={toastMsg} />
     </div>
   );
