@@ -6,7 +6,7 @@ import {
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
-  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard
+  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon
 } from "lucide-react";
 
 /* ============================================================
@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v66";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v67";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -48,65 +48,96 @@ const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso
 // translúcidos en el acento de marca) — los degradados/brillos/bordes que
 // antes eran verde con alpha ahora son tonos sólidos y opacos de esta
 // misma escala de grises.
-const P = {
-  bg: "#26221C",
-  s1: "#332F27",
-  s2: "#3A362D",
-  s3: "#423D33",
-  s4: "#4B453A",
-  // Se sube de tono y se entibia (antes #404040, gris neutro casi
-  // invisible sobre el fondo oscuro anterior): ahora es un marco tenue
-  // pero real, coherente con el resto de la paleta cálida — el marco
-  // "destacado" de una ficha (P.frame, ver abajo) sigue siendo otra cosa.
-  line: "#5C5546",
-  text: "#FFFFFF",
-  // Ambos subidos de brillo a pedido explícito: contra el nuevo fondo gris
-  // cálido (más claro que el negro casi puro de antes), el gris medio
-  // anterior (#A0A0A0/#8A8A8A) se leía como "blanco difuso" en vez de un
-  // blanco marcado — sobre todo en párrafos largos (ej. la descripción de
-  // Mesociclos). Se suben a un crema claro, bien por encima del punto
-  // donde el ojo lo confunde con gris apagado, manteniendo igual la
-  // jerarquía (dim > faint > line) un escalón por debajo del blanco puro.
-  dim: "#D4CFC0",
-  faint: "#BAB5A4",
-  ember: "#FFFFFF",
-  ember2: "#E8E8E8",
-  green: "#FFFFFF",
-  red: "#E01A1A",
-  blue: "#DAD4D6",
-  glow: "#FFFFFF",
-  // Marco "destacado en blanco" para el borde de una ficha de sección
-  // (tarjeta de Rutina A/B, resumen de logros, etc.) — a pedido explícito,
-  // en vez del P.line oscuro que ahí se leía casi invisible. Mismo crema
-  // pastel que PLATE_BORDER, para que la ficha y las placas que contiene
-  // se sientan parte de un mismo sistema, no piezas sueltas.
-  frame: "#D6CBA8",
-  // Fondo general de pantalla completa: gris cálido opaco (antes casi
-  // negro puro, #050505→#1C1C1C) — a pedido explícito, para que el salto
-  // contra las placas blanco pastel sea de gris a crema, no de negro a
-  // blanco, y todo se sienta un solo sistema en vez de piezas incrustadas
-  // unas sobre otras. Sigue siendo bien oscuro (modo oscuro real, no un
-  // fondo claro), solo que ya no lee como negro.
-  bgGrad: "linear-gradient(158deg, #332F27 0%, #2C2820 30%, #262219 54%, #201C14 76%, #1B1710 100%)",
+// ---------------- Tema claro/oscuro ----------------
+// `P` y los cuatro PLATE_* siguen siendo los mismos identificadores que ya
+// usan ~600 lugares del archivo (P.text, P.dim, PLATE_GRAD…) — para poder
+// agregar un modo claro SIN tocar cada uno de esos lugares, `P` es un
+// objeto MUTABLE (se pisan sus propiedades, nunca se reemplaza el objeto)
+// y los PLATE_* pasan de `const` a `let`. Cambiar de tema = copiar los
+// valores del paquete elegido (DARK_THEME/LIGHT_THEME) encima de `P` y
+// reasignar los PLATE_*, y listo: como todo componente lee `P.xxx`/`PLATE_*`
+// en cada render (no los guarda en un closure), un solo re-render de toda
+// la app (ver useTheme/ThemeToggle) alcanza para que se vea en todos lados.
+const DARK_THEME = {
+  P: {
+    bg: "#26221C", s1: "#332F27", s2: "#3A362D", s3: "#423D33", s4: "#4B453A",
+    line: "#5C5546", text: "#FFFFFF", dim: "#D4CFC0", faint: "#BAB5A4",
+    ember: "#FFFFFF", ember2: "#E8E8E8", green: "#FFFFFF", red: "#E01A1A", blue: "#DAD4D6", glow: "#FFFFFF",
+    frame: "#D6CBA8",
+    bgGrad: "linear-gradient(158deg, #332F27 0%, #2C2820 30%, #262219 54%, #201C14 76%, #1B1710 100%)",
+  },
+  plateGrad: "linear-gradient(160deg, #FBF6E9, #F0E7CE 55%, #DFD1A8 100%)",
+  plateFg: "#171512",
+  plateDim: "#6E6A5F",
+  plateBorder: "#D0C39A",
+};
+// Espejo del oscuro: mismo lenguaje de color (cálido, crema/carbón, sin
+// ningún acento de color agregado) pero invertido — fondo claro, tarjetas
+// blancas, texto oscuro. Las "placas" (antes claras sobre fondo oscuro)
+// pasan a oscuras sobre fondo claro para seguir teniendo contraste: es el
+// mismo concepto "negro pastel" que tenía la app antes del pedido de
+// "blanco pastel", ahora reservado para este modo.
+const LIGHT_THEME = {
+  P: {
+    bg: "#F5F0E3", s1: "#FFFFFF", s2: "#FBF8F0", s3: "#F3EEDF", s4: "#EAE2CB",
+    line: "#DED4B8", text: "#211D16", dim: "#4C4536", faint: "#6E664F",
+    ember: "#211D16", ember2: "#3A342A", green: "#211D16", red: "#C21414", blue: "#5B5450", glow: "#211D16",
+    frame: "#C7B98D",
+    bgGrad: "linear-gradient(158deg, #FAF6EA 0%, #F5EFE0 30%, #F0E8D4 54%, #EBE1C8 76%, #E5DABC 100%)",
+  },
+  plateGrad: "linear-gradient(160deg, #3D3833, #211D17 60%, #141210)",
+  plateFg: "#F7F3E9",
+  plateDim: "#C9C4B5",
+  plateBorder: "#141210",
 };
 
-// "Placa" (plate) de ícono: el fondo cuadrado/redondeado que lleva un ícono
-// o letra encima (logo, splash, badges de rutina, CTA con ícono, medallas…).
-// Era un degradado negro pastel con el glifo en blanco; a pedido explícito
-// se invirtió: ahora la placa es blanco pastel y el glifo va en un gris
-// casi negro encima, para que "los cuadros" dejen de leerse como negro
-// puro. Se pidió, en una segunda vuelta, "más pastel aún": el tope ya no
-// es blanco puro (#FFFFFF) sino un crema suave, para que se note el matiz
-// pastel en toda la placa, no solo en el borde. Centralizado en dos
-// constantes para que TODAS las placas de la app cambien juntas — antes
-// eran 13 degradados hardcodeados por separado.
-const PLATE_GRAD = "linear-gradient(160deg, #FBF6E9, #F0E7CE 55%, #DFD1A8 100%)";
-const PLATE_FG = "#171512";
-// Texto/ícono secundario sobre una placa clara (equivalente a P.faint, pero
-// para fondo blanco pastel en vez de fondo oscuro) y el borde neutro que
-// separa una placa de otra sin recurrir a alpha.
-const PLATE_DIM = "#6E6A5F";
-const PLATE_BORDER = "#D0C39A";
+const P = { ...DARK_THEME.P };
+let PLATE_GRAD = DARK_THEME.plateGrad;
+let PLATE_FG = DARK_THEME.plateFg;
+let PLATE_DIM = DARK_THEME.plateDim;
+let PLATE_BORDER = DARK_THEME.plateBorder;
+
+let THEME_MODE = "dark";
+try { THEME_MODE = window.localStorage.getItem("forja-theme") || "dark"; } catch {}
+const themeListeners = new Set();
+function applyTheme(mode) {
+  const t = mode === "light" ? LIGHT_THEME : DARK_THEME;
+  Object.assign(P, t.P);
+  PLATE_GRAD = t.plateGrad; PLATE_FG = t.plateFg; PLATE_DIM = t.plateDim; PLATE_BORDER = t.plateBorder;
+  THEME_MODE = mode;
+  try { window.localStorage.setItem("forja-theme", mode); } catch {}
+  try {
+    document.documentElement.style.background = t.P.bg;
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) metaTheme.setAttribute("content", t.P.bg);
+  } catch {}
+  themeListeners.forEach((fn) => fn(mode));
+}
+applyTheme(THEME_MODE); // aplica la preferencia guardada ANTES del primer render — sin parpadeo
+function useTheme() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    themeListeners.add(fn);
+    return () => themeListeners.delete(fn);
+  }, []);
+  return [THEME_MODE, (m) => applyTheme(m)];
+}
+// Switch de tema — "arriba" en el encabezado, como se pidió. Sol/luna
+// según el modo activo.
+const ThemeToggle = () => {
+  const [mode, setMode] = useTheme();
+  const isLight = mode === "light";
+  return (
+    <button onClick={() => setMode(isLight ? "dark" : "light")}
+      title={isLight ? "Cambiar a modo oscuro" : "Cambiar a modo claro"}
+      aria-label={isLight ? "Cambiar a modo oscuro" : "Cambiar a modo claro"}
+      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 10,
+        background: P.s3, border: `1px solid ${P.line}`, color: P.dim, flexShrink: 0 }}>
+      {isLight ? <Moon size={16} /> : <Sun size={16} />}
+    </button>
+  );
+};
 
 // Padding-bottom mínimo de CUALQUIER pantalla de pestaña (todo lo que se
 // renderiza directo debajo de <TabBar>): antes cada pantalla tenía "30px"
@@ -788,6 +819,104 @@ const fmtDateFull = (iso) => {
 };
 const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 const kg = (n) => (n % 1 === 0 ? String(n) : n.toFixed(1).replace(".", ","));
+
+/* ---------------- Unidad de peso (kg/lb) ---------------- */
+// Preferencia de UNIDAD DE VISUALIZACIÓN, no de dato: todo lo que se
+// guarda (set.weight, peso corporal, historial, PRs…) sigue siendo
+// SIEMPRE kg — es lo único compatible con todo lo que ya existe en la
+// app. Este toggle solo cambia en qué unidad se escribe y se lee durante
+// el entrenamiento. Es una preferencia de ESTE dispositivo (como la
+// posición del botón de IA), no un dato del alumno: localStorage directo,
+// con un pub-sub mínimo para que cualquier componente que la use se
+// entere del cambio sin tener que pasarla como prop por cada capa.
+const KG_PER_LB = 0.45359237;
+const kgToLb = (kgVal) => kgVal / KG_PER_LB;
+const lbToKg = (lbVal) => lbVal * KG_PER_LB;
+// Redondea a 1 decimal para mostrar (no para guardar) — con coma decimal,
+// igual que kg().
+const fmtUnit = (n) => { const r = Math.round(n * 10) / 10; return kg(r); };
+
+let WEIGHT_UNIT = "kg";
+try { WEIGHT_UNIT = window.localStorage.getItem("forja-weight-unit") || "kg"; } catch {}
+const weightUnitListeners = new Set();
+function setWeightUnit(u) {
+  WEIGHT_UNIT = u;
+  try { window.localStorage.setItem("forja-weight-unit", u); } catch {}
+  weightUnitListeners.forEach((fn) => fn(u));
+}
+function useWeightUnit() {
+  const [u, setU] = useState(WEIGHT_UNIT);
+  useEffect(() => {
+    weightUnitListeners.add(setU);
+    return () => weightUnitListeners.delete(setU);
+  }, []);
+  return [u, setWeightUnit];
+}
+
+// Chip pequeño para alternar kg/lb — mismo componente en focus mode y en
+// la sesión normal. Cambia la unidad de TODOS los campos de peso a la vez
+// (no es por casilla): al tocarlo, cualquier <WeightInput> montado en ese
+// momento se resincroniza solo, vía el pub-sub de arriba.
+const UnitToggle = () => {
+  const [unit, setUnit] = useWeightUnit();
+  return (
+    <button onClick={() => setUnit(unit === "kg" ? "lb" : "kg")}
+      title="Cambiar unidad de peso" aria-label={`Unidad de peso: ${unit}. Toca para cambiar a ${unit === "kg" ? "libras" : "kilogramos"}`}
+      style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 800, letterSpacing: ".03em",
+        padding: "4px 8px", borderRadius: 8, border: `1px solid ${P.line}`, color: P.dim, flexShrink: 0 }}>
+      <span style={{ color: unit === "kg" ? P.ember2 : P.faint }}>KG</span>
+      <span style={{ color: P.faint }}>/</span>
+      <span style={{ color: unit === "lb" ? P.ember2 : P.faint }}>LB</span>
+    </button>
+  );
+};
+
+// Input de peso con conversión de unidad. Mientras el usuario está
+// tipeando se respeta tal cual el texto que escribió (buffer local) — así
+// no se le "reformatea" el número debajo de los dedos con cada tecla; al
+// salir del campo (o si el valor cambia desde afuera, ej. "Sugerido" o un
+// cambio de unidad) se resincroniza con el valor guardado, convertido a
+// la unidad activa. `valueKg`/`onChangeKg` siempre hablan en kg — eso no
+// cambia, sea cual sea la unidad que ve el usuario.
+const WeightInput = ({ valueKg, onChangeKg, placeholder, style, disabled }) => {
+  const [unit] = useWeightUnit();
+  const [focused, setFocused] = useState(false);
+  const toActive = (v) => {
+    if (v === "" || v == null) return "";
+    const n = +v;
+    if (isNaN(n)) return "";
+    return unit === "kg" ? String(v) : fmtUnit(kgToLb(n)).replace(",", ".");
+  };
+  const [local, setLocal] = useState(() => toActive(valueKg));
+  useEffect(() => { if (!focused) setLocal(toActive(valueKg)); }, [valueKg, unit, focused]);
+  const handleChange = (raw) => {
+    setLocal(raw);
+    if (raw === "") { onChangeKg(""); return; }
+    const n = +raw;
+    if (isNaN(n)) return;
+    onChangeKg(unit === "kg" ? raw : String(lbToKg(n)));
+  };
+  return (
+    <input type="number" inputMode="decimal" step="any" placeholder={placeholder} disabled={disabled}
+      value={local}
+      onFocus={() => setFocused(true)}
+      onBlur={() => { setFocused(false); setLocal(toActive(valueKg)); }}
+      onChange={(e) => handleChange(e.target.value)}
+      style={style} />
+  );
+};
+
+// Línea chica de conversión que va debajo de un campo de peso ya cargado:
+// si la unidad activa es kg, muestra el equivalente en lb, y viceversa —
+// "abajo, en un tamaño más pequeño", tal como se pidió. `null` si el
+// campo todavía está vacío (nada que convertir).
+const WeightConversionHint = ({ valueKg, style }) => {
+  const [unit] = useWeightUnit();
+  if (valueKg === "" || valueKg == null || isNaN(+valueKg)) return null;
+  const n = +valueKg;
+  const text = unit === "kg" ? `≈ ${fmtUnit(kgToLb(n))} lb` : `≈ ${fmtUnit(n)} kg`;
+  return <span style={{ fontSize: 11.5, color: P.faint, ...style }}>{text}</span>;
+};
 // Formatea series que pueden salir fraccionadas por el crédito de músculos
 // secundarios (ej: 8.5 series).
 const fmtSets = (n) => (n % 1 === 0 ? String(n) : n.toFixed(1));
@@ -2371,16 +2500,18 @@ const InlineRest = ({ timer, onAdjust, onDismiss }) => {
    ============================================================ */
 const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpenImg, onAttachError, restSec, timer, onStartRest, onAdjustRest, onDismissRest }) => {
   const [showCmt, setShowCmt] = useState(false);
+  const [unit] = useWeightUnit();
   const done = set.done;
   // minHeight 48: son los inputs que más se tocan durante el entrenamiento
   // (peso/reps/RIR, serie tras serie, a veces con las manos sudadas) — el
   // padding solo (antes ~37px de alto) quedaba por debajo del mínimo táctil
   // recomendado (Apple/Google: 44-48px).
+  const fieldStyle = (w) => ({ width: w, minHeight: 48, padding: "9px 4px", textAlign: "center", fontWeight: 600, fontSize: 16,
+    background: done ? "rgba(255,255,255,.07)" : P.s3, borderColor: done ? "rgba(255,255,255,.35)" : P.line });
   const inp = (field, ph, w) => (
     <input type="number" inputMode="decimal" step="any" placeholder={ph} value={set[field]}
       onChange={(e) => onPatch({ [field]: e.target.value })}
-      style={{ width: w, minHeight: 48, padding: "9px 4px", textAlign: "center", fontWeight: 600, fontSize: 16,
-        background: done ? "rgba(255,255,255,.07)" : P.s3, borderColor: done ? "rgba(255,255,255,.35)" : P.line }} />
+      style={fieldStyle(w)} />
   );
   const coachNote = set.coachNote || "";
   const coachAttachIds = set.coachAttachIds || [];
@@ -2410,22 +2541,23 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            {inp("weight", "kg", "31%")}
+            <WeightInput valueKg={set.weight} onChangeKg={(v) => onPatch({ weight: v })} placeholder={unit} style={fieldStyle("31%")} />
             <span style={{ color: P.faint, fontSize: 13 }}>×</span>
             {inp("reps", set.repsT || "reps", "27%")}
             {inp("rir", set.rirT !== "" ? `RIR ${set.rirT}` : "RIR", "27%")}
           </div>
+          <div style={{ marginTop: 2, paddingLeft: 2 }}><WeightConversionHint valueKg={set.weight} /></div>
           <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 12.5, color: P.faint, flexWrap: "wrap" }}>
             <span>Meta: {set.repsT || "—"} reps{set.rirT !== "" ? ` @ RIR ${set.rirT}` : ""}</span>
             {last && (
               <button onClick={() => onPatch({ weight: last.weight, reps: last.reps, rir: last.rir })}
                 style={{ color: P.blue, fontWeight: 600 }}>
-                Anterior: {last.weight !== "" ? `${kg(+last.weight)} kg` : "—"} × {last.reps || "—"}{last.rir !== "" ? ` @${last.rir}` : ""} ⟲
+                Anterior: {last.weight !== "" ? `${unit === "kg" ? kg(+last.weight) : fmtUnit(kgToLb(+last.weight))} ${unit}` : "—"} × {last.reps || "—"}{last.rir !== "" ? ` @${last.rir}` : ""} ⟲
               </button>
             )}
             {suggest != null && set.weight === "" && (
               <button onClick={() => onPatch({ weight: String(suggest) })} style={{ color: P.ember2, fontWeight: 600 }}>
-                Sugerido: {kg(suggest)} kg (−{set.pct || 15} %)
+                Sugerido: {unit === "kg" ? kg(suggest) : fmtUnit(kgToLb(suggest))} {unit} (−{set.pct || 15} %)
               </button>
             )}
           </div>
@@ -2462,8 +2594,8 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
           {(set.drops || []).map((d, di) => (
             <div key={di} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
               <span style={{ fontSize: 12, color: SET_TYPES.drop.color, fontWeight: 700 }}>↓{di + 1}</span>
-              <input type="number" inputMode="decimal" step="any" placeholder="kg" value={d.weight}
-                onChange={(e) => onPatch({ drops: set.drops.map((x, xi) => xi === di ? { ...x, weight: e.target.value } : x) })}
+              <WeightInput valueKg={d.weight} placeholder={unit}
+                onChangeKg={(v) => onPatch({ drops: set.drops.map((x, xi) => xi === di ? { ...x, weight: v } : x) })}
                 style={{ width: 74, minHeight: 48, padding: "7px 4px", textAlign: "center", fontSize: 15 }} />
               <span style={{ color: P.faint, fontSize: 13 }}>×</span>
               <input type="number" inputMode="numeric" placeholder="reps" value={d.reps}
@@ -2720,30 +2852,67 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
 // las placas de la app, con el texto en gris casi negro para que siga
 // siendo legible (el input hereda blanco del estilo global de <input>, por
 // eso acá se pisa explícitamente con PLATE_FG).
-const FocusField = ({ label, value, placeholder, onChange, onClear }) => (
-  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 4, height: 14 }}>
-      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", color: PLATE_DIM, textTransform: "uppercase" }}>{label}</span>
-      {value !== "" && (
-        <button onClick={onClear} aria-label={`Borrar ${label}`} title={`Borrar ${label}`}
-          style={{ color: PLATE_DIM, lineHeight: 0, padding: 1 }}><X size={11} strokeWidth={3} /></button>
-      )}
+// `isWeight` activa la conversión de unidad (kg/lb): `value`/`onChange`
+// siguen hablando SIEMPRE en kg hacia el padre (igual que en WeightInput);
+// lo que se muestra y se tipea es la unidad activa, con un buffer local
+// para no reformatear el número debajo de los dedos mientras se escribe, y
+// una línea chica de conversión a la otra unidad debajo del campo.
+const FocusField = ({ label, value, placeholder, onChange, onClear, isWeight }) => {
+  const [unit] = useWeightUnit();
+  const [focused, setFocused] = useState(false);
+  const toActive = (v) => {
+    if (!isWeight) return v;
+    if (v === "" || v == null) return "";
+    const n = num(v);
+    return unit === "kg" ? String(v) : fmtUnit(kgToLb(n)).replace(",", ".");
+  };
+  const [local, setLocal] = useState(() => toActive(value));
+  useEffect(() => { if (!focused) setLocal(toActive(value)); }, [value, unit, focused, isWeight]);
+
+  const commitFromActive = (activeStr) => {
+    if (!isWeight) { onChange(activeStr); return; }
+    if (activeStr === "") { onChange(""); return; }
+    onChange(unit === "kg" ? activeStr : String(lbToKg(num(activeStr))));
+  };
+  const step = (dir) => {
+    const next = stepNumeric(isWeight ? local : value, dir);
+    if (isWeight) setLocal(next);
+    commitFromActive(next);
+  };
+  const displayValue = isWeight ? local : value;
+
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 4, height: 14 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", color: PLATE_DIM, textTransform: "uppercase" }}>{label}</span>
+        {displayValue !== "" && (
+          <button onClick={onClear} aria-label={`Borrar ${label}`} title={`Borrar ${label}`}
+            style={{ color: PLATE_DIM, lineHeight: 0, padding: 1 }}><X size={11} strokeWidth={3} /></button>
+        )}
+      </div>
+      <button onClick={() => step(+1)} aria-label={`Subir ${label}`}
+        style={{ width: "100%", padding: "3px 0", color: PLATE_FG, background: "#FFFFFF", border: `1px solid ${PLATE_BORDER}`, borderRadius: "9px 9px 0 0" }}>
+        <ChevronUp size={20} strokeWidth={2.5} />
+      </button>
+      <input type="text" inputMode="decimal" enterKeyHint="done" placeholder={placeholder} value={displayValue}
+        onFocus={() => setFocused(true)}
+        onBlur={() => { setFocused(false); setLocal(toActive(value)); }}
+        onChange={(e) => {
+          const clean = e.target.value.replace(/[^0-9.,]/g, "");
+          if (isWeight) setLocal(clean);
+          commitFromActive(clean);
+        }}
+        style={{ width: "100%", padding: "9px 2px", textAlign: "center", fontWeight: 700, fontSize: 20, color: PLATE_FG,
+          background: displayValue !== "" ? "#FFFFFF" : "#F6F3EA",
+          borderColor: displayValue !== "" ? PLATE_FG : PLATE_BORDER, borderRadius: 0 }} />
+      <button onClick={() => step(-1)} aria-label={`Bajar ${label}`}
+        style={{ width: "100%", padding: "3px 0", color: PLATE_FG, background: "#FFFFFF", border: `1px solid ${PLATE_BORDER}`, borderRadius: "0 0 9px 9px" }}>
+        <ChevronDown size={20} strokeWidth={2.5} />
+      </button>
+      {isWeight && <WeightConversionHint valueKg={value} style={{ marginTop: 1 }} />}
     </div>
-    <button onClick={() => onChange(stepNumeric(value, +1))} aria-label={`Subir ${label}`}
-      style={{ width: "100%", padding: "3px 0", color: PLATE_FG, background: "#FFFFFF", border: `1px solid ${PLATE_BORDER}`, borderRadius: "9px 9px 0 0" }}>
-      <ChevronUp size={20} strokeWidth={2.5} />
-    </button>
-    <input type="text" inputMode="decimal" enterKeyHint="done" placeholder={placeholder} value={value}
-      onChange={(e) => onChange(e.target.value.replace(/[^0-9.,]/g, ""))}
-      style={{ width: "100%", padding: "9px 2px", textAlign: "center", fontWeight: 700, fontSize: 20, color: PLATE_FG,
-        background: value !== "" ? "#FFFFFF" : "#F6F3EA",
-        borderColor: value !== "" ? PLATE_FG : PLATE_BORDER, borderRadius: 0 }} />
-    <button onClick={() => onChange(stepNumeric(value, -1))} aria-label={`Bajar ${label}`}
-      style={{ width: "100%", padding: "3px 0", color: PLATE_FG, background: "#FFFFFF", border: `1px solid ${PLATE_BORDER}`, borderRadius: "0 0 9px 9px" }}>
-      <ChevronDown size={20} strokeWidth={2.5} />
-    </button>
-  </div>
-);
+  );
+};
 
 // Salir del focus mode ya no es un toque: hay que mantener pulsado 5s. Un
 // anillo circular (SVG) muestra el progreso y el número de segundos que
@@ -2796,6 +2965,7 @@ const HoldToExitButton = ({ onExit }) => {
 };
 
 const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit, onFinish, storageOK, savedAt }) => {
+  const [weightUnit] = useWeightUnit();
   const [pageIdx, setPageIdx] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [peek, setPeek] = useState(null);          // {mode:"name"|"full"} → siguiente página
@@ -3077,7 +3247,7 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
         </div>
 
         <div style={{ display: "flex", gap: 7, alignItems: "flex-start" }}>
-          <FocusField label="Peso" value={s.weight} placeholder="kg"
+          <FocusField label="Peso" value={s.weight} placeholder={weightUnit} isWeight
             onChange={(vv) => setVal(ei, si, "weight", vv)} onClear={() => clearField(ei, si, "weight")} />
           <FocusField label="Reps" value={s.reps} placeholder={s.repsT || "reps"}
             onChange={(vv) => setVal(ei, si, "reps", vv)} onClear={() => clearField(ei, si, "reps")} />
@@ -3136,6 +3306,7 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
           {pageIdx + 1}/{pages.length}<br />{doneSets}/{totalSets} series
         </div>
         <div style={{ flex: 1 }} />
+        <UnitToggle />
         <button onClick={undo} disabled={!undoStack.length} aria-label="Deshacer"
           style={{ padding: 6, color: undoStack.length ? P.dim : P.line }}><Undo2 size={18} /></button>
         <button onClick={redo} disabled={!redoStack.length} aria-label="Rehacer"
@@ -3537,6 +3708,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+            <UnitToggle />
             <Btn kind="line" small onClick={() => setFocus(true)} title="Pasar al focus mode" aria-label="Pasar al focus mode"
               style={{ padding: "7px 9px" }}>
               <Zap size={15} />
@@ -9051,6 +9223,12 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, toast }) 
 };
 
 const App = () => {
+  // Suscribe TODA la app (no solo el botón) a los cambios de tema: como
+  // el resto de los componentes lee P.xxx/PLATE_* directo en cada render
+  // (sin guardarlos en closures ni memo), basta con que este componente
+  // raíz vuelva a renderizar para que el cambio se propague a todos sus
+  // hijos, sin importar en qué pantalla esté montado <ThemeToggle/>.
+  useTheme();
   const [loading, setLoading] = useState(true);
   // El splash se ve al menos 4.6s (2s más que antes, a pedido: un arranque
   // más "épico" necesita más tiempo en pantalla) aunque los datos ya hayan
@@ -9405,6 +9583,7 @@ const App = () => {
             </div>
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <ThemeToggle />
             {mode === "coach" && <Btn kind="ember" small onClick={() => setRosterOpen(true)}><Users size={14} /> Alumnos</Btn>}
             {mode === "coach" && myRoleMeta.manageTeam && <Btn kind="ember" small onClick={() => setEquipoOpen(true)}><Award size={14} /> Equipo</Btn>}
             <div style={{ display: "flex", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3, gap: 3 }}>
