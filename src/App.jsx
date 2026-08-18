@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v70";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v71";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -1445,7 +1445,7 @@ const currentWeek = (plan) => {
 /* Reps y RIR objetivo de una serie para la semana activa: si la semana tiene
    valores propios para ese ejercicio manda la semana; si no, el del ejercicio. */
 function setTargets(ex, setIdx, week) {
-  const s = ex.sets[setIdx] || {};
+  const s = (ex.sets || [])[setIdx] || {};
   const w = week && ex.weekly && ex.weekly[week.id];
   const row = w && w[setIdx];
   return {
@@ -3626,13 +3626,15 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   const startSession = (day, withFocus) => {
     // Las reps y el RIR salen de la semana en curso del mesociclo; si esa
     // semana no fija nada para el ejercicio, se usan los del propio ejercicio.
+    // `week` es null cuando el coach eligió «Sin mesociclo»: entonces la sesión
+    // se arma con los valores base del ejercicio y sin etiqueta de semana.
     const week = currentWeek(plan);
     const snap = {
       id: uid(), dayId: day.id, dayName: day.name, startedAt: todayISO(),
-      weekId: week.id, weekName: week.name, deload: !!week.deload,
+      weekId: week ? week.id : null, weekName: week ? week.name : "", deload: !!(week && week.deload),
       attachIds: [],
-      exs: day.exs.map((ex) => ({ ...ex, comment: "", attachIds: [],
-        sets: ex.sets.map((s, si) => {
+      exs: (day.exs || []).map((ex) => ({ ...ex, comment: "", attachIds: [],
+        sets: (ex.sets || []).map((s, si) => {
           const t = setTargets(ex, si, week);
           return { ...s, repsT: t.repsT, rirT: t.rirT, weight: "", reps: "", rir: "", done: false, comment: "", drops: [] };
         }) })),
@@ -9821,4 +9823,43 @@ const App = () => {
   );
 };
 
-export default App;
+/* Red de seguridad: si algún dato inesperado hace reventar un render, React
+   desmonta TODO el árbol y la app queda en negro sin decir nada — que es
+   justo lo que hace parecer que «dejó de funcionar». Con esto se ve un
+   mensaje claro, el detalle del fallo y un botón para recargar, y los datos
+   siguen guardados en el servidor. */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { try { console.error("FORJA crash:", err, info); } catch {} }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div style={{ minHeight: "100dvh", background: P.bgGrad, color: P.text, padding: "40px 20px",
+        fontFamily: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
+        <div style={{ maxWidth: 460, margin: "0 auto", background: P.s2, border: `1px solid ${P.frame}`, borderRadius: 16, padding: "22px 20px" }}>
+          <div className="disp" style={{ fontSize: 21, fontWeight: 800, marginBottom: 8 }}>Algo se rompió en pantalla</div>
+          <div style={{ fontSize: 15.5, color: P.dim, lineHeight: 1.55, marginBottom: 16 }}>
+            Tus datos están a salvo en el servidor: no se perdió nada. Recarga la app y vuelve a intentarlo.
+            Si se repite, cuéntanoslo con el detalle de abajo.
+          </div>
+          <div style={{ fontSize: 12.5, color: P.faint, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10,
+            padding: "10px 12px", marginBottom: 16, overflowWrap: "break-word" }}>
+            {String((this.state.err && this.state.err.message) || this.state.err)}
+          </div>
+          <button onClick={() => window.location.reload()}
+            style={{ width: "100%", padding: "13px 16px", borderRadius: 12, border: "none", cursor: "pointer",
+              background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 16 }}>
+            Recargar la app
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
+const AppWithBoundary = () => (
+  <ErrorBoundary><App /></ErrorBoundary>
+);
+
+export default AppWithBoundary;
