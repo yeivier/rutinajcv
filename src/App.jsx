@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v71";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v72";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -3993,6 +3993,11 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
       suggested = days[0];
     }
   }
+  // Si el coach dejó una sesión agendada para hoy (semana concreta o semana
+  // tipo), esa manda: «Hoy» y la Agenda tienen que decir lo mismo. La
+  // rotación por última sesión queda de respaldo cuando no hay nada agendado.
+  const todayScheduled = scheduledDayFor(plan, new Date());
+  if (todayScheduled && days.some((d) => d.id === todayScheduled.id)) suggested = todayScheduled;
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -8337,6 +8342,60 @@ const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2
 const parseDate = (s) => { const [y, m, d] = s.split("-").map((x) => +x); return new Date(y, m - 1, d); };
 const startOfWeek = (d) => { const w = new Date(d); w.setDate(w.getDate() - w.getDay()); return w; };
 
+/* ---------------- Planificación por semana ----------------
+   Hasta ahora el plan tenía UNA sola "semana tipo" (plan.schedule) que se
+   repetía igual todas las semanas del año. Eso no alcanza para periodizar:
+   el coach necesita poder decir "esta semana concreta se entrena la Rutina
+   B" sin cambiar el resto.
+
+   `plan.weekPlans` guarda excepciones por semana calendario:
+     plan.weekPlans["2026-08-17"] = { mon: dayId, tue: null, ... }
+   donde la clave es el LUNES de esa semana. Solo se guardan las semanas
+   que el coach tocó — el resto sigue heredando la semana tipo, así que
+   los planes viejos siguen funcionando exactamente igual sin migración. */
+const weekStartIso = (dateObj) => {
+  const d = new Date(dateObj);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // lunes
+  d.setHours(0, 0, 0, 0);
+  return isoDate(d);
+};
+const weekPlanOf = (plan, dateObj) => ((plan && plan.weekPlans) || {})[weekStartIso(dateObj)] || null;
+// Qué día de entrenamiento toca en una FECHA concreta: manda la semana
+// específica si existe; si no, la semana tipo.
+function scheduledDayIdFor(plan, dateObj) {
+  const key = DAY_KEYS[dateObj.getDay()];
+  const wp = weekPlanOf(plan, dateObj);
+  if (wp && Object.prototype.hasOwnProperty.call(wp, key)) return wp[key] || null;
+  return (plan && plan.schedule && plan.schedule[key]) || null;
+}
+function scheduledDayFor(plan, dateObj) {
+  const id = scheduledDayIdFor(plan, dateObj);
+  return id ? ((plan.days || []).find((d) => d.id === id) || null) : null;
+}
+// Etiqueta corta de una sesión para las celdas del calendario: la letra de la
+// rutina más su número de orden dentro de ella (A1, A2, C3…). Con la letra
+// sola, todos los días de una misma rutina se veían idénticos en el mes.
+function dayShortTag(plan, day) {
+  const key = routineOf(day);
+  const sameRoutine = (plan.days || []).filter((d) => routineOf(d) === key);
+  if (sameRoutine.length <= 1) return key;
+  return `${key}${sameRoutine.findIndex((d) => d.id === day.id) + 1}`;
+}
+// Los 7 días (lunes→domingo) de la semana que contiene `dateObj`.
+const weekDaysOf = (dateObj) => {
+  const start = parseDate(weekStartIso(dateObj));
+  return Array.from({ length: 7 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return d; });
+};
+const fmtWeekRange = (dateObj) => {
+  const ds = weekDaysOf(dateObj);
+  const a = ds[0], b = ds[6];
+  const mA = MONTH_LABELS[a.getMonth()].slice(0, 3).toLowerCase();
+  const mB = MONTH_LABELS[b.getMonth()].slice(0, 3).toLowerCase();
+  return a.getMonth() === b.getMonth()
+    ? `${a.getDate()} al ${b.getDate()} de ${mA}`
+    : `${a.getDate()} ${mA} al ${b.getDate()} ${mB}`;
+};
+
 // Colores de evento en la Agenda — como con SET_TYPES, es otra excepción a
 // propósito a la paleta roja/blanco/negro del resto de la app: ayuda a
 // distinguir de un vistazo qué tipo de recordatorio es cada evento, tanto en
@@ -8431,7 +8490,7 @@ const EventReminderBanner = ({ events }) => {
 /* Calendario mensual/semanal reutilizado por la Agenda del coach y del
    alumno — mismo look que un Google Calendar simplificado: navegación por
    mes o semana, celdas con puntitos de color por cada evento del día. */
-const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected, dayFor, eventsFor, sessionsOnDate, bookingsFor }) => {
+const CalendarGrid = ({ plan, cursor, setCursor, view, setView, selected, setSelected, dayFor, eventsFor, sessionsOnDate, bookingsFor }) => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
   const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
@@ -8475,7 +8534,17 @@ const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected,
           </span>
         )}
         <span style={{ fontSize: 13, fontWeight: isTodayCell ? 700 : 500, color: isSel ? P.ember : P.text }}>{d.getDate()}</span>
-        {day && <div style={{ width: "80%", height: 3, borderRadius: 2, background: hasSession ? P.green : P.ember }} />}
+        {/* Qué toca ese día, legible de un vistazo: la letra de la rutina
+            (A/B/C…) en una placa, en vez de una barrita de color que no
+            dice nada. Verde relleno = ya entrenado ese día. */}
+        {day && (
+          <span title={`${day.name} · ${routineLabel(routineOf(day), plan.routineNames)}`}
+            style={{ minWidth: 15, height: 15, padding: "0 2px", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 9.5, fontWeight: 800, lineHeight: 1,
+              background: hasSession ? P.green : PLATE_GRAD, color: hasSession ? P.bg : PLATE_FG }}>
+            {dayShortTag(plan, day)}
+          </span>
+        )}
         {!day && !hasSession && evs.length === 0 && <div style={{ width: 3, height: 3, borderRadius: 999, background: P.faint, opacity: 0.5 }} />}
         {evs.length > 0 && (
           <div style={{ display: "flex", gap: 2, marginTop: 1 }}>
@@ -8512,8 +8581,14 @@ const CalendarGrid = ({ cursor, setCursor, view, setView, selected, setSelected,
         {view === "month" ? cells.map(cell) : weekCells.map(cell)}
       </div>
       <div style={{ display: "flex", gap: 12, marginTop: 10, fontSize: 12, color: P.faint, flexWrap: "wrap" }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 3, background: P.ember, borderRadius: 2 }} />Entrenamiento</span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 3, background: P.green, borderRadius: 2 }} />Realizado</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <span style={{ minWidth: 15, height: 15, borderRadius: 4, background: PLATE_GRAD, color: PLATE_FG, fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>A2</span>
+          Rutina y sesión que toca
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <span style={{ minWidth: 15, height: 15, borderRadius: 4, background: P.green, color: P.bg, fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>A2</span>
+          Ya entrenado
+        </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 6, height: 6, background: eventColorDot("blue"), borderRadius: 999 }} />Evento</span>
         {bookingsFor && <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Timer size={10} color="#7DA6C7" strokeWidth={3} />Sesión reservada</span>}
       </div>
@@ -8527,11 +8602,9 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
   const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selected, setSelected] = useState(isoDate(today));
 
-  const dayFor = (dateObj) => {
-    const key = DAY_KEYS[dateObj.getDay()];
-    const dayId = plan.schedule && plan.schedule[key];
-    return dayId ? plan.days.find((d) => d.id === dayId) : null;
-  };
+  // Respeta la planificación de la semana concreta (plan.weekPlans) y, si
+  // esa semana no fue tocada, cae a la semana tipo.
+  const dayFor = (dateObj) => scheduledDayFor(plan, dateObj);
   const eventsFor = (iso) => (plan.events || []).filter((e) => e.date === iso);
   const sessionsOnDate = (iso) => history.sessions.filter((s) => s.date === iso);
   // El alumno solo ve SUS propias reservas en el calendario (no las de
@@ -8551,8 +8624,47 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
 
       <EventReminderBanner events={plan.events} />
 
-      <CalendarGrid cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
+      <CalendarGrid plan={plan} cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
         dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} bookingsFor={myBookingsFor} />
+
+      {/* La semana entera de un vistazo, con el nombre completo de cada
+          sesión: en el calendario solo cabe la placa (A2, C1…), y para saber
+          qué toca el jueves no debería hacer falta ir tocando día por día. */}
+      <Card style={{ padding: "13px 15px", marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
+          Esta semana · {fmtWeekRange(selDate)}
+        </div>
+        {weekDaysOf(selDate).map((d) => {
+          const iso = isoDate(d);
+          const wd = dayFor(d);
+          const done = sessionsOnDate(iso).length > 0;
+          const isSelRow = iso === selected;
+          const isTodayRow = iso === isoDate(today);
+          return (
+            <button key={iso} onClick={() => setSelected(iso)}
+              style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "8px 9px", marginBottom: 4,
+                borderRadius: 9, background: isSelRow ? P.s3 : "transparent",
+                border: `1px solid ${isSelRow ? P.frame : isTodayRow ? P.line : "transparent"}` }}>
+              <span style={{ width: 40, flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: isTodayRow ? P.ember2 : P.faint, textTransform: "uppercase" }}>
+                {DAY_LABELS_LONG[d.getDay()].slice(0, 3)} {d.getDate()}
+              </span>
+              {wd ? (
+                <>
+                  <span style={{ minWidth: 20, height: 18, padding: "0 4px", borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 11, fontWeight: 800, flexShrink: 0,
+                    background: done ? P.green : PLATE_GRAD, color: done ? P.bg : PLATE_FG }}>
+                    {dayShortTag(plan, wd)}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{wd.name}</span>
+                  {done && <Check size={14} color={P.green} style={{ flexShrink: 0 }} />}
+                </>
+              ) : (
+                <span style={{ flex: 1, fontSize: 14.5, color: P.faint }}>Descanso</span>
+              )}
+            </button>
+          );
+        })}
+      </Card>
 
       <Card style={{ padding: "13px 15px" }}>
         <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 3 }}>
@@ -8628,11 +8740,9 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
   const [eventSheet, setEventSheet] = useState(null); // { id?, date, title, note, color, remind }
   const [bookingSheet, setBookingSheet] = useState(null); // { id?, date, studentId, time, durationMin, note }
 
-  const dayFor = (dateObj) => {
-    const key = DAY_KEYS[dateObj.getDay()];
-    const dayId = plan.schedule && plan.schedule[key];
-    return dayId ? plan.days.find((d) => d.id === dayId) : null;
-  };
+  // Respeta la planificación de la semana concreta (plan.weekPlans) y, si
+  // esa semana no fue tocada, cae a la semana tipo.
+  const dayFor = (dateObj) => scheduledDayFor(plan, dateObj);
   const eventsFor = (iso) => (plan.events || []).filter((e) => e.date === iso);
   const sessionsOnDate = (iso) => (history ? history.sessions.filter((s) => s.date === iso) : []);
   const slots = (bookings && bookings.slots) || [];
@@ -8643,6 +8753,37 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
   const selEvents = eventsFor(selected);
   const selBookings = bookingsOnDate(slots, selected); // acá sí se ven las canceladas, para llevar registro
   const studentName = (id) => (roster ? (roster.students.find((s) => s.id === id) || {}).name : "") || "Alumno eliminado";
+
+  // ---- Semana concreta (plan.weekPlans) ----
+  const routineGroups = groupDaysByRoutine(plan.days, plan.routineNames);
+  const selWeekKey = weekStartIso(selDate);
+  const weekIsCustom = !!(plan.weekPlans && plan.weekPlans[selWeekKey]);
+  // Al tocar un día de la semana concreta se "materializa" la semana
+  // entera partiendo de la semana tipo: así lo que ves en pantalla es
+  // exactamente lo que queda guardado, sin mezclas raras entre lo
+  // heredado y lo editado.
+  const setWeekDay = (dayKey, dayId) => mut((p) => {
+    if (!p.weekPlans) p.weekPlans = {};
+    if (!p.weekPlans[selWeekKey]) {
+      const base = p.schedule || {};
+      p.weekPlans[selWeekKey] = DAY_KEYS.reduce((acc, k) => { acc[k] = base[k] || null; return acc; }, {});
+    }
+    p.weekPlans[selWeekKey][dayKey] = dayId;
+  });
+  const clearWeekPlan = () => mut((p) => { if (p.weekPlans) delete p.weekPlans[selWeekKey]; });
+  // Reparte los días de una rutina en orden desde el lunes; el resto de
+  // la semana queda en descanso.
+  const applyRoutineToWeek = (routineKey) => {
+    const g = routineGroups.find((x) => x.key === routineKey);
+    if (!g) return;
+    mut((p) => {
+      if (!p.weekPlans) p.weekPlans = {};
+      const week = {};
+      const order = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+      order.forEach((k, i) => { week[k] = g.days[i] ? g.days[i].id : null; });
+      p.weekPlans[selWeekKey] = week;
+    });
+  };
 
   const openNewEvent = (date) => setEventSheet({ date: date || selected, title: "", note: "", color: "ember", remind: 0 });
   const saveEvent = () => {
@@ -8678,7 +8819,7 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
 
       <EventReminderBanner events={plan.events} />
 
-      <CalendarGrid cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
+      <CalendarGrid plan={plan} cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
         dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} bookingsFor={bookingsForDay} />
 
       <Card style={{ padding: "13px 15px", marginBottom: 14 }}>
@@ -8734,15 +8875,78 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
         </Btn>
       </Card>
 
+      {/* ---- Planificación de UNA semana concreta ---- */}
+      <Card style={{ padding: "13px 14px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+          <button onClick={() => setSelected(isoDate(new Date(parseDate(selected).getTime() - 7 * 86400000)))}
+            aria-label="Semana anterior" style={{ padding: 6, color: P.dim }}><ChevronLeft size={18} /></button>
+          <div style={{ flex: 1, textAlign: "center", minWidth: 0 }}>
+            <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Esta semana</div>
+            <div style={{ fontWeight: 700, fontSize: 15.5, marginTop: 1 }}>{fmtWeekRange(selDate)}</div>
+          </div>
+          <button onClick={() => setSelected(isoDate(new Date(parseDate(selected).getTime() + 7 * 86400000)))}
+            aria-label="Semana siguiente" style={{ padding: 6, color: P.dim }}><ChevronRight size={18} /></button>
+        </div>
+        <div style={{ fontSize: 13.5, color: weekIsCustom ? P.ember2 : P.faint, textAlign: "center", marginBottom: 10, lineHeight: 1.4 }}>
+          {weekIsCustom
+            ? "Semana personalizada: manda sobre la semana tipo."
+            : "Sigue la semana tipo. Si cambias algo acá, solo afecta a esta semana."}
+        </div>
+
+        {/* Cargar una rutina completa en la semana de un toque: reparte
+            sus días en orden desde el lunes y deja el resto en descanso. */}
+        <select value="" onChange={(e) => { if (e.target.value) { applyRoutineToWeek(e.target.value); e.target.value = ""; } }}
+          style={{ width: "100%", padding: "10px 9px", fontSize: 14.5, marginBottom: 8 }}>
+          <option value="">+ Cargar una rutina completa en esta semana…</option>
+          {routineGroups.map((g) => (
+            <option key={g.key} value={g.key}>{g.label} ({g.days.length} día{g.days.length !== 1 ? "s" : ""})</option>
+          ))}
+        </select>
+
+        {weekDaysOf(selDate).map((d) => {
+          const k = DAY_KEYS[d.getDay()];
+          const iso = isoDate(d);
+          const isToday = iso === isoDate(today);
+          const dayObj = scheduledDayFor(plan, d);
+          return (
+            <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+              <button onClick={() => setSelected(iso)}
+                style={{ width: 78, flexShrink: 0, textAlign: "left", lineHeight: 1.15 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: isToday ? P.ember : P.text }}>{DAY_LABELS_LONG[d.getDay()].slice(0, 3)} {d.getDate()}</div>
+                <div style={{ fontSize: 11.5, color: dayObj ? P.dim : P.faint, marginTop: 1 }}>{dayObj ? routineLabel(routineOf(dayObj), plan.routineNames) : "descanso"}</div>
+              </button>
+              <select value={scheduledDayIdFor(plan, d) || ""} onChange={(e) => setWeekDay(k, e.target.value || null)}
+                style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+                <option value="">Descanso</option>
+                {routineGroups.map((g) => (
+                  <optgroup key={g.key} label={g.label}>
+                    {g.days.map((dd) => <option key={dd.id} value={dd.id}>{dd.name}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+          );
+        })}
+
+        {weekIsCustom && (
+          <Btn kind="line" small onClick={clearWeekPlan} style={{ width: "100%", marginTop: 4 }}>
+            <RotateCcw size={13} /> Volver a la semana tipo
+          </Btn>
+        )}
+      </Card>
+
       <Card style={{ padding: "13px 14px" }}>
-        <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Semana tipo</div>
+        <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 3 }}>Semana tipo</div>
+        <div style={{ fontSize: 13, color: P.faint, marginBottom: 10, lineHeight: 1.4 }}>
+          La que se repite por defecto en todas las semanas que no hayas personalizado arriba.
+        </div>
         {[["mon", "Lunes"], ["tue", "Martes"], ["wed", "Miércoles"], ["thu", "Jueves"], ["fri", "Viernes"], ["sat", "Sábado"], ["sun", "Domingo"]].map(([k, label]) => (
           <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <div style={{ width: 84, flexShrink: 0, fontSize: 14.5, fontWeight: 600 }}>{label}</div>
             <select value={plan.schedule?.[k] || ""} onChange={(e) => mut((p) => { if (!p.schedule) p.schedule = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }; p.schedule[k] = e.target.value || null; })}
               style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "9px 8px", fontSize: 14.5 }}>
               <option value="">Descanso</option>
-              {groupDaysByRoutine(plan.days, plan.routineNames).map((g) => (
+              {routineGroups.map((g) => (
                 <optgroup key={g.key} label={g.label}>
                   {g.days.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </optgroup>
