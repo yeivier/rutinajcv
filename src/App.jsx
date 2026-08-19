@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v73";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v74";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -1766,6 +1766,12 @@ const GlobalStyle = () => (
       outline: 2px solid ${P.ember}; outline-offset: 1px;
     }
     .fj input::placeholder, .fj textarea::placeholder { color: ${P.faint}; }
+    /* Casillas de Peso/Reps/RIR del Focus Mode (FocusField): el placeholder
+       ("kg", "10-12", "0") no puede pisarse con estilo inline —::placeholder
+       es un pseudo-elemento— así que necesita esta regla aparte para no
+       heredar P.faint (un beige claro casi invisible sobre el fondo blanco
+       de esa casilla). Más específica que la regla genérica de arriba. */
+    .fj input.ff-input::placeholder { color: #5A5A5A; opacity: 1; }
     .fj button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
     /* Easy Mode: todo un punto más grande y con más aire. Se hace con una
        sola clase en la raíz (no tocando cada componente) para que valga
@@ -3070,6 +3076,7 @@ const FocusField = ({ label, value, placeholder, onChange, onClear, isWeight }) 
         <ChevronUp size={20} strokeWidth={2.5} />
       </button>
       <input type="text" inputMode="decimal" enterKeyHint="done" placeholder={placeholder} value={displayValue}
+        className="ff-input"
         onFocus={() => setFocused(true)}
         onBlur={() => { setFocused(false); setLocal(toActive(value)); }}
         onChange={(e) => {
