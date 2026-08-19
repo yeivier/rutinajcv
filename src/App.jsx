@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v72";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v73";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -3018,17 +3018,20 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
 
 // Campo numérico grande: acepta coma o punto, flechas para subir/bajar
 // respetando los decimales escritos, y una X para vaciarlo de un toque.
-// Casilla de Peso/Reps/RIR en focus mode: a pedido explícito, blanco pastel
-// (antes gris oscuro) — es "el cuadro donde se ingresan los datos" durante
-// el entrenamiento, así que necesita el mismo tratamiento que el resto de
-// las placas de la app, con el texto en gris casi negro para que siga
-// siendo legible (el input hereda blanco del estilo global de <input>, por
-// eso acá se pisa explícitamente con PLATE_FG).
+// Casilla de Peso/Reps/RIR en focus mode: blanco liso con texto negro (no
+// el degradé crema de las placas ni un blanco tan claro que se pierda el
+// contraste) — a pedido explícito, "el cuadro donde se ingresan los datos"
+// durante el entrenamiento tiene que leerse fuerte de un vistazo, así que
+// usa sus propios tonos fijos (FOCUS_FG/FOCUS_MUTED/FOCUS_LINE) en vez de
+// PLATE_* o P.*, que cambian con el tema claro/oscuro.
 // `isWeight` activa la conversión de unidad (kg/lb): `value`/`onChange`
 // siguen hablando SIEMPRE en kg hacia el padre (igual que en WeightInput);
 // lo que se muestra y se tipea es la unidad activa, con un buffer local
 // para no reformatear el número debajo de los dedos mientras se escribe, y
 // una línea chica de conversión a la otra unidad debajo del campo.
+const FOCUS_FG = "#111111";
+const FOCUS_MUTED = "#5A5A5A";
+const FOCUS_LINE = "#D9D9D9";
 const FocusField = ({ label, value, placeholder, onChange, onClear, isWeight }) => {
   const [unit] = useWeightUnit();
   const [focused, setFocused] = useState(false);
@@ -3056,14 +3059,14 @@ const FocusField = ({ label, value, placeholder, onChange, onClear, isWeight }) 
   return (
     <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 4, height: 14 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", color: PLATE_DIM, textTransform: "uppercase" }}>{label}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", color: FOCUS_MUTED, textTransform: "uppercase" }}>{label}</span>
         {displayValue !== "" && (
           <button onClick={onClear} aria-label={`Borrar ${label}`} title={`Borrar ${label}`}
-            style={{ color: PLATE_DIM, lineHeight: 0, padding: 1 }}><X size={11} strokeWidth={3} /></button>
+            style={{ color: FOCUS_MUTED, lineHeight: 0, padding: 1 }}><X size={11} strokeWidth={3} /></button>
         )}
       </div>
       <button onClick={() => step(+1)} aria-label={`Subir ${label}`}
-        style={{ width: "100%", padding: "3px 0", color: PLATE_FG, background: "#FFFFFF", border: `1px solid ${PLATE_BORDER}`, borderRadius: "9px 9px 0 0" }}>
+        style={{ width: "100%", padding: "3px 0", color: FOCUS_FG, background: "#FFFFFF", border: `1px solid ${FOCUS_LINE}`, borderRadius: "9px 9px 0 0" }}>
         <ChevronUp size={20} strokeWidth={2.5} />
       </button>
       <input type="text" inputMode="decimal" enterKeyHint="done" placeholder={placeholder} value={displayValue}
@@ -3074,14 +3077,14 @@ const FocusField = ({ label, value, placeholder, onChange, onClear, isWeight }) 
           if (isWeight) setLocal(clean);
           commitFromActive(clean);
         }}
-        style={{ width: "100%", padding: "9px 2px", textAlign: "center", fontWeight: 700, fontSize: 20, color: PLATE_FG,
-          background: displayValue !== "" ? "#FFFFFF" : "#F6F3EA",
-          borderColor: displayValue !== "" ? PLATE_FG : PLATE_BORDER, borderRadius: 0 }} />
+        style={{ width: "100%", padding: "9px 2px", textAlign: "center", fontWeight: 700, fontSize: 20, color: FOCUS_FG,
+          background: displayValue !== "" ? "#FFFFFF" : "#F0F0F0",
+          borderColor: displayValue !== "" ? FOCUS_FG : FOCUS_LINE, borderRadius: 0 }} />
       <button onClick={() => step(-1)} aria-label={`Bajar ${label}`}
-        style={{ width: "100%", padding: "3px 0", color: PLATE_FG, background: "#FFFFFF", border: `1px solid ${PLATE_BORDER}`, borderRadius: "0 0 9px 9px" }}>
+        style={{ width: "100%", padding: "3px 0", color: FOCUS_FG, background: "#FFFFFF", border: `1px solid ${FOCUS_LINE}`, borderRadius: "0 0 9px 9px" }}>
         <ChevronDown size={20} strokeWidth={2.5} />
       </button>
-      {isWeight && <WeightConversionHint valueKg={value} style={{ marginTop: 1 }} />}
+      {isWeight && <WeightConversionHint valueKg={value} style={{ marginTop: 1, color: FOCUS_MUTED }} />}
     </div>
   );
 };
@@ -3389,31 +3392,31 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
     const target = (s.rest != null && s.rest !== "" ? +s.rest : (exx.rest || 0));
     const over = target > 0 && restEl >= target;
     return (
-      // Tarjeta de la ronda en blanco pastel (antes gris oscuro P.s1) — a
-      // pedido explícito, "el cuadro que contiene donde ingresar los
-      // datos" durante el entrenamiento. Sus hijos (texto, íconos, botón
-      // de hecho) se recolorean a juego más abajo para seguir siendo
-      // legibles sobre el fondo claro.
-      <div key={s.id} style={{ background: PLATE_GRAD, border: `1px solid ${s.done ? PLATE_FG : PLATE_BORDER}`,
+      // Tarjeta de la ronda en blanco liso con texto negro (no el degradé
+      // crema de las placas) — "el cuadro que contiene donde ingresar los
+      // datos" durante el entrenamiento tiene que verse blanco y negro, sin
+      // tono pastel. Sus hijos (texto, íconos, botón de hecho) usan las
+      // mismas constantes fijas FOCUS_FG/FOCUS_MUTED/FOCUS_LINE.
+      <div key={s.id} style={{ background: "#FFFFFF", border: `1px solid ${s.done ? FOCUS_FG : FOCUS_LINE}`,
         borderRadius: 14, padding: "9px 10px 10px", marginBottom: 9 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
-          <span className="disp" style={{ fontSize: 16, fontWeight: 700, color: kindColor || PLATE_FG }}>{label}</span>
+          <span className="disp" style={{ fontSize: 16, fontWeight: 700, color: kindColor || FOCUS_FG }}>{label}</span>
           <TypeBadge type={s.type} />
-          <span style={{ fontSize: 12.5, color: PLATE_DIM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <span style={{ fontSize: 12.5, color: FOCUS_MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {s.repsT || "—"} reps{s.rirT !== "" ? ` @ RIR ${s.rirT}` : ""}
           </span>
           <div style={{ flex: 1 }} />
           <button onClick={() => clearSet(ei, si)} aria-label={`Borrar los datos de ${label}`}
-            style={{ padding: 5, color: PLATE_DIM }}><Trash2 size={16} /></button>
+            style={{ padding: 5, color: FOCUS_MUTED }}><Trash2 size={16} /></button>
           <button data-cmt onClick={() => (cmtKey === ck ? setCmtKey(null) : openCmt(ck))} aria-label={`Comentario de ${label}`}
-            style={{ padding: 5, color: s.comment ? PLATE_FG : PLATE_DIM }}>
-            <MessageSquare size={17} fill={s.comment ? "rgba(23,21,18,.15)" : "none"} />
+            style={{ padding: 5, color: s.comment ? FOCUS_FG : FOCUS_MUTED }}>
+            <MessageSquare size={17} fill={s.comment ? "rgba(17,17,17,.15)" : "none"} />
           </button>
           <button onClick={() => toggleRest(ei, si)} aria-label={`Cronómetro de descanso de ${label}`}
-            style={{ padding: 5, color: started ? PLATE_FG : PLATE_DIM }}><Timer size={17} /></button>
+            style={{ padding: 5, color: started ? FOCUS_FG : FOCUS_MUTED }}><Timer size={17} /></button>
           <button onClick={() => patchSet(ei, si, { done: !s.done })} aria-label={s.done ? "Desmarcar serie" : "Marcar serie hecha"}
             style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-              background: s.done ? PLATE_FG : "#FFFFFF", color: s.done ? "#FFFFFF" : PLATE_DIM, border: `1px solid ${s.done ? PLATE_FG : PLATE_BORDER}` }}>
+              background: s.done ? FOCUS_FG : "#FFFFFF", color: s.done ? "#FFFFFF" : FOCUS_MUTED, border: `1px solid ${s.done ? FOCUS_FG : FOCUS_LINE}` }}>
             <Check size={17} strokeWidth={3} />
           </button>
         </div>
