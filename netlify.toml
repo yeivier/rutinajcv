@@ -27,6 +27,13 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
+# El service worker siempre se revalida: si quedara cacheado viejo, una
+# actualización de la app podría no llegar a instalarse nunca.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
 [[headers]]
   for = "/manifest.webmanifest"
   [headers.values]
