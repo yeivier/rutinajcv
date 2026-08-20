@@ -6,7 +6,7 @@ import {
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
-  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon
+  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff
 } from "lucide-react";
 
 /* ============================================================
@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v75";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v76";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -58,37 +58,41 @@ const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso
 // reasignar los PLATE_*, y listo: como todo componente lee `P.xxx`/`PLATE_*`
 // en cada render (no los guarda en un closure), un solo re-render de toda
 // la app (ver useTheme/ThemeToggle) alcanza para que se vea en todos lados.
+// A pedido explícito: toda la plataforma pasa de la paleta cálida
+// (marrón/crema) a blanco y negro puro, el mismo lenguaje que ya tenían
+// las tarjetas de Focus Mode (FOCUS_BG/FOCUS_FG/FOCUS_MUTED/FOCUS_LINE,
+// más abajo en el archivo). Se mantienen los acentos funcionales (rojo de
+// eliminar/error, los colores de cada tipo de serie en TypeBadge) — el
+// usuario pidió conservarlos para no perder esas señales.
 const DARK_THEME = {
   P: {
-    bg: "#26221C", s1: "#332F27", s2: "#3A362D", s3: "#423D33", s4: "#4B453A",
-    line: "#5C5546", text: "#FFFFFF", dim: "#D4CFC0", faint: "#BAB5A4",
-    ember: "#FFFFFF", ember2: "#E8E8E8", green: "#FFFFFF", red: "#E01A1A", blue: "#DAD4D6", glow: "#FFFFFF",
-    frame: "#D6CBA8",
-    bgGrad: "linear-gradient(158deg, #332F27 0%, #2C2820 30%, #262219 54%, #201C14 76%, #1B1710 100%)",
+    bg: "#000000", s1: "#141414", s2: "#1C1C1C", s3: "#242424", s4: "#2E2E2E",
+    line: "#4A4A4A", text: "#FFFFFF", dim: "#E5E5E5", faint: "#A3A3A3",
+    ember: "#FFFFFF", ember2: "#E8E8E8", green: "#FFFFFF", red: "#E01A1A", blue: "#B5B5B5", glow: "#FFFFFF",
+    frame: "#FFFFFF",
+    bgGrad: "linear-gradient(158deg, #141414 0%, #0D0D0D 30%, #080808 54%, #030303 76%, #000000 100%)",
   },
-  plateGrad: "linear-gradient(160deg, #FBF6E9, #F0E7CE 55%, #DFD1A8 100%)",
-  plateFg: "#171512",
-  plateDim: "#6E6A5F",
-  plateBorder: "#D0C39A",
+  plateGrad: "#000000",
+  plateFg: "#FFFFFF",
+  plateDim: "#A3A3A3",
+  plateBorder: "#4A4A4A",
 };
-// Espejo del oscuro: mismo lenguaje de color (cálido, crema/carbón, sin
-// ningún acento de color agregado) pero invertido — fondo claro, tarjetas
-// blancas, texto oscuro. Las "placas" (antes claras sobre fondo oscuro)
-// pasan a oscuras sobre fondo claro para seguir teniendo contraste: es el
-// mismo concepto "negro pastel" que tenía la app antes del pedido de
-// "blanco pastel", ahora reservado para este modo.
+// Espejo del oscuro, mismo lenguaje blanco/negro/gris invertido — fondo
+// claro, tarjetas blancas, texto negro. Las "placas" (negras sobre fondo
+// oscuro en DARK_THEME) pasan a negras sobre fondo claro para seguir
+// teniendo el mismo contraste fuerte.
 const LIGHT_THEME = {
   P: {
-    bg: "#F5F0E3", s1: "#FFFFFF", s2: "#FBF8F0", s3: "#F3EEDF", s4: "#EAE2CB",
-    line: "#DED4B8", text: "#211D16", dim: "#4C4536", faint: "#6E664F",
-    ember: "#211D16", ember2: "#3A342A", green: "#211D16", red: "#C21414", blue: "#5B5450", glow: "#211D16",
-    frame: "#C7B98D",
-    bgGrad: "linear-gradient(158deg, #FAF6EA 0%, #F5EFE0 30%, #F0E8D4 54%, #EBE1C8 76%, #E5DABC 100%)",
+    bg: "#EDEDED", s1: "#FFFFFF", s2: "#FAFAFA", s3: "#F0F0F0", s4: "#E5E5E5",
+    line: "#B5B5B5", text: "#000000", dim: "#1A1A1A", faint: "#5C5C5C",
+    ember: "#000000", ember2: "#1A1A1A", green: "#000000", red: "#C21414", blue: "#5C5C5C", glow: "#000000",
+    frame: "#000000",
+    bgGrad: "linear-gradient(158deg, #FFFFFF 0%, #F7F7F7 30%, #F0F0F0 54%, #E8E8E8 76%, #E0E0E0 100%)",
   },
-  plateGrad: "linear-gradient(160deg, #3D3833, #211D17 60%, #141210)",
-  plateFg: "#F7F3E9",
-  plateDim: "#C9C4B5",
-  plateBorder: "#141210",
+  plateGrad: "#000000",
+  plateFg: "#FFFFFF",
+  plateDim: "#CFCFCF",
+  plateBorder: "#000000",
 };
 
 const P = { ...DARK_THEME.P };
@@ -787,28 +791,92 @@ const GLOSSARY = [
   { id:"deload", term:"Deload (descarga)", def:"Semana de trabajo reducido (menos series y/o menos peso, RIR alto) para disipar fatiga acumulada y llegar fresco al siguiente bloque. No es perder el tiempo: es parte del plan.", ej:"Deload: mitad de las series, 10–20 % menos de peso, todo @ RIR 4–5." },
 ];
 
-/* ---------------- Supabase storage ---------------- */
+/* ---------------- Supabase storage (con respaldo local para trabajar sin internet) ----------------
+   Antes, sin conexión, `remoteCache` (un Map en memoria) se vaciaba en cada
+   recarga: si el alumno reabría la app sin señal, `sGet("forja-roster")`
+   devolvía null y el arranque creaba un roster nuevo vacío en vez de
+   mostrar el real. Ahora cada lectura exitosa y cada escritura se
+   persisten también en localStorage (LS_PREFIX), así que una recarga sin
+   internet sigue viendo el último plan/historial sincronizado.
+   Además, toda escritura que falla por falta de señal se guarda igual en
+   el dispositivo y se encola (PENDING_KEY) para reintentarse sola en
+   cuanto vuelva la conexión — así se puede iniciar un entrenamiento y
+   registrar series sin internet, y no se pierde nada. */
 const SB_URL = "https://vzenlmcbftopyjzcltxa.supabase.co/rest/v1/forja_kv";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6ZW5sbWNiZnRvcHlqemNsdHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NjQ5NDksImV4cCI6MjA5ODI0MDk0OX0.CWCrsDVuFEsq3QiAYHRYmsRrD6AI2M7o6ofRUQJXUyY";
 const SB_H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+const LS_PREFIX = "fjkv:";
+const PENDING_KEY = "forja-pending-writes";
 
-const localCache = new Map();   // shared=false → solo esta pestaña (no persiste al refrescar)
-const remoteCache = new Map();  // cache de lecturas Supabase
+const localCache = new Map();   // shared=false → solo esta pestaña (no persiste al recargar)
+const remoteCache = new Map();  // cache de lecturas Supabase, vive mientras dure la pestaña
 let storageOK = true;
+
+// Snapshot local por clave — sobrevive a recargar la página y a quedarse
+// sin señal. Nunca tira: en modo privado o con el storage lleno, falla
+// en silencio (el Map en memoria sigue funcionando igual dentro de la
+// sesión, solo se pierde la persistencia entre recargas).
+function lsGetRaw(key) {
+  try { const s = window.localStorage.getItem(LS_PREFIX + key); return s == null ? undefined : JSON.parse(s); }
+  catch { return undefined; }
+}
+function lsSetRaw(key, value) {
+  try { window.localStorage.setItem(LS_PREFIX + key, JSON.stringify(value)); } catch {}
+}
+function lsDelRaw(key) {
+  try { window.localStorage.removeItem(LS_PREFIX + key); } catch {}
+}
+
+// Cola de escrituras que no llegaron a Supabase por falta de señal. Una
+// entrada por clave (la más reciente pisa a la anterior: no tiene sentido
+// reproducir versiones viejas de un mismo plan/historial en orden). Los
+// listeners avisan a la UI (StorageBanner, indicador "Guardado") cuántas
+// quedan pendientes, para no mostrar un mensaje de error cuando en
+// realidad el dato ya está a salvo en el dispositivo.
+function readPendingQueue() { return lsGetRaw(PENDING_KEY) || []; }
+function writePendingQueue(q) { lsSetRaw(PENDING_KEY, q); pendingListeners.forEach((fn) => fn(q.length)); }
+const pendingListeners = new Set();
+function usePendingWrites() {
+  const [count, setCount] = useState(() => readPendingQueue().length);
+  useEffect(() => {
+    const fn = (n) => setCount(n);
+    pendingListeners.add(fn);
+    return () => pendingListeners.delete(fn);
+  }, []);
+  return count;
+}
+function queuePendingWrite(key, value, del) {
+  const q = readPendingQueue().filter((e) => e.key !== key);
+  q.push({ key, value: del ? null : value, del: !!del, ts: Date.now() });
+  writePendingQueue(q);
+}
+
+// fetch con timeout: en móvil, una red mala a veces deja la conexión
+// "colgada" sin nunca fallar ni responder — sin esto, sGet/sSet podrían
+// quedar esperando minutos en vez de caer al respaldo local enseguida.
+function fetchWithTimeout(url, opts, ms = 8000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(t));
+}
 
 async function sGet(key, shared = true) {
   if (!shared) return localCache.get(key) ?? null;
   if (remoteCache.has(key)) return remoteCache.get(key);
   try {
-    const r = await fetch(`${SB_URL}?key=eq.${encodeURIComponent(key)}&select=value`, { headers: SB_H });
+    const r = await fetchWithTimeout(`${SB_URL}?key=eq.${encodeURIComponent(key)}&select=value`, { headers: SB_H });
     if (!r.ok) throw new Error(r.statusText);
     const rows = await r.json();
     const val = rows.length ? rows[0].value : null;
-    if (val !== null) remoteCache.set(key, val);
+    if (val !== null) { remoteCache.set(key, val); lsSetRaw(key, val); }
+    storageOK = true;
     return val;
   } catch (e) {
     storageOK = false;
-    return remoteCache.get(key) ?? null;
+    if (remoteCache.has(key)) return remoteCache.get(key);
+    const local = lsGetRaw(key);
+    if (local !== undefined) { remoteCache.set(key, local); return local; }
+    return null;
   }
 }
 
@@ -816,27 +884,78 @@ async function sSet(key, value, shared = true) {
   if (!shared) { localCache.set(key, value); return true; }
   if (value === null || value === undefined) return sDel(key, true);
   remoteCache.set(key, value);
+  lsSetRaw(key, value); // optimista: el dato queda a salvo en el dispositivo pase lo que pase con la red
   try {
-    const r = await fetch(SB_URL, {
+    const r = await fetchWithTimeout(SB_URL, {
       method: "POST",
       headers: { ...SB_H, Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify({ key, value }),
     });
     if (!r.ok) throw new Error(r.statusText);
     storageOK = true;
+    const q = readPendingQueue();
+    if (q.some((e) => e.key === key)) writePendingQueue(q.filter((e) => e.key !== key));
     return true;
   } catch (e) {
     storageOK = false;
-    return false;
+    queuePendingWrite(key, value, false);
+    return true; // el dato SÍ quedó guardado (local + en cola) — no es una pérdida
   }
 }
 
-async function sDel(key, shared = true) {
-  if (!shared) { localCache.delete(key); return; }
-  remoteCache.delete(key);
+// Reintenta, en orden, cada escritura pendiente. Se corta apenas una
+// falla (se asume que seguimos sin señal): las que queden se reintentan
+// en la próxima pasada, disparada por el evento "online" o el sondeo
+// periódico más abajo. No hace falta llamarla a mano en ningún lado.
+let flushing = false;
+async function flushPendingWrites() {
+  if (flushing) return;
+  const q = readPendingQueue();
+  if (!q.length) return;
+  flushing = true;
   try {
-    await fetch(`${SB_URL}?key=eq.${encodeURIComponent(key)}`, { method: "DELETE", headers: SB_H });
-  } catch (e) { /* fire-and-forget */ }
+    for (const entry of q) {
+      try {
+        if (entry.del) {
+          await fetchWithTimeout(`${SB_URL}?key=eq.${encodeURIComponent(entry.key)}`, { method: "DELETE", headers: SB_H });
+        } else {
+          const r = await fetchWithTimeout(SB_URL, {
+            method: "POST",
+            headers: { ...SB_H, Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: JSON.stringify({ key: entry.key, value: entry.value }),
+          });
+          if (!r.ok) throw new Error(r.statusText);
+        }
+        storageOK = true;
+        writePendingQueue(readPendingQueue().filter((e) => e.key !== entry.key));
+      } catch {
+        storageOK = false;
+        break; // seguimos sin señal: no tiene sentido intentar el resto ahora
+      }
+    }
+  } finally { flushing = false; }
+}
+try {
+  window.addEventListener("online", flushPendingWrites);
+  setInterval(flushPendingWrites, 30000);
+  if (navigator.onLine !== false) flushPendingWrites();
+} catch {}
+
+async function sDel(key, shared = true) {
+  if (!shared) { localCache.delete(key); return true; }
+  remoteCache.delete(key);
+  lsDelRaw(key);
+  try {
+    await fetchWithTimeout(`${SB_URL}?key=eq.${encodeURIComponent(key)}`, { method: "DELETE", headers: SB_H });
+    storageOK = true;
+    const q = readPendingQueue();
+    if (q.some((e) => e.key === key)) writePendingQueue(q.filter((e) => e.key !== key));
+    return true;
+  } catch (e) {
+    storageOK = false;
+    queuePendingWrite(key, null, true);
+    return true;
+  }
 }
 
 /* ---------------- Claude API (llamada directa desde el navegador) ----------------
@@ -3149,6 +3268,7 @@ const HoldToExitButton = ({ onExit }) => {
 
 const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit, onFinish, storageOK, savedAt }) => {
   const [weightUnit] = useWeightUnit();
+  const pendingWrites = usePendingWrites();
   const [pageIdx, setPageIdx] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [peek, setPeek] = useState(null);          // {mode:"name"|"full"} → siguiente página
@@ -3494,8 +3614,8 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
           style={{ padding: 6, color: undoStack.length ? P.dim : P.line }}><Undo2 size={18} /></button>
         <button onClick={redo} disabled={!redoStack.length} aria-label="Rehacer"
           style={{ padding: 6, color: redoStack.length ? P.dim : P.line }}><Redo2 size={18} /></button>
-        <span title={storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado"}
-          style={{ width: 7, height: 7, borderRadius: 4, background: storageOK ? P.green : P.red, flexShrink: 0 }} />
+        <span title={pendingWrites ? `Guardado en el dispositivo · sincronizando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
+          style={{ width: 7, height: 7, borderRadius: 4, background: pendingWrites ? P.faint : (storageOK ? P.green : P.red), flexShrink: 0 }} />
         <Btn kind="ember" small onClick={() => setConfirmFinish(true)}>Terminar</Btn>
       </div>
 
@@ -3608,6 +3728,7 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
 };
 
 const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines }) => {
+  const pendingWrites = usePendingWrites();
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [summary, setSummary] = useState(null);
@@ -3884,12 +4005,13 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
             <div className="disp" style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{active.dayName}</div>
-            <div style={{ fontSize: 13, color: P.dim, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ fontSize: 13, color: P.dim, display: "flex", gap: 10, alignItems: "center" }}>
               <span>{elapsedMin} min</span><span>{doneSets}/{totalSets} series</span>
-              <span style={{ color: storageOK ? P.green : P.red, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 6, height: 6, borderRadius: 3, background: storageOK ? P.green : P.red }} />
-                {storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado"}
-              </span>
+              {/* Solo un punto + tooltip (como en Focus Mode): el texto completo del estado
+                  de guardado ya lo dice el StorageBanner de arriba en prosa, y esta fila
+                  angosta no tiene espacio para un tercer bloque de texto sin romperse */}
+              <span title={pendingWrites ? `Guardado en el dispositivo · sincronizando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
+                style={{ width: 6, height: 6, borderRadius: 3, background: pendingWrites ? P.faint : (storageOK ? P.green : P.red), flexShrink: 0 }} />
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
@@ -9047,15 +9169,35 @@ const TimerTab = () => {
   );
 };
 
-const StorageBanner = () => storageOK ? null : (
-  <div style={{ background: "rgba(255,36,56,.14)", border: `1px solid rgba(255,36,56,.45)`, borderRadius: 12,
-    margin: "10px 16px 0", padding: "10px 12px", display: "flex", gap: 9, alignItems: "flex-start" }}>
-    <AlertTriangle size={16} color={P.red} style={{ flexShrink: 0, marginTop: 1 }} />
-    <div style={{ fontSize: 13.5, color: P.red, lineHeight: 1.45 }}>
-      No se pudo conectar con el servidor. Los datos se mantienen en memoria pero pueden perderse al cerrar la app. Se reintentará automáticamente.
+// Con la cola de escrituras (arriba, sección de storage), estar sin señal
+// ya no es un error que pueda perder datos: todo se guarda en el
+// dispositivo y se sincroniza solo al volver la conexión. Por eso este
+// aviso es informativo (gris), no una alarma roja — el rojo se reserva
+// para el caso raro en que ni siquiera el guardado local funcionó.
+const StorageBanner = () => {
+  const pendingWrites = usePendingWrites();
+  if (pendingWrites > 0) {
+    return (
+      <div style={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12,
+        margin: "10px 16px 0", padding: "10px 12px", display: "flex", gap: 9, alignItems: "flex-start" }}>
+        <WifiOff size={16} color={P.faint} style={{ flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.45 }}>
+          Sin conexión: tus cambios se están guardando en este dispositivo ({pendingWrites} pendiente{pendingWrites === 1 ? "" : "s"}) y se sincronizarán solos apenas vuelva la señal.
+        </div>
+      </div>
+    );
+  }
+  if (storageOK) return null;
+  return (
+    <div style={{ background: "rgba(255,36,56,.14)", border: `1px solid rgba(255,36,56,.45)`, borderRadius: 12,
+      margin: "10px 16px 0", padding: "10px 12px", display: "flex", gap: 9, alignItems: "flex-start" }}>
+      <AlertTriangle size={16} color={P.red} style={{ flexShrink: 0, marginTop: 1 }} />
+      <div style={{ fontSize: 13.5, color: P.red, lineHeight: 1.45 }}>
+        No se pudo guardar. Revisa la conexión — se reintentará automáticamente.
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const Toast = ({ msg }) => !msg ? null : (
   <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 86, zIndex: 80,
