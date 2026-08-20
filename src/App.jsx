@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v74";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v75";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -3024,20 +3024,21 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
 
 // Campo numérico grande: acepta coma o punto, flechas para subir/bajar
 // respetando los decimales escritos, y una X para vaciarlo de un toque.
-// Casilla de Peso/Reps/RIR en focus mode: blanco liso con texto negro (no
-// el degradé crema de las placas ni un blanco tan claro que se pierda el
-// contraste) — a pedido explícito, "el cuadro donde se ingresan los datos"
-// durante el entrenamiento tiene que leerse fuerte de un vistazo, así que
-// usa sus propios tonos fijos (FOCUS_FG/FOCUS_MUTED/FOCUS_LINE) en vez de
+// Casilla de Peso/Reps/RIR en focus mode: negro sólido con texto blanco —
+// a pedido explícito, "el cuadro donde se ingresan los datos" durante el
+// entrenamiento tiene que leerse fuerte de un vistazo, así que usa sus
+// propios tonos fijos (FOCUS_BG/FOCUS_FG/FOCUS_MUTED/FOCUS_LINE) en vez de
 // PLATE_* o P.*, que cambian con el tema claro/oscuro.
 // `isWeight` activa la conversión de unidad (kg/lb): `value`/`onChange`
 // siguen hablando SIEMPRE en kg hacia el padre (igual que en WeightInput);
 // lo que se muestra y se tipea es la unidad activa, con un buffer local
 // para no reformatear el número debajo de los dedos mientras se escribe, y
 // una línea chica de conversión a la otra unidad debajo del campo.
-const FOCUS_FG = "#111111";
-const FOCUS_MUTED = "#5A5A5A";
-const FOCUS_LINE = "#D9D9D9";
+const FOCUS_BG = "#000000";
+const FOCUS_BG_EMPTY = "#1A1A1A";
+const FOCUS_FG = "#FFFFFF";
+const FOCUS_MUTED = "#A3A3A3";
+const FOCUS_LINE = "#4A4A4A";
 const FocusField = ({ label, value, placeholder, onChange, onClear, isWeight }) => {
   const [unit] = useWeightUnit();
   const [focused, setFocused] = useState(false);
@@ -3072,7 +3073,7 @@ const FocusField = ({ label, value, placeholder, onChange, onClear, isWeight }) 
         )}
       </div>
       <button onClick={() => step(+1)} aria-label={`Subir ${label}`}
-        style={{ width: "100%", padding: "3px 0", color: FOCUS_FG, background: "#FFFFFF", border: `1px solid ${FOCUS_LINE}`, borderRadius: "9px 9px 0 0" }}>
+        style={{ width: "100%", padding: "3px 0", color: FOCUS_FG, background: FOCUS_BG, border: `1px solid ${FOCUS_LINE}`, borderRadius: "9px 9px 0 0" }}>
         <ChevronUp size={20} strokeWidth={2.5} />
       </button>
       <input type="text" inputMode="decimal" enterKeyHint="done" placeholder={placeholder} value={displayValue}
@@ -3085,10 +3086,10 @@ const FocusField = ({ label, value, placeholder, onChange, onClear, isWeight }) 
           commitFromActive(clean);
         }}
         style={{ width: "100%", padding: "9px 2px", textAlign: "center", fontWeight: 700, fontSize: 20, color: FOCUS_FG,
-          background: displayValue !== "" ? "#FFFFFF" : "#F0F0F0",
+          background: displayValue !== "" ? FOCUS_BG : FOCUS_BG_EMPTY,
           borderColor: displayValue !== "" ? FOCUS_FG : FOCUS_LINE, borderRadius: 0 }} />
       <button onClick={() => step(-1)} aria-label={`Bajar ${label}`}
-        style={{ width: "100%", padding: "3px 0", color: FOCUS_FG, background: "#FFFFFF", border: `1px solid ${FOCUS_LINE}`, borderRadius: "0 0 9px 9px" }}>
+        style={{ width: "100%", padding: "3px 0", color: FOCUS_FG, background: FOCUS_BG, border: `1px solid ${FOCUS_LINE}`, borderRadius: "0 0 9px 9px" }}>
         <ChevronDown size={20} strokeWidth={2.5} />
       </button>
       {isWeight && <WeightConversionHint valueKg={value} style={{ marginTop: 1, color: FOCUS_MUTED }} />}
@@ -3399,12 +3400,12 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
     const target = (s.rest != null && s.rest !== "" ? +s.rest : (exx.rest || 0));
     const over = target > 0 && restEl >= target;
     return (
-      // Tarjeta de la ronda en blanco liso con texto negro (no el degradé
-      // crema de las placas) — "el cuadro que contiene donde ingresar los
-      // datos" durante el entrenamiento tiene que verse blanco y negro, sin
-      // tono pastel. Sus hijos (texto, íconos, botón de hecho) usan las
-      // mismas constantes fijas FOCUS_FG/FOCUS_MUTED/FOCUS_LINE.
-      <div key={s.id} style={{ background: "#FFFFFF", border: `1px solid ${s.done ? FOCUS_FG : FOCUS_LINE}`,
+      // Tarjeta de la ronda en negro sólido con texto blanco — "el cuadro
+      // que contiene donde ingresar los datos" durante el entrenamiento
+      // tiene que verse negro, a pedido explícito. Sus hijos (texto,
+      // íconos, botón de hecho) usan las mismas constantes fijas
+      // FOCUS_BG/FOCUS_FG/FOCUS_MUTED/FOCUS_LINE.
+      <div key={s.id} style={{ background: FOCUS_BG, border: `1px solid ${s.done ? FOCUS_FG : FOCUS_LINE}`,
         borderRadius: 14, padding: "9px 10px 10px", marginBottom: 9 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
           <span className="disp" style={{ fontSize: 16, fontWeight: 700, color: kindColor || FOCUS_FG }}>{label}</span>
@@ -3417,13 +3418,13 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
             style={{ padding: 5, color: FOCUS_MUTED }}><Trash2 size={16} /></button>
           <button data-cmt onClick={() => (cmtKey === ck ? setCmtKey(null) : openCmt(ck))} aria-label={`Comentario de ${label}`}
             style={{ padding: 5, color: s.comment ? FOCUS_FG : FOCUS_MUTED }}>
-            <MessageSquare size={17} fill={s.comment ? "rgba(17,17,17,.15)" : "none"} />
+            <MessageSquare size={17} fill={s.comment ? "rgba(255,255,255,.2)" : "none"} />
           </button>
           <button onClick={() => toggleRest(ei, si)} aria-label={`Cronómetro de descanso de ${label}`}
             style={{ padding: 5, color: started ? FOCUS_FG : FOCUS_MUTED }}><Timer size={17} /></button>
           <button onClick={() => patchSet(ei, si, { done: !s.done })} aria-label={s.done ? "Desmarcar serie" : "Marcar serie hecha"}
             style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-              background: s.done ? FOCUS_FG : "#FFFFFF", color: s.done ? "#FFFFFF" : FOCUS_MUTED, border: `1px solid ${s.done ? FOCUS_FG : FOCUS_LINE}` }}>
+              background: s.done ? FOCUS_FG : FOCUS_BG, color: s.done ? FOCUS_BG : FOCUS_MUTED, border: `1px solid ${s.done ? FOCUS_FG : FOCUS_LINE}` }}>
             <Check size={17} strokeWidth={3} />
           </button>
         </div>
