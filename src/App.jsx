@@ -6,7 +6,7 @@ import {
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
-  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff
+  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard
 } from "lucide-react";
 
 /* ============================================================
@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v77";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v78";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -6857,6 +6857,131 @@ const BillingConfigCard = () => {
   );
 };
 
+// Resumen en vivo de todo el equipo: junta lo que ya vive por separado en
+// forja-plan/forja-history de cada alumno y lo convierte en 4 métricas +
+// una curva semanal. Igual que RosterSheet/CobrosTab, no agrega ninguna
+// fuente de verdad nueva — es una vista calculada sobre datos reales.
+const DashboardTab = ({ roster, toast }) => {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]); // { id, name, sessions:[], daysPerWeek }
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const out = [];
+      for (const s of roster.students) {
+        const [plan, history] = await Promise.all([sGet(`forja-plan:${s.id}`), sGet(`forja-history:${s.id}`)]);
+        out.push({
+          id: s.id,
+          name: s.name,
+          sessions: (history && history.sessions) || [],
+          daysPerWeek: plan ? (plan.days || []).length : 0,
+        });
+      }
+      if (!cancelled) { setRows(out); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [roster]);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando el panel de todo el equipo…</div>;
+
+  const header = (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+      <LayoutDashboard size={22} color={P.ember} />
+      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Dashboard</h1>
+    </div>
+  );
+
+  if (rows.length === 0) {
+    return (
+      <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+        {header}
+        <Empty icon={LayoutDashboard} title="Sin alumnos todavía" body="Agrega alumnos para ver aquí el resumen de actividad, check-ins y cumplimiento de todo tu equipo." />
+      </div>
+    );
+  }
+
+  const todayD = parseDate(isoDate(new Date()));
+  const daysAgo = (dateStr) => Math.round((todayD - parseDate(dateStr)) / 86400000);
+  const sessThisWeek = (r) => r.sessions.filter((s) => { const d = daysAgo(s.date); return d >= 0 && d <= 6; });
+  const sessLastWeek = (r) => r.sessions.filter((s) => { const d = daysAgo(s.date); return d >= 7 && d <= 13; });
+
+  const activeCount = rows.length;
+  const withCheckin = rows.filter((r) => sessThisWeek(r).length > 0).length;
+  const checkinsPct = activeCount ? Math.round((100 * withCheckin) / activeCount) : 0;
+
+  const withPlan = rows.filter((r) => r.daysPerWeek > 0);
+  const cumplimientoPct = withPlan.length
+    ? Math.round((100 * withPlan.reduce((a, r) => a + Math.min(1, sessThisWeek(r).length / r.daysPerWeek), 0)) / withPlan.length)
+    : null;
+
+  const totalThisWeek = rows.reduce((a, r) => a + sessThisWeek(r).length, 0);
+  const totalLastWeek = rows.reduce((a, r) => a + sessLastWeek(r).length, 0);
+  const progresoPct = totalLastWeek > 0
+    ? Math.round((100 * (totalThisWeek - totalLastWeek)) / totalLastWeek)
+    : (totalThisWeek > 0 ? 100 : 0);
+
+  const chartData = [];
+  for (let w = 7; w >= 0; w--) {
+    const count = rows.reduce((a, r) => a + r.sessions.filter((s) => { const d = daysAgo(s.date); return d >= w * 7 && d <= w * 7 + 6; }).length, 0);
+    chartData.push({ d: w === 0 ? "Esta sem." : `-${w}sem`, v: count });
+  }
+
+  const perStudent = [...rows].sort((a, b) => sessThisWeek(b).length - sessThisWeek(a).length);
+
+  const statCard = (label, value, color) => (
+    <Card style={{ padding: "14px 15px" }}>
+      <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>
+      <div className="disp" style={{ fontSize: 26, fontWeight: 800, color: color || P.text, marginTop: 4 }}>{value}</div>
+    </Card>
+  );
+
+  return (
+    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+      {header}
+      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 16, lineHeight: 1.45 }}>
+        Resumen en vivo de tu equipo: actividad, check-ins y cumplimiento de los últimos 7 días, calculado desde las sesiones reales que registró cada alumno.
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+        {statCard("Atletas activos", activeCount)}
+        {statCard("Check-ins (7 días)", `${checkinsPct}%`, P.ember2)}
+        {statCard("Cumplimiento", cumplimientoPct === null ? "—" : `${cumplimientoPct}%`)}
+        {statCard("Progreso semanal", `${progresoPct >= 0 ? "+" : ""}${progresoPct}%`, progresoPct >= 0 ? P.green : P.red)}
+      </div>
+
+      <Card style={{ padding: 14, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Sesiones del equipo · últimas 8 semanas</div>
+        <ChartBox data={chartData} unit="sesiones" />
+      </Card>
+
+      <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Por alumno, esta semana</div>
+      {perStudent.map((r) => {
+        const n = sessThisWeek(r).length;
+        const ok = r.daysPerWeek > 0 ? n >= r.daysPerWeek : n > 0;
+        return (
+          <Card key={r.id} style={{ padding: "12px 14px", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 15.5 }}>{r.name}</div>
+                <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>
+                  {n} {n === 1 ? "sesión" : "sesiones"} esta semana{r.daysPerWeek ? ` de ${r.daysPerWeek} planificadas` : ""}
+                </div>
+              </div>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: ok ? P.green : P.faint,
+                background: ok ? `${P.green}1A` : P.s1, border: `1px solid ${ok ? `${P.green}55` : P.line}`,
+                borderRadius: 999, padding: "4px 9px", flexShrink: 0, whiteSpace: "nowrap" }}>
+                {ok ? "Al día" : "Sin check-in"}
+              </span>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+};
+
 const CobrosTab = ({ roster, toast }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, pay }
@@ -9340,7 +9465,7 @@ const ROLE_META = {
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "timer", "guia", "atlas"];
+const TABS_COACH_IDS = ["dashboard", "rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "timer", "guia", "atlas"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -9386,6 +9511,7 @@ const TABS = {
     { id: "atlas", label: "Atlas", Icon: Library },
   ],
   coach: [
+    { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
     { id: "rutina", label: "Rutina", Icon: ClipboardList },
     { id: "agenda", label: "Agenda", Icon: Calendar },
     { id: "nutricion", label: "Nutric.", Icon: Utensils },
@@ -9449,6 +9575,67 @@ const TabBar = ({ tabs, tab, setTab }) => (
 );
 
 /* ---- Selección de identidad (por dispositivo) ---- */
+// Bandera puramente local (un dispositivo/navegador) para no repetir la
+// landing de marketing una vez que alguien ya la vio. A propósito NO usa
+// sGet/sSet: no es dato del roster ni del plan, así que no puede tocar la
+// sincronización real de la app.
+const LANDING_SEEN_KEY = "forja-landing-seen";
+const getLandingSeen = () => { try { return window.localStorage.getItem(LANDING_SEEN_KEY) === "1"; } catch { return true; } };
+const setLandingSeen = () => { try { window.localStorage.setItem(LANDING_SEEN_KEY, "1"); } catch {} };
+
+// Landing pública: lo primero que ve un dispositivo nuevo, antes del
+// selector "¿Quién entra?". Es solo presentación (hero + preview del
+// Dashboard a modo de ejemplo) — no lee ni escribe roster/plan, así que
+// nunca puede interferir con los datos reales de un alumno o coach.
+const LandingPage = ({ onStart }) => {
+  const preview = [
+    { label: "Atletas activos", value: "32" },
+    { label: "Check-ins", value: "87%" },
+    { label: "Cumplimiento", value: "76%" },
+    { label: "Progreso", value: "+5.6%", color: P.green },
+  ];
+  return (
+    <div className="fj" style={{ minHeight: "100vh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <GlobalStyle />
+      <div style={{ width: "100%", maxWidth: 460 }}>
+        <div style={{ textAlign: "center", marginBottom: 16 }}><Logo size={38} /></div>
+        <div style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: ".14em", textAlign: "center", color: P.faint, fontWeight: 700, margin: "0 0 10px" }}>Pro Training</div>
+        <div style={{ fontSize: 23, fontWeight: 800, textAlign: "center", marginBottom: 10, lineHeight: 1.3 }}>
+          Rutinas, seguimiento y comunicación coach ↔ alumno, todo en un solo lugar.
+        </div>
+        <div style={{ color: P.dim, fontSize: 14.5, textAlign: "center", marginBottom: 22, lineHeight: 1.5 }}>
+          Planifica el entrenamiento, revisa el progreso de cada alumno y mantente en contacto — sin depender de planillas sueltas.
+        </div>
+
+        <Btn kind="ember" onClick={onStart} style={{ width: "100%", padding: "14px 16px", fontSize: 16.5, marginBottom: 10 }}>
+          Empieza gratis
+        </Btn>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: P.dim, fontSize: 13, marginBottom: 26 }}>
+          <Check size={14} color={P.green} /> Cancela cuando quieras
+        </div>
+
+        <div style={{ fontSize: 11.5, color: P.faint, textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 700, textAlign: "center", marginBottom: 10 }}>
+          Así se ve tu Dashboard
+        </div>
+        <Card style={{ padding: 16, marginBottom: 22 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {preview.map((d) => (
+              <div key={d.label} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: "12px 13px" }}>
+                <div style={{ fontSize: 11, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>{d.label}</div>
+                <div className="disp" style={{ fontSize: 20, fontWeight: 800, color: d.color || P.text, marginTop: 3 }}>{d.value}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <button onClick={onStart} style={{ display: "block", width: "100%", textAlign: "center", color: P.faint, fontSize: 13.5, textDecoration: "underline" }}>
+          Ya tengo cuenta, entrar
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
   // Si ya hay equipo armado (más de un coach/staff), "Soy el coach" no
   // entra directo: primero pregunta quién de todos es. Sin equipo (el
@@ -9781,6 +9968,7 @@ const App = () => {
     return () => clearTimeout(t);
   }, [loading, splashMinDone, splashGone]);
   const [ready, setReady] = useState(false);
+  const [showLanding, setShowLanding] = useState(() => !getLandingSeen());
   const [roster, setRoster] = useState({ v: ROSTER_VERSION, students: [] });
   const [mode, setMode] = useState("coach");
   const [sid, setSid] = useState(null);
@@ -10101,6 +10289,10 @@ const App = () => {
     return <SplashScreen exiting={splashExiting} />;
   }
 
+  if (!ready && showLanding) {
+    return <LandingPage onStart={() => { setLandingSeen(); setShowLanding(false); }} />;
+  }
+
   if (!ready) {
     return <Gate roster={roster} team={team}
       onEnter={(m, id) => openIdentity(m, id)}
@@ -10189,6 +10381,7 @@ const App = () => {
             <InstructionsEditor plan={plan} savePlan={savePlan} />
           </ReadOnlyLock>
         )}
+        {mode === "coach" && tab === "dashboard" && <DashboardTab roster={roster} toast={toast} />}
         {mode === "coach" && tab === "actividad" && <ActivityTab plan={plan} history={history} />}
         {mode === "coach" && tab === "rankings" && (
           <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
