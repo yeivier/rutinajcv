@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v76";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v77";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -2455,6 +2455,62 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", captu
   );
 };
 
+/* Icono cuadrado de un ejercicio (foto/ilustración subida desde la galería,
+   por ejemplo generada con la skill FORJA Exercise Icon Generator).
+   - editable=false: solo lo muestra (o nada si el ejercicio no tiene icono
+     todavía), para no llenar de recuadros vacíos las pantallas de solo
+     lectura del alumno.
+   - editable=true: además dibuja una insignia con lápiz para subir/reemplazar
+     la foto directo desde acá, sin abrir el editor completo del ejercicio. */
+const ExerciseIconTile = ({ iconAttachId, onChange, size = 30, editable = false }) => {
+  const [m, setM] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!iconAttachId) { setM(null); return; }
+    let on = true;
+    sGet(`attach:${iconAttachId}`).then((v) => on && setM(v || null));
+    return () => { on = false; };
+  }, [iconAttachId]);
+  if (!editable && !iconAttachId) return null;
+  const pick = () => ref.current && ref.current.click();
+  const onFile = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    setBusy(true);
+    try {
+      const dataUrl = await compressImage(f);
+      const id = uid();
+      const ok = await sSet(`attach:${id}`, { dataUrl, kind: "image", date: todayISO() });
+      if (!ok) throw new Error();
+      onChange && onChange(id);
+    } catch { /* el toast de error lo maneja quien use el componente si hace falta */ }
+    finally { setBusy(false); }
+  };
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <div style={{ width: size, height: size, borderRadius: 8, overflow: "hidden", background: P.s3,
+        border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {m ? <img src={m.dataUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+           : editable ? <Camera size={Math.max(12, Math.round(size * 0.45))} color={P.faint} /> : null}
+      </div>
+      {editable && (
+        <>
+          <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={onFile} />
+          <button onClick={pick} disabled={busy} title={m ? "Cambiar icono del ejercicio" : "Subir icono del ejercicio"}
+            aria-label={m ? "Cambiar icono del ejercicio" : "Subir icono del ejercicio"}
+            style={{ position: "absolute", bottom: -5, right: -5, width: 16, height: 16, borderRadius: 999,
+              background: P.ember, color: P.frame, display: "flex", alignItems: "center", justifyContent: "center",
+              border: `1.5px solid ${P.bg}` }}>
+            {busy ? <span style={{ fontSize: 8, fontWeight: 700 }}>…</span> : <PencilLine size={9} />}
+          </button>
+        </>
+      )}
+    </div>
+  );
+};
+
 // Dictado de voz para cualquier campo de texto: usa el reconocimiento de voz
 // del propio navegador (Web Speech API), en español. Va acumulando el texto
 // final reconocido y lo entrega vía onResult cada vez que hay una frase
@@ -3463,10 +3519,15 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
     const noteOpen = instr && instr.ei === ei;
     return (
       <div style={{ padding: big ? "2px 0 4px" : "8px 0 2px" }}>
-        <div style={{ fontSize: 12, color: color || P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>
-          {posLabel ? <span style={{ color }}>{posLabel} · </span> : null}{exx.muscle}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+          <ExerciseIconTile iconAttachId={exx.iconAttachId} size={big ? 40 : 34} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: color || P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>
+              {posLabel ? <span style={{ color }}>{posLabel} · </span> : null}{exx.muscle}
+            </div>
+            <div className="disp" style={{ fontSize: big ? 23 : 18.5, fontWeight: 700, lineHeight: 1.15, margin: "3px 0 6px" }}>{exx.name}</div>
+          </div>
         </div>
-        <div className="disp" style={{ fontSize: big ? 23 : 18.5, fontWeight: 700, lineHeight: 1.15, margin: "3px 0 6px" }}>{exx.name}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
             onPointerDown={() => { heldRef.current = false; holdTimer.current = setTimeout(() => { heldRef.current = true; showInstr(ei, true); }, 380); }}
@@ -3829,7 +3890,9 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         {d.exs.map((e, ei) => (
           <Card key={e.id} style={{ padding: "12px 13px", marginBottom: 9 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div className="disp" style={{ width: 26, height: 26, borderRadius: 7, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: P.ember2, flexShrink: 0, marginTop: 1 }}>{ei + 1}</div>
+              {e.iconAttachId
+                ? <ExerciseIconTile iconAttachId={e.iconAttachId} size={26} />
+                : <div className="disp" style={{ width: 26, height: 26, borderRadius: 7, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: P.ember2, flexShrink: 0, marginTop: 1 }}>{ei + 1}</div>}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15.5 }}>{e.name}</div>
                 <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2 }}>{e.muscle} · descanso {e.rest}s · {e.sets.length} series</div>
@@ -4644,6 +4707,12 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
   const set = (p) => setD((x) => ({ ...x, ...p }));
   return (
     <Sheet open={!!ex} onClose={onClose} title={ex.isNew ? "Nuevo ejercicio" : "Editar ejercicio"} tall>
+      <Field label="Icono del ejercicio (opcional)" hint="Aparece en la esquina superior izquierda del ejercicio. Podés subir la foto que descargaste desde este chat.">
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ExerciseIconTile iconAttachId={d.iconAttachId} editable size={44} onChange={(id) => set({ iconAttachId: id })} />
+          <div style={{ fontSize: 12.5, color: P.faint }}>{d.iconAttachId ? "Toca el lápiz para cambiarlo." : "Toca para subir una foto de la galería."}</div>
+        </div>
+      </Field>
       <Field label="Nombre del ejercicio"><Inp value={d.name} placeholder="Ej: Jalón al pecho bilateral en polea" onChange={(e) => set({ name: e.target.value })} /></Field>
       <div style={{ display: "flex", gap: 10 }}>
         <div style={{ flex: 1 }}><Field label="Grupo muscular">
@@ -6089,6 +6158,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                       borderLeft: gr.kind ? `3px solid ${GROUP_KINDS[gr.kind].color}` : `1px solid ${P.line}`,
                       borderRadius: 11, padding: "9px 10px", marginBottom: gr.linkedToNext ? 2 : 6 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <ExerciseIconTile iconAttachId={e.iconAttachId} editable
+                        onChange={(id) => mut((p) => { p.days[di].exs[ei].iconAttachId = id; })} />
                       <button onClick={() => setEditEx({ dayId: d.id, ex: structuredClone(e) })} style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 15, lineHeight: 1.25, overflowWrap: "break-word" }}>
                           {gr.posLabel && <span style={{ color: gr.kind ? GROUP_KINDS[gr.kind].color : P.faint, marginRight: 5 }}>{gr.posLabel}</span>}{e.name}
