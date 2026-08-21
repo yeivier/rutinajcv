@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v79";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v80";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -4196,6 +4196,12 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
   // rotación por última sesión queda de respaldo cuando no hay nada agendado.
   const todayScheduled = scheduledDayFor(plan, new Date());
   if (todayScheduled && days.some((d) => d.id === todayScheduled.id)) suggested = todayScheduled;
+  // Segunda sesión del mismo día (ej. Push B AM + Push B PM): si el coach
+  // dejó una segunda sesión agendada para hoy, se muestra aparte, debajo de
+  // la principal — son dos entrenamientos, no un reemplazo.
+  const todayScheduled2 = scheduledDayFor2(plan, new Date());
+  const suggested2 = todayScheduled2 && days.some((d) => d.id === todayScheduled2.id) ? todayScheduled2 : null;
+  const suggested2Done = suggested2 && history.sessions.some((s) => s.date === todayISO() && s.dayId === suggested2.id);
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -4222,6 +4228,21 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
       ) : (
         <Card style={{ padding: 16, marginBottom: 14 }}>
           <Empty icon={Dumbbell} title="Sin rutina cargada" body={role === "coach" ? "Entra a la pestaña Rutina para armar el plan." : "Tu coach aún no carga la rutina."} />
+        </Card>
+      )}
+
+      {suggested2 && (
+        <Card style={{ padding: 16, marginBottom: 14 }}>
+          <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>
+            También hoy · {routineLabel(routineOf(suggested2), plan.routineNames)}
+          </div>
+          <div className="disp" style={{ fontSize: 21, fontWeight: 700, marginBottom: 3 }}>{suggested2.name}</div>
+          <div style={{ fontSize: 14, color: P.faint, marginBottom: 12 }}>
+            {suggested2.exs.length} ejercicios · {suggested2.exs.reduce((a, e) => a + e.sets.length, 0)} series{suggested2Done ? " · ya la hiciste" : ""}
+          </div>
+          <Btn kind={suggested2Done ? "line" : "ember"} onClick={goTrain} style={{ width: "100%" }}>
+            <Play size={16} /> {suggested2Done ? "Ver / repetir" : "Empezar esta segunda sesión"}
+          </Btn>
         </Card>
       )}
 
@@ -8708,6 +8729,25 @@ function scheduledDayFor(plan, dateObj) {
   const id = scheduledDayIdFor(plan, dateObj);
   return id ? ((plan.days || []).find((d) => d.id === id) || null) : null;
 }
+
+/* ---- Segunda sesión del día (AM/PM) ----
+   Algunos días tienen dos entrenamientos (ej. "Push B (AM)" y "Push B
+   (PM)"): la primera sesión sigue viviendo en plan.schedule/weekPlans tal
+   cual ya funcionaba. Esta es una segunda "ranura" totalmente aparte
+   (plan.schedule2/weekPlans2), opcional y en espejo de la primera — un
+   plan viejo que nunca la usa sigue funcionando exactamente igual, sin
+   migración. */
+const weekPlan2Of = (plan, dateObj) => ((plan && plan.weekPlans2) || {})[weekStartIso(dateObj)] || null;
+function scheduledDayIdFor2(plan, dateObj) {
+  const key = DAY_KEYS[dateObj.getDay()];
+  const wp = weekPlan2Of(plan, dateObj);
+  if (wp && Object.prototype.hasOwnProperty.call(wp, key)) return wp[key] || null;
+  return (plan && plan.schedule2 && plan.schedule2[key]) || null;
+}
+function scheduledDayFor2(plan, dateObj) {
+  const id = scheduledDayIdFor2(plan, dateObj);
+  return id ? ((plan.days || []).find((d) => d.id === id) || null) : null;
+}
 // Etiqueta corta de una sesión para las celdas del calendario: la letra de la
 // rutina más su número de orden dentro de ella (A1, A2, C3…). Con la letra
 // sola, todos los días de una misma rutina se veían idénticos en el mes.
@@ -8949,6 +8989,7 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
 
   const selDate = parseDate(selected);
   const selDay = dayFor(selDate);
+  const selDay2 = scheduledDayFor2(plan, selDate);
   const selEvents = eventsFor(selected);
   const selSessions = sessionsOnDate(selected);
   const selBookings = myBookingsFor(selected);
@@ -8973,31 +9014,49 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
         {weekDaysOf(selDate).map((d) => {
           const iso = isoDate(d);
           const wd = dayFor(d);
+          const wd2 = scheduledDayFor2(plan, d);
           const done = sessionsOnDate(iso).length > 0;
           const isSelRow = iso === selected;
           const isTodayRow = iso === isoDate(today);
           return (
-            <button key={iso} onClick={() => setSelected(iso)}
-              style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "8px 9px", marginBottom: 4,
-                borderRadius: 9, background: isSelRow ? P.s3 : "transparent",
-                border: `1px solid ${isSelRow ? P.frame : isTodayRow ? P.line : "transparent"}` }}>
-              <span style={{ width: 40, flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: isTodayRow ? P.ember2 : P.faint, textTransform: "uppercase" }}>
-                {DAY_LABELS_LONG[d.getDay()].slice(0, 3)} {d.getDate()}
-              </span>
-              {wd ? (
-                <>
-                  <span style={{ minWidth: 20, height: 18, padding: "0 4px", borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 11, fontWeight: 800, flexShrink: 0,
-                    background: done ? P.green : PLATE_GRAD, color: done ? P.bg : PLATE_FG }}>
-                    {dayShortTag(plan, wd)}
+            <div key={iso} style={{ marginBottom: 4 }}>
+              <button onClick={() => setSelected(iso)}
+                style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "8px 9px",
+                  borderRadius: 9, background: isSelRow ? P.s3 : "transparent",
+                  border: `1px solid ${isSelRow ? P.frame : isTodayRow ? P.line : "transparent"}` }}>
+                <span style={{ width: 40, flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: isTodayRow ? P.ember2 : P.faint, textTransform: "uppercase" }}>
+                  {DAY_LABELS_LONG[d.getDay()].slice(0, 3)} {d.getDate()}
+                </span>
+                {wd ? (
+                  <>
+                    <span style={{ minWidth: 20, height: 18, padding: "0 4px", borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11, fontWeight: 800, flexShrink: 0,
+                      background: done ? P.green : PLATE_GRAD, color: done ? P.bg : PLATE_FG }}>
+                      {dayShortTag(plan, wd)}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{wd.name}</span>
+                    {done && <Check size={14} color={P.green} style={{ flexShrink: 0 }} />}
+                  </>
+                ) : (
+                  <span style={{ flex: 1, fontSize: 14.5, color: P.faint }}>Descanso</span>
+                )}
+              </button>
+              {/* Segunda sesión del mismo día (AM/PM): fila propia, más chica,
+                  debajo de la principal — se entrenan las dos por separado. */}
+              {wd2 && (
+                <button onClick={() => setSelected(iso)}
+                  style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "5px 9px 5px 50px", marginTop: 2,
+                    borderRadius: 9, background: "transparent", border: "1px solid transparent" }}>
+                  <span style={{ minWidth: 20, height: 16, padding: "0 4px", borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 10, fontWeight: 800, flexShrink: 0,
+                    background: sessionsOnDate(iso).some((s) => s.dayId === wd2.id) ? P.green : P.s3, color: sessionsOnDate(iso).some((s) => s.dayId === wd2.id) ? P.bg : P.faint,
+                    border: `1px solid ${P.line}` }}>
+                    {dayShortTag(plan, wd2)}
                   </span>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{wd.name}</span>
-                  {done && <Check size={14} color={P.green} style={{ flexShrink: 0 }} />}
-                </>
-              ) : (
-                <span style={{ flex: 1, fontSize: 14.5, color: P.faint }}>Descanso</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: P.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>+ {wd2.name}</span>
+                </button>
               )}
-            </button>
+            </div>
           );
         })}
       </Card>
@@ -9027,6 +9086,25 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
           </div>
         ) : (
           <div style={{ marginTop: 8, fontSize: 15, color: P.dim }}>Día de descanso · sin entrenamiento programado</div>
+        )}
+
+        {/* Segunda sesión del mismo día (ej. Push B AM ya arriba, Push B PM
+            acá abajo): son dos sesiones separadas, cada una con su propio
+            botón para arrancarla cuando corresponda. */}
+        {selDay2 && (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
+            <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>También hoy</div>
+            <div style={{ fontWeight: 700, fontSize: 17 }}>{selDay2.name}</div>
+            <div style={{ fontSize: 14, color: P.dim, marginTop: 2 }}>
+              {selDay2.exs.length} ejercicios · {selDay2.exs.reduce((a, e) => a + e.sets.length, 0)} series
+              {sessionsOnDate(selected).some((s) => s.dayId === selDay2.id) && " · realizado"}
+            </div>
+            {isToday && onGoTrain && (
+              <Btn kind="line" onClick={onGoTrain} style={{ width: "100%", marginTop: 10 }}>
+                <Play size={15} /> Ir a entrenar
+              </Btn>
+            )}
+          </div>
         )}
 
         {selBookings.length > 0 && (
@@ -9075,10 +9153,15 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
   const [selected, setSelected] = useState(isoDate(today));
   const [eventSheet, setEventSheet] = useState(null); // { id?, date, title, note, color, remind }
   const [bookingSheet, setBookingSheet] = useState(null); // { id?, date, studentId, time, durationMin, note }
+  // Días donde se dejó visible el selector de segunda sesión (AM/PM) aunque
+  // todavía no se haya elegido nada — solo UI, no se guarda en el plan.
+  const [expandWeekType2, setExpandWeekType2] = useState([]);
+  const [expandWeek2, setExpandWeek2] = useState([]);
 
   // Respeta la planificación de la semana concreta (plan.weekPlans) y, si
   // esa semana no fue tocada, cae a la semana tipo.
   const dayFor = (dateObj) => scheduledDayFor(plan, dateObj);
+  const dayFor2 = (dateObj) => scheduledDayFor2(plan, dateObj);
   const eventsFor = (iso) => (plan.events || []).filter((e) => e.date === iso);
   const sessionsOnDate = (iso) => (history ? history.sessions.filter((s) => s.date === iso) : []);
   const slots = (bookings && bookings.slots) || [];
@@ -9086,6 +9169,7 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
 
   const selDate = parseDate(selected);
   const selDay = dayFor(selDate);
+  const selDay2 = dayFor2(selDate);
   const selEvents = eventsFor(selected);
   const selBookings = bookingsOnDate(slots, selected); // acá sí se ven las canceladas, para llevar registro
   const studentName = (id) => (roster ? (roster.students.find((s) => s.id === id) || {}).name : "") || "Alumno eliminado";
@@ -9106,7 +9190,19 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
     }
     p.weekPlans[selWeekKey][dayKey] = dayId;
   });
-  const clearWeekPlan = () => mut((p) => { if (p.weekPlans) delete p.weekPlans[selWeekKey]; });
+  // Igual que setWeekDay pero para la segunda sesión (AM/PM) del día.
+  const setWeekDay2 = (dayKey, dayId) => mut((p) => {
+    if (!p.weekPlans2) p.weekPlans2 = {};
+    if (!p.weekPlans2[selWeekKey]) {
+      const base = p.schedule2 || {};
+      p.weekPlans2[selWeekKey] = DAY_KEYS.reduce((acc, k) => { acc[k] = base[k] || null; return acc; }, {});
+    }
+    p.weekPlans2[selWeekKey][dayKey] = dayId;
+  });
+  const clearWeekPlan = () => mut((p) => {
+    if (p.weekPlans) delete p.weekPlans[selWeekKey];
+    if (p.weekPlans2) delete p.weekPlans2[selWeekKey];
+  });
   // Reparte los días de una rutina en orden desde el lunes; el resto de
   // la semana queda en descanso.
   const applyRoutineToWeek = (routineKey) => {
@@ -9168,6 +9264,13 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
           </div>
         ) : (
           <div style={{ marginTop: 6, fontSize: 14.5, color: P.faint }}>Día de descanso, según la semana tipo de abajo</div>
+        )}
+        {/* Segunda sesión del mismo día (ej. Push B AM + Push B PM): se
+            entrenan las dos, cada una es una sesión aparte en el historial. */}
+        {selDay2 && (
+          <div style={{ marginTop: 4, fontSize: 14.5, color: P.dim }}>
+            También: <span style={{ color: P.text, fontWeight: 600 }}>{selDay2.name}</span> · {routineLabel(routineOf(selDay2), plan.routineNames)}
+          </div>
         )}
 
         {roster && (
@@ -9244,22 +9347,47 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
           const iso = isoDate(d);
           const isToday = iso === isoDate(today);
           const dayObj = scheduledDayFor(plan, d);
+          const dayObj2 = scheduledDayFor2(plan, d);
+          const showSecond = !!dayObj2 || expandWeek2.includes(k);
           return (
-            <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
-              <button onClick={() => setSelected(iso)}
-                style={{ width: 78, flexShrink: 0, textAlign: "left", lineHeight: 1.15 }}>
-                <div style={{ fontSize: 14.5, fontWeight: 700, color: isToday ? P.ember : P.text }}>{DAY_LABELS_LONG[d.getDay()].slice(0, 3)} {d.getDate()}</div>
-                <div style={{ fontSize: 11.5, color: dayObj ? P.dim : P.faint, marginTop: 1 }}>{dayObj ? routineLabel(routineOf(dayObj), plan.routineNames) : "descanso"}</div>
-              </button>
-              <select value={scheduledDayIdFor(plan, d) || ""} onChange={(e) => setWeekDay(k, e.target.value || null)}
-                style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "9px 8px", fontSize: 14.5 }}>
-                <option value="">Descanso</option>
-                {routineGroups.map((g) => (
-                  <optgroup key={g.key} label={g.label}>
-                    {g.days.map((dd) => <option key={dd.id} value={dd.id}>{dd.name}</option>)}
-                  </optgroup>
-                ))}
-              </select>
+            <div key={k} style={{ marginBottom: 7 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={() => setSelected(iso)}
+                  style={{ width: 78, flexShrink: 0, textAlign: "left", lineHeight: 1.15 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 700, color: isToday ? P.ember : P.text }}>{DAY_LABELS_LONG[d.getDay()].slice(0, 3)} {d.getDate()}</div>
+                  <div style={{ fontSize: 11.5, color: dayObj ? P.dim : P.faint, marginTop: 1 }}>{dayObj ? routineLabel(routineOf(dayObj), plan.routineNames) : "descanso"}</div>
+                </button>
+                <select value={scheduledDayIdFor(plan, d) || ""} onChange={(e) => setWeekDay(k, e.target.value || null)}
+                  style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+                  <option value="">Descanso</option>
+                  {routineGroups.map((g) => (
+                    <optgroup key={g.key} label={g.label}>
+                      {g.days.map((dd) => <option key={dd.id} value={dd.id}>{dd.name}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+              {/* Segunda sesión opcional del mismo día (AM/PM): oculta por
+                  defecto para no duplicar cada fila cuando no hace falta. */}
+              {showSecond ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                  <div style={{ width: 78, flexShrink: 0, textAlign: "right", fontSize: 11.5, color: P.faint, paddingRight: 4 }}>+ sesión</div>
+                  <select value={scheduledDayIdFor2(plan, d) || ""} onChange={(e) => setWeekDay2(k, e.target.value || null)}
+                    style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+                    <option value="">Quitar segunda sesión</option>
+                    {routineGroups.map((g) => (
+                      <optgroup key={g.key} label={g.label}>
+                        {g.days.map((dd) => <option key={dd.id} value={dd.id}>{dd.name}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <button onClick={() => setExpandWeek2((s) => [...s, k])}
+                  style={{ marginLeft: 86, fontSize: 12, color: P.faint, marginTop: 2 }}>
+                  + Agregar segunda sesión (AM/PM)
+                </button>
+              )}
             </div>
           );
         })}
@@ -9276,20 +9404,45 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
         <div style={{ fontSize: 13, color: P.faint, marginBottom: 10, lineHeight: 1.4 }}>
           La que se repite por defecto en todas las semanas que no hayas personalizado arriba.
         </div>
-        {[["mon", "Lunes"], ["tue", "Martes"], ["wed", "Miércoles"], ["thu", "Jueves"], ["fri", "Viernes"], ["sat", "Sábado"], ["sun", "Domingo"]].map(([k, label]) => (
-          <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <div style={{ width: 84, flexShrink: 0, fontSize: 14.5, fontWeight: 600 }}>{label}</div>
-            <select value={plan.schedule?.[k] || ""} onChange={(e) => mut((p) => { if (!p.schedule) p.schedule = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }; p.schedule[k] = e.target.value || null; })}
-              style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "9px 8px", fontSize: 14.5 }}>
-              <option value="">Descanso</option>
-              {routineGroups.map((g) => (
-                <optgroup key={g.key} label={g.label}>
-                  {g.days.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </optgroup>
-              ))}
-            </select>
+        {[["mon", "Lunes"], ["tue", "Martes"], ["wed", "Miércoles"], ["thu", "Jueves"], ["fri", "Viernes"], ["sat", "Sábado"], ["sun", "Domingo"]].map(([k, label]) => {
+          const showSecond = !!plan.schedule2?.[k] || expandWeekType2.includes(k);
+          return (
+          <div key={k} style={{ marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 84, flexShrink: 0, fontSize: 14.5, fontWeight: 600 }}>{label}</div>
+              <select value={plan.schedule?.[k] || ""} onChange={(e) => mut((p) => { if (!p.schedule) p.schedule = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }; p.schedule[k] = e.target.value || null; })}
+                style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+                <option value="">Descanso</option>
+                {routineGroups.map((g) => (
+                  <optgroup key={g.key} label={g.label}>
+                    {g.days.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            {/* Segunda sesión opcional del mismo día de la semana (AM/PM). */}
+            {showSecond ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                <div style={{ width: 84, flexShrink: 0, textAlign: "right", fontSize: 11.5, color: P.faint, paddingRight: 4 }}>+ sesión</div>
+                <select value={plan.schedule2?.[k] || ""} onChange={(e) => mut((p) => { if (!p.schedule2) p.schedule2 = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }; p.schedule2[k] = e.target.value || null; })}
+                  style={{ flex: 1, minWidth: 0, maxWidth: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+                  <option value="">Quitar segunda sesión</option>
+                  {routineGroups.map((g) => (
+                    <optgroup key={g.key} label={g.label}>
+                      {g.days.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <button onClick={() => setExpandWeekType2((s) => [...s, k])}
+                style={{ marginLeft: 92, fontSize: 12, color: P.faint, marginTop: 2 }}>
+                + Agregar segunda sesión (AM/PM)
+              </button>
+            )}
           </div>
-        ))}
+          );
+        })}
       </Card>
 
       <Sheet open={!!eventSheet} onClose={() => setEventSheet(null)} title={eventSheet && eventSheet.id ? "Editar evento" : "Nuevo evento"}>
