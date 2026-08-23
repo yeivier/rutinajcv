@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v101";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v102";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7373,6 +7373,224 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
 };
 
 /* ============================================================
+   Editor de rutina — modo "Nuevo" (pantalla "2f" del handoff Forja
+   Mobile). A diferencia de Hoy/Progreso/Dashboard, esta pantalla ES
+   un editor real (agrega/edita/borra ejercicios y series, arma
+   superseries) — se pidió explícitamente que tuviera la misma
+   capacidad de edición que el modo Clásico, así que en vez de
+   reescribir la lógica de mutación del plan se REUSA tal cual la de
+   RoutineTab: mismo `mut()` (clona el plan, aplica el cambio,
+   guarda), mismo `toggleLink`/`exGroupInfo`/`exBlocks`/`GROUP_KINDS`
+   para armar/mostrar superserie·triserie·serie gigante, el mismo
+   `ExerciseEditorSheet` para los datos del ejercicio y el mismo
+   `SetsEditor` para las series — cero lógica de escritura nueva,
+   solo una disposición visual distinta (fila colapsada que se
+   expande al tocarla, en vez de la tabla siempre abierta).
+
+   Recortes de scope frente al modo Clásico, a propósito:
+   - Sin arrastrar para reordenar (usa flechas ↑/↓, que ya existían
+     como alternativa) ni copiar/pegar (ejercicio/bloque/día/rutina):
+     ambos son atajos de productividad, no capacidad de edición en
+     sí, y reconstruir el motor de arrastre en el layout nuevo es un
+     proyecto aparte. Siguen disponibles en Clásico.
+   - Crear días o rutinas nuevas también queda en Clásico — acá se
+     editan los días que ya existen. Se puede sumar después si hace
+     falta abrir el editor nuevo directo desde "Añadir día".
+
+   SetsEditor viene con su propio tema oscuro (P.*) ya probado — se
+   deja tal cual dentro de una "isla" con su propio fondo en vez de
+   re-temizarlo a blanco/negro, para no arriesgar su legibilidad
+   reescribiendo estilos de un formulario con 13 tipos de serie.
+   ============================================================ */
+const ROUTINE_MODE_KEY = "forja-routine-mode";
+
+const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBack }) => {
+  const [editEx, setEditEx] = useState(null); // { ex }
+  const [openExId, setOpenExId] = useState(null);
+  const [del, setDel] = useState(null); // { exId, name }
+  const day = plan.days[dayIndex];
+  const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
+
+  if (!day) return null; // el día se borró mientras estaba abierto (p.ej. desde otra pestaña) — vuelve a la lista arriba
+
+  const blocks = exBlocks(day.exs);
+  const vol = volumeByMuscleForDay(day);
+  const topVol = vol.rows[0];
+
+  return (
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <button onClick={onBack} style={{ width: 36, height: 36, borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.line}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <ChevronLeft size={17} color={MONO.ink} />
+        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 16.5, fontWeight: 700, color: MONO.ink, overflowWrap: "break-word" }}>{day.name}</div>
+          <div style={{ fontSize: 12, color: MONO.inkFaint }}>{student ? `${student.name} · ` : ""}{routineLabel(routineOf(day), plan.routineNames)}</div>
+        </div>
+        <button onClick={() => { const name = prompt("Nombre del día:", day.name); if (name) mut((p) => { p.days[dayIndex].name = name; }); }}
+          title="Renombrar el día" style={{ width: 34, height: 34, borderRadius: 11, border: `1px solid ${MONO.line}`, color: MONO.inkFaint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <PencilLine size={14} />
+        </button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+        {day.exs.map((e, ei) => {
+          const gr = exGroupInfo(day.exs, ei);
+          const blockKey = (blocks.find((b) => ei >= b.start && ei < b.end) || {}).key;
+          const isOpen = openExId === e.id;
+          const firstSet = e.sets[0];
+          const summary = e.sets.length
+            ? `${e.sets.length} serie${e.sets.length !== 1 ? "s" : ""} · ${(SET_TYPES[firstSet.type] || {}).short || "?"}${firstSet.rirT ? ` · RIR ${firstSet.rirT}` : ""}`
+            : "Sin series todavía";
+          return (
+            <div key={e.id} data-ex-block={blockKey}>
+              {gr.first && gr.kind && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "0 2px", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#FFFFFF", background: MONO.ink, borderRadius: 7, padding: "4px 8px" }}>{GROUP_KINDS[gr.kind].short}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "#2B2B30" }}>{GROUP_KINDS[gr.kind].label} · {gr.size} ejercicios</span>
+                  <span style={{ fontSize: 12, color: MONO.inkFaint }}>rondas</span>
+                  <input value={gr.roundsRaw} placeholder="1" aria-label="Rondas del bloque"
+                    onChange={(ev) => { const raw = ev.target.value.replace(/[^0-9]/g, ""); mut((p) => p.days[dayIndex].exs.forEach((x) => { if (x.group === e.group) x.groupRounds = raw; })); }}
+                    style={{ width: 40, padding: "4px 4px", fontSize: 13, textAlign: "center", borderRadius: 7, border: `1px solid ${MONO.line}`, background: MONO.surface, color: MONO.ink }} />
+                  <button onClick={() => mut((p) => { const grp = e.group; p.days[dayIndex].exs.forEach((x) => { if (x.group === grp) { delete x.group; delete x.groupRounds; } }); })}
+                    style={{ fontSize: 11.5, fontWeight: 600, color: MONO.inkFaint, padding: "3px 7px", borderRadius: 7, border: `1px solid ${MONO.line}` }}>
+                    Deshacer bloque
+                  </button>
+                </div>
+              )}
+              <MonoCard style={{ padding: "13px 15px", marginBottom: gr.linkedToNext ? 6 : 12, border: gr.kind ? `1.5px solid ${MONO.ink}` : `1px solid ${MONO.line}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: MONO.inkFaint, width: 20, flexShrink: 0 }}>{String(ei + 1).padStart(2, "0")}</span>
+                  <button onClick={() => setOpenExId(isOpen ? null : e.id)} style={{ flex: "1 1 160px", minWidth: 0, textAlign: "left" }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: MONO.ink, overflowWrap: "break-word" }}>{e.name || "Ejercicio sin nombre"}</div>
+                    {!isOpen && <div style={{ fontSize: 12.5, color: MONO.inkFaint, marginTop: 2 }}>{summary}</div>}
+                  </button>
+                  {/* PencilLine (no Info): en el resto de la app el ícono de Info
+                      significa "ficha técnica de solo lectura" (fichaEx en
+                      Clásico), no editar — usarlo acá para abrir el editor
+                      confundiría el lenguaje de íconos ya establecido. */}
+                  <button onClick={() => setEditEx({ ex: structuredClone(e) })} title="Editar datos del ejercicio" aria-label={`Editar datos de ${e.name}`} style={{ padding: 5, color: MONO.inkFaint }}><PencilLine size={15} /></button>
+                  {ei < day.exs.length - 1 && (
+                    <button onClick={() => mut((p) => toggleLink(p.days[dayIndex].exs, ei))}
+                      title={gr.linkedToNext ? "Separar de aquí (rompe el bloque)" : "Unir con el siguiente en superserie"}
+                      aria-label={gr.linkedToNext ? `Separar ${e.name} del siguiente` : `Unir ${e.name} con el siguiente en superserie`}
+                      style={{ padding: 5, color: gr.linkedToNext ? MONO.ink : MONO.inkFaint, transform: gr.linkedToNext ? "none" : "rotate(90deg)" }}>
+                      <Paperclip size={15} />
+                    </button>
+                  )}
+                  {/* normalizeGroups() después del swap: si el reordenamiento parte una
+                      superserie/triserie/gigante dejando un solo miembro con `group`
+                      colgando, lo limpia — mismo comportamiento que move() en RoutineTab
+                      Clásico (sin esto, quedaba un grupo huérfano con groupRounds vivo). */}
+                  <button onClick={() => mut((p) => { const arr = p.days[dayIndex].exs; const j = ei - 1; if (j >= 0) { [arr[ei], arr[j]] = [arr[j], arr[ei]]; normalizeGroups(arr); } })} style={{ padding: 5, color: MONO.inkFaint }}><ArrowUp size={13} /></button>
+                  <button onClick={() => mut((p) => { const arr = p.days[dayIndex].exs; const j = ei + 1; if (j < arr.length) { [arr[ei], arr[j]] = [arr[j], arr[ei]]; normalizeGroups(arr); } })} style={{ padding: 5, color: MONO.inkFaint }}><ArrowDown size={13} /></button>
+                  <button onClick={() => setDel({ exId: e.id, name: e.name })} aria-label={`Eliminar ${e.name}`} style={{ padding: 5, color: MONO.inkFaint }}><Trash2 size={14} /></button>
+                </div>
+                {isOpen && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${MONO.line}`, background: P.bg, margin: "12px -15px -13px", padding: "12px 15px 15px", borderRadius: "0 0 16px 16px" }}>
+                    <SetsEditor sets={e.sets} onChange={(sets) => mut((p) => { p.days[dayIndex].exs[ei].sets = sets; })} onInfo={onInfo} exRest={e.rest} />
+                  </div>
+                )}
+              </MonoCard>
+            </div>
+          );
+        })}
+      </div>
+
+      <button onClick={() => setEditEx({ ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] } })}
+        style={{ border: `1.5px dashed ${MONO.line}`, borderRadius: 14, padding: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 9 }}>
+        <Plus size={17} color={MONO.inkFaint} />
+        <span style={{ fontSize: 14.5, fontWeight: 700, color: MONO.inkDim }}>Añadir ejercicio</span>
+      </button>
+
+      {topVol && (
+        <MonoCard style={{ padding: "13px 15px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <MonoLabel>Volumen</MonoLabel>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: MONO.ink }}>{topVol.muscle} {fmtSets(topVol.sets)} series · {topVol.status}</div>
+          </div>
+        </MonoCard>
+      )}
+
+      <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo} meso={currentMesociclo(plan)}
+        onSave={(exd) => { const { isNew, ...clean } = exd; mut((p) => { const dd = p.days[dayIndex];
+          const i = dd.exs.findIndex((x) => x.id === clean.id);
+          if (i >= 0) dd.exs[i] = clean; else dd.exs.push(clean); }); setEditEx(null); }} />
+      <Confirm open={!!del} danger title="Eliminar ejercicio"
+        body={del ? `¿Eliminar «${del.name}» de este día? El historial del alumno no se borra.` : ""} okLabel="Eliminar"
+        onCancel={() => setDel(null)}
+        onOk={() => { mut((p) => { const dd = p.days[dayIndex]; dd.exs = dd.exs.filter((x) => x.id !== del.exId); }); setDel(null); }} />
+    </div>
+  );
+};
+
+const RoutineTabMono = (props) => {
+  const { plan, savePlan, onInfo, student } = props;
+  const [openDayId, setOpenDayId] = useState(null);
+  const groups = groupDaysByRoutine(plan.days, plan.routineNames);
+
+  if (openDayId) {
+    const idx = plan.days.findIndex((d) => d.id === openDayId);
+    if (idx < 0) { setOpenDayId(null); return null; } // el día se borró en otro lado — la próxima vuelta cae a la lista
+    return <RoutineDayEditorMono plan={plan} savePlan={savePlan} dayIndex={idx} onInfo={onInfo} student={student} onBack={() => setOpenDayId(null)} />;
+  }
+
+  return (
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Rutina</div>
+        <div style={{ fontSize: 13, color: MONO.inkFaint }}>Toca un día para editarlo. Crear días o rutinas nuevas sigue en el modo Clásico.</div>
+      </div>
+      {groups.map((g) => (
+        <div key={g.key} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <MonoLabel>{g.label}</MonoLabel>
+          {g.items.map(({ day, index }) => {
+            const vol = volumeByMuscleForDay(day);
+            const top = vol.rows[0];
+            return (
+              <button key={day.id} onClick={() => setOpenDayId(day.id)} style={{ textAlign: "left" }}>
+                <MonoCard style={{ padding: "13px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: MONO.ink }}>{day.name}</div>
+                    <div style={{ fontSize: 12.5, color: MONO.inkFaint, marginTop: 1 }}>
+                      {day.exs.length} ejercicio{day.exs.length !== 1 ? "s" : ""}{top ? ` · ${top.muscle} ${fmtSets(top.sets)} series` : ""}
+                    </div>
+                  </div>
+                  <ChevronRight size={16} color={MONO.inkFaint} />
+                </MonoCard>
+              </button>
+            );
+          })}
+        </div>
+      ))}
+      {groups.length === 0 && (
+        <MonoCard style={{ padding: 24, textAlign: "center" }}>
+          <div style={{ fontSize: 14, color: MONO.inkDim }}>Sin días todavía. Usa el modo Clásico para crear el primero.</div>
+        </MonoCard>
+      )}
+    </div>
+  );
+};
+
+const RoutineTabRouter = (props) => {
+  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(ROUTINE_MODE_KEY) || "clasico"; } catch { return "clasico"; } });
+  const setMode = (m) => { setVmode(m); try { localStorage.setItem(ROUTINE_MODE_KEY, m); } catch {} };
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
+        <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
+          {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
+            <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
+              background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {vmode === "clasico" ? <RoutineTab {...props} /> : <RoutineTabMono {...props} />}
+    </div>
+  );
+};
+
+/* ============================================================
    MODO COACH — nutrición e indicaciones
    ============================================================ */
 // Calcula el macro que falta a partir de los otros tres. Devuelve un objeto con
@@ -11939,7 +12157,7 @@ const App = () => {
         )}
         {mode === "coach" && tab === "rutina" && (
           <ReadOnlyLock active={roleTabAccess.rutina === "view"} toast={toast}>
-            <RoutineTab plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history}
+            <RoutineTabRouter plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history}
               student={currentStudent} onUpdateStudent={(patch) => currentStudent && updateStudent(currentStudent.id, patch)}
               library={library} onSaveLibrary={saveLibrary} />
           </ReadOnlyLock>
