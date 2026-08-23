@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v88";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v89";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -6498,6 +6498,19 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ flex: 1, minWidth: 150, textAlign: "left" }}>
                   <div style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.25, overflowWrap: "break-word" }}>{d.name}</div>
                   <div style={{ fontSize: 13, color: P.faint }}>{d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
+                  {/* Series efectivas por grupo muscular de ESTA sesión puntual —
+                      igual estructura de ejercicios en todos los mesociclos/semanas
+                      (solo cambian RIR/reps objetivo por semana, no el número de
+                      series), así que este desglose vale para cualquier semana o
+                      mesociclo que esté activo, sin tener que ir a Progreso →
+                      Volumen para verlo. */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
+                    {volumeByMuscleForDay(d).rows.map((r) => (
+                      <span key={r.muscle} style={{ fontSize: 11.5, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 6px" }}>
+                        {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
+                      </span>
+                    ))}
+                  </div>
                 </button>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
                   <button onClick={() => mut((p) => moveDay(p, di, -1))} style={{ padding: 6, color: P.faint }}><ArrowUp size={15} /></button>
