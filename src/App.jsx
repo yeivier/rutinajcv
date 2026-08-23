@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v109";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v110";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2550,7 +2550,7 @@ const Empty = ({ icon: Icon, title, body }) => (
 const Logo = ({ size = 26 }) => (
   <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 6, lineHeight: 1 }}>
     <div style={{ width: size + 14, height: size + 14, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center",
-      background: PLATE_GRAD, boxShadow: "0 2px 14px rgba(255,255,255,.15)" }}>
+      background: PLATE_GRAD, boxShadow: "none" }}>
       {/* Mancuerna en gris casi negro sobre placa blanco pastel — antes era
           al revés (placa negra + mancuerna blanca): a pedido explícito se
           invirtió para que "los cuadros" dejen de leerse como negros.
@@ -2583,56 +2583,37 @@ const Logo = ({ size = 26 }) => (
 // se sienten vivos, no una espera vacía. La salida (cuando `exiting` se
 // activa desde App) es un fundido + leve zoom hacia adelante de .7s — nunca
 // un corte abrupto. Respeta prefers-reduced-motion (regla global).
+/* Splash del sistema: la placa con la mancuerna, el nombre letra por letra
+   y el spinner. Nada más. Los anillos de impacto, el halo que respiraba y
+   el destello radial eran efectos pensados sobre negro — sobre el gris de
+   sistema se veían como manchas grises, que es justo lo que el diseño
+   evita. La referencia tampoco los tiene. */
 const SplashScreen = ({ exiting }) => (
-  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center",
-    opacity: exiting ? 0 : 1, transform: exiting ? "scale(1.06)" : "scale(1)", transition: "opacity .7s ease, transform .7s ease" }}>
+  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    opacity: exiting ? 0 : 1, transform: exiting ? "scale(1.02)" : "scale(1)",
+    transition: "opacity .45s ease, transform .45s ease" }}>
     <GlobalStyle />
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-      <div className="splashPulseLoop" style={{ position: "relative", width: 74, height: 74, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div className="splashGlow" style={{ position: "absolute", inset: -30, borderRadius: "50%",
-          background: `radial-gradient(circle, ${P.glow} 0%, rgba(255,255,255,0) 70%)` }} />
-        <div className="splashRing" style={{ position: "absolute", inset: 0, borderRadius: "50%",
-          border: `2px solid ${P.ember}`, boxShadow: `0 0 30px 6px ${P.glow}` }} />
-        <div className="splashRing2" style={{ position: "absolute", inset: 0, borderRadius: "50%",
-          border: `2px solid ${P.ember2}`, boxShadow: `0 0 20px 4px ${P.glow}` }} />
-        <div className="splashFlash" style={{ position: "absolute", inset: -14, borderRadius: "50%",
-          background: "radial-gradient(circle, #FFFFFF 0%, rgba(255,255,255,0) 70%)" }} />
-        {/* Placa "blanco pastel" con la mancuerna en gris casi negro — antes
-            era al revés (plato negro + barras blancas): a pedido explícito
-            se invirtió para que "los cuadros" dejen de leerse como negros.
-            Coincide con el resto de las placas de ícono de la app (Logo,
-            avatar, CTA…) y con el favicon/íconos PWA. */}
-        <div className="splashIcon" style={{ width: 74, height: 74, borderRadius: 18, display: "flex", alignItems: "center", justifyContent: "center",
-          background: PLATE_GRAD, boxShadow: "0 8px 30px rgba(255,255,255,.2)" }}>
-          <svg viewBox="0 0 24 24" width={40} height={40} aria-hidden="true">
-            <defs>
-              <linearGradient id="splashBarGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#3A3733" />
-                <stop offset="100%" stopColor={PLATE_FG} />
-              </linearGradient>
-            </defs>
-            <g fill="url(#splashBarGrad)">
-              <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
-              <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
-              <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
-              <rect x="16.5" y="6.6" width="2.5" height="10.8" rx="0.9" />
-              <rect x="19.5" y="8.2" width="2" height="7.6" rx="0.7" />
-            </g>
-          </svg>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
+      <div className="splashIcon" style={{ width: 78, height: 78, borderRadius: 20,
+        display: "flex", alignItems: "center", justifyContent: "center", background: PLATE_GRAD }}>
+        <svg viewBox="0 0 24 24" width={42} height={42} aria-hidden="true" fill={PLATE_FG}>
+          <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
+          <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
+          <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
+          <rect x="16.5" y="6.6" width="2.5" height="10.8" rx="0.9" />
+          <rect x="19.5" y="8.2" width="2" height="7.6" rx="0.7" />
+        </svg>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
+        <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: ".18em", color: P.text, paddingLeft: ".18em" }}>
+          {BRAND.name.split("").map((ch, i) => (
+            <span key={i} className="splashLetter" style={{ animationDelay: `${0.25 + i * 0.06}s` }}>{ch}</span>
+          ))}
         </div>
+        <div className="splashTag mono" style={{ letterSpacing: ".12em" }}>{BRAND.tagline}</div>
       </div>
-      <div className="disp" style={{ fontSize: 34, fontWeight: 800, letterSpacing: ".22em", color: P.text }}>
-        {BRAND.name.split("").map((ch, i) => (
-          <span key={i} className="splashLetter" style={{ animationDelay: `${0.95 + i * 0.08}s` }}>{ch}</span>
-        ))}
-      </div>
-      <div className="splashTag" style={{ fontSize: 12.5, color: P.faint, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".14em" }}>
-        {BRAND.tagline}
-      </div>
-      <div className="splashBar" style={{ width: 130, height: 3, borderRadius: 999, background: "rgba(255,255,255,.12)", overflow: "hidden", marginTop: 2 }}>
-        <div className="splashBarSweep" style={{ width: "40%", height: "100%", borderRadius: 999,
-          background: `linear-gradient(90deg, rgba(255,255,255,0), ${P.ember2}, rgba(255,255,255,0))` }} />
-      </div>
+      <Loader2 size={18} color={P.faint} className="fj-spin splashBar" style={{ marginTop: 4 }} />
     </div>
   </div>
 );
@@ -2713,7 +2694,7 @@ const GlossaryBody = ({ focusId, showTopButton }) => {
           style={{ position: "fixed", right: 16, bottom: "calc(96px + env(safe-area-inset-bottom))", zIndex: 40,
             width: 46, height: 46, borderRadius: 23, display: "flex", alignItems: "center", justifyContent: "center",
             background: PLATE_GRAD, color: PLATE_FG,
-            boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 10px 22px -8px rgba(0,0,0,.6)" }}>
+            boxShadow: "none" }}>
           <ChevronUp size={22} />
         </button>
       )}
@@ -5820,7 +5801,7 @@ const AchievementGrid = ({ history }) => {
         background: P.s1, border: `1px solid ${P.frame}`, borderRadius: 14, boxShadow: CARD_LIFT }}>
         <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
           background: PLATE_GRAD,
-          boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
+          boxShadow: "none" }}>
           <Trophy size={20} color={PLATE_FG} />
         </div>
         <div><div style={{ fontWeight: 700, fontSize: 17 }}>{earnedCount} de {list.length} logros</div>
@@ -5837,7 +5818,7 @@ const AchievementGrid = ({ history }) => {
                 boxShadow: a.earned ? CARD_LIFT : "none", opacity: a.earned ? 1 : .68 }}>
                 <div style={{ width: 44, height: 44, borderRadius: 14, margin: "0 auto 8px", display: "flex", alignItems: "center", justifyContent: "center",
                   background: a.earned ? PLATE_GRAD : P.s2,
-                  boxShadow: a.earned ? "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)" : "none" }}>
+                  boxShadow: a.earned ? CARD_LIFT : "none" }}>
                   {a.earned ? <a.Icon size={21} color={PLATE_FG} /> : <Lock size={17} color={P.faint} />}
                 </div>
                 <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25, marginBottom: 4 }}>{a.label}</div>
@@ -6159,15 +6140,10 @@ const ProgressTabMono = ({ plan, history, variant }) => {
 
   return (
     <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Progreso</div>
+      <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.022em", color: MONO.ink }}>Progreso</div>
 
-      <div style={{ display: "flex", gap: 6, background: P.s4, borderRadius: 13, padding: 4 }}>
-        {[["fuerza", "Fuerza"], ["cuerpo", "Cuerpo"], ["volumen", "Volumen"]].map(([id, l]) => (
-          <button key={id} onClick={() => setSub(id)} style={{ flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: 700,
-            background: sub === id ? "#FFFFFF" : "transparent", color: sub === id ? MONO.ink : MONO.inkDim,
-            boxShadow: sub === id ? "0 2px 6px -3px rgba(0,0,0,.3)" : "none" }}>{l}</button>
-        ))}
-      </div>
+      <SectionSwitch value={sub} onChange={setSub}
+        items={[{ id: "fuerza", label: "Fuerza" }, { id: "cuerpo", label: "Cuerpo" }, { id: "volumen", label: "Volumen" }]} />
 
       {sub === "fuerza" && (
         <>
@@ -7718,15 +7694,13 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           Mesociclos: se entra directo a las rutinas, que es a lo que el
           coach viene la mayoría de las veces. Todo eso sigue existiendo
           y vuelve al instante con el switch ForjaMode. */}
+      {/* El mismo segmentado del sistema que usa la barra de secciones —
+          antes era un control dibujado aparte, con íconos y sombra, que no
+          se parecía a ningún otro selector de la app. */}
       {!easy && (
-      <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 13, padding: 4, marginBottom: 22, boxShadow: CARD_LIFT }}>
-        {[["dias", "Días", ClipboardList], ["biblioteca", "Biblioteca", Library]].map(([id, label, Icon]) => (
-          <button key={id} onClick={() => setView(id)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 4px", borderRadius: 10, fontSize: 14.5, fontWeight: 600,
-            background: view === id ? P.s3 : "transparent", color: view === id ? P.text : P.faint, border: `1px solid ${view === id ? P.line : "transparent"}` }}>
-            <Icon size={14} /> {label}{id === "biblioteca" && (library || []).length > 0 ? ` (${library.length})` : ""}
-          </button>
-        ))}
-      </div>
+        <SectionSwitch style={{ marginBottom: 22 }} value={view} onChange={setView}
+          items={[{ id: "dias", label: "Días" },
+                  { id: "biblioteca", label: `Biblioteca${(library || []).length > 0 ? ` (${library.length})` : ""}` }]} />
       )}
 
       {!easy && view === "biblioteca" && <LibraryPanel plan={plan} history={history} library={library} onSaveLibrary={onSaveLibrary} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
@@ -7738,7 +7712,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
             background: PLATE_GRAD,
-            boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
+            boxShadow: "none" }}>
             <Sparkles size={20} color={PLATE_FG} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -7785,7 +7759,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               <span style={{ flexShrink: 0, minWidth: 36, height: 36, borderRadius: 11, padding: "0 4px",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: PLATE_GRAD,
-                boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)",
+                boxShadow: "none",
                 color: PLATE_FG, fontWeight: 800, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="disp" style={{ fontSize: 19, fontWeight: 700, textTransform: "uppercase", color: P.text, lineHeight: 1.15 }}>{g.label}</div>
@@ -8394,7 +8368,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
           <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
               background: PLATE_GRAD,
-              boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 6px 14px -6px rgba(0,0,0,.6)" }}>
+              boxShadow: "none" }}>
               <Utensils size={19} color={PLATE_FG} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -9093,7 +9067,7 @@ const DashboardTab = ({ roster, toast }) => {
    mismo propósito (avisar qué conversación necesita atención).
    ============================================================ */
 
-const DashboardTabMono = ({ roster, toast }) => {
+const DashboardTabMono = ({ roster, toast, variant }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, sessions, chat, pay }
 
@@ -9164,6 +9138,16 @@ const DashboardTabMono = ({ roster, toast }) => {
     if (st.key === "vencido" || st.key === "por_vencer") activity.push({ id: `${r.id}-pay`, name: r.name, kind: "pago", text: st.label });
   });
 
+  // Qué es "lo único que importa ahora" para el coach, en orden de urgencia:
+  // mensajes sin responder > atletas parados > el pulso de la semana.
+  const focusCard = pendCount > 0
+    ? { eyebrow: "Lo primero de hoy", title: pendCount === 1 ? "1 alumno espera respuesta" : `${pendCount} alumnos esperan respuesta`,
+        detail: "Escribieron por el chat y todavía no les contestaste.", big: String(pendCount) }
+    : stale.length > 0
+      ? { eyebrow: "Lo primero de hoy", title: stale.length === 1 ? "1 atleta sin entrenar" : `${stale.length} atletas sin entrenar`,
+          detail: stale.slice(0, 3).map((x) => x.name).join(", ") + (stale.length > 3 ? "…" : "") + " · 5+ días parados", big: String(stale.length) }
+      : { eyebrow: "Todo al día", title: "Sin pendientes", detail: `${withCheckin} de ${activeCount} atletas entrenaron esta semana.`, big: `${checkinPct}%` };
+
   const initialsOf = (name) => (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
   const todayLabel = new Date().toLocaleDateString("es-CL", { weekday: "long", day: "numeric" });
 
@@ -9179,6 +9163,34 @@ const DashboardTabMono = ({ roster, toast }) => {
         </span>
       </div>
 
+      {/* Enfoque: una sola decisión dominante, igual que el Hoy del alumno.
+          Lo que manda es lo que hoy pide acción — responder mensajes o
+          reactivar atletas parados; si no hay nada urgente, el check-in
+          de la semana. Las tres métricas quedan para el modo Panel. */}
+      {variant === "enfoque" ? (
+        <>
+          <MonoCard style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+            <MonoLabel>{focusCard.eyebrow}</MonoLabel>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-.025em", lineHeight: 1.15, color: MONO.ink }}>{focusCard.title}</div>
+                <div style={{ fontSize: 13.5, color: MONO.inkFaint, marginTop: 4 }}>{focusCard.detail}</div>
+              </div>
+              {focusCard.big && <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.03em", color: MONO.ink, lineHeight: 1 }}>{focusCard.big}</div>}
+            </div>
+          </MonoCard>
+
+          <MonoLabel>También hoy</MonoLabel>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {[["Atletas activos", String(activeCount)], ["Check-in de la semana", `${checkinPct}%`], ["Mensajes por responder", String(pendCount)]].map(([l, v]) => (
+              <MonoCard key={l} style={{ padding: "13px 15px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink }}>{l}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink }}>{v}</span>
+              </MonoCard>
+            ))}
+          </div>
+        </>
+      ) : (
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
         <MonoCard style={{ padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
           <MonoLabel>Activos</MonoLabel>
@@ -9193,8 +9205,9 @@ const DashboardTabMono = ({ roster, toast }) => {
           <div style={{ fontSize: 24, fontWeight: 700, color: MONO.ink }}>{pendCount}</div>
         </MonoCard>
       </div>
+      )}
 
-      {stale.length > 0 && (
+      {variant !== "enfoque" && stale.length > 0 && (
         <MonoCard style={{ padding: "16px 17px", display: "flex", alignItems: "center", gap: 14, border: `1.5px solid ${MONO.ink}` }}>
           <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <AlertTriangle size={16} color={MONO.ink} />
@@ -9208,8 +9221,8 @@ const DashboardTabMono = ({ roster, toast }) => {
         </MonoCard>
       )}
 
-      <MonoLabel>Actividad de hoy</MonoLabel>
-      {activity.length === 0 ? (
+      {variant !== "enfoque" && <MonoLabel>Actividad de hoy</MonoLabel>}
+      {variant === "enfoque" ? null : activity.length === 0 ? (
         <MonoCard style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: MONO.inkDim }}>Nada todavía hoy.</div></MonoCard>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -9231,7 +9244,7 @@ const DashboardTabMono = ({ roster, toast }) => {
   );
 };
 
-const DashboardTabRouter = (props) => <DashboardTabMono {...props} />;
+const DashboardTabRouter = ({ view, ...props }) => <DashboardTabMono {...props} variant={view === "panel" ? "panel" : "enfoque"} />;
 
 const CobrosTab = ({ roster, toast }) => {
   const [loading, setLoading] = useState(true);
@@ -11976,10 +11989,9 @@ const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewM
       )}
 
       <SettingGroup label="Ajustes">
-        {mode === "alumno" && (
-          <SettingRow Icon={Home} label="Vista de Hoy" hint={viewMode === "panel" ? "La semana de un vistazo" : "Una sola decisión"}
-            control={<SectionSwitch items={[{ id: "enfoque", label: "Enfoque" }, { id: "panel", label: "Panel" }]} value={viewMode} onChange={onChangeViewMode} />} />
-        )}
+        <SettingRow Icon={Home} label={mode === "coach" ? "Vista del Panel" : "Vista de Hoy"}
+          hint={viewMode === "panel" ? "Todo de un vistazo" : "Una sola decisión"}
+          control={<SectionSwitch items={[{ id: "enfoque", label: "Enfoque" }, { id: "panel", label: "Panel" }]} value={viewMode} onChange={onChangeViewMode} />} />
         <SettingRow Icon={theme === "light" ? Sun : Moon} label="Apariencia"
           hint={theme === "light" ? "Claro" : "Modo gimnasio — gris oscuro, sin negro puro"}
           control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Gimnasio" }]} value={theme} onChange={setTheme} />} />
@@ -12507,7 +12519,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, toast }) 
         title="Asistente de IA"
         style={{ position: "fixed", right: pos.right, bottom: pos.bottom, width: AI_FAB_SIZE, height: AI_FAB_SIZE, borderRadius: AI_FAB_SIZE / 2,
           zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: dragging ? "0 1px 0 rgba(255,255,255,.6) inset, 0 16px 34px -8px rgba(0,0,0,.8)" : "0 1px 0 rgba(255,255,255,.6) inset, 0 10px 26px -8px rgba(0,0,0,.7)",
+          boxShadow: dragging ? DRAG_LIFT_SHADOW : "0 6px 20px -12px rgba(0,0,0,.25)",
           transform: dragging ? "scale(1.06)" : "scale(1)",
           transition: dragging ? "none" : "transform .15s ease, box-shadow .15s ease",
           touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", cursor: "grab" }}>
@@ -12991,12 +13003,16 @@ const App = () => {
         {mode === "alumno" && tab === "progreso" && <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory} />}
         {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} />}
         {mode === "alumno" && tab === "coach" && <ChatTab sid={sid} role="alumno" />}
+        {/* Jerarquía: deshacer/rehacer son acciones corrientes (gris de
+            sistema) y "Vaciar" es la destructiva, así que va en contorno,
+            no en placa negra. Antes las tres eran placa: la acción más
+            peligrosa de la pantalla era también la más llamativa. */}
         {mode === "coach" && (sub === "rutina" || sub === "nutricion" || sub === "indicaciones" || sub === "agenda") && roleTabAccess[sub] === "edit" && (
-          <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "10px 14px 0" }}>
-            <Btn kind="ember" small onClick={undoPlan} disabled={planHistoryRef.current.past.length === 0}><Undo2 size={14} /> Deshacer</Btn>
-            <Btn kind="ember" small onClick={redoPlan} disabled={planHistoryRef.current.future.length === 0}><Redo2 size={14} /> Rehacer</Btn>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "12px 16px 0" }}>
+            <Btn kind="ghost" small onClick={undoPlan} disabled={planHistoryRef.current.past.length === 0}><Undo2 size={14} /> Deshacer</Btn>
+            <Btn kind="ghost" small onClick={redoPlan} disabled={planHistoryRef.current.future.length === 0}><Redo2 size={14} /> Rehacer</Btn>
             <div style={{ flex: 1 }} />
-            <Btn kind="ember" small onClick={() => setConfirmReset(true)}><Trash2 size={13} /> Vaciar plan</Btn>
+            <Btn kind="line" small onClick={() => setConfirmReset(true)} title="Vaciar el plan y volver a empezar"><Trash2 size={13} /> Vaciar</Btn>
           </div>
         )}
         {mode === "coach" && sub === "rutina" && (
@@ -13028,7 +13044,7 @@ const App = () => {
             <InstructionsEditor plan={plan} savePlan={savePlan} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "dashboard" && <DashboardTabRouter roster={roster} toast={toast} />}
+        {mode === "coach" && sub === "dashboard" && <DashboardTabRouter view={homeView} roster={roster} toast={toast} />}
         {mode === "coach" && sub === "actividad" && <ActivityTab plan={plan} history={history} />}
         {mode === "coach" && sub === "rankings" && (
           <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
