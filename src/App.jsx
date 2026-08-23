@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v95";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v96";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8644,6 +8644,22 @@ const RegionLabel = ({ muscle, sets, side, ax, ay, ly }) => {
 };
 const BodySilhouette = ({ view, volMap, maxSets, width = 210 }) => (
   <svg viewBox="-95 0 355 350" width={width} style={{ display: "block", overflow: "visible" }}>
+    {/* Brillo/sombra radial por zona (independiente del color de estado:
+        blanco translúcido arriba-izq → transparente → negro translúcido
+        abajo-der) para dar sensación de volumen/3D sobre el relleno plano,
+        sin depender de ningún asset externo. */}
+    <defs>
+      <radialGradient id={`bm-${view}-l`} cx="32%" cy="26%" r="85%">
+        <stop offset="0%" stopColor="#fff" stopOpacity=".38" />
+        <stop offset="35%" stopColor="#fff" stopOpacity="0" />
+        <stop offset="100%" stopColor="#000" stopOpacity=".3" />
+      </radialGradient>
+      <radialGradient id={`bm-${view}-r`} cx="68%" cy="26%" r="85%">
+        <stop offset="0%" stopColor="#fff" stopOpacity=".38" />
+        <stop offset="35%" stopColor="#fff" stopOpacity="0" />
+        <stop offset="100%" stopColor="#000" stopOpacity=".3" />
+      </radialGradient>
+    </defs>
     {/* silueta neutra de base, debajo de las zonas coloreadas */}
     <g fill={P.s2} stroke={P.line} strokeWidth={1}>
       <circle cx="80" cy="26" r="17" />
@@ -8670,7 +8686,9 @@ const BodySilhouette = ({ view, volMap, maxSets, width = 210 }) => (
       return (
         <g key={reg.muscle}>
           <path d={reg.d} {...common} />
+          <path d={reg.d} fill={`url(#bm-${view}-l)`} fillOpacity={opacity} />
           {reg.bilateral && <path d={mirrorD(reg.d)} {...common} />}
+          {reg.bilateral && <path d={mirrorD(reg.d)} fill={`url(#bm-${view}-r)`} fillOpacity={opacity} />}
           {row && row.sets > 0 && (
             <RegionLabel muscle={reg.muscle} sets={row.sets} side={reg.label.side} ax={reg.anchor.x} ay={reg.anchor.y} ly={reg.label.y} />
           )}
