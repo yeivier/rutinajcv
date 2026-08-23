@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v100";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v101";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8181,6 +8181,179 @@ const DashboardTab = ({ roster, toast }) => {
   );
 };
 
+/* ============================================================
+   Dashboard coach — modo "Nuevo" (pantalla "2e" del handoff Forja
+   Mobile). El mockup también propone bajar de 12 pestañas a 5
+   (mete Cobros/Leads/Rankings dentro de "Atletas") — esa
+   reestructuración de navegación es un cambio aparte, más grande y
+   arriesgado que una pantalla, y queda fuera de este PR: las
+   pestañas actuales del coach no se tocan. Acá se implementa el
+   panel en sí, con datos reales.
+
+   "Sin leer" del mockup no se puede calcular tal cual — no existe un
+   cursor de "leído" en el chat. Se reemplaza por "Por responder":
+   alumnos cuyo último mensaje en el chat es de ellos y todavía no
+   tiene respuesta del coach, que sí es un dato real y cumple el
+   mismo propósito (avisar qué conversación necesita atención).
+   ============================================================ */
+const DASHBOARD_MODE_KEY = "forja-dashboard-mode";
+
+const DashboardTabMono = ({ roster, toast }) => {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]); // { id, name, sessions, chat, pay }
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const out = [];
+      for (const s of roster.students) {
+        const [history, chat, pay] = await Promise.all([
+          sGet(`forja-history:${s.id}`),
+          sGet(`forja-chat:${s.id}`),
+          sGet(`forja-payments:${s.id}`),
+        ]);
+        out.push({
+          id: s.id,
+          name: s.name,
+          sessions: (history && history.sessions) || [],
+          chat: Array.isArray(chat) ? chat : [],
+          pay: pay || emptyPayments(),
+        });
+      }
+      if (!cancelled) { setRows(out); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [roster]);
+
+  if (loading) {
+    return (
+      <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px" }}>
+        <LoadingBlock label="Cargando el panel de todo el equipo…" />
+      </div>
+    );
+  }
+
+  const isToday = (dateLike) => { const d = new Date(dateLike); return !Number.isNaN(d.getTime()) && d.toDateString() === new Date().toDateString(); };
+  const daysSince = (dateLike) => { const d = new Date(dateLike); return Number.isNaN(d.getTime()) ? null : Math.round((Date.now() - d.getTime()) / 86400000); };
+
+  const activeCount = rows.length;
+  const withCheckin = rows.filter((r) => r.sessions.some((s) => { const d = daysSince(s.date); return d != null && d >= 0 && d <= 6; })).length;
+  const checkinPct = activeCount ? Math.round((100 * withCheckin) / activeCount) : 0;
+  const pendCount = rows.filter((r) => r.chat.length > 0 && r.chat[r.chat.length - 1].from === "alumno").length;
+
+  // Alumnos sin entrenar hace 5+ días (o sin ninguna sesión registrada todavía)
+  const stale = rows
+    .map((r) => {
+      const days = r.sessions.map((s) => daysSince(s.date)).filter((d) => d != null);
+      return { ...r, lastDays: days.length ? Math.min(...days) : null };
+    })
+    .filter((r) => r.lastDays === null || r.lastDays >= 5)
+    .sort((a, b) => (b.lastDays ?? 9999) - (a.lastDays ?? 9999));
+
+  // Actividad de hoy: sesiones completadas, mensajes del alumno por el chat
+  // y pagos por vencer/vencidos — las tres fuentes ya existen, esto solo
+  // las junta y las ordena por alumno.
+  const activity = [];
+  rows.forEach((r) => {
+    r.sessions.filter((s) => isToday(s.date)).forEach((s) => {
+      const hasPR = (s.prs || []).length > 0;
+      activity.push({ id: `${r.id}-s-${s.id}`, name: r.name, kind: hasPR ? "pr" : "sesion",
+        text: hasPR ? `${s.dayName || "Sesión"} completa · PR` : `${s.dayName || "Sesión"} completa` });
+    });
+    r.chat.filter((m) => m.from === "alumno" && isToday(m.ts)).forEach((m) => {
+      activity.push({ id: `${r.id}-c-${m.id}`, name: r.name, kind: "chat",
+        text: m.kind === "media" ? "Envió una foto/video por el chat" : "Escribió por el chat" });
+    });
+    const st = paymentStatus(r.pay.nextDue);
+    if (st.key === "vencido" || st.key === "por_vencer") activity.push({ id: `${r.id}-pay`, name: r.name, kind: "pago", text: st.label });
+  });
+
+  const initialsOf = (name) => (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+  const todayLabel = new Date().toLocaleDateString("es-CL", { weekday: "long", day: "numeric" });
+
+  return (
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 15 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <MonoLabel>{todayLabel}</MonoLabel>
+          <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Tus atletas</div>
+        </div>
+        <span style={{ width: 36, height: 36, borderRadius: 12, background: MONO.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <LayoutDashboard size={16} />
+        </span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
+        <MonoCard style={{ padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
+          <MonoLabel>Activos</MonoLabel>
+          <div style={{ fontSize: 24, fontWeight: 700, color: MONO.ink }}>{activeCount}</div>
+        </MonoCard>
+        <MonoCard style={{ padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
+          <MonoLabel>Check-in</MonoLabel>
+          <div style={{ fontSize: 24, fontWeight: 700, color: MONO.ink }}>{checkinPct}<span style={{ fontSize: 14 }}>%</span></div>
+        </MonoCard>
+        <MonoCard style={{ padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
+          <MonoLabel>Por responder</MonoLabel>
+          <div style={{ fontSize: 24, fontWeight: 700, color: MONO.ink }}>{pendCount}</div>
+        </MonoCard>
+      </div>
+
+      {stale.length > 0 && (
+        <MonoCard style={{ padding: "16px 17px", display: "flex", alignItems: "center", gap: 14, border: `1.5px solid ${MONO.ink}` }}>
+          <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <AlertTriangle size={16} color={MONO.ink} />
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink }}>{stale.length} atleta{stale.length !== 1 ? "s" : ""} sin entrenar hace 5+ días</div>
+            <div style={{ fontSize: 12.5, color: MONO.inkFaint, marginTop: 1, overflowWrap: "break-word" }}>
+              {stale.slice(0, 5).map((s) => (s.lastDays == null ? `${s.name} (sin sesiones)` : `${s.name} (${s.lastDays}d)`)).join(", ")}{stale.length > 5 ? "…" : ""}
+            </div>
+          </div>
+        </MonoCard>
+      )}
+
+      <MonoLabel>Actividad de hoy</MonoLabel>
+      {activity.length === 0 ? (
+        <MonoCard style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: MONO.inkDim }}>Nada todavía hoy.</div></MonoCard>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {activity.map((a) => (
+            <MonoCard key={a.id} style={{ padding: "13px 15px", display: "flex", alignItems: "center", gap: 13 }}>
+              <span style={{ width: 38, height: 38, borderRadius: 12, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#2B2B30", flexShrink: 0 }}>{initialsOf(a.name)}</span>
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink }}>{a.name}</div>
+                <div style={{ fontSize: 12.5, color: MONO.inkFaint }}>{a.text}</div>
+              </div>
+              {a.kind === "pr" && <span style={{ fontSize: 11, fontWeight: 700, color: "#FFFFFF", background: MONO.ink, borderRadius: 7, padding: "4px 7px", flexShrink: 0 }}>PR</span>}
+              {a.kind === "chat" && <span style={{ width: 9, height: 9, borderRadius: 999, background: MONO.ink, flexShrink: 0 }} />}
+              {a.kind === "pago" && <span style={{ fontSize: 12.5, fontWeight: 700, color: MONO.inkFaint, flexShrink: 0 }}>$</span>}
+            </MonoCard>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const DashboardTabRouter = (props) => {
+  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(DASHBOARD_MODE_KEY) || "clasico"; } catch { return "clasico"; } });
+  const setMode = (m) => { setVmode(m); try { localStorage.setItem(DASHBOARD_MODE_KEY, m); } catch {} };
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
+        <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
+          {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
+            <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
+              background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {vmode === "clasico" ? <DashboardTab {...props} /> : <DashboardTabMono {...props} />}
+    </div>
+  );
+};
+
 const CobrosTab = ({ roster, toast }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, pay }
@@ -11793,7 +11966,7 @@ const App = () => {
             <InstructionsEditor plan={plan} savePlan={savePlan} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && tab === "dashboard" && <DashboardTab roster={roster} toast={toast} />}
+        {mode === "coach" && tab === "dashboard" && <DashboardTabRouter roster={roster} toast={toast} />}
         {mode === "coach" && tab === "actividad" && <ActivityTab plan={plan} history={history} />}
         {mode === "coach" && tab === "rankings" && (
           <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
