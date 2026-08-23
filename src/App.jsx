@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v104";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v105";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2188,6 +2188,15 @@ const GlobalStyle = () => {
       font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; color: ${P.text}; font-variant-numeric: tabular-nums;
       line-height: 1.42; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
     .fj h1,.fj h2,.fj .disp { font-family: 'Archivo','Inter',ui-sans-serif,sans-serif; letter-spacing: -.01em; }
+    /* Pantallas del handoff "Forja Mobile": sistema visual iOS, tipografía de
+       sistema de Apple (San Francisco). Tiene que pisar tanto la Inter de .fj
+       como la Archivo de .fj .disp/h1/h2, y alcanzar también los controles de
+       formulario (que heredan). Las etiquetas monoespaciadas del diseño se
+       pintan con estilo inline (MONO.mono), que le gana a esta regla. */
+    .fj .fj-mono, .fj .fj-mono h1, .fj .fj-mono h2, .fj .fj-mono .disp,
+    .fj .fj-mono input, .fj .fj-mono textarea, .fj .fj-mono select, .fj .fj-mono button {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, 'Segoe UI', Roboto, sans-serif;
+    }
     .fj input, .fj textarea, .fj select {
       background: ${P.s3}; border: 1px solid ${P.line}; color: ${P.text};
       border-radius: 12px; font-family: inherit; font-size: 15.5px; outline: none;
@@ -2895,7 +2904,7 @@ const ChatTab = ({ sid, role, studentName }) => {
   let lastDay = null;
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "100%", display: "flex", flexDirection: "column", padding: `14px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "100%", display: "flex", flexDirection: "column", padding: `14px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 4px 14px" }}>
         <span style={{ width: 40, height: 40, borderRadius: 13, background: MONO.ink, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{initials}</span>
         <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -3293,7 +3302,7 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
             Sheet vía márgenes negativos): el padding del Sheet no es un
             número estable del que depender acá, así que un panel
             autocontenido es más robusto que intentar calzar píxeles. */}
-        <div style={{ background: MONO.bg, borderRadius: 18, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="fj-mono" style={{ background: MONO.bg, borderRadius: 18, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
           {ex.video ? (
             <button onClick={() => window.open(ex.video, "_blank")} style={{ height: 150, borderRadius: 16, background: "#E8E8EE", border: `1px solid ${MONO.line}`,
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
@@ -4785,6 +4794,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   // igual que ya se hizo en Editor de rutina.
   return (
     <div
+      className="fj-mono"
       onClickCapture={(e) => {
         if (cmtKey === null) return;
         if (e.target.closest && e.target.closest("[data-cmt]")) return;
@@ -5461,6 +5471,13 @@ const MONO = {
   bg: "#F2F2F7", surface: "#FFFFFF", ink: "#101012", inkDim: "#5A5A63", inkFaint: "#6B6B75",
   line: "#E5E5EA", lineFaint: "#EDEDF2", chipBg: "#EFEFF4", chipBorder: "#D9D9DE",
   mono: "ui-monospace,SFMono-Regular,'SF Mono',Menlo,monospace",
+  // Tipografía de sistema de Apple (San Francisco), tal cual la declara el
+  // archivo de diseño en su <style> raíz. NO es la de FORJA (Inter/Archivo):
+  // las pantallas del handoff son un sistema visual iOS y la fuente es parte
+  // del diseño, no un detalle. Se aplica vía la clase .fj-mono (más abajo en
+  // el <style> global) porque tiene que ganarle a la regla `.fj` que fija
+  // Inter en toda la app, y a `.fj h1,.fj h2,.fj .disp` que fija Archivo.
+  sans: "-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display',system-ui,'Segoe UI',Roboto,sans-serif",
 };
 const MonoLabel = ({ children }) => (
   <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".14em", textTransform: "uppercase", fontFamily: MONO.mono, color: MONO.inkFaint }}>{children}</div>
@@ -5546,7 +5563,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, booking
   );
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
 
       {variant === "panel" ? (
         <>
@@ -6101,7 +6118,7 @@ const ProgressTabMono = ({ plan, history, variant }) => {
   };
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Progreso</div>
 
       <div style={{ display: "flex", gap: 6, background: "#E8E8EE", borderRadius: 13, padding: 4 }}>
@@ -8067,7 +8084,7 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
   const topVol = vol.rows[0];
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 14 }}>
+    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <button onClick={onBack} style={{ width: 36, height: 36, borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.line}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <ChevronLeft size={17} color={MONO.ink} />
@@ -8185,7 +8202,7 @@ const RoutineTabMono = (props) => {
   }
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
+    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Rutina</div>
         <div style={{ fontSize: 13, color: MONO.inkFaint }}>Toca un día para editarlo. Crear días o rutinas nuevas sigue en el modo Clásico.</div>
@@ -9095,7 +9112,7 @@ const DashboardTabMono = ({ roster, toast }) => {
 
   if (loading) {
     return (
-      <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px" }}>
+      <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px" }}>
         <LoadingBlock label="Cargando el panel de todo el equipo…" />
       </div>
     );
@@ -9140,7 +9157,7 @@ const DashboardTabMono = ({ roster, toast }) => {
   const todayLabel = new Date().toLocaleDateString("es-CL", { weekday: "long", day: "numeric" });
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 15 }}>
+    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 15 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <MonoLabel>{todayLabel}</MonoLabel>
