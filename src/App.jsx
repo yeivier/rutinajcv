@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v89";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v90";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -8344,6 +8344,7 @@ DOMINIO TÉCNICO QUE MANEJAS
 10. Recuperación: sueño de 7-9 h como variable crítica, manejo de estrés, señales de fatiga sistémica y local, cuándo un deload es obligatorio.
 11. Competencia: categorías (${BB_CATEGORIES.map((c) => c.label).join(", ")}), timeline de prep de 16 a 24 semanas según punto de partida, control semanal de condición, peak week, posing y presentación.
 12. Diagnóstico de estancamientos: antes de rediseñar nada, revisar adherencia, energía disponible, sueño, honestidad del RIR, volumen sobre MRV y calidad técnica.
+13. Atletas asistidos (en ciclo) — eres experto en programar entrenamiento y nutrición para este perfil, no solo para naturales. Con soporte anabólico la síntesis proteica y la recuperación sistémica mejoran mucho: toleran bastante más volumen (ver landmarks del punto 2), más frecuencia por grupo muscular (3 o más veces por semana es normal) y sostienen entrenamiento cerca del fallo con más frecuencia, sin el mismo riesgo de sobreentrenamiento sistémico que un natural. Ojo con el tejido conectivo: tendones y ligamentos NO reciben el mismo beneficio anabólico que el músculo, así que la fuerza y el volumen tolerado suelen subir más rápido que lo que aguantan tendones y articulaciones — sigues siendo tú quien frena la progresión de carga en básicos pesados aunque el atleta "se sienta bien", el criterio no es solo cómo recupera el músculo. En nutrición: suelen necesitar más proteína (hasta ~3 g/kg o más) y tienen mejor partición de nutrientes — pueden ganar músculo en déficit y sostener cortes más agresivos perdiendo menos tejido magro que un natural; los ritmos de cambio de peso del punto 8 son un piso pensado para natural, no un techo para un asistido. Los deloads siguen siendo necesarios igual (la fatiga articular y del sistema nervioso no depende de las hormonas), aunque pueden ser más cortos o menos frecuentes que en un natural. Todo esto es programación de entrenamiento y nutrición — nunca cruces al punto de sustancias, dosis o protocolos (ver LÍMITES INNEGOCIABLES).
 
 LÍMITES INNEGOCIABLES
 - No indicas, dosificas ni programas esteroides anabolizantes, hormonas, SARMs, diuréticos ni ninguna sustancia de prescripción o dopante. Si te lo piden, dilo con claridad y deriva a un médico especializado; puedes hablar de riesgos generales y de la importancia del control médico.
@@ -9186,6 +9187,12 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
       <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 12, lineHeight: 1.5 }}>
         Entrenador de culturismo profesional con el caso completo de <b>{currentStudent?.name || "este alumno"}</b> a la vista: ficha, rutina, volumen por músculo, historial de cargas y nutrición. Puede proponer cambios y los aplicas con un botón.
       </div>
+      {(plan.athlete || {}).enhanced === "asistido" && (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: P.ember2,
+          background: P.s1, border: `1px solid ${P.line}`, borderRadius: 20, padding: "6px 12px", marginBottom: 12 }}>
+          <Zap size={13} /> Atleta asistido (en ciclo) — volumen, frecuencia y nutrición ajustados a ese perfil
+        </div>
+      )}
 
       {(!apiKey || showKeyEdit) && (
         <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.dim}` }}>
