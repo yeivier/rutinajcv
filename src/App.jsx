@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v84";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v85";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -4832,12 +4832,27 @@ const ExHistorySheetInline = ({ entries, onOpenImg }) => (
 /* ============================================================
    Nutrición (vista alumno)
    ============================================================ */
-const NutritionView = ({ n }) => {
-  const hasMacros = (+n.kcal || 0) > 0 || (+n.p || 0) > 0 || (+n.c || 0) > 0 || (+n.f || 0) > 0;
-  const v = macroSolve(n, n.solve || "kcal");
+const NutritionView = ({ plan, n }) => {
+  // Ciclado de carbohidratos (opcional, ver NutritionEditor): si está
+  // activado, se muestran los macros de "hoy" según si hay rutina
+  // programada (scheduledDayIdFor ya resuelve semana concreta/tipo y el
+  // cronograma general, igual que en Agenda/Hoy).
+  const cyc = !!(n.cycling && (n.train || n.rest));
+  const isTrainDay = !!scheduledDayIdFor(plan, new Date());
+  const active = cyc ? (isTrainDay ? (n.train || {}) : (n.rest || {})) : n;
+  const hasMacros = cyc
+    ? ((+active.p || 0) > 0 || (+active.c || 0) > 0 || (+active.f || 0) > 0)
+    : ((+active.kcal || 0) > 0 || (+active.p || 0) > 0 || (+active.c || 0) > 0 || (+active.f || 0) > 0);
+  const v = macroSolve(active, active.solve || "kcal");
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Nutrición</h1>
+      {cyc && (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: isTrainDay ? P.ember2 : P.blue,
+          background: P.s1, border: `1px solid ${P.line}`, borderRadius: 20, padding: "6px 12px", marginBottom: 12 }}>
+          {isTrainDay ? <Dumbbell size={13} /> : <Moon size={13} />} Hoy: día de {isTrainDay ? "entreno" : "descanso"}
+        </div>
+      )}
       {hasMacros && (
         <>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 10 }}>
@@ -6585,7 +6600,7 @@ function macroSolve(n, solve = n.solve || "kcal") {
 const SOLVE_LABEL = { kcal: "Calorías (kcal)", p: "Proteína", c: "Carbohidratos", f: "Grasa" };
 const GOAL_META = { deficit: { label: "Déficit (definición)", factor: 0.8, color: P.blue }, mant: { label: "Mantención", factor: 1, color: P.green }, bulk: { label: "Volumen (bulk)", factor: 1.1, color: P.ember } };
 
-const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
+const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
   const n = plan.nutrition;
   const mut = (fn) => { const p = structuredClone(plan); fn(p.nutrition); p.updatedAt = todayISO(); savePlan(p); };
   const solve = n.solve || "kcal";
@@ -6597,10 +6612,74 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
   };
   const setMacro = (key, val) => mut((x) => { x[key] = val === "" ? "" : (+val || 0); recalc(x); });
   const setSolve = (s) => mut((x) => { x.solve = s; recalc(x, s); });
+  // Ciclado de carbohidratos: dos juegos de macros aparte (n.train / n.rest),
+  // opcionales — un plan real ya guardado no los trae, por eso siempre se
+  // lee con `|| {}`. Acá los kcal se derivan siempre de P+C+G (como el
+  // bloque principal cuando su "automático" es kcal): más simple que
+  // repetir el selector "calcular automáticamente" dos veces más.
+  const cyc = !!n.cycling;
+  const setCycField = (which, key, val) => mut((x) => {
+    if (!x[which]) x[which] = {};
+    x[which][key] = val === "" ? "" : (+val || 0);
+  });
+  const macroMiniBlock = (which, label, color) => {
+    const m = n[which] || {};
+    const kcal = Math.round(numN(m.p) * 4 + numN(m.c) * 4 + numN(m.f) * 9);
+    const miniInput = (key, ph, lbl) => (
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 10.5, color: P.faint, marginBottom: 3, textAlign: "center" }}>{lbl}</div>
+        <Inp type="number" inputMode="numeric" placeholder={ph} value={m[key] === "" || m[key] == null ? "" : m[key]}
+          onChange={(e) => setCycField(which, key, e.target.value)} style={{ textAlign: "center" }} />
+      </div>
+    );
+    return (
+      <div style={{ marginBottom: which === "train" ? 14 : 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color, marginBottom: 6 }}>{label}</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {miniInput("p", "180", "PROT (g)")}
+          {miniInput("c", "280", "CARB (g)")}
+          {miniInput("f", "70", "GRASA (g)")}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 10.5, color: P.faint, marginBottom: 3, textAlign: "center" }}>KCAL</div>
+            <div style={{ padding: "10px 4px", textAlign: "center", fontWeight: 700, fontSize: 14, color, background: P.s3, borderRadius: 10, border: `1px solid ${P.line}` }}>{kcal || "—"}</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
   const goal = n.goal || "mant";
   const maint = numN(n.maintenance);
   const targetK = Math.round(maint * GOAL_META[goal].factor);
   const estMaint = Math.round(numN((plan.athlete || {}).weight) * 33);   // estimación rápida por peso
+
+  // Aviso de tendencia real de peso vs. lo esperado según la fase: compara
+  // el promedio de las últimas 2 semanas contra el de las 2 anteriores en
+  // history.bodyweight (ya se registra en Progreso → Cuerpo). Es solo un
+  // aviso — nunca cambia los macros solo; el coach decide si ajustar.
+  const weightTrend = (() => {
+    const bw = (history && history.bodyweight) || [];
+    if (bw.length < 2) return null;
+    const todayD = parseDate(isoDate(new Date()));
+    const daysAgo = (d) => Math.round((todayD - parseDate(d)) / 86400000);
+    const recent = bw.filter((b) => { const d = daysAgo(b.date); return d >= 0 && d <= 13; });
+    const prior = bw.filter((b) => { const d = daysAgo(b.date); return d >= 14 && d <= 27; });
+    if (!recent.length || !prior.length) return null;
+    const avg = (arr) => arr.reduce((a, b) => a + b.kg, 0) / arr.length;
+    const pctPerWeek = ((avg(recent) - avg(prior)) / avg(prior)) * 100 / 2;
+    const pct = pctPerWeek.toFixed(2);
+    if (goal === "deficit") {
+      if (pctPerWeek > -0.25) return { tone: P.red, msg: `bajando muy poco (${pct}%/sem; ideal −0,5% a −1%). Considera bajar ~100-150 kcal.` };
+      if (pctPerWeek < -1.2) return { tone: P.red, msg: `bajando muy rápido (${pct}%/sem; ideal −0,5% a −1%). Considera subir ~100-150 kcal para cuidar el músculo.` };
+      return { tone: P.green, msg: `ritmo saludable (${pct}%/semana).` };
+    }
+    if (goal === "bulk") {
+      if (pctPerWeek < 0.15) return { tone: P.red, msg: `casi sin subir (${pct}%/sem; ideal +0,25% a +0,5%). Considera subir ~100-150 kcal.` };
+      if (pctPerWeek > 0.7) return { tone: P.red, msg: `subiendo muy rápido (${pct}%/sem; ideal +0,25% a +0,5%). Considera bajar ~100-150 kcal para limitar la grasa ganada.` };
+      return { tone: P.green, msg: `ritmo saludable (${pct}%/semana).` };
+    }
+    if (Math.abs(pctPerWeek) > 0.4) return { tone: P.red, msg: `se está moviendo (${pct}%/sem) para estar en mantención — revisa las calorías.` };
+    return { tone: P.green, msg: `estable (${pct}%/semana) — coherente con mantención.` };
+  })();
   const macroInput = (label, key, ph, color) => {
     const derived = solve === key;
     return (
@@ -6708,8 +6787,38 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI }) => {
           <div style={{ fontSize: 12, color: P.faint, marginTop: 7, lineHeight: 1.4 }}>
             «Aplicar» fija las calorías objetivo y recalcula el macro marcado como automático arriba (proteína, carbohidratos o grasa) manteniendo fijos los otros dos. Cambia el macro automático en «Calcular automáticamente» si quieres ajustar otro.
           </div>
+          {weightTrend && (
+            <div style={{ marginTop: 11, padding: "10px 11px", background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <TrendingUp size={15} color={weightTrend.tone} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontSize: 13, color: P.dim, lineHeight: 1.45 }}>
+                <b style={{ color: weightTrend.tone }}>Tendencia real de peso (últimas 2 semanas vs. las 2 anteriores):</b> {weightTrend.msg}
+              </div>
+            </div>
+          )}
         </div>
         <div style={{ marginTop: 10 }}><Txt rows={2} placeholder="Notas generales del plan nutricional…" value={n.notes} onChange={(e) => mut((x) => (x.notes = e.target.value))} /></div>
+      </Card>
+
+      <Card style={{ padding: 14, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: cyc ? 14 : 0 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Ciclado de carbohidratos</div>
+            <div style={{ fontSize: 13, color: P.dim, marginTop: 3, lineHeight: 1.4 }}>Macros distintos para días de entreno y de descanso. Si hay rutina programada ese día en la Agenda, cuenta como día de entreno.</div>
+          </div>
+          <div style={{ display: "flex", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3, gap: 3, flexShrink: 0 }}>
+            {[["off", "No", false], ["on", "Sí", true]].map(([id, label, val]) => (
+              <button key={id} onClick={() => mut((x) => (x.cycling = val))} style={{ padding: "5px 9px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                background: cyc === val ? P.s3 : "transparent", color: cyc === val ? P.text : P.faint, border: `1px solid ${cyc === val ? P.line : "transparent"}` }}>{label}</button>
+            ))}
+          </div>
+        </div>
+        {cyc && (
+          <>
+            {macroMiniBlock("train", "Día de entreno", P.ember2)}
+            {macroMiniBlock("rest", "Día de descanso", P.blue)}
+            <div style={{ fontSize: 12, color: P.faint, marginTop: 10, lineHeight: 1.4 }}>Estos macros reemplazan a los de arriba mientras el ciclado esté activado. El alumno ve automáticamente los del tipo de día que le toca hoy.</div>
+          </>
+        )}
       </Card>
       {n.meals.map((m, mi) => (
         <Card key={m.id} style={{ padding: 13, marginBottom: 10 }}>
@@ -10769,7 +10878,7 @@ const App = () => {
             allowedRoutines={currentStudent && currentStudent.allowedRoutines} />
         )}
         {mode === "alumno" && tab === "progreso" && <ProgressTab plan={plan} history={history} saveHistory={saveHistory} />}
-        {mode === "alumno" && tab === "nutricion" && <NutritionView n={plan.nutrition} />}
+        {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} />}
         {mode === "coach" && (tab === "rutina" || tab === "nutricion" || tab === "indicaciones" || tab === "agenda") && roleTabAccess[tab] === "edit" && (
           <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "10px 14px 0" }}>
             <Btn kind="ember" small onClick={undoPlan} disabled={planHistoryRef.current.past.length === 0}><Undo2 size={14} /> Deshacer</Btn>
@@ -10792,7 +10901,7 @@ const App = () => {
         )}
         {mode === "coach" && tab === "nutricion" && (
           <ReadOnlyLock active={roleTabAccess.nutricion === "view"} toast={toast}>
-            <NutritionEditor plan={plan} savePlan={savePlan}
+            <NutritionEditor plan={plan} savePlan={savePlan} history={history}
               onOpenNutritionAI={() => { setTab("ia"); setAiJumpSub("nutricion"); }} />
           </ReadOnlyLock>
         )}
