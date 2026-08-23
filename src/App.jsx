@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v82";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v83";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -1863,7 +1863,14 @@ const VOL_COLORS = { bajo: P.red, mínimo: "#E8AE4D", óptimo: P.green, alto: "#
 /* ============================================================
    Átomos de interfaz
    ============================================================ */
-const GlobalStyle = () => (
+const GlobalStyle = () => {
+  // Flecha de los <select>: se recalcula en cada render leyendo P.faint,
+  // así sigue el color correcto tanto en tema oscuro como claro (P es un
+  // objeto mutable — ver Object.assign(P, t.P) en useTheme/ThemeToggle).
+  const selectChevron = encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='${P.faint}' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>`
+  );
+  return (
   <style>{`
     /* Pareja tipográfica seria/profesional: Archivo (peso alto) para
        títulos — grotesca sobria, con autoridad, sin aire "poster" — e
@@ -1975,8 +1982,20 @@ const GlobalStyle = () => (
        con la barra (que está encima en el z-index) en vez de con la tarjeta
        de abajo, y soltar ahí nunca aplica el cambio de orden. */
     body.fj-dragging [data-tabbar] { pointer-events: none; }
+    /* <select> con flecha nativa del navegador: en algunos combos (Chrome/
+       Windows sobre todo) sale gris clarito y desentona contra las casillas
+       oscuras a medida — se ve "de sistema" en vez de parte del diseño.
+       Se apaga la apariencia nativa y se dibuja una flecha propia, del
+       mismo color que el resto de los íconos secundarios de la app. */
+    .fj select {
+      appearance: none; -webkit-appearance: none; -moz-appearance: none;
+      background-image: url("data:image/svg+xml,${selectChevron}");
+      background-repeat: no-repeat; background-position: right 12px center; background-size: 10px 6px;
+      padding-right: 32px;
+    }
   `}</style>
-);
+  );
+};
 
 // `rest` deja pasar data-*, manejadores de puntero y demás: sin eso, cualquier
 // interacción que se le cuelgue a una Card se pierde en silencio.
@@ -2149,11 +2168,17 @@ const Field = ({ label, children, hint }) => (
 const Inp = (props) => <input {...props} style={{ width: "100%", padding: "10px 12px", ...props.style }} />;
 const Txt = (props) => <textarea rows={props.rows || 3} {...props} style={{ width: "100%", padding: "10px 12px", resize: "vertical", ...props.style }} />;
 
+// Antes era solo un ícono flotando sin nada detrás — se sentía como un
+// placeholder olvidado. La insignia circular le da el mismo peso visual
+// que el resto de las tarjetas de la app (mismo fondo/borde que Card).
 const Empty = ({ icon: Icon, title, body }) => (
-  <div style={{ textAlign: "center", padding: "42px 24px", color: P.faint }}>
-    <Icon size={34} style={{ marginBottom: 10, opacity: .6 }} />
-    <div style={{ fontWeight: 600, color: P.dim, marginBottom: 5 }}>{title}</div>
-    <div style={{ fontSize: 14.5, lineHeight: 1.5 }}>{body}</div>
+  <div style={{ textAlign: "center", padding: "48px 24px", color: P.faint }}>
+    <div style={{ width: 62, height: 62, borderRadius: "50%", background: P.s2, border: `1px solid ${P.line}`,
+      display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+      <Icon size={27} style={{ opacity: .75 }} />
+    </div>
+    <div style={{ fontWeight: 700, fontSize: 15.5, color: P.dim, marginBottom: 5 }}>{title}</div>
+    <div style={{ fontSize: 14.5, lineHeight: 1.5, maxWidth: 320, margin: "0 auto" }}>{body}</div>
   </div>
 );
 
