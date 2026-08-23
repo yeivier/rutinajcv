@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v107";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v108";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -215,6 +215,49 @@ const EasyModeSwitch = () => {
 // tapada. Esto ya se rompió más de una vez al ir agregando pestañas
 // nuevas; de acá en más TODA pantalla de pestaña debe usar esta constante
 // en vez de un número inventado, para que no vuelva a pasar.
+// Vista de la pantalla Hoy (Enfoque / Panel). Es una preferencia de la
+// app, no un control dentro de la pantalla: vive en la hoja "Más", junto
+// al tema y al Easy Mode.
+let HOME_VIEW = "enfoque";
+try { HOME_VIEW = window.localStorage.getItem("forja-home-view") || "enfoque"; } catch {}
+const homeViewListeners = new Set();
+function setHomeViewPref(v) {
+  HOME_VIEW = v;
+  try { window.localStorage.setItem("forja-home-view", v); } catch {}
+  homeViewListeners.forEach((fn) => fn(v));
+}
+function useHomeView() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    homeViewListeners.add(fn);
+    return () => homeViewListeners.delete(fn);
+  }, []);
+  return [HOME_VIEW, setHomeViewPref];
+}
+
+// Editor de rutina: "completo" (todas las funciones: crear días y rutinas,
+// arrastrar para reordenar, copiar/pegar) o "compacto" (la pantalla 2f del
+// handoff: una fila por ejercicio que se despliega). Es una preferencia,
+// así que vive en "Más" y no como un selector dentro de la pantalla.
+let ROUTINE_VIEW = "completo";
+try { ROUTINE_VIEW = window.localStorage.getItem("forja-routine-view") || "completo"; } catch {}
+const routineViewListeners = new Set();
+function setRoutineViewPref(v) {
+  ROUTINE_VIEW = v;
+  try { window.localStorage.setItem("forja-routine-view", v); } catch {}
+  routineViewListeners.forEach((fn) => fn(v));
+}
+function useRoutineView() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    routineViewListeners.add(fn);
+    return () => routineViewListeners.delete(fn);
+  }, []);
+  return [ROUTINE_VIEW, setRoutineViewPref];
+}
+
 const TAB_BOTTOM_PAD = "calc(92px + env(safe-area-inset-bottom))";
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
@@ -3301,7 +3344,6 @@ function exerciseHistorySummary(ex, history) {
   return { last6, pr };
 }
 
-const FICHA_MODE_KEY = "forja-ficha-mode";
 
 /* ============================================================
    Ficha de técnica: junta en una sola tarjeta lo que antes vivía repartido
@@ -3319,22 +3361,12 @@ const FICHA_MODE_KEY = "forja-ficha-mode";
    aparece y la ficha se ve exactamente igual que siempre.
    ============================================================ */
 const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, history }) => {
-  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(FICHA_MODE_KEY) || "nuevo"; } catch { return "nuevo"; } });
-  const setMode = (m) => { setVmode(m); try { localStorage.setItem(FICHA_MODE_KEY, m); } catch {} };
   if (!ex) return null;
-  if (history && vmode === "nuevo") {
+  if (history) {
     const { last6, pr } = exerciseHistorySummary(ex, history);
     const maxV = Math.max(1, ...last6.map((x) => x.best));
     return (
       <Sheet open={open} onClose={onClose} title={ex.name} tall>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-          <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
-            {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
-              <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
-                background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
-            ))}
-          </div>
-        </div>
         {/* Panel propio con borde/radio (no un "sangrado" a los bordes del
             Sheet vía márgenes negativos): el padding del Sheet no es un
             número estable del que depender acá, así que un panel
@@ -3408,16 +3440,6 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
   const tempoResult = tempo ? explainTempo(tempo, ex.name, ex.muscle) : null;
   return (
     <Sheet open={open} onClose={onClose} title={`Ficha · ${ex.name}`} tall>
-      {history && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-          <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
-            {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
-              <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
-                background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
-            ))}
-          </div>
-        </div>
-      )}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
         <span style={{ fontSize: 13, fontWeight: 700, padding: "4px 10px", borderRadius: 8, background: P.s2, border: `1px solid ${P.line}`, color: P.ember2 }}>{ex.muscle}</span>
         {(ex.secondary || []).map((s, i) => (
@@ -4490,7 +4512,6 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
    FocusMode) — es una señal visual, no un candado de orden. Ninguna
    serie queda bloqueada por no haber completado la anterior.
    ============================================================ */
-const FOCUS_MODE_VARIANT_KEY = "forja-focus-variant";
 const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onExit, onFinish, storageOK, savedAt }) => {
   const [weightUnit] = useWeightUnit();
   const pendingWrites = usePendingWrites();
@@ -4979,13 +5000,6 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   const [confirmSwitch, setConfirmSwitch] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
   const [focus, setFocus] = useState(false);              // pantalla completa de un ejercicio a la vez
-  // Qué look usa el focus mode (FocusMode clásico o FocusModeMono, la
-  // pantalla "2a" del handoff) — se elige ANTES de entrar, no adentro:
-  // una vez en pantalla completa no hay dónde poner un toggle sin
-  // estorbar. Mismo mecanismo de localStorage que el resto de los
-  // modos "Nuevo" de la app.
-  const [focusVariant, setFocusVariant] = useState(() => { try { return localStorage.getItem(FOCUS_MODE_VARIANT_KEY) || "nuevo"; } catch { return "nuevo"; } });
-  const setFocusVariantPersist = (m) => { setFocusVariant(m); try { localStorage.setItem(FOCUS_MODE_VARIANT_KEY, m); } catch {} };
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(iv); }, []);
 
@@ -5061,7 +5075,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
           <ChevronLeft size={17} /> Volver a la lista
         </button>
         <div style={{ fontSize: 12.5, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 3 }}>{routineLabel(routineOf(d), plan.routineNames)}</div>
-        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "0 0 4px" }}>{d.name}</h1>
+        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "0 0 4px" }}>{d.name}</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>{d.exs.length} ejercicios · {totalSeries} series efectivas. Aún no se ha creado sesión: revisa lo que toca y arranca cuando estés listo.</div>
         {currentMesociclo(plan) && currentMesociclo(plan).weeks.length > 1 && (
           <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 12, padding: "6px 11px", borderRadius: 9,
@@ -5118,15 +5132,6 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
               <Btn kind="ghost" onClick={() => startSession(d, true)} style={{ width: "100%", borderColor: `${P.dim}` }}>
                 <Zap size={16} color={P.ember2} /> Iniciar focus mode
               </Btn>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: P.faint }}>Look del focus mode:</span>
-                <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 9, padding: 3 }}>
-                  {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
-                    <button key={id} onClick={() => setFocusVariantPersist(id)} style={{ padding: "4px 8px", borderRadius: 6, fontSize: 11.5, fontWeight: 600,
-                      background: focusVariant === id ? P.s3 : "transparent", color: focusVariant === id ? P.text : P.faint }}>{l}</button>
-                  ))}
-                </div>
-              </div>
               <div style={{ fontSize: 12.5, color: P.faint, textAlign: "center", lineHeight: 1.4 }}>
                 Focus mode: pantalla completa, un ejercicio a la vez. Puedes cambiar de modo en cualquier momento sin perder nada.
               </div>
@@ -5144,7 +5149,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   if (listMode) {
     return (
       <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
-        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Entrenar</h1>
+        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Entrenar</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego un día para ver los ejercicios. Solo cuando aprietes «Iniciar entrenamiento» se creará la sesión y empezarán los cronómetros.</div>
         {active && (
           <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.dim}`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
@@ -5248,7 +5253,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   };
 
   if (focus && active) {
-    const FocusComp = focusVariant === "nuevo" ? FocusModeMono : FocusMode;
+    const FocusComp = FocusModeMono;
     return (
       <>
         <FocusComp active={active} history={history} patch={patch} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
@@ -5736,24 +5741,10 @@ const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, booking
 // Envoltorio que decide qué versión de "Hoy" mostrar. Guarda la elección
 // en este dispositivo (como el tema claro/oscuro) — cambiar de modo acá
 // no afecta a otros alumnos ni al coach.
-const HOY_MODE_KEY = "forja-hoy-mode";
-const TodayTabRouter = (props) => {
-  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(HOY_MODE_KEY) || "enfoque"; } catch { return "enfoque"; } });
-  const setMode = (m) => { setVmode(m); try { localStorage.setItem(HOY_MODE_KEY, m); } catch {} };
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
-        <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
-          {[["clasico", "Clásico"], ["enfoque", "Enfoque"], ["panel", "Panel"]].map(([id, l]) => (
-            <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
-              background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
-          ))}
-        </div>
-      </div>
-      {vmode === "clasico" ? <TodayTab {...props} /> : <TodayTabMono {...props} variant={vmode} />}
-    </div>
-  );
-};
+// La pantalla Hoy ya no lleva su propio selector: la vista (Enfoque /
+// Panel) es una preferencia de la app y se cambia desde "Más". El diseño
+// no pone controles de configuración dentro del contenido.
+const TodayTabRouter = ({ view, ...props }) => <TodayTabMono {...props} variant={view === "panel" ? "panel" : "enfoque"} />;
 
 /* ============================================================
    Progreso: sesiones, por ejercicio, cuerpo
@@ -5933,7 +5924,7 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
 
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Progreso</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 12px" }}>Progreso</h1>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
         {subBtn("ex", "Ejercicios")}{subBtn("ses", "Sesiones")}{subBtn("vol", "Volumen")}{subBtn("body", "Cuerpo")}{subBtn("logros", "Logros")}
       </div>
@@ -6264,24 +6255,7 @@ const ProgressTabMono = ({ plan, history, variant }) => {
 // A diferencia de Hoy, este mockup no propone dos variantes — un solo
 // diseño nuevo (Fuerza/Cuerpo/Volumen) — así que el selector acá es
 // binario: Clásico o Nuevo.
-const PROGRESS_MODE_KEY = "forja-progreso-mode";
-const ProgressTabRouter = (props) => {
-  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(PROGRESS_MODE_KEY) || "nuevo"; } catch { return "nuevo"; } });
-  const setMode = (m) => { setVmode(m); try { localStorage.setItem(PROGRESS_MODE_KEY, m); } catch {} };
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
-        <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
-          {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
-            <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
-              background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
-          ))}
-        </div>
-      </div>
-      {vmode === "clasico" ? <ProgressTab {...props} /> : <ProgressTabMono {...props} />}
-    </div>
-  );
-};
+const ProgressTabRouter = (props) => <ProgressTabMono {...props} />;
 
 // Versión inline (no sheet) del historial por ejercicio, reutilizada en Progreso y Actividad
 const ExHistorySheetInline = ({ entries, onOpenImg }) => (
@@ -6328,7 +6302,7 @@ const NutritionView = ({ plan, n }) => {
   const v = macroSolve(active, active.solve || "kcal");
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Nutrición</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 12px" }}>Nutrición</h1>
       {cyc && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: isTrainDay ? P.ember2 : P.blue,
           background: P.s1, border: `1px solid ${P.line}`, borderRadius: 20, padding: "6px 12px", marginBottom: 12 }}>
@@ -7727,7 +7701,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     // los botones finales ("Nueva rutina"/"Añadir día") no queden pegados
     // contra la barra — con solo TAB_BOTTOM_PAD respiran, pero muy justo.
     <div style={{ padding: `18px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
-      <h1 style={{ fontSize: 28, textTransform: "uppercase", margin: "4px 0 6px" }}>Rutina</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 6px" }}>Rutina</h1>
       <div style={{ color: P.dim, fontSize: easy ? 17 : 15.5, marginBottom: 8, lineHeight: 1.5 }}>
         {easy
           ? "Aquí armas el entrenamiento. Toca una rutina para abrirla y ver sus días."
@@ -8120,7 +8094,6 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
    re-temizarlo a blanco/negro, para no arriesgar su legibilidad
    reescribiendo estilos de un formulario con 13 tipos de serie.
    ============================================================ */
-const ROUTINE_MODE_KEY = "forja-routine-mode";
 
 const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBack }) => {
   const [editEx, setEditEx] = useState(null); // { ex }
@@ -8291,21 +8264,8 @@ const RoutineTabMono = (props) => {
 };
 
 const RoutineTabRouter = (props) => {
-  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(ROUTINE_MODE_KEY) || "nuevo"; } catch { return "nuevo"; } });
-  const setMode = (m) => { setVmode(m); try { localStorage.setItem(ROUTINE_MODE_KEY, m); } catch {} };
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
-        <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
-          {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
-            <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
-              background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
-          ))}
-        </div>
-      </div>
-      {vmode === "clasico" ? <RoutineTab {...props} /> : <RoutineTabMono {...props} />}
-    </div>
-  );
+  const [view] = useRoutineView();
+  return view === "compacto" ? <RoutineTabMono {...props} /> : <RoutineTab {...props} />;
 };
 
 /* ============================================================
@@ -8428,7 +8388,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
   };
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 12px" }}>Nutrición</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 12px" }}>Nutrición</h1>
       {onOpenNutritionAI && (
         <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.s4}, ${P.s1} 55%)`, borderColor: `${P.faint}` }}>
           <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -8582,7 +8542,7 @@ const InstructionsEditor = ({ plan, savePlan }) => {
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Indicaciones</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Indicaciones</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Instrucciones generales del plan (cardio, pasos, sueño, suplementos…). El alumno las ve en su inicio.</div>
       {plan.instructions.map((it, i) => (
         <Card key={it.id} style={{ padding: 13, marginBottom: 10 }}>
@@ -8619,7 +8579,7 @@ const ActivityTab = ({ plan, history }) => {
 
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Actividad del alumno</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Actividad del alumno</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>{history.sessions.length} sesiones registradas{commented ? ` · ${commented} con comentarios` : ""}. Revisa pesos, RIR, notas y fotos de cada entrenamiento.</div>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
         {[["ses", "Por sesión"], ["ex", "Por ejercicio"]].map(([id, l]) => (
@@ -8789,7 +8749,7 @@ const RankingsTab = ({ roster, toast }) => {
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Trophy size={22} color={P.ember} />
-        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Rankings</h1>
+        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Rankings</h1>
       </div>
       <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 16, lineHeight: 1.45 }}>
         Compara a tus alumnos por distintos criterios. Las calorías son una estimación (duración × peso corporal) — FORJA no mide gasto real.
@@ -9018,7 +8978,7 @@ const DashboardTab = ({ roster, toast }) => {
   const header = (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
       <LayoutDashboard size={22} color={P.ember} />
-      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Dashboard</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Dashboard</h1>
     </div>
   );
 
@@ -9132,7 +9092,6 @@ const DashboardTab = ({ roster, toast }) => {
    tiene respuesta del coach, que sí es un dato real y cumple el
    mismo propósito (avisar qué conversación necesita atención).
    ============================================================ */
-const DASHBOARD_MODE_KEY = "forja-dashboard-mode";
 
 const DashboardTabMono = ({ roster, toast }) => {
   const [loading, setLoading] = useState(true);
@@ -9272,23 +9231,7 @@ const DashboardTabMono = ({ roster, toast }) => {
   );
 };
 
-const DashboardTabRouter = (props) => {
-  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(DASHBOARD_MODE_KEY) || "nuevo"; } catch { return "nuevo"; } });
-  const setMode = (m) => { setVmode(m); try { localStorage.setItem(DASHBOARD_MODE_KEY, m); } catch {} };
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
-        <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
-          {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
-            <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
-              background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
-          ))}
-        </div>
-      </div>
-      {vmode === "clasico" ? <DashboardTab {...props} /> : <DashboardTabMono {...props} />}
-    </div>
-  );
-};
+const DashboardTabRouter = (props) => <DashboardTabMono {...props} />;
 
 const CobrosTab = ({ roster, toast }) => {
   const [loading, setLoading] = useState(true);
@@ -9343,7 +9286,7 @@ const CobrosTab = ({ roster, toast }) => {
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Wallet size={22} color={P.ember} />
-        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Cobros</h1>
+        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Cobros</h1>
       </div>
       <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 16, lineHeight: 1.45 }}>
         Define el pack de cada alumno, registra los pagos y mirá quién está al día de un vistazo. Es un registro manual — no cobra automáticamente por vos.
@@ -9523,7 +9466,7 @@ const LeadsTab = ({ onCreateStudent, onManageStudent, toast }) => {
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Zap size={22} color={P.ember} />
-        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Adquisición</h1>
+        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Adquisición</h1>
       </div>
       <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 14, lineHeight: 1.45 }}>
         Embudo de prospectos hasta convertirse en alumno. Hoy se cargan a mano — cuando conectes campañas reales de Meta/Google/YouTube Ads, van a caer acá solas.
@@ -9836,7 +9779,7 @@ REGLAS:
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Sparkles size={22} color={P.ember} />
-        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>IA Nutrición</h1>
+        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>IA Nutrición</h1>
       </div>
       <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 12, lineHeight: 1.5 }}>
         Chat con Claude (Anthropic) para diseñar y ajustar planes nutricionales del alumno. La IA ya conoce el plan actual y los datos que has cargado.
@@ -10966,7 +10909,7 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Flame size={22} color={P.ember} />
-        <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0" }}>Coach IA</h1>
+        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Coach IA</h1>
       </div>
       <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 12, lineHeight: 1.5 }}>
         Entrenador de culturismo profesional con el caso completo de <b>{currentStudent?.name || "este alumno"}</b> a la vista: ficha, rutina, volumen por músculo, historial de cargas y nutrición. Puede proponer cambios y los aplicas con un botón.
@@ -11342,7 +11285,7 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
 
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 8px" }}>Agenda</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 8px" }}>Agenda</h1>
 
       <EventReminderBanner events={plan.events} />
 
@@ -11591,7 +11534,7 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
 
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Agenda</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Agenda</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Toca cualquier día del calendario para ver qué entrena tu alumno, reservar sesiones y agregar recordatorios. Abajo configuras qué rutina toca cada día de la semana.</div>
 
       <EventReminderBanner events={plan.events} />
@@ -11857,7 +11800,7 @@ const TimerTab = () => {
   const [sub, setSub] = useState("interval");
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Timer</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Timer</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Cronómetro, temporizador e intervalos de trabajo/descanso. Suena y vibra en cada cambio.</div>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 18 }}>
         {[["interval", "Intervalos"], ["count", "Temporizador"], ["stop", "Cronómetro"]].map(([id, l]) => (
@@ -11927,7 +11870,7 @@ const AtlasTab = () => (
   <div style={{ padding: "16px 12px 6px" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
       <Library size={21} color={P.ember} />
-      <h1 style={{ fontSize: 24, textTransform: "uppercase", margin: "4px 0" }}>Atlas</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Atlas</h1>
     </div>
     <div style={{ color: P.dim, fontSize: 14, marginBottom: 10, lineHeight: 1.4 }}>
       Enciclopedia profesional de fuerza e hipertrofia + guía definitiva de ejercicios: 248 conceptos, 83 ejercicios y 22 fuentes científicas.
@@ -12010,44 +11953,193 @@ const ReadOnlyLock = ({ active, toast, children }) => (
   </div>
 );
 
+/* Hoja "Más": lo que salió de la barra de pestañas. Herramientas de
+   referencia, gestión (alumnos/equipo) y los ajustes de apariencia —
+   agrupados en filas de sistema, como los Ajustes de iOS. */
+const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewMode, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode }) => {
+  const [theme, setTheme] = useTheme();
+  const [easy, setEasy] = useEasyMode();
+  return (
+    <Sheet open={open} onClose={onClose} title="Más" tall>
+      <SettingGroup label="Herramientas">
+        <SettingRow Icon={Timer} label="Temporizador" hint="Intervalos, cuenta regresiva y cronómetro" onClick={() => onOpenUtility("timer")} />
+        <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} />
+        <SettingRow Icon={Library} label="Atlas de ejercicios" hint="Ficha, técnica y músculos de cada ejercicio" onClick={() => onOpenUtility("atlas")} last={mode === "coach"} />
+        {mode === "alumno" && <SettingRow Icon={Calendar} label="Agenda" hint="Tu semana y tus turnos reservados" onClick={() => onOpenUtility("agenda")} last />}
+      </SettingGroup>
+
+      {mode === "coach" && (
+        <SettingGroup label="Rutinas">
+          <SettingRow Icon={ClipboardList} label="Editor de rutina"
+            hint={routineView === "compacto" ? "Una fila por ejercicio, se despliega al tocar" : "Todas las funciones: crear, arrastrar, copiar y pegar"} last
+            control={<SectionSwitch items={[{ id: "completo", label: "Completo" }, { id: "compacto", label: "Compacto" }]} value={routineView} onChange={onChangeRoutineView} />} />
+        </SettingGroup>
+      )}
+
+      {mode === "coach" && (
+        <SettingGroup label="Gestión">
+          <SettingRow Icon={Users} label="Alumnos" hint="Elegir, agregar o renombrar" onClick={onOpenRoster} last={!canManageTeam} />
+          {canManageTeam && <SettingRow Icon={Award} label="Equipo" hint="Coaches, nutricionistas y sus permisos" onClick={onOpenTeam} last />}
+        </SettingGroup>
+      )}
+
+      <SettingGroup label="Ajustes">
+        <SettingRow Icon={Users} label="Modo" hint={mode === "coach" ? "Estás viendo la app como coach" : "Estás viendo la app como alumno"}
+          control={<SectionSwitch items={[{ id: "alumno", label: "Alumno" }, { id: "coach", label: "Coach" }]} value={mode} onChange={onSwitchMode} />} />
+        {mode === "alumno" && (
+          <SettingRow Icon={Home} label="Vista de Hoy" hint={viewMode === "panel" ? "La semana de un vistazo" : "Una sola decisión"}
+            control={<SectionSwitch items={[{ id: "enfoque", label: "Enfoque" }, { id: "panel", label: "Panel" }]} value={viewMode} onChange={onChangeViewMode} />} />
+        )}
+        <SettingRow Icon={theme === "light" ? Sun : Moon} label="Apariencia"
+          hint={theme === "light" ? "Claro" : "Modo gimnasio — gris oscuro, sin negro puro"}
+          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Gimnasio" }]} value={theme} onChange={setTheme} />} />
+        <SettingRow Icon={Sparkles} label="Interfaz" hint={easy ? "Solo lo esencial" : "Todos los campos"} last
+          control={<SectionSwitch items={[{ id: "full", label: "Completa" }, { id: "easy", label: "Easy Mode" }]} value={easy ? "easy" : "full"} onChange={(v) => setEasy(v === "easy")} />} />
+      </SettingGroup>
+    </Sheet>
+  );
+};
+
+/* Doce pestañas bajan a cinco. Cobros, Leads y Rankings entran dentro de
+   "Atletas"; Nutrición e IA dentro de "Rutinas". Cada pestaña de coach
+   declara sus `sections`: si tiene más de una (y el rol da acceso), la
+   pantalla muestra un segmentado arriba para moverse entre ellas. Las
+   herramientas de referencia (Temporizador, Guía, Atlas y, para el alumno,
+   Agenda) salen de la barra y viven en la hoja "Más". */
 const TABS = {
   alumno: [
     { id: "hoy", label: "Hoy", Icon: Home },
-    { id: "agenda", label: "Agenda", Icon: Calendar },
     { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
     { id: "progreso", label: "Progreso", Icon: TrendingUp },
-    { id: "nutricion", label: "Nutric.", Icon: Utensils },
-    { id: "chat", label: "Chat", Icon: MessageSquare },
-    { id: "timer", label: "Timer", Icon: Timer },
-    { id: "guia", label: "Guía", Icon: BookOpen },
-    { id: "atlas", label: "Atlas", Icon: Library },
+    { id: "nutricion", label: "Comida", Icon: Utensils },
+    { id: "coach", label: "Coach", Icon: MessageSquare },
   ],
   coach: [
-    { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
-    { id: "rutina", label: "Rutina", Icon: ClipboardList },
-    { id: "agenda", label: "Agenda", Icon: Calendar },
-    { id: "nutricion", label: "Nutric.", Icon: Utensils },
-    { id: "ia", label: "IA", Icon: Sparkles },
-    { id: "indicaciones", label: "Indicac.", Icon: StickyNote },
-    { id: "actividad", label: "Activ.", Icon: Users },
-    { id: "rankings", label: "Rankings", Icon: Trophy },
-    { id: "cobros", label: "Cobros", Icon: Wallet },
-    { id: "leads", label: "Leads", Icon: Zap },
-    { id: "chat", label: "Chat", Icon: MessageSquare },
-    { id: "timer", label: "Timer", Icon: Timer },
-    { id: "guia", label: "Guía", Icon: BookOpen },
-    { id: "atlas", label: "Atlas", Icon: Library },
+    { id: "dashboard", label: "Panel", Icon: LayoutDashboard, sections: ["dashboard"] },
+    { id: "atletas", label: "Atletas", Icon: Users, sections: ["actividad", "rankings", "cobros", "leads"] },
+    { id: "rutina", label: "Rutinas", Icon: ClipboardList, sections: ["rutina", "nutricion", "ia"] },
+    { id: "indicaciones", label: "Mensajes", Icon: MessageSquare, sections: ["chat", "indicaciones"] },
+    { id: "agenda", label: "Agenda", Icon: Calendar, sections: ["agenda"] },
   ],
 };
+const SECTION_LABELS = {
+  chat: "Chat", indicaciones: "Indicaciones",
+  actividad: "Actividad", rankings: "Rankings", cobros: "Cobros", leads: "Leads",
+  rutina: "Rutina", nutricion: "Nutrición", ia: "IA",
+};
+const UTILITY_SCREENS = {
+  timer: { label: "Temporizador", Icon: Timer },
+  guia:  { label: "Guía de términos", Icon: BookOpen },
+  atlas: { label: "Atlas de ejercicios", Icon: Library },
+  agenda: { label: "Agenda", Icon: Calendar },
+};
 
-// Easy Mode deja solo lo imprescindible en la barra inferior: de 12
-// pestañas (coach) y 8 (alumno) a 4 — así no hay que scrollear la barra
-// ni decidir entre once secciones para hacer lo de siempre. Todo lo
-// demás sigue existiendo: vuelve al toque con el switch ForjaMode.
-const EASY_TAB_IDS = { coach: ["rutina", "agenda", "nutricion", "ia"], alumno: ["hoy", "entrenar", "progreso", "nutricion"] };
-// Etiquetas más largas y en palabras completas (en Easy Mode entran, son
-// solo cuatro): "Nutric." abreviado no se entiende de un vistazo.
-const EASY_TAB_LABELS = { rutina: "Rutina", agenda: "Agenda", nutricion: "Comida", ia: "Ayuda IA", hoy: "Hoy", entrenar: "Entrenar", progreso: "Progreso" };
+// Easy Mode deja solo lo imprescindible en la barra inferior. Todo lo
+// demás sigue existiendo: vuelve al toque con el switch de Interfaz.
+const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion"] };
+const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Comida", hoy: "Hoy", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas" };
+
+/* ============================================================
+   Componentes de sistema (portados de la implementación de
+   referencia): el segmentado, la cabecera de "push", el título
+   grande, las filas de ajustes agrupadas y la tarjeta de dato.
+   Son las piezas con las que iOS arma sus pantallas; usarlas es lo
+   que hace que la app se lea como de sistema y no como una web.
+   ============================================================ */
+// Segmentado de iOS: una pista gris con la opción activa en blanco.
+const SectionSwitch = ({ items, value, onChange, style, compact }) => {
+  if (!items || items.length < 2) return null;
+  const many = compact || items.length >= 4;
+  return (
+    <div style={{ display: "flex", gap: 4, background: P.s4, borderRadius: 13, padding: 4, ...style }}>
+      {items.map(({ id, label }) => {
+        const on = value === id;
+        return (
+          <button key={id} onClick={() => onChange(id)}
+            style={{ flex: 1, minWidth: 0, textAlign: "center", padding: many ? "9px 2px" : "9px 6px", borderRadius: 10,
+              background: on ? P.s1 : "transparent", color: on ? P.text : P.faint,
+              fontSize: many ? 12.5 : 13.5, fontWeight: on ? 700 : 600,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</button>
+        );
+      })}
+    </div>
+  );
+};
+
+// Cabecera de pantalla apilada: botón de volver + título, como una
+// navegación "push" de iOS.
+const PushHeader = ({ title, onBack }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px 12px" }}>
+    <button onClick={onBack} aria-label="Volver"
+      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 38, height: 38, borderRadius: 12,
+        background: P.s1, border: `1px solid ${P.line}`, color: P.text, flexShrink: 0 }}>
+      <ChevronLeft size={20} strokeWidth={2.4} />
+    </button>
+    <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-.02em", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+  </div>
+);
+
+// Título grande de iOS, con su micro-etiqueta encima.
+const ScreenTitle = ({ eyebrow, title, right, sub }) => (
+  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "6px 0 2px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+      {eyebrow && <div className="mono" style={{ letterSpacing: ".16em" }}>{eyebrow}</div>}
+      <h1 style={{ margin: 0, fontSize: 34, fontWeight: 700, letterSpacing: "-.022em", lineHeight: 1.05 }}>{title}</h1>
+      {sub && <div style={{ fontSize: 13.5, color: P.faint }}>{sub}</div>}
+    </div>
+    {right}
+  </div>
+);
+
+// Fila de ajustes: ícono en pastilla, título, pista y o bien un
+// chevron (navega) o bien un control debajo.
+const SettingRow = ({ Icon, label, hint, onClick, right, control, last }) => {
+  const head = (
+    <>
+      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 10, background: P.s3, color: P.text, flexShrink: 0 }}>
+        <Icon size={16} strokeWidth={2.2} />
+      </span>
+      <span style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{label}</span>
+        {hint && <span style={{ fontSize: 12.5, color: P.faint, overflow: "hidden", textOverflow: "ellipsis" }}>{hint}</span>}
+      </span>
+      {right !== undefined ? right : (onClick && <ChevronRight size={17} color={P.faint} strokeWidth={2.4} />)}
+    </>
+  );
+  const frame = { padding: "13px 14px", borderBottom: last ? "none" : `1px solid ${P.line}` };
+  if (control) {
+    return (
+      <div style={{ ...frame, display: "flex", flexDirection: "column", gap: 11 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 13 }}>{head}</div>
+        {control}
+      </div>
+    );
+  }
+  return <button onClick={onClick} disabled={!onClick} style={{ ...frame, display: "flex", alignItems: "center", gap: 13, width: "100%", textAlign: "left" }}>{head}</button>;
+};
+
+const SettingGroup = ({ label, children }) => (
+  <div style={{ marginBottom: 20 }}>
+    {label && <div className="mono" style={{ margin: "0 4px 8px" }}>{label}</div>}
+    <Card style={{ overflow: "hidden" }}>{children}</Card>
+  </div>
+);
+
+// Tarjeta de dato: rótulo en versalitas, número grande y, opcional,
+// una barra de progreso o una nota.
+const StatTile = ({ label, value, unit, note, bar }) => (
+  <Card style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
+    <span className="mono" style={{ letterSpacing: ".08em" }}>{label}</span>
+    <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, letterSpacing: "-.02em" }}>
+      {value}{unit && <span style={{ fontSize: 14 }}>{unit}</span>}
+    </span>
+    {bar != null ? (
+      <span style={{ display: "block", height: 5, borderRadius: 3, background: P.s4, overflow: "hidden" }}>
+        <i style={{ display: "block", width: `${Math.max(0, Math.min(100, bar))}%`, height: "100%", background: P.text }} />
+      </span>
+    ) : note ? <span style={{ fontSize: 12, color: P.faint }}>{note}</span> : null}
+  </Card>
+);
 
 const TabBar = ({ tabs, tab, setTab }) => (
   <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
@@ -12149,7 +12241,7 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
           <button onClick={() => setPickingTeam(false)} style={{ display: "flex", alignItems: "center", gap: 6, color: P.faint, fontSize: 13.5, marginBottom: 14 }}>
             <ChevronLeft size={16} /> Volver
           </button>
-          <h1 style={{ fontSize: 22, textTransform: "uppercase", margin: "0 0 4px" }}>¿Quién eres?</h1>
+          <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "0 0 4px" }}>¿Quién eres?</h1>
           <div style={{ color: P.dim, fontSize: 14, marginBottom: 16, lineHeight: 1.4 }}>Elige tu nombre del equipo — así ves solo lo que corresponde a tu rol.</div>
           <Card onClick={() => onEnterTeam(null)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer", borderColor: `${P.dim}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
@@ -12179,7 +12271,7 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
     <GlobalStyle />
     <div style={{ width: "100%", maxWidth: 420 }}>
       <div style={{ textAlign: "center", marginBottom: 22 }}><Logo size={34} /></div>
-      <h1 style={{ fontSize: 24, textTransform: "uppercase", textAlign: "center", margin: "0 0 4px" }}>¿Quién entra?</h1>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", textAlign: "center", margin: "0 0 4px" }}>¿Quién entra?</h1>
       <div style={{ color: P.dim, fontSize: 14.5, textAlign: "center", marginBottom: 20, lineHeight: 1.45 }}>
         Este dispositivo recordará tu elección. Podrás cambiarla cuando quieras desde el encabezado.
       </div>
@@ -12503,11 +12595,22 @@ const App = () => {
   const [plan, setPlan] = useState(null);
   const [history, setHistory] = useState(emptyHistory);
   const [active, setActive] = useState(null);
-  const [tab, setTab] = useState("rutina");
+  const [tab, setTab] = useState("dashboard");
   const [aiJumpSub, setAiJumpSub] = useState(null);
   const [savedAt, setSavedAt] = useState("");
   const [gloss, setGloss] = useState({ open: false, focus: null });
   const [rosterOpen, setRosterOpen] = useState(false);
+  // Sección activa dentro de cada pestaña de coach (Atletas → Actividad/
+  // Rankings/Cobros/Leads, Rutinas → Rutina/Nutrición/IA). Se guarda por
+  // pestaña para que volver a ella recuerde dónde estabas.
+  const [section, setSection] = useState({});
+  const [moreOpen, setMoreOpen] = useState(false);
+  // Pantalla de utilidad abierta desde "Más" (temporizador, guía, atlas,
+  // agenda del alumno). Se muestra por encima de la pestaña actual con una
+  // cabecera de "volver", en vez de ocupar un lugar en la barra.
+  const [utility, setUtility] = useState(null);
+  const [homeView, setHomeView] = useHomeView();
+  const [routineView, setRoutineView] = useRoutineView();
   const [confirmDel, setConfirmDel] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -12774,17 +12877,25 @@ const App = () => {
 
   const switchMode = (m) => openIdentity(m, sidRef.current, roster, myTeamId);
   const currentStudent = roster.students.find((s) => s.id === sid);
+  // Una pestaña de coach se muestra si el rol tiene acceso a ALGUNA de sus
+  // secciones; dentro, solo aparecen las que ese rol puede ver.
+  const allowedSections = (t) => (t.sections || [t.id]).filter((x) => roleTabAccess[x]);
   const allTabs = mode === "coach"
-    ? TABS.coach.filter((t) => roleTabAccess[t.id])
+    ? TABS.coach.filter((t) => allowedSections(t).length > 0)
     : TABS.alumno;
   const tabs = easyMode
     ? allTabs.filter((t) => EASY_TAB_IDS[mode].includes(t.id)).map((t) => ({ ...t, label: EASY_TAB_LABELS[t.id] || t.label }))
     : allTabs;
+  const currentTabDef = tabs.find((t) => t.id === tab);
+  const tabSections = mode === "coach" && currentTabDef ? allowedSections(currentTabDef) : [];
+  const sub = tabSections.includes(section[tab]) ? section[tab] : tabSections[0];
   // Si la pestaña abierta desaparece al entrar en Easy Mode, se cae a la
   // primera disponible en vez de quedar en una pantalla sin pestaña.
   useEffect(() => {
     if (ready && tabs.length && !tabs.some((t) => t.id === tab)) setTab(tabs[0].id);
   }, [easyMode, mode, ready]);
+  // Cambiar de pestaña o de modo cierra la pantalla de utilidad abierta.
+  useEffect(() => { setUtility(null); }, [tab, mode]);
 
   if (!splashGone) {
     return <SplashScreen exiting={splashExiting} />;
@@ -12805,28 +12916,25 @@ const App = () => {
     <div className={easyMode ? "fj fj-easy" : "fj"} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto", paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", rowGap: 8, alignItems: "center", justifyContent: "space-between", gap: 8, padding: "calc(10px + env(safe-area-inset-top)) 14px 0" }}>
-          <button onClick={() => setReady(false)} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <div className="disp" style={{ width: 30, height: 30, borderRadius: 9, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2, fontSize: 16, flexShrink: 0 }}>
+        {/* Cabecera: solo identidad y un botón "Más". El tema, el Easy Mode,
+            el cambio alumno/coach, Alumnos y Equipo se mudaron a la hoja
+            "Más" — una barra superior con seis controles es justo lo que el
+            sistema del diseño evita. */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "calc(8px + env(safe-area-inset-top)) 16px 4px" }}>
+          <button onClick={() => setReady(false)} style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 11, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: PLATE_FG, fontSize: 14, flexShrink: 0 }}>
               {(currentStudent?.name || "?").slice(0, 1).toUpperCase()}
             </div>
             <div style={{ minWidth: 0, textAlign: "left" }}>
-              <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 172 }}>{currentStudent?.name || "—"}</div>
-              <div style={{ fontSize: 10.5, color: P.faint, textTransform: "uppercase", letterSpacing: ".05em", whiteSpace: "nowrap" }}>modo {mode} · cambiar · {BUILD}</div>
+              <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190 }}>{currentStudent?.name || "—"}</div>
+              <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>modo {mode} · cambiar</div>
             </div>
           </button>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <ThemeToggle />
-            {mode === "coach" && <EasyModeSwitch />}
-            {mode === "coach" && <Btn kind="ember" small onClick={() => setRosterOpen(true)}><Users size={14} /> Alumnos</Btn>}
-            {mode === "coach" && myRoleMeta.manageTeam && <Btn kind="ember" small onClick={() => setEquipoOpen(true)}><Award size={14} /> Equipo</Btn>}
-            <div style={{ display: "flex", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3, gap: 3 }}>
-              {[["alumno", "Alumno"], ["coach", "Coach"]].map(([id, l]) => (
-                <button key={id} onClick={() => switchMode(id)} style={{ padding: "5px 10px", borderRadius: 8, fontSize: 13, fontWeight: 600,
-                  background: mode === id ? P.s3 : "transparent", color: mode === id ? P.text : P.faint, border: `1px solid ${mode === id ? P.line : "transparent"}` }}>{l}</button>
-              ))}
-            </div>
-          </div>
+          <button onClick={() => setMoreOpen(true)} aria-label="Más opciones"
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
+              background: P.s1, border: `1px solid ${P.line}`, color: P.text, flexShrink: 0 }}>
+            <Layers size={18} strokeWidth={2.2} />
+          </button>
         </div>
         <StorageBanner />
 
@@ -12834,14 +12942,41 @@ const App = () => {
             y monta uno nuevo con esta key — eso dispara la animación de
             entrada (fjUp, ya usada en las hojas) en vez de un salto seco de
             un contenido a otro. */}
-        <div key={tab} className="sheetIn">
-        {mode === "alumno" && tab === "hoy" && (
-          <TodayTabRouter plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} allowedRoutines={currentStudent && currentStudent.allowedRoutines}
-            bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""} />
+        {/* Una pantalla de utilidad (abierta desde "Más") se muestra encima
+            de la pestaña actual, con cabecera de volver. */}
+        {utility && (
+          <div className="sheetIn">
+            <PushHeader title={UTILITY_SCREENS[utility].label} onBack={() => setUtility(null)} />
+            {utility === "timer" && <TimerTab />}
+            {utility === "guia" && (
+              <div style={{ padding: `0 16px ${TAB_BOTTOM_PAD}` }}>
+                <div style={{ color: P.dim, fontSize: 15, marginBottom: 10, lineHeight: 1.5 }}>
+                  Todo lo que aparece en la rutina, explicado en simple. Durante el entrenamiento también puedes tocar cualquier etiqueta (TOP, B-O, DROP…) para abrir esta guía.
+                </div>
+                <GlossaryBody showTopButton />
+              </div>
+            )}
+            {utility === "atlas" && <AtlasTab />}
+            {utility === "agenda" && (
+              <CalendarTab plan={plan} history={history} onGoTrain={() => { setUtility(null); setTab("entrenar"); }}
+                bookings={bookings.slots} sid={sid} onCancelBooking={(id) => saveBookings(bookings.slots.map((x) => (x.id === id ? { ...x, status: "cancelada" } : x)))} />
+            )}
+          </div>
         )}
-        {mode === "alumno" && tab === "agenda" && (
-          <CalendarTab plan={plan} history={history} onGoTrain={() => setTab("entrenar")}
-            bookings={bookings.slots} sid={sid} onCancelBooking={(id) => saveBookings(bookings.slots.map((s) => (s.id === id ? { ...s, status: "cancelada" } : s)))} />
+
+        {/* Segmentado de secciones: solo cuando la pestaña agrupa más de una
+            (Atletas, Rutinas). Con una sola sección no se dibuja nada. */}
+        {!utility && tabSections.length > 1 && (
+          <div style={{ padding: "6px 16px 2px" }}>
+            <SectionSwitch compact items={tabSections.map((x) => ({ id: x, label: SECTION_LABELS[x] || x }))}
+              value={sub} onChange={(v) => setSection((o) => ({ ...o, [tab]: v }))} />
+          </div>
+        )}
+
+        <div key={`${tab}-${sub || ""}`} className="sheetIn" style={{ display: utility ? "none" : undefined }}>
+        {mode === "alumno" && tab === "hoy" && (
+          <TodayTabRouter view={homeView} plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} allowedRoutines={currentStudent && currentStudent.allowedRoutines}
+            bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""} />
         )}
         {mode === "alumno" && tab === "entrenar" && (
           <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive}
@@ -12850,8 +12985,8 @@ const App = () => {
         )}
         {mode === "alumno" && tab === "progreso" && <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory} />}
         {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} />}
-        {mode === "alumno" && tab === "chat" && <ChatTab sid={sid} role="alumno" />}
-        {mode === "coach" && (tab === "rutina" || tab === "nutricion" || tab === "indicaciones" || tab === "agenda") && roleTabAccess[tab] === "edit" && (
+        {mode === "alumno" && tab === "coach" && <ChatTab sid={sid} role="alumno" />}
+        {mode === "coach" && (sub === "rutina" || sub === "nutricion" || sub === "indicaciones" || sub === "agenda") && roleTabAccess[sub] === "edit" && (
           <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "10px 14px 0" }}>
             <Btn kind="ember" small onClick={undoPlan} disabled={planHistoryRef.current.past.length === 0}><Undo2 size={14} /> Deshacer</Btn>
             <Btn kind="ember" small onClick={redoPlan} disabled={planHistoryRef.current.future.length === 0}><Redo2 size={14} /> Rehacer</Btn>
@@ -12859,68 +12994,64 @@ const App = () => {
             <Btn kind="ember" small onClick={() => setConfirmReset(true)}><Trash2 size={13} /> Vaciar plan</Btn>
           </div>
         )}
-        {mode === "coach" && tab === "rutina" && (
+        {mode === "coach" && sub === "rutina" && (
           <ReadOnlyLock active={roleTabAccess.rutina === "view"} toast={toast}>
             <RoutineTabRouter plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history}
               student={currentStudent} onUpdateStudent={(patch) => currentStudent && updateStudent(currentStudent.id, patch)}
               library={library} onSaveLibrary={saveLibrary} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && tab === "agenda" && (
+        {mode === "coach" && sub === "agenda" && (
           <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
             <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && tab === "nutricion" && (
+        {mode === "coach" && sub === "nutricion" && (
           <ReadOnlyLock active={roleTabAccess.nutricion === "view"} toast={toast}>
             <NutritionEditor plan={plan} savePlan={savePlan} history={history}
               onOpenNutritionAI={() => { setTab("ia"); setAiJumpSub("nutricion"); }} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && tab === "ia" && (
+        {mode === "coach" && sub === "ia" && (
           <ReadOnlyLock active={roleTabAccess.ia === "view"} toast={toast}>
             <AITab plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast}
               jumpSub={aiJumpSub} onJumpConsumed={() => setAiJumpSub(null)} library={library} onSaveLibrary={saveLibrary} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && tab === "indicaciones" && (
+        {mode === "coach" && sub === "indicaciones" && (
           <ReadOnlyLock active={roleTabAccess.indicaciones === "view"} toast={toast}>
             <InstructionsEditor plan={plan} savePlan={savePlan} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && tab === "dashboard" && <DashboardTabRouter roster={roster} toast={toast} />}
-        {mode === "coach" && tab === "actividad" && <ActivityTab plan={plan} history={history} />}
-        {mode === "coach" && tab === "rankings" && (
+        {mode === "coach" && sub === "dashboard" && <DashboardTabRouter roster={roster} toast={toast} />}
+        {mode === "coach" && sub === "actividad" && <ActivityTab plan={plan} history={history} />}
+        {mode === "coach" && sub === "rankings" && (
           <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
             <RankingsTab roster={roster} toast={toast} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && tab === "cobros" && (
+        {mode === "coach" && sub === "cobros" && (
           <ReadOnlyLock active={roleTabAccess.cobros === "view"} toast={toast}>
             <CobrosTab roster={roster} toast={toast} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && tab === "leads" && (
+        {mode === "coach" && sub === "leads" && (
           <ReadOnlyLock active={roleTabAccess.leads === "view"} toast={toast}>
             <LeadsTab onCreateStudent={createStudentNamed} onManageStudent={manageStudent} toast={toast} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && tab === "chat" && <ChatTab sid={sid} role="coach" studentName={currentStudent ? currentStudent.name : ""} />}
-        {tab === "timer" && <TimerTab />}
-        {tab === "guia" && (
-          <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
-            <h1 style={{ fontSize: 26, textTransform: "uppercase", margin: "4px 0 4px" }}>Guía de términos</h1>
-            <div style={{ color: P.dim, fontSize: 15, marginBottom: 6 }}>
-              Todo lo que aparece en la rutina, explicado en simple. Durante el entrenamiento también puedes tocar cualquier etiqueta (TOP, B-O, DROP…) para abrir esta guía.
-            </div>
-            <GlossaryBody showTopButton />
-          </div>
-        )}
-        {tab === "atlas" && <AtlasTab />}
+        {mode === "coach" && sub === "chat" && <ChatTab sid={sid} role="coach" studentName={currentStudent ? currentStudent.name : ""} />}
         </div>
       </div>
 
       <TabBar tabs={tabs} tab={tab} setTab={setTab} />
+      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode}
+        canManageTeam={myRoleMeta.manageTeam} viewMode={homeView} onChangeViewMode={setHomeView}
+        routineView={routineView} onChangeRoutineView={setRoutineView}
+        onOpenUtility={(id) => { setMoreOpen(false); setUtility(id); }}
+        onOpenRoster={() => { setMoreOpen(false); setRosterOpen(true); }}
+        onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
+        onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }} />
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
         onEnter={(m, id) => { setRosterOpen(false); openIdentity(m, id, roster, myTeamId); }}
         onAdd={() => addStudent(false)} onRename={renameStudent} onRemove={(s) => setConfirmDel(s)} />
