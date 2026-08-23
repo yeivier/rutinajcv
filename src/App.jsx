@@ -16,6 +16,11 @@ import {
    ============================================================ */
 
 const BUILD = "v94";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+// ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
+// — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
+// pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
+// el "bundle.js?v=NN" de index.html (mismo número, sin la "v"), o el usuario
+// se queda pegado en el bundle viejo para siempre aunque el deploy sea nuevo.
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
