@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v106";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v107";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -74,53 +74,50 @@ const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso
 // mantienen los acentos funcionales que nunca se tocaron (rojo de
 // eliminar/error, los colores de cada tipo de serie en TypeBadge, los de
 // EVENT_COLORS en la Agenda).
-const DARK_THEME = {
-  P: {
-    bg: "#000000", s1: "#141414", s2: "#1C1C1C", s3: "#242424", s4: "#2E2E2E",
-    line: "#4A4A4A", text: "#FFFFFF", dim: "#E5E5E5", faint: "#A3A3A3",
-    // Sin acento de color: en oscuro la "tinta" de lo accionable es el blanco.
-    // ember/green/red/blue se conservan como NOMBRES (los lee media app) pero
-    // todos apuntan al mismo blanco — el sistema distingue por jerarquía y
-    // forma, nunca por un color extra.
-    ember: "#FFFFFF", ember2: "#FFFFFF", green: "#FFFFFF", red: "#FFFFFF", blue: "#FFFFFF", glow: "#FFFFFF",
-    frame: "#FFFFFF",
-    bgGrad: "linear-gradient(158deg, #141414 0%, #0D0D0D 30%, #080808 54%, #030303 76%, #000000 100%)",
-  },
-  plateGrad: "#000000",
-  plateFg: "#FFFFFF",
-  plateDim: "#A3A3A3",
-  plateBorder: "#4A4A4A",
-};
-// Espejo del oscuro, mismo lenguaje blanco/negro/gris invertido — fondo
-// claro, tarjetas blancas, texto negro. Las "placas" (negras sobre fondo
-// oscuro en DARK_THEME) pasan a negras sobre fondo claro para seguir
-// teniendo el mismo contraste fuerte.
 const LIGHT_THEME = {
   P: {
-    // Sistema del diseño "Forja Mobile": grises de sistema iOS + tinta.
-    // Neutros exactos del spec: #F2F2F7 / #FFFFFF / #E5E5EA / #101012.
-    bg: "#F2F2F7", s1: "#FFFFFF", s2: "#F7F7FA", s3: "#EFEFF4", s4: "#E8E8EE",
-    line: "#E5E5EA", text: "#101012", dim: "#2B2B30", faint: "#6B6B75",
-    // Todo lo accionable es tinta #101012: botón principal, pestaña activa,
-    // serie hecha, día de hoy. Lo que requiere atención (alertas, sin leer,
-    // récords) también va en tinta — contorno, chip o punto, nunca un color
-    // extra. Por eso ember/green/red/blue son el MISMO negro: los nombres
-    // siguen porque los lee toda la app, pero ya no aportan color.
-    ember: "#101012", ember2: "#101012", green: "#101012", red: "#101012", blue: "#101012", glow: "#101012",
+    bg: "#F2F2F7", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#EFEFF4", s4: "#E8E8EE",
+    line: "#E5E5EA", text: "#101012", dim: "#2B2B30", faint: "#5A5A63",
+    // Acento = tinta. ember2 es la variante para texto chico e iconografía
+    // secundaria; en claro coincide con la tinta porque ya pasa AA de sobra.
+    ember: "#101012", ember2: "#101012", glow: "#101012",
+    // Neutros, no colores: "óptimo"/"informativo" se leen por la palabra y
+    // por la forma del indicador, no porque el bloque sea verde o azul.
+    // El rojo del sistema iOS se conserva SOLO para lo destructivo.
+    green: "#101012", blue: "#5A5A63", red: "#D70015",
+    // Borde de tarjeta: hairline, no marco. Las tarjetas se separan del
+    // fondo gris por el blanco y la línea de 1px, no por elevación.
     frame: "#E5E5EA",
+    // Fondo plano: sin degradado. Un degradado en el fondo es justo lo que
+    // hace que una app se vea "de plantilla" y no de sistema.
     bgGrad: "#F2F2F7",
   },
+  // Las "placas" (botón primario, pestaña activa, chip de estado) son tinta
+  // plena con texto blanco.
   plateGrad: "#101012",
   plateFg: "#FFFFFF",
-  plateDim: "#D9D9DE",
+  plateDim: "#A8A8B0",
   plateBorder: "#101012",
 };
+const DARK_THEME = {
+  P: {
+    bg: "#0F0F11", s1: "#18181B", s2: "#1F1F23", s3: "#27272B", s4: "#33333A",
+    line: "#35353C", text: "#FFFFFF", dim: "#E4E4E7", faint: "#A1A1AA",
+    ember: "#FFFFFF", ember2: "#FFFFFF", glow: "#FFFFFF",
+    green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
+    frame: "#35353C", bgGrad: "#0F0F11",
+  },
+  plateGrad: "#FFFFFF",
+  plateFg: "#101012",
+  plateDim: "#5A5A63",
+  plateBorder: "#FFFFFF",
+};
 
-const P = { ...DARK_THEME.P };
-let PLATE_GRAD = DARK_THEME.plateGrad;
-let PLATE_FG = DARK_THEME.plateFg;
-let PLATE_DIM = DARK_THEME.plateDim;
-let PLATE_BORDER = DARK_THEME.plateBorder;
+const P = { ...LIGHT_THEME.P };
+let PLATE_GRAD = LIGHT_THEME.plateGrad;
+let PLATE_FG = LIGHT_THEME.plateFg;
+let PLATE_DIM = LIGHT_THEME.plateDim;
+let PLATE_BORDER = LIGHT_THEME.plateBorder;
 
 let THEME_MODE = "light";
 try { THEME_MODE = window.localStorage.getItem("forja-theme") || "light"; } catch {}
@@ -223,36 +220,26 @@ const TAB_BOTTOM_PAD = "calc(92px + env(safe-area-inset-bottom))";
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
 // reconozcan de un vistazo durante el entrenamiento (el resto de la app
 // se mantiene en blanco y negro; esto es la única excepción a propósito).
+// Tinta para el chip de tipo de serie: los dos tipos "protagonistas"
+// (serie de trabajo y top set) van en tinta plena; el resto, atenuados.
+// Es la única distinción — ningún tipo lleva color propio.
+const inkTone = (strong) => (strong ? P.text : P.faint);
+const setType = (label, short, g, strong) => ({ label, short, g, strong: !!strong, get color() { return inkTone(strong); } });
 const SET_TYPES = {
-  warmup:   { label: "Calentamiento (Warm-up set)", short: "WRM", g: "warmup" },
-  normal:   { label: "Serie de trabajo (Working set)", short: "WRK", g: "efectiva" },
-  top:      { label: "Top set",      short: "TOP", g: "topset" },
-  backoff:  { label: "Back-off",     short: "B-O", g: "backoff" },
-  drop:     { label: "Drop set",     short: "DROP", g: "dropset" },
-  restpause:{ label: "Rest-pause",   short: "R-P", g: "restpause" },
-  amrap:    { label: "AMRAP",        short: "AMR", g: "amrap" },
-  cluster:  { label: "Cluster set",  short: "CLU", g: "cluster" },
-  vma:      { label: "VMA (iso final)", short: "VMA", g: "vma" },
-  midiso:   { label: "Iso media + reps", short: "ISO", g: "midiso" },
-  pfi:      { label: "Pre-fatiga iso", short: "PFI", g: "pfi" },
-  density:  { label: "Serie de densidad (Density set)", short: "DNS", g: "density" },
-  fst:      { label: "FST-7 (Fascia Stretch)", short: "FST", g: "fst" },
+  warmup:   setType("Calentamiento (Warm-up set)", "WRM", "warmup"),
+  normal:   setType("Serie de trabajo (Working set)", "WRK", "efectiva", true),
+  top:      setType("Top set", "TOP", "topset", true),
+  backoff:  setType("Back-off", "B-O", "backoff"),
+  drop:     setType("Drop set", "DROP", "dropset"),
+  restpause:setType("Rest-pause", "R-P", "restpause"),
+  amrap:    setType("AMRAP", "AMR", "amrap"),
+  cluster:  setType("Cluster set", "CLU", "cluster"),
+  vma:      setType("VMA (iso final)", "VMA", "vma"),
+  midiso:   setType("Iso media + reps", "ISO", "midiso"),
+  pfi:      setType("Pre-fatiga iso", "PFI", "pfi"),
+  density:  setType("Serie de densidad (Density set)", "DNS", "density"),
+  fst:      setType("FST-7 (Fascia Stretch)", "FST", "fst"),
 };
-
-// Los 13 tipos de serie (y los bloques superserie/triserie/gigante) se
-// resuelven TIPOGRÁFICAMENTE, no con color: el sistema es blanco y negro
-// puro y "las secciones se distinguen por jerarquía y forma, no por colores
-// distintos". Los `color:` de arriba quedan como estaban para no reescribir
-// las ~20 llamadas que los leen, pero se redefinen como getter a la tinta
-// activa (P.text) — así siguen funcionando, cambian con el tema claro/oscuro
-// y no aportan ningún color extra. La distinción la hace `short` (WRM, TOP,
-// B-O, DROP…), que es lo que el diseño usa.
-[SET_TYPES, GROUP_KINDS].forEach((table) => {
-  Object.values(table).forEach((t) => {
-    delete t.color;
-    Object.defineProperty(t, "color", { get: () => P.text, enumerable: true });
-  });
-});
 
 const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Trapecio","Otro"];
 // Equipo usado por un ejercicio de la biblioteca — sirve para filtrar la búsqueda.
@@ -274,9 +261,9 @@ const PCT_HINT = {
    Los ejercicios consecutivos con el mismo `group` se ejecutan seguidos, sin
    descanso entre ellos, y se repiten tantas veces como diga `groupRounds`. */
 const GROUP_KINDS = {
-  superset: { label: "Superserie", short: "SS", min: 2, },
-  triset:   { label: "Triserie",   short: "TRI", min: 3, },
-  giant:    { label: "Serie gigante", short: "GIG", min: 4, },
+  superset: { label: "Superserie", short: "SS", min: 2, get color() { return P.text; } },
+  triset:   { label: "Triserie",   short: "TRI", min: 3, get color() { return P.text; } },
+  giant:    { label: "Serie gigante", short: "GIG", min: 4, get color() { return P.text; } },
 };
 // Nombre según cuántos ejercicios acabaron en el grupo (2 = superserie, 3 = triserie, 4+ = gigante)
 const groupKindFor = (n) => (n >= 4 ? "giant" : n === 3 ? "triset" : "superset");
@@ -2176,14 +2163,13 @@ const GlobalStyle = () => {
   );
   return (
   <style>{`
-    /* Pareja tipográfica seria/profesional: Archivo (peso alto) para
-       títulos — grotesca sobria, con autoridad, sin aire "poster" — e
-       Inter para el cuerpo, el estándar de legibilidad y seriedad en
-       producto. Nada de condensadas ni geométricas redondeadas.
-       La hoja de la fuente ya no se carga con @import aquí: eso obligaba
-       al navegador a esperar a que React monte este componente antes de
-       siquiera empezar a pedir la fuente. Ahora se precarga desde el
-       <head> de index.html en paralelo con el bundle — ver ahí. */
+    /* Una sola familia, la del sistema: SF Pro en iPhone/Mac (que es donde
+       vive esta app), con la cadena de respaldo habitual para Android y
+       escritorio. Cero fuentes web — no hay descarga, no hay parpadeo de
+       texto sin estilo y no hay fallback raro si la red del gimnasio está
+       mal. Los títulos ya no cambian de familia: se distinguen por tamaño y
+       peso, como en las apps de sistema. SF Mono queda solo para las
+       micro-etiquetas en versalitas (.mono). */
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body { margin: 0; }
     html, body, #root { min-height: 100%; min-height: 100dvh; }
@@ -2205,21 +2191,37 @@ const GlobalStyle = () => {
     /* Realce sutil al pasar el mouse: solo para punteros finos (mouse/
        trackpad) — en touch no hay "hover" real, así que esto no toca la
        experiencia móvil en absoluto. */
+    /* brightness() aclaraba: sobre fondo blanco eso no realza nada, lo lava.
+       El realce ahora es una baja de opacidad, que funciona igual en claro
+       y en modo gimnasio. En touch, la respuesta al toque es el mismo
+       atenuado que usa iOS, no un rebote de escala. */
     @media (hover: hover) and (pointer: fine) {
-      .fj button:not(:disabled) { transition: filter .12s ease, transform .12s ease; }
-      .fj button:not(:disabled):hover { filter: brightness(1.12); }
-      .fj button:not(:disabled):active { transform: scale(.97); }
+      .fj button:not(:disabled) { transition: opacity .12s ease; }
+      .fj button:not(:disabled):hover { opacity: .72; }
     }
+    .fj button:not(:disabled):active { opacity: .55; }
     @keyframes fjSpin { to { transform: rotate(360deg); } }
     .fj-spin { animation: fjSpin .85s linear infinite; }
     .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, 'Segoe UI', Roboto, sans-serif; color: ${P.text}; font-variant-numeric: tabular-nums;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+      color: ${P.text}; font-variant-numeric: tabular-nums;
       line-height: 1.42; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-    .fj h1,.fj h2,.fj .disp { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif; letter-spacing: -.022em; }
+    /* Los títulos ya no cambian de familia — solo de tamaño, peso y
+       tracking. A partir de 22px iOS aprieta el interletrado; acá se hace
+       igual, y el peso máximo baja de 800 a 700 (SF Pro no tiene un 800
+       real y el navegador lo falsea engordando el trazo). */
+    .fj h1,.fj h2,.fj .disp { font-family: inherit; letter-spacing: -.022em; font-weight: 700; }
+    .fj h1 { font-size: 34px; line-height: 1.06; }
+    .fj b, .fj strong { font-weight: 600; }
+    /* Micro-etiquetas en versalitas (ENTRENO DE HOY, VOLUMEN, ADHERENCIA…):
+       SF Mono, 11px, tracking abierto. Es el único sitio donde se usa una
+       segunda familia, y sirve para separar "rótulo" de "contenido" sin
+       tener que meter otro color. */
+    .fj .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+      font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: ${P.faint}; }
     .fj input, .fj textarea, .fj select {
       background: ${P.s3}; border: 1px solid ${P.line}; color: ${P.text};
-      border-radius: 12px; font-family: inherit; font-size: 15.5px; outline: none;
-      box-shadow: 0 1px 3px rgba(0,0,0,.4) inset;
+      border-radius: 12px; font-family: inherit; font-size: 16px; outline: none;
     }
     .fj input:focus-visible, .fj textarea:focus-visible, .fj select:focus-visible, .fj button:focus-visible {
       outline: 2px solid ${P.ember}; outline-offset: 1px;
@@ -2241,7 +2243,7 @@ const GlobalStyle = () => {
     .fj-easy button { line-height: 1.3; }
     .fj ::-webkit-scrollbar { width: 6px; height: 6px; }
     .fj ::-webkit-scrollbar-thumb { background: ${P.line}; border-radius: 3px; }
-    @keyframes fjQuench { 0% { background-color: rgba(255,255,255,.35); } 100% { background-color: rgba(255,255,255,.10); } }
+    @keyframes fjQuench { 0% { background-color: ${P.s4}; } 100% { background-color: transparent; } } }
     .fj .quench { animation: fjQuench .9s ease forwards; }
     @keyframes fjPulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
     .fj .pulse { animation: fjPulse 1.6s ease-in-out infinite; }
@@ -2312,22 +2314,22 @@ const GlobalStyle = () => {
 // el gris de fondo casi sin relieve — la profundidad la da el contraste
 // superficie/fondo, no una sombra dura. El relieve fuerte del tema oscuro
 // original quedaría fuera de lugar sobre #F2F2F7.
-let CARD_LIFT = "0 1px 2px rgba(16,16,18,.04)";
-function refreshCardLift(mode) {
-  CARD_LIFT = mode === "light"
-    ? "0 1px 2px rgba(16,16,18,.04)"
-    : "0 1px 0 rgba(255,255,255,.07) inset, 0 14px 34px -14px rgba(0,0,0,.92), 0 0 0 1px rgba(0,0,0,.35)";
-}
-refreshCardLift(THEME_MODE);
-themeListeners.add(refreshCardLift);
+// Sin elevación: las tarjetas se separan del fondo gris por el blanco y la
+// hairline de 1px, no por sombra. Una sombra dura sobre #F2F2F7 es lo que
+// hace que una app se vea "de plantilla" en vez de de sistema.
+const CARD_LIFT = "none";
+// Radios del sistema: tarjeta / control / fila.
+const R_CARD = 16;
+const R_TILE = 14;
+const R_ROW = 12;
 // Efecto "3D" de la ficha que se está arrastrando: se agranda, se levanta
 // (translateY negativo) y una sombra profunda + anillo verde neón la separan
 // del resto, como si se despegara de la pantalla hacia el usuario. El marco
 // (DRAG_LIFT_BORDER) es aparte del anillo de sombra para que el borde real
 // de la tarjeta también cambie de color, no solo su halo.
-const DRAG_LIFT_TRANSFORM = "scale(1.08) translateY(-8px)";
-const DRAG_LIFT_SHADOW = "0 0 0 2px #FFFFFF, 0 34px 60px -16px rgba(0,0,0,.85)";
-const DRAG_LIFT_BORDER = `1px solid ${P.text}`;
+const DRAG_LIFT_TRANSFORM = "scale(1.03) translateY(-4px)";
+const DRAG_LIFT_SHADOW = "0 12px 28px -12px rgba(0,0,0,.28)";
+const DRAG_LIFT_BORDER = `1.5px solid ${P.text}`;
 // Transición usada para el desplazamiento "hueco" (translateY) de los
 // elementos vecinos durante un arrastre — ver computeShiftOffsets().
 const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
@@ -2336,8 +2338,7 @@ const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
 // de uno oscuro casi invisible, para que se sienta parte del mismo sistema
 // que las placas blanco pastel que suele contener.
 const Card = ({ children, style, onClick, ...rest }) => (
-  <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: 18,
-    boxShadow: CARD_LIFT, ...style }}>{children}</div>
+  <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_CARD, ...style }}>{children}</div>
 );
 
 // Estado de carga: reemplaza los "Cargando…" en texto plano (que se sentían
@@ -2354,18 +2355,17 @@ const LoadingBlock = ({ label = "Cargando…" }) => (
 // lleva icono se queda sin nombre accesible.
 const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...rest }) => {
   const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-    borderRadius: 13, fontWeight: 600, fontSize: small ? 13 : 16,
-    padding: small ? "7px 11px" : "13px 19px", opacity: disabled ? 0.45 : 1, transition: "filter .15s, transform .1s" };
-  // Botones del sistema del diseño: el principal es una pieza de tinta
-  // plena (#101012) con texto blanco y sin relieve; los secundarios son
-  // superficie gris de sistema o solo contorno. Ningún botón lleva color:
-  // la jerarquía es relleno > gris > contorno.
+    borderRadius: small ? 11 : R_TILE, fontWeight: 600, fontSize: small ? 13.5 : 16,
+    padding: small ? "8px 12px" : "14px 19px", opacity: disabled ? 0.35 : 1, transition: "opacity .12s" };
+  // Jerarquía por relleno, nunca por color: tinta plena > gris de sistema >
+  // contorno. El único rojo es el del sistema iOS, y solo en lo destructivo.
+  const filled = { background: P.s3, border: `1px solid ${P.line}`, color: P.text };
   const kinds = {
-    ember: { background: PLATE_GRAD, color: PLATE_FG, border: "1px solid transparent" },
-    ghost: { background: P.s3, border: `1px solid ${P.line}`, color: P.text },
+    ember: { background: PLATE_GRAD, color: PLATE_FG, border: `1px solid ${PLATE_GRAD}`, fontWeight: 700 },
+    ghost: filled,
     line:  { background: "transparent", border: `1px solid ${P.line}`, color: P.dim },
-    green: { background: P.s3, border: `1px solid ${P.line}`, color: P.text },
-    red:   { background: "transparent", border: `1.5px solid ${P.text}`, color: P.text },
+    green: filled,
+    red:   { background: "transparent", border: `1px solid ${P.red}`, color: P.red },
   };
   return <button {...rest} disabled={disabled} onClick={onClick} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
 };
@@ -2373,10 +2373,11 @@ const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...res
 const TypeBadge = ({ type, onInfo, big }) => {
   const t = SET_TYPES[type] || SET_TYPES.normal;
   return (
-    <button onClick={onInfo} title={t.label}
-      style={{ display: "inline-flex", alignItems: "center", gap: 4, background: `${t.color}22`,
-        color: t.color, border: `1px solid ${t.color}55`, borderRadius: 7, padding: big ? "4px 9px" : "3px 8px",
-        fontSize: big ? 13 : 11.5, fontWeight: 700, letterSpacing: ".05em" }}>
+    <button onClick={onInfo} title={t.label} className="mono"
+      style={{ display: "inline-flex", alignItems: "center", gap: 4,
+        background: t.strong ? PLATE_GRAD : P.s3, color: t.strong ? PLATE_FG : P.faint,
+        border: `1px solid ${t.strong ? PLATE_GRAD : P.line}`, borderRadius: 7,
+        padding: big ? "4px 9px" : "3px 8px", fontSize: big ? 12 : 10.5, letterSpacing: ".08em" }}>
       {t.short}{onInfo && <Info size={big ? 12 : 10} strokeWidth={2.5} />}
     </button>
   );
@@ -2440,16 +2441,23 @@ const TempoExplainer = ({ result, tempo }) => (
 const Sheet = ({ open, onClose, title, children, tall }) => {
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(5,3,3,.68)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
       <div className="sheetIn" onClick={(e) => e.stopPropagation()}
-        style={{ background: `${P.s1}F2`, backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)", borderTop: `1px solid ${P.line}`, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: "var(--fj-w)",
-          boxShadow: "0 1px 0 rgba(255,255,255,.06) inset, 0 -18px 40px rgba(0,0,0,.5)",
-          maxHeight: tall ? "calc(100dvh - env(safe-area-inset-top) - 8px)" : "82dvh", minHeight: "60dvh", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px", paddingTop: "max(14px, env(safe-area-inset-top))", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
-          <h2 className="disp" style={{ margin: 0, fontSize: 20, textTransform: "uppercase" }}>{title}</h2>
-          <button onClick={onClose} style={{ color: P.dim, padding: 6 }}><X size={20} /></button>
+        style={{ background: P.bg, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: "var(--fj-w)",
+          maxHeight: tall ? "calc(100dvh - env(safe-area-inset-top) - 8px)" : "82dvh", minHeight: "60dvh",
+          display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Asa de arrastre, como las hojas de sistema de iOS */}
+        <div style={{ display: "flex", justifyContent: "center", paddingTop: 8, flexShrink: 0 }}>
+          <span style={{ width: 36, height: 5, borderRadius: 3, background: P.line }} />
         </div>
-        <div style={{ overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "14px 18px calc(28px + env(safe-area-inset-bottom))", flex: 1, minHeight: 0 }}>{children}</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 18px 12px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
+          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-.02em" }}>{title}</h2>
+          <button onClick={onClose} aria-label="Cerrar"
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 15, background: P.s3, color: P.faint, flexShrink: 0 }}>
+            <X size={17} strokeWidth={2.5} />
+          </button>
+        </div>
+        <div style={{ overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 18px calc(28px + env(safe-area-inset-bottom))", flex: 1, minHeight: 0 }}>{children}</div>
       </div>
     </div>
   );
@@ -2953,7 +2961,7 @@ const ChatTab = ({ sid, role, studentName }) => {
           const showDay = dayLabel !== lastDay;
           lastDay = dayLabel;
           const bubbleBg = isAlumno ? MONO.ink : MONO.surface;
-          const bubbleColor = isAlumno ? "#F0F0F3" : "#2B2B30";
+          const bubbleColor = isAlumno ? PLATE_FG : MONO.inkDim;
           const bubbleBorder = isAlumno ? "none" : `1px solid ${MONO.line}`;
           const timeColor = isAlumno ? "#8C8C96" : MONO.inkFaint;
           return (
@@ -3348,9 +3356,9 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.15 }}>{ex.name}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#2B2B30", background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 8, padding: "5px 9px" }}>{ex.muscle}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: MONO.inkDim, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 8, padding: "5px 9px" }}>{ex.muscle}</span>
               {(ex.secondary || []).map((s, i) => (
-                <span key={i} style={{ fontSize: 12, fontWeight: 600, color: "#2B2B30", background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 8, padding: "5px 9px" }}>{s.muscle}</span>
+                <span key={i} style={{ fontSize: 12, fontWeight: 600, color: MONO.inkDim, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 8, padding: "5px 9px" }}>{s.muscle}</span>
               ))}
             </div>
           </div>
@@ -3358,7 +3366,7 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
           <MonoCard style={{ padding: "16px 17px", display: "flex", flexDirection: "column", gap: 11 }}>
             <MonoLabel>Ejecución</MonoLabel>
             {ex.notes ? (
-              <div style={{ fontSize: 14, lineHeight: 1.5, color: "#2B2B30", whiteSpace: "pre-wrap" }}>{ex.notes}</div>
+              <div style={{ fontSize: 14, lineHeight: 1.5, color: MONO.inkDim, whiteSpace: "pre-wrap" }}>{ex.notes}</div>
             ) : (
               <div style={{ fontSize: 13.5, color: MONO.inkFaint }}>Tu coach todavía no dejó indicaciones para este ejercicio.</div>
             )}
@@ -3376,7 +3384,7 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
                 <div style={{ display: "flex", alignItems: "flex-end", gap: 9, height: 74 }}>
                   {last6.map((x, i) => (
                     <span key={i} title={`${x.best} kg`} style={{ flex: 1, height: `${Math.max(8, Math.round((x.best / maxV) * 100))}%`, borderRadius: "6px 6px 3px 3px",
-                      background: i === last6.length - 1 ? MONO.ink : "#D4D4D9" }} />
+                      background: i === last6.length - 1 ? MONO.ink : P.s4 }} />
                   ))}
                 </div>
                 {pr && (
@@ -4691,7 +4699,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
             <Info size={big ? 19 : 17} />
           </button>
           <button data-keep onClick={() => setFicha(ei)} aria-label="Ver ficha técnica completa del ejercicio"
-            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: "#2B2B30", fontWeight: 600,
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: MONO.inkDim, fontWeight: 600,
               border: `1px solid ${MONO.line}`, borderRadius: 17, padding: big ? "7px 12px" : "6px 10px" }}>
             <BookOpen size={big ? 16 : 14} /> Ficha
           </button>
@@ -4711,7 +4719,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
           transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
           {noteOpen && (
             <div data-keep onClick={hideInstr} style={{ background: MONO.chipBg, border: `1px solid ${MONO.line}`, borderRadius: 11,
-              padding: "9px 11px", margin: "6px 0 2px", fontSize: 13.5, color: "#2B2B30", lineHeight: 1.45, maxHeight: 180, overflowY: "auto" }}>
+              padding: "9px 11px", margin: "6px 0 2px", fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.45, maxHeight: 180, overflowY: "auto" }}>
               {exx.notes}
             </div>
           )}
@@ -4796,7 +4804,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
             <span style={{ fontSize: 19, fontWeight: 700, color: MONO.ink }}>{bigTime(restEl)}</span>
             <span style={{ fontSize: 12.5, color: MONO.inkFaint }}>descansando{target ? ` · objetivo ${target}s` : ""}</span>
             <div style={{ flex: 1 }} />
-            <button onClick={() => toggleRest(ei, si)} style={{ fontSize: 13, color: "#2B2B30", fontWeight: 600, padding: "2px 4px" }}>parar</button>
+            <button onClick={() => toggleRest(ei, si)} style={{ fontSize: 13, color: MONO.inkDim, fontWeight: 600, padding: "2px 4px" }}>parar</button>
           </div>
         )}
 
@@ -4811,7 +4819,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
               visibility: cmtKey === ck ? "visible" : "hidden", pointerEvents: cmtKey === ck ? "auto" : "none" }} />
         </div>
         {s.comment && cmtKey !== ck && (
-          <div data-keep onClick={() => openCmt(ck)} style={{ marginTop: 7, fontSize: 13.5, color: "#2B2B30", lineHeight: 1.4,
+          <div data-keep onClick={() => openCmt(ck)} style={{ marginTop: 7, fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.4,
             background: MONO.chipBg, border: `1px solid ${MONO.line}`, borderRadius: 9, padding: "6px 9px" }}>{s.comment}</div>
         )}
       </div>
@@ -4877,7 +4885,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
               {nextPage ? pageName(nextPage) : "Este es el final de la sesión"}
             </div>
             {peek.mode === "full" && nextNotes && (
-              <div style={{ fontSize: 13.5, color: "#2B2B30", lineHeight: 1.45, marginTop: 5,
+              <div style={{ fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.45, marginTop: 5,
                 maxHeight: 108, overflowY: "auto" }}>{nextNotes}</div>
             )}
           </div>
@@ -4909,7 +4917,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
                     </span>
                     <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink }}>Ronda {page.roundIdx + 1}/{page.rounds}</span>
                   </div>
-                  <div style={{ fontSize: 12.5, color: "#2B2B30", marginTop: 4, lineHeight: 1.4 }}>
+                  <div style={{ fontSize: 12.5, color: MONO.inkDim, marginTop: 4, lineHeight: 1.4 }}>
                     Haz {page.members.map((mi) => exGroupInfo(exs, mi).posLabel).join(" → ")} seguidos, sin descanso entre ellos.
                     Descansa solo al terminar la ronda y desliza a la derecha para la siguiente.
                   </div>
@@ -4938,7 +4946,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
 
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button onClick={() => go(-1)} disabled={pageIdx === 0} style={{ flex: 1, padding: "15px 14px", borderRadius: 15,
-              background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: "#2B2B30", fontSize: 15, fontWeight: 700, opacity: pageIdx === 0 ? 0.45 : 1 }}>
+              background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.inkDim, fontSize: 15, fontWeight: 700, opacity: pageIdx === 0 ? 0.45 : 1 }}>
               <ChevronLeft size={17} style={{ verticalAlign: -3 }} /> Anterior
             </button>
             <button onClick={() => go(1)} disabled={pageIdx >= pages.length - 1} style={{ flex: 2, padding: "15px 14px", borderRadius: 15,
@@ -5499,9 +5507,20 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
    no se toca cuando cambia el tema oscuro/claro del resto de FORJA.
    Con los mismos datos reales que ya usa <TodayTab/> — nunca los
    números de ejemplo del mockup (ver charla de implementación). */
+// Los tokens que usan las 8 pantallas del handoff. Ya NO son una paleta
+// clara fija aparte: se leen del tema activo (P), que ahora ES el sistema
+// del diseño. Así esas pantallas siguen el modo claro/oscuro como el resto
+// de la app en vez de quedarse en blanco cuando se cambia a oscuro.
 const MONO = {
-  bg: "#F2F2F7", surface: "#FFFFFF", ink: "#101012", inkDim: "#5A5A63", inkFaint: "#6B6B75",
-  line: "#E5E5EA", lineFaint: "#EDEDF2", chipBg: "#EFEFF4", chipBorder: "#D9D9DE",
+  get bg() { return P.bg; },
+  get surface() { return P.s1; },
+  get ink() { return P.text; },
+  get inkDim() { return P.dim; },
+  get inkFaint() { return P.faint; },
+  get line() { return P.line; },
+  get lineFaint() { return P.line; },
+  get chipBg() { return P.s3; },
+  get chipBorder() { return P.line; },
   mono: "ui-monospace,SFMono-Regular,'SF Mono',Menlo,monospace",
   // Tipografía de sistema de Apple (San Francisco), tal cual la declara el
   // archivo de diseño en su <style> raíz. Ya no hace falta forzarla acá: el
@@ -6151,7 +6170,7 @@ const ProgressTabMono = ({ plan, history, variant }) => {
     <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Progreso</div>
 
-      <div style={{ display: "flex", gap: 6, background: "#E8E8EE", borderRadius: 13, padding: 4 }}>
+      <div style={{ display: "flex", gap: 6, background: P.s4, borderRadius: 13, padding: 4 }}>
         {[["fuerza", "Fuerza"], ["cuerpo", "Cuerpo"], ["volumen", "Volumen"]].map(([id, l]) => (
           <button key={id} onClick={() => setSub(id)} style={{ flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: 700,
             background: sub === id ? "#FFFFFF" : "transparent", color: sub === id ? MONO.ink : MONO.inkDim,
@@ -8146,7 +8165,7 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
               {gr.first && gr.kind && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "0 2px", flexWrap: "wrap" }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: "#FFFFFF", background: MONO.ink, borderRadius: 7, padding: "4px 8px" }}>{GROUP_KINDS[gr.kind].short}</span>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "#2B2B30" }}>{GROUP_KINDS[gr.kind].label} · {gr.size} ejercicios</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: MONO.inkDim }}>{GROUP_KINDS[gr.kind].label} · {gr.size} ejercicios</span>
                   <span style={{ fontSize: 12, color: MONO.inkFaint }}>rondas</span>
                   <input value={gr.roundsRaw} placeholder="1" aria-label="Rondas del bloque"
                     onChange={(ev) => { const raw = ev.target.value.replace(/[^0-9]/g, ""); mut((p) => p.days[dayIndex].exs.forEach((x) => { if (x.group === e.group) x.groupRounds = raw; })); }}
@@ -9237,7 +9256,7 @@ const DashboardTabMono = ({ roster, toast }) => {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {activity.map((a) => (
             <MonoCard key={a.id} style={{ padding: "13px 15px", display: "flex", alignItems: "center", gap: 13 }}>
-              <span style={{ width: 38, height: 38, borderRadius: 12, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#2B2B30", flexShrink: 0 }}>{initialsOf(a.name)}</span>
+              <span style={{ width: 38, height: 38, borderRadius: 12, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: MONO.inkDim, flexShrink: 0 }}>{initialsOf(a.name)}</span>
               <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
                 <div style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink }}>{a.name}</div>
                 <div style={{ fontSize: 12.5, color: MONO.inkFaint }}>{a.text}</div>
@@ -12032,34 +12051,21 @@ const EASY_TAB_LABELS = { rutina: "Rutina", agenda: "Agenda", nutricion: "Comida
 
 const TabBar = ({ tabs, tab, setTab }) => (
   <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
-    background: `${P.s1}F0`, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderTop: `1px solid ${P.line}`,
-    boxShadow: "none" }}>
-    <div style={{ display: "flex", width: "100%", maxWidth: "var(--fj-w)", padding: "7px 2px calc(8px + env(safe-area-inset-bottom))",
-      overflowX: "auto", WebkitOverflowScrolling: "touch", scrollSnapType: "x proximity" }}>
+    background: `${P.s1}E6`, backdropFilter: "saturate(180%) blur(20px)", WebkitBackdropFilter: "saturate(180%) blur(20px)",
+    borderTop: `1px solid ${P.line}` }}>
+    {/* Grilla, no scroll horizontal: las pestañas se reparten el ancho como
+        en la barra de sistema de iOS. La activa se distingue por tinta y
+        grosor de trazo — sin placa rellena detrás del ícono. */}
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${tabs.length}, 1fr)`, width: "100%", maxWidth: "var(--fj-w)",
+      padding: "8px 6px calc(10px + env(safe-area-inset-bottom))" }}>
       {tabs.map(({ id, label, Icon }) => {
         const on = tab === id;
         return (
-          // flexShrink:0 (antes shrinkeaba con flex:"1 1 56px") es lo que
-          // realmente evita el aplastamiento: con shrink permitido, el texto
-          // de cada pestaña quedaba más angosto que su ancho real y se
-          // desbordaba visualmente sobre la vecina (el solapamiento en
-          // Indicac./Activ./Rankings/Cobros). flexGrow:1 se mantiene para
-          // que con pocas pestañas (alumno) se sigan repartiendo todo el
-          // ancho como siempre; con muchas (coach) ya no entran todas y acá
-          // sí es donde la barra debe scrollear en vez de aplastarse.
-          <button key={id} onClick={() => setTab(id)} style={{ flex: "1 0 60px", minWidth: 60, scrollSnapAlign: "start",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "5px 2px 4px",
-            color: on ? P.text : P.faint }}>
-            {/* Barra de pestañas del sistema iOS del diseño: la activa se
-                distingue SOLO por tinta y peso (ícono y etiqueta en #101012,
-                trazo un poco más grueso); las inactivas en gris. Sin placa
-                rellena detrás del ícono — el diseño no la tiene y esa placa
-                era lo que hacía que la pestaña activa se leyera como un
-                botón de color en vez de como jerarquía. */}
-            <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 25 }}>
-              <Icon size={21} strokeWidth={on ? 2.3 : 2} color={on ? P.text : P.faint} />
-            </span>
-            <span style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 64 }}>{label}</span>
+          <button key={id} onClick={() => setTab(id)} aria-current={on ? "page" : undefined}
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "3px 2px", minWidth: 0,
+              color: on ? P.ember2 : P.faint }}>
+            <Icon size={22} strokeWidth={on ? 2.4 : 2} color={on ? P.ember2 : P.faint} />
+            <span style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{label}</span>
           </button>
         );
       })}
