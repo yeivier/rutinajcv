@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v91";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v92";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -2043,6 +2043,17 @@ function volumeByMuscleForDay(day, refTable = BB_VOLUME_REF) {
     .sort((a, b) => b.sets - a.sets);
   const totalSets = (day.exs || []).reduce((a, e) => a + (e.sets || []).filter((s) => s.type !== "warmup").length, 0);
   return { rows, totalSets };
+}
+
+/* Series efectivas por grupo muscular sumadas en TODOS los días de una
+   rutina (una vuelta completa a esos días) — para la ficha de la rutina
+   en la lista, sin tener que abrirla ni ir a Progreso → Volumen. */
+function volumeByMuscleForDays(days, refTable = BB_VOLUME_REF) {
+  const perMuscle = {};
+  (days || []).forEach((day) => (day.exs || []).forEach((ex) => addExerciseVolume(perMuscle, ex)));
+  return Object.entries(perMuscle)
+    .map(([muscle, sets]) => ({ muscle, sets, ref: refTable[muscle], status: statusFor(sets, refTable[muscle]) }))
+    .sort((a, b) => b.sets - a.sets);
 }
 
 /* Series efectivas por grupo muscular.
@@ -6459,6 +6470,16 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 <div style={{ fontSize: 13.5, color: P.faint, marginTop: 3 }}>
                   {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series
                   {!routineVisible && <span style={{ color: P.ember2, fontWeight: 700 }}> · Oculta para {student.name}</span>}
+                </div>
+                {/* Series efectivas por grupo muscular de TODA la rutina (suma de
+                    sus días) — mismo desglose que ya tiene cada ficha de día, para
+                    ver de un vistazo cómo reparte volumen sin tener que abrirla. */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                  {volumeByMuscleForDays(g.days).map((r) => (
+                    <span key={r.muscle} style={{ fontSize: 11.5, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 6px" }}>
+                      {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
+                    </span>
+                  ))}
                 </div>
               </div>
               {open ? <ChevronUp size={20} color={P.ember} /> : <ChevronDown size={20} color={P.faint} />}
