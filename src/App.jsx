@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v112";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v113";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -78,6 +78,9 @@ const LIGHT_THEME = {
   P: {
     bg: "#F2F2F7", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#EFEFF4", s4: "#E8E8EE",
     line: "#E5E5EA", text: "#101012", dim: "#2B2B30", faint: "#5A5A63",
+    // El README distingue secundario (#5A5A63) de terciario (#6B6B75):
+    // el terciario es el de metadatos, horas y valores atenuados.
+    faint2: "#6B6B75",
     // Acento = tinta. ember2 es la variante para texto chico e iconografía
     // secundaria; en claro coincide con la tinta porque ya pasa AA de sobra.
     ember: "#101012", ember2: "#101012", glow: "#101012",
@@ -102,7 +105,7 @@ const LIGHT_THEME = {
 const DARK_THEME = {
   P: {
     bg: "#0F0F11", s1: "#18181B", s2: "#1F1F23", s3: "#27272B", s4: "#33333A",
-    line: "#35353C", text: "#FFFFFF", dim: "#E4E4E7", faint: "#A1A1AA",
+    line: "#35353C", text: "#FFFFFF", dim: "#E4E4E7", faint: "#A1A1AA", faint2: "#8A8A94",
     ember: "#FFFFFF", ember2: "#FFFFFF", glow: "#FFFFFF",
     green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
     frame: "#35353C", bgGrad: "#0F0F11",
@@ -2280,6 +2283,7 @@ const GlobalStyle = () => {
        heredar P.faint (un beige claro casi invisible sobre el fondo blanco
        de esa casilla). Más específica que la regla genérica de arriba. */
     .fj input.ff-input::placeholder { color: #5A5A5A; opacity: 1; }
+    .fj input.chat-input::placeholder { color: ${P.faint2}; opacity: 1; }
     .fj button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
     /* Easy Mode: todo un punto más grande y con más aire. Se hace con una
        sola clase en la raíz (no tocando cada componente) para que valga
@@ -2989,7 +2993,7 @@ const ChatTab = ({ sid, role, studentName }) => {
         <span style={{ width: 40, height: 40, borderRadius: 13, background: MONO.ink, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{initials}</span>
         <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
           <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headerName}</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: MONO.inkFaint }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: MONO.inkTertiary }}>
             <i style={{ width: 6, height: 6, borderRadius: "50%", background: MONO.ink, flexShrink: 0 }} />{presence}
           </span>
         </div>
@@ -3010,15 +3014,15 @@ const ChatTab = ({ sid, role, studentName }) => {
           const bubbleBg = isAlumno ? MONO.ink : MONO.surface;
           const bubbleColor = isAlumno ? "#F0F0F3" : "#2B2B30";
           const bubbleBorder = isAlumno ? "none" : `1px solid ${MONO.line}`;
-          const timeColor = isAlumno ? "#8C8C96" : MONO.inkFaint;
+          const timeColor = isAlumno ? "#8C8C96" : MONO.inkTertiary;
           return (
             <React.Fragment key={m.id}>
-              {showDay && <div style={{ textAlign: "center", fontSize: 11.5, fontWeight: 600, color: MONO.inkFaint }}>{dayLabel}</div>}
+              {showDay && <div style={{ textAlign: "center", fontSize: 11.5, fontWeight: 600, color: MONO.inkTertiary }}>{dayLabel}</div>}
               <div style={{ alignSelf: own ? "flex-end" : "flex-start", maxWidth: "78%", display: "flex", flexDirection: "column", gap: 5 }}>
                 {m.kind === "media" ? (
                   <>
                     <ChatMedia id={m.attachId} onOpen={setViewImg} />
-                    <span style={{ fontSize: 11, color: MONO.inkFaint, alignSelf: own ? "flex-end" : "flex-start" }}>{fmtChatTime(m.ts)}</span>
+                    <span style={{ fontSize: 11, color: MONO.inkTertiary, alignSelf: own ? "flex-end" : "flex-start" }}>{fmtChatTime(m.ts)}</span>
                   </>
                 ) : (
                   <div style={{ background: bubbleBg, border: bubbleBorder,
@@ -3043,9 +3047,13 @@ const ChatTab = ({ sid, role, studentName }) => {
         <input value={text} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
           placeholder="Escribe un mensaje…"
-          style={{ flex: 1, minWidth: 0, padding: "13px 15px", borderRadius: 14, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, fontSize: 14.5, color: MONO.ink }} />
+          className="chat-input"
+          style={{ flex: 1, minWidth: 0, padding: "13px 15px", borderRadius: 14, background: MONO.chipBg, border: `1px solid ${MONO.line}`, fontSize: 14.5, color: MONO.ink }} />
+        {/* Tinta plena siempre: el diseño no atenúa este botón. Antes bajaba
+            a 40% con el campo vacío y se leía gris, que es justo lo que no
+            debe pasar con el único elemento accionable de la barra. */}
         <button onClick={send} disabled={!text.trim() || sending} aria-label="Enviar"
-          style={{ width: 44, height: 44, borderRadius: 14, background: MONO.ink, border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: (!text.trim() || sending) ? 0.4 : 1 }}>
+          style={{ width: 44, height: 44, borderRadius: 14, background: MONO.ink, border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <ArrowRight size={19} color="#FFFFFF" strokeWidth={2.4} />
         </button>
       </div>
@@ -3089,7 +3097,7 @@ const ChatPlusButton = ({ onAttached }) => {
       <button aria-label="Adjuntar foto o video"
         onClick={() => { const b = ref.current && ref.current.querySelector("button"); b && b.click(); }}
         style={{ width: 44, height: 44, borderRadius: 14, background: MONO.chipBg, border: `1px solid ${MONO.line}`,
-          display: "flex", alignItems: "center", justifyContent: "center", color: MONO.inkFaint }}>
+          display: "flex", alignItems: "center", justifyContent: "center", color: MONO.inkTertiary }}>
         <Plus size={19} strokeWidth={2.2} />
       </button>
     </span>
@@ -5575,6 +5583,7 @@ const MONO = {
   get ink() { return P.text; },
   get inkDim() { return P.dim; },
   get inkFaint() { return P.faint; },
+  get inkTertiary() { return P.faint2; },
   get line() { return P.line; },
   get lineFaint() { return P.line; },
   get chipBg() { return P.s3; },
