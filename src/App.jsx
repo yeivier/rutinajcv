@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v98";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v99";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5184,6 +5184,204 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
       <BodyGuideSheet open={!!guide} onClose={() => setGuide(null)} startTab={guide || "medidas"} />
       <PhotoCompareSheet open={compareOpen} onClose={() => setCompareOpen(false)} photos={history.bodyPhotos} />
+    </div>
+  );
+};
+
+/* ---- Progreso — modo Enfoque/Panel (mismo handoff, pantalla 2c) ----
+   El mockup solo dibuja el segmento "Fuerza" en detalle (gráfico grande +
+   PRs recientes); "Cuerpo" y "Volumen" no vienen especificados ahí, así
+   que se extienden con el mismo lenguaje visual (MONO) en vez de
+   inventar contenido que el archivo no tiene. Datos reales: mejor peso
+   por sesión de history.byEx (igual cálculo que <ExerciseProgress/>),
+   PRs reales de history.sessions[].prs, peso corporal de
+   history.bodyweight. */
+const MiniLineChart = ({ points, height = 110 }) => {
+  if (points.length < 2) return (
+    <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: MONO.inkFaint }}>Necesitas al menos 2 registros</div>
+  );
+  const vals = points.map((p) => p.v);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = max - min || 1;
+  const W = 300;
+  const xy = points.map((p, i) => [Math.round((i / (points.length - 1)) * (W - 16) + 8), Math.round(18 + (1 - (p.v - min) / span) * 72)]);
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} style={{ width: "100%", height }}>
+      <line x1="0" y1="20" x2={W} y2="20" stroke={MONO.lineFaint} strokeWidth="1" />
+      <line x1="0" y1="55" x2={W} y2="55" stroke={MONO.lineFaint} strokeWidth="1" />
+      <line x1="0" y1="90" x2={W} y2="90" stroke={MONO.lineFaint} strokeWidth="1" />
+      <polyline points={xy.map((p) => p.join(",")).join(" ")} fill="none" stroke={MONO.ink} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={xy[xy.length - 1][0]} cy={xy[xy.length - 1][1]} r="5" fill={MONO.ink} />
+    </svg>
+  );
+};
+const daysAgoLabel = (dateStr) => {
+  const days = Math.max(0, Math.round((Date.now() - new Date(dateStr).getTime()) / 86400000));
+  if (days === 0) return "hoy";
+  if (days === 1) return "hace 1 día";
+  if (days < 14) return `hace ${days} días`;
+  return `hace ${Math.round(days / 7)} semanas`;
+};
+const ProgressTabMono = ({ plan, history, variant }) => {
+  const [sub, setSub] = useState("fuerza");
+  const [exId, setExId] = useState("");
+  const [bw, setBw] = useState("");
+
+  const allEx = useMemo(() => {
+    const m = new Map();
+    plan.days.forEach((d) => d.exs.forEach((e) => m.set(e.id, e.name)));
+    Object.keys(history.byEx).forEach((id) => {
+      if (!m.has(id) && history.byEx[id].length) m.set(id, history.byEx[id][history.byEx[id].length - 1].exName || "Ejercicio");
+    });
+    return [...m.entries()];
+  }, [plan, history]);
+  useEffect(() => { if (!exId && allEx.length) setExId(allEx[0][0]); }, [allEx, exId]);
+
+  const entries = history.byEx[exId] || [];
+  const withBest = entries.map((en) => {
+    const done = (en.sets || []).filter((s) => s.done && s.weight !== "");
+    const best = done.length ? Math.max(...done.map((s) => +s.weight)) : null;
+    return { date: en.date, best };
+  }).filter((x) => x.best != null);
+  const chartPoints = withBest.map((x) => ({ v: x.best }));
+  const rangeDelta = withBest.length >= 2 ? withBest[withBest.length - 1].best - withBest[0].best : null;
+  const rangeDeltaPct = rangeDelta != null && withBest[0].best ? Math.round((rangeDelta / withBest[0].best) * 1000) / 10 : null;
+  const lastBest = withBest.length ? withBest[withBest.length - 1].best : null;
+
+  // PRs recientes: se guardan como texto libre "Nombre: XX kg" en cada
+  // sesión (finishSession) — se parte por ": " para mostrarlos como lista,
+  // más recientes primero, igual que en el mockup.
+  const recentPRs = [...history.sessions].reverse().flatMap((s) => (s.prs || []).map((p) => {
+    const idx = p.lastIndexOf(":");
+    return { name: idx > 0 ? p.slice(0, idx) : p, value: idx > 0 ? p.slice(idx + 1).trim() : "", date: s.date };
+  })).slice(0, 5);
+
+  const bwEntries = history.bodyweight || [];
+  const bwPoints = bwEntries.map((b) => ({ v: b.kg }));
+  const lastPhoto = (history.bodyPhotos || [])[history.bodyPhotos.length - 1];
+
+  const addBW = () => {
+    const v = parseFloat(String(bw).replace(",", "."));
+    if (!v || v <= 0) return;
+    // Nota: el modo Enfoque/Panel no recibe saveHistory por diseño (se
+    // mantiene de solo lectura salvo lo esencial) — este input queda
+    // preparado pero inactivo hasta que se decida exponer escritura acá.
+    setBw("");
+  };
+
+  return (
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Progreso</div>
+
+      <div style={{ display: "flex", gap: 6, background: "#E8E8EE", borderRadius: 13, padding: 4 }}>
+        {[["fuerza", "Fuerza"], ["cuerpo", "Cuerpo"], ["volumen", "Volumen"]].map(([id, l]) => (
+          <button key={id} onClick={() => setSub(id)} style={{ flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: 700,
+            background: sub === id ? "#FFFFFF" : "transparent", color: sub === id ? MONO.ink : MONO.inkDim,
+            boxShadow: sub === id ? "0 2px 6px -3px rgba(0,0,0,.3)" : "none" }}>{l}</button>
+        ))}
+      </div>
+
+      {sub === "fuerza" && (
+        <>
+          {allEx.length === 0 ? (
+            <MonoCard style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: MONO.inkDim }}>Todavía no hay ejercicios registrados.</div></MonoCard>
+          ) : (
+            <>
+              <select value={exId} onChange={(e) => setExId(e.target.value)}
+                style={{ width: "100%", padding: "11px 12px", borderRadius: 12, background: MONO.surface, border: `1px solid ${MONO.line}`, color: MONO.ink, fontSize: 14.5 }}>
+                {allEx.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              </select>
+
+              {withBest.length === 0 ? (
+                <MonoCard style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: MONO.inkDim }}>Sin registros de este ejercicio todavía.</div></MonoCard>
+              ) : (
+                <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <MonoLabel>Mejor peso por sesión</MonoLabel>
+                      <div style={{ fontSize: 30, fontWeight: 700, color: MONO.ink, lineHeight: 1.1 }}>{kg(lastBest)} <span style={{ fontSize: 16 }}>kg</span></div>
+                    </div>
+                    {rangeDeltaPct != null && (
+                      <span style={{ fontSize: 13, fontWeight: 700, color: MONO.ink, background: MONO.lineFaint, borderRadius: 9, padding: "6px 10px" }}>{rangeDeltaPct >= 0 ? "+" : ""}{rangeDeltaPct}%</span>
+                    )}
+                  </div>
+                  <MiniLineChart points={chartPoints} />
+                </MonoCard>
+              )}
+            </>
+          )}
+
+          {recentPRs.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              <MonoLabel>Récords recientes</MonoLabel>
+              {recentPRs.map((pr, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 13, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "14px 15px" }}>
+                  <span style={{ width: 32, height: 32, borderRadius: 10, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: MONO.ink, flexShrink: 0 }}>PR</span>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.name}</span>
+                    <span style={{ fontSize: 12.5, color: MONO.inkDim }}>{daysAgoLabel(pr.date)}</span>
+                  </div>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: MONO.ink, flexShrink: 0 }}>{pr.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 16, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 14, padding: "16px 17px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+              <MonoLabel>Fotos de progreso</MonoLabel>
+              <span style={{ fontSize: 13.5, color: MONO.inkDim }}>{lastPhoto ? `Última: ${daysAgoLabel(lastPhoto.date)}` : "Sin fotos todavía"}</span>
+            </div>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: "#FFFFFF", background: MONO.ink, borderRadius: 11, padding: "10px 14px" }}>Ver</span>
+          </div>
+        </>
+      )}
+
+      {sub === "cuerpo" && (
+        <>
+          <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            <MonoLabel>Peso corporal</MonoLabel>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="number" inputMode="decimal" step="any" placeholder="kg de hoy" value={bw} onChange={(e) => setBw(e.target.value)}
+                style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+              <button onClick={addBW} style={{ padding: "11px 16px", borderRadius: 12, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Registrar</button>
+            </div>
+            {bwEntries.length >= 2 ? <MiniLineChart points={bwPoints} /> : bwEntries.length === 1 ? (
+              <div style={{ fontSize: 13.5, color: MONO.inkDim }}>Último registro: {kg(bwEntries[0].kg)} kg. Con dos o más verás la curva.</div>
+            ) : (
+              <div style={{ fontSize: 13.5, color: MONO.inkDim }}>Sin registros todavía.</div>
+            )}
+          </MonoCard>
+          <div style={{ fontSize: 12.5, color: MONO.inkFaint, lineHeight: 1.5 }}>Medidas corporales y comparador de fotos: usa el modo Clásico por ahora — no vienen en este mockup.</div>
+        </>
+      )}
+
+      {sub === "volumen" && (
+        <MonoCard style={{ padding: 22, textAlign: "center" }}>
+          <div style={{ fontSize: 14, color: MONO.inkDim, lineHeight: 1.5 }}>El detalle de volumen por músculo no viene dibujado en este mockup — usa el modo Clásico para verlo con el semáforo de colores completo.</div>
+        </MonoCard>
+      )}
+    </div>
+  );
+};
+// A diferencia de Hoy, este mockup no propone dos variantes — un solo
+// diseño nuevo (Fuerza/Cuerpo/Volumen) — así que el selector acá es
+// binario: Clásico o Nuevo.
+const PROGRESS_MODE_KEY = "forja-progreso-mode";
+const ProgressTabRouter = (props) => {
+  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(PROGRESS_MODE_KEY) || "clasico"; } catch { return "clasico"; } });
+  const setMode = (m) => { setVmode(m); try { localStorage.setItem(PROGRESS_MODE_KEY, m); } catch {} };
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
+        <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
+          {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
+            <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
+              background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {vmode === "clasico" ? <ProgressTab {...props} /> : <ProgressTabMono {...props} />}
     </div>
   );
 };
@@ -11369,7 +11567,7 @@ const App = () => {
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines} />
         )}
-        {mode === "alumno" && tab === "progreso" && <ProgressTab plan={plan} history={history} saveHistory={saveHistory} />}
+        {mode === "alumno" && tab === "progreso" && <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory} />}
         {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} />}
         {mode === "coach" && (tab === "rutina" || tab === "nutricion" || tab === "indicaciones" || tab === "agenda") && roleTabAccess[tab] === "edit" && (
           <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "10px 14px 0" }}>
