@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v93";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v94";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -8575,6 +8575,109 @@ const AthleteForm = ({ plan, savePlan }) => {
   );
 };
 
+/* ---- Mapa corporal de series por grupo muscular ----
+   Silueta frontal + posterior en SVG, con cada zona coloreada según el
+   mismo lenguaje de color que ya usan las barras de Volumen (verde óptimo,
+   ámbar mínimo/alto, rojo bajo, rojo sobre MRV) — y, dentro de ese color,
+   más opacidad/saturación cuanto más series tenga esa zona respecto a la
+   más trabajada de la vista (el "tono" que pidió el coach para distinguir
+   de un vistazo qué se trabajó más o menos). Las siluetas son geométricas
+   y esquemáticas (no una lámina anatómica realista): el objetivo es que se
+   lea rápido en el celular, no un póster de anatomía. */
+const BODY_REGIONS = {
+  front: [
+    { muscle: "Hombro", shapes: [{ t: "c", cx: 40, cy: 58, r: 15 }, { t: "c", cx: 120, cy: 58, r: 15 }] },
+    { muscle: "Pecho", shapes: [{ t: "p", d: "M48,60 Q80,48 112,60 L109,108 Q80,120 51,108 Z" }] },
+    { muscle: "Bíceps", shapes: [{ t: "r", x: 21, y: 62, w: 18, h: 45, rx: 9 }, { t: "r", x: 121, y: 62, w: 18, h: 45, rx: 9 }] },
+    { muscle: "Antebrazo", shapes: [{ t: "r", x: 17, y: 112, w: 18, h: 46, rx: 9 }, { t: "r", x: 125, y: 112, w: 18, h: 46, rx: 9 }] },
+    { muscle: "Core", shapes: [{ t: "r", x: 57, y: 112, w: 46, h: 82, rx: 12 }] },
+    { muscle: "Cuádriceps", shapes: [{ t: "r", x: 47, y: 248, w: 28, h: 52, rx: 12 }, { t: "r", x: 85, y: 248, w: 28, h: 52, rx: 12 }] },
+  ],
+  back: [
+    { muscle: "Trapecio", shapes: [{ t: "p", d: "M80,42 L46,76 Q80,90 114,76 Z" }] },
+    { muscle: "Hombro", shapes: [{ t: "c", cx: 40, cy: 58, r: 15 }, { t: "c", cx: 120, cy: 58, r: 15 }] },
+    { muscle: "Espalda", shapes: [{ t: "p", d: "M48,78 Q80,66 112,78 L107,158 Q80,172 53,158 Z" }] },
+    { muscle: "Tríceps", shapes: [{ t: "r", x: 21, y: 62, w: 18, h: 45, rx: 9 }, { t: "r", x: 121, y: 62, w: 18, h: 45, rx: 9 }] },
+    { muscle: "Glúteo", shapes: [{ t: "p", d: "M53,206 L107,206 Q112,232 100,246 L60,246 Q48,232 53,206 Z" }] },
+    { muscle: "Femoral", shapes: [{ t: "r", x: 47, y: 248, w: 28, h: 52, rx: 12 }, { t: "r", x: 85, y: 248, w: 28, h: 52, rx: 12 }] },
+    { muscle: "Gemelo", shapes: [{ t: "r", x: 49, y: 304, w: 24, h: 36, rx: 10 }, { t: "r", x: 87, y: 304, w: 24, h: 36, rx: 10 }] },
+  ],
+};
+// Color + opacidad de una zona según el volumen de ESA vista puntual
+// (maxSets = la más alta de las zonas visibles, para que el degradé de
+// tono sea relativo a lo que se está mostrando, no a un tope fijo).
+function regionColor(muscle, volMap, maxSets) {
+  const row = volMap[muscle];
+  if (!row || !row.sets) return { fill: P.s3, opacity: .32 };
+  const rel = maxSets > 0 ? Math.min(1, row.sets / maxSets) : 0;
+  return { fill: volStatusColor(row.status), opacity: .42 + rel * .58 };
+}
+const BodySilhouette = ({ view, volMap, maxSets, size = 132 }) => (
+  <svg viewBox="0 0 160 350" width={size} style={{ display: "block", overflow: "visible" }}>
+    <g fill={P.s2} stroke={P.line} strokeWidth={1}>
+      <circle cx="80" cy="26" r="17" />
+      <rect x="71" y="41" width="18" height="12" rx="5" />
+      <path d="M50,50 Q38,90 42,142 Q44,182 56,212 L104,212 Q116,182 118,142 Q122,90 110,50 Z" />
+      <path d="M54,208 L106,208 L100,250 L60,250 Z" />
+      <rect x="20" y="58" width="22" height="52" rx="11" />
+      <rect x="16" y="110" width="22" height="50" rx="11" />
+      <rect x="118" y="58" width="22" height="52" rx="11" />
+      <rect x="122" y="110" width="22" height="50" rx="11" />
+      <rect x="45" y="245" width="32" height="58" rx="14" />
+      <rect x="48" y="300" width="26" height="42" rx="12" />
+      <rect x="83" y="245" width="32" height="58" rx="14" />
+      <rect x="86" y="300" width="26" height="42" rx="12" />
+      <ellipse cx="26" cy="163" rx="9" ry="11" />
+      <ellipse cx="134" cy="163" rx="9" ry="11" />
+      <ellipse cx="61" cy="336" rx="13" ry="7" />
+      <ellipse cx="99" cy="336" rx="13" ry="7" />
+    </g>
+    {BODY_REGIONS[view].map((reg) => {
+      const { fill, opacity } = regionColor(reg.muscle, volMap, maxSets);
+      return (
+        <g key={reg.muscle}>
+          {reg.shapes.map((s, i) => {
+            const key = `${reg.muscle}-${i}`;
+            const common = { fill, fillOpacity: opacity, stroke: P.line, strokeWidth: .75 };
+            if (s.t === "c") return <circle key={key} cx={s.cx} cy={s.cy} r={s.r} {...common} />;
+            if (s.t === "r") return <rect key={key} x={s.x} y={s.y} width={s.w} height={s.h} rx={s.rx} {...common} />;
+            return <path key={key} d={s.d} {...common} />;
+          })}
+        </g>
+      );
+    })}
+  </svg>
+);
+const MuscleBodyMap = ({ rows, title, subtitle }) => {
+  const volMap = useMemo(() => Object.fromEntries((rows || []).map((r) => [r.muscle, r])), [rows]);
+  const maxSets = Math.max(1, ...(rows || []).map((r) => r.sets), 0);
+  if (!rows || !rows.length) return null;
+  return (
+    <Card style={{ padding: 14, marginBottom: 14 }}>
+      {title && <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 2 }}>{title}</div>}
+      {subtitle && <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 10, lineHeight: 1.4 }}>{subtitle}</div>}
+      <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
+        <div style={{ textAlign: "center" }}>
+          <BodySilhouette view="front" volMap={volMap} maxSets={maxSets} />
+          <div style={{ fontSize: 11, color: P.faint, marginTop: 3, fontWeight: 600, letterSpacing: ".03em" }}>FRONTAL</div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <BodySilhouette view="back" volMap={volMap} maxSets={maxSets} />
+          <div style={{ fontSize: 11, color: P.faint, marginTop: 3, fontWeight: 600, letterSpacing: ".03em" }}>POSTERIOR</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12, justifyContent: "center" }}>
+        {rows.map((r) => (
+          <span key={r.muscle} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "3px 7px" }}>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: volStatusColor(r.status), flexShrink: 0 }} />
+            {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
+          </span>
+        ))}
+      </div>
+    </Card>
+  );
+};
+
 /* ---- Volumen por grupo muscular ---- */
 const MuscleVolumeRow = ({ r, max }) => {
   const col = volStatusColor(r.status);
@@ -8606,6 +8709,11 @@ const MuscleVolumeRow = ({ r, max }) => {
 
 const VolumePanel = ({ plan }) => {
   const [sub, setSub] = useState("semana");
+  // Qué mapas musculares por sesión están desplegados — colapsados por
+  // default para no saturar la pantalla con 20+ siluetas de una: el coach
+  // abre la que le interesa.
+  const [openMaps, setOpenMaps] = useState([]);
+  const toggleMap = (id) => setOpenMaps((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   // Arranca según lo cargado en el perfil del atleta (Preparación, en la
   // pestaña IA), pero el coach puede cambiarlo acá mismo para comparar
   // sin tener que ir a editar el perfil.
@@ -8649,6 +8757,9 @@ const VolumePanel = ({ plan }) => {
               <>MEV / zona óptima (MAV) / MRV según los landmarks de volumen de <b style={{ color: P.dim }}>Renaissance Periodization (Dr. Mike Israetel)</b> — la referencia más usada en coaching de hipertrofia basado en evidencia. Son rangos orientativos: el punto de partida real se ajusta siempre según cómo responda cada atleta.</>
             )}
           </div>
+          <MuscleBodyMap rows={vol.rows}
+            title="Mapa muscular de la semana"
+            subtitle="Más color y más saturado = más series efectivas trabajadas esa zona. El color sigue el mismo semáforo de las barras de abajo: verde óptimo, ámbar cerca del límite, rojo bajo el MEV o sobre el MRV." />
           {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} />)}
         </>
       )}
@@ -8681,6 +8792,18 @@ const VolumePanel = ({ plan }) => {
                           {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {rows.length > 0 && (
+                    <button onClick={() => toggleMap(day.id)}
+                      style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 9, fontSize: 12.5, color: P.ember2, fontWeight: 600 }}>
+                      {openMaps.includes(day.id) ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      {openMaps.includes(day.id) ? "Ocultar mapa muscular" : "Ver mapa muscular de esta sesión"}
+                    </button>
+                  )}
+                  {openMaps.includes(day.id) && (
+                    <div style={{ marginTop: 10 }}>
+                      <MuscleBodyMap rows={rows} />
                     </div>
                   )}
                 </Card>
