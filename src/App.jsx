@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v80";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v81";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -1868,12 +1868,37 @@ const GlobalStyle = () => (
     /* Pareja tipográfica seria/profesional: Archivo (peso alto) para
        títulos — grotesca sobria, con autoridad, sin aire "poster" — e
        Inter para el cuerpo, el estándar de legibilidad y seriedad en
-       producto. Nada de condensadas ni geométricas redondeadas. */
-    @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+       producto. Nada de condensadas ni geométricas redondeadas.
+       La hoja de la fuente ya no se carga con @import aquí: eso obligaba
+       al navegador a esperar a que React monte este componente antes de
+       siquiera empezar a pedir la fuente. Ahora se precarga desde el
+       <head> de index.html en paralelo con el bundle — ver ahí. */
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body { margin: 0; }
     html, body, #root { min-height: 100%; min-height: 100dvh; }
     body { overflow-x: hidden; overscroll-behavior: none; }
+    /* Ancho del "casco" de la app: en celular ocupa el viewport completo
+       (hasta 520px, igual que siempre); en pantallas más anchas (tablet/PC)
+       crece en pasos en vez de quedar una columna angosta perdida en medio
+       de una pantalla negra. Una sola variable controla el shell principal,
+       la barra de pestañas y las hojas modales, así los tres quedan
+       siempre alineados al mismo ancho. */
+    :root { --fj-w: 520px; }
+    @media (min-width: 720px) { :root { --fj-w: 640px; } }
+    @media (min-width: 1024px) { :root { --fj-w: 800px; } }
+    /* Grillas de tarjetas (stats del Dashboard, etc.): 2 columnas en
+       celular, 4 en pantallas anchas, aprovechando el shell más ancho
+       de arriba en vez de dejar tarjetas estiradas y vacías. */
+    .fj-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (min-width: 720px) { .fj-stat-grid { grid-template-columns: repeat(4, 1fr); } }
+    /* Realce sutil al pasar el mouse: solo para punteros finos (mouse/
+       trackpad) — en touch no hay "hover" real, así que esto no toca la
+       experiencia móvil en absoluto. */
+    @media (hover: hover) and (pointer: fine) {
+      .fj button:not(:disabled) { transition: filter .12s ease, transform .12s ease; }
+      .fj button:not(:disabled):hover { filter: brightness(1.12); }
+      .fj button:not(:disabled):active { transform: scale(.97); }
+    }
     .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
       font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; color: ${P.text}; font-variant-numeric: tabular-nums;
       line-height: 1.42; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
@@ -2072,7 +2097,7 @@ const Sheet = ({ open, onClose, title, children, tall }) => {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(5,3,3,.68)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
       <div className="sheetIn" onClick={(e) => e.stopPropagation()}
-        style={{ background: `${P.s1}F2`, backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)", borderTop: `1px solid ${P.line}`, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 520,
+        style={{ background: `${P.s1}F2`, backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)", borderTop: `1px solid ${P.line}`, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: "var(--fj-w)",
           boxShadow: "0 1px 0 rgba(255,255,255,.06) inset, 0 -18px 40px rgba(0,0,0,.5)",
           maxHeight: tall ? "calc(100dvh - env(safe-area-inset-top) - 8px)" : "82dvh", minHeight: "60dvh", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px", paddingTop: "max(14px, env(safe-area-inset-top))", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
@@ -6972,7 +6997,7 @@ const DashboardTab = ({ roster, toast }) => {
         Resumen en vivo de tu equipo: actividad, check-ins y cumplimiento de los últimos 7 días, calculado desde las sesiones reales que registró cada alumno.
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+      <div className="fj-stat-grid" style={{ marginBottom: 12 }}>
         {statCard("Atletas activos", activeCount)}
         {statCard("Check-ins (7 días)", `${checkinsPct}%`, P.ember2)}
         {statCard("Cumplimiento", cumplimientoPct === null ? "—" : `${cumplimientoPct}%`)}
@@ -9700,7 +9725,7 @@ const TabBar = ({ tabs, tab, setTab }) => (
   <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
     background: `${P.s1}F0`, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderTop: `1px solid ${P.line}`,
     boxShadow: "0 1px 0 rgba(255,255,255,.05) inset, 0 -14px 30px -16px rgba(0,0,0,.7)" }}>
-    <div style={{ display: "flex", width: "100%", maxWidth: 520, padding: "7px 2px calc(8px + env(safe-area-inset-bottom))",
+    <div style={{ display: "flex", width: "100%", maxWidth: "var(--fj-w)", padding: "7px 2px calc(8px + env(safe-area-inset-bottom))",
       overflowX: "auto", WebkitOverflowScrolling: "touch", scrollSnapType: "x proximity" }}>
       {tabs.map(({ id, label, Icon }) => {
         const on = tab === id;
@@ -10080,7 +10105,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, toast }) 
           display: "flex", alignItems: "flex-end", justifyContent: "center",
           paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
           <div className="sheetIn" onClick={(e) => e.stopPropagation()}
-            style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 520,
+            style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: "var(--fj-w)",
               maxHeight: "88dvh", minHeight: "55dvh", display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px",
               paddingTop: "max(14px, env(safe-area-inset-top))", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
@@ -10463,7 +10488,7 @@ const App = () => {
   return (
     <div className={easyMode ? "fj fj-easy" : "fj"} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
-      <div style={{ maxWidth: 520, margin: "0 auto", paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
+      <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto", paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
         <div style={{ display: "flex", flexWrap: "wrap", rowGap: 8, alignItems: "center", justifyContent: "space-between", gap: 8, padding: "calc(10px + env(safe-area-inset-top)) 14px 0" }}>
           <button onClick={() => setReady(false)} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
             <div className="disp" style={{ width: 30, height: 30, borderRadius: 9, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2, fontSize: 16, flexShrink: 0 }}>

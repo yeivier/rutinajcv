@@ -21,11 +21,14 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
-# El bundle se revalida siempre; el ?v= decide cuándo se baja de nuevo
+# El contenido de bundle.js es inmutable para un ?v= dado (cada release
+# cambia el número), así que esta versión concreta se puede cachear a largo
+# plazo sin round-trip de revalidación: index.html (que nunca se cachea)
+# siempre apunta al ?v= correcto, así que nunca sirve un bundle viejo.
 [[headers]]
   for = "/bundle.js"
   [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
+    Cache-Control = "public, max-age=31536000, immutable"
 
 # El service worker siempre se revalida: si quedara cacheado viejo, una
 # actualización de la app podría no llegar a instalarse nunca.
