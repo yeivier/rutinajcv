@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v108";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v109";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -11969,14 +11969,6 @@ const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewM
       </SettingGroup>
 
       {mode === "coach" && (
-        <SettingGroup label="Rutinas">
-          <SettingRow Icon={ClipboardList} label="Editor de rutina"
-            hint={routineView === "compacto" ? "Una fila por ejercicio, se despliega al tocar" : "Todas las funciones: crear, arrastrar, copiar y pegar"} last
-            control={<SectionSwitch items={[{ id: "completo", label: "Completo" }, { id: "compacto", label: "Compacto" }]} value={routineView} onChange={onChangeRoutineView} />} />
-        </SettingGroup>
-      )}
-
-      {mode === "coach" && (
         <SettingGroup label="Gestión">
           <SettingRow Icon={Users} label="Alumnos" hint="Elegir, agregar o renombrar" onClick={onOpenRoster} last={!canManageTeam} />
           {canManageTeam && <SettingRow Icon={Award} label="Equipo" hint="Coaches, nutricionistas y sus permisos" onClick={onOpenTeam} last />}
@@ -11984,8 +11976,6 @@ const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewM
       )}
 
       <SettingGroup label="Ajustes">
-        <SettingRow Icon={Users} label="Modo" hint={mode === "coach" ? "Estás viendo la app como coach" : "Estás viendo la app como alumno"}
-          control={<SectionSwitch items={[{ id: "alumno", label: "Alumno" }, { id: "coach", label: "Coach" }]} value={mode} onChange={onSwitchMode} />} />
         {mode === "alumno" && (
           <SettingRow Icon={Home} label="Vista de Hoy" hint={viewMode === "panel" ? "La semana de un vistazo" : "Una sola decisión"}
             control={<SectionSwitch items={[{ id: "enfoque", label: "Enfoque" }, { id: "panel", label: "Panel" }]} value={viewMode} onChange={onChangeViewMode} />} />
@@ -11993,9 +11983,24 @@ const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewM
         <SettingRow Icon={theme === "light" ? Sun : Moon} label="Apariencia"
           hint={theme === "light" ? "Claro" : "Modo gimnasio — gris oscuro, sin negro puro"}
           control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Gimnasio" }]} value={theme} onChange={setTheme} />} />
+        {mode === "coach" && (
+          <SettingRow Icon={ClipboardList} label="Editor de rutina"
+            hint={routineView === "compacto" ? "Una fila por ejercicio, se despliega al tocar" : "Todas las funciones: crear, arrastrar, copiar y pegar"}
+            control={<SectionSwitch items={[{ id: "completo", label: "Completo" }, { id: "compacto", label: "Compacto" }]} value={routineView} onChange={onChangeRoutineView} />} />
+        )}
         <SettingRow Icon={Sparkles} label="Interfaz" hint={easy ? "Solo lo esencial" : "Todos los campos"} last
           control={<SectionSwitch items={[{ id: "full", label: "Completa" }, { id: "easy", label: "Easy Mode" }]} value={easy ? "easy" : "full"} onChange={(v) => setEasy(v === "easy")} />} />
       </SettingGroup>
+
+      <SettingGroup label="Modo">
+        <SettingRow Icon={mode === "coach" ? ClipboardList : Dumbbell} label="Entrar como" hint={`Ahora estás en modo ${mode}`} last
+          control={<SectionSwitch items={[{ id: "alumno", label: "Alumno" }, { id: "coach", label: "Coach" }]} value={mode}
+            onChange={(m) => { if (m !== mode) onSwitchMode(m); }} />} />
+      </SettingGroup>
+
+      {/* La versión vive acá abajo, no en la cabecera: el encabezado es
+          identidad, no diagnóstico. */}
+      <div style={{ textAlign: "center", fontSize: 12, color: P.faint, paddingTop: 4 }}>FORJA · {BUILD}</div>
     </Sheet>
   );
 };
