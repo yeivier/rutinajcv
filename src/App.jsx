@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v110";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v111";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2611,7 +2611,9 @@ const SplashScreen = ({ exiting }) => (
             <span key={i} className="splashLetter" style={{ animationDelay: `${0.25 + i * 0.06}s` }}>{ch}</span>
           ))}
         </div>
-        <div className="splashTag mono" style={{ letterSpacing: ".12em" }}>{BRAND.tagline}</div>
+        <div className="splashTag" style={{ fontSize: 12, color: P.faint, fontWeight: 600,
+          fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
+          textTransform: "uppercase", letterSpacing: ".12em" }}>{BRAND.tagline}</div>
       </div>
       <Loader2 size={18} color={P.faint} className="fj-spin splashBar" style={{ marginTop: 4 }} />
     </div>
