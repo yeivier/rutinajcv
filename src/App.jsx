@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v97";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v98";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4613,6 +4613,247 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
           </div>
         ))}
       </Sheet>
+    </div>
+  );
+};
+
+/* ============================================================
+   Hoy — modo "Enfoque/Panel" (sistema visual monocromo)
+   Handoff de Claude Design (proyecto "Forja Mobile"): fondo claro iOS,
+   tinta negra pura #101012, cero color de acento — a propósito distinto
+   del resto de la app (tema oscuro + ember/verde/azul). El coach pidió
+   dejarlo EXACTO al archivo, así que esta paleta vive aparte de `P` y
+   no se toca cuando cambia el tema oscuro/claro del resto de FORJA.
+   Con los mismos datos reales que ya usa <TodayTab/> — nunca los
+   números de ejemplo del mockup (ver charla de implementación). */
+const MONO = {
+  bg: "#F2F2F7", surface: "#FFFFFF", ink: "#101012", inkDim: "#5A5A63", inkFaint: "#6B6B75",
+  line: "#E5E5EA", lineFaint: "#EDEDF2", chipBg: "#EFEFF4", chipBorder: "#D9D9DE",
+  mono: "ui-monospace,SFMono-Regular,'SF Mono',Menlo,monospace",
+};
+const MonoLabel = ({ children }) => (
+  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".14em", textTransform: "uppercase", fontFamily: MONO.mono, color: MONO.inkFaint }}>{children}</div>
+);
+const MonoCard = ({ children, style }) => (
+  <div style={{ background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 16, ...style }}>{children}</div>
+);
+const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, bookings, sid, studentName, variant }) => {
+  const wk = weekKey(todayISO());
+  const weekSessions = history.sessions.filter((s) => weekKey(s.date) === wk);
+  const weekVol = weekSessions.reduce((a, s) => a + s.volume, 0);
+  const prevWeekStart = new Date(); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+  const prevWk = weekKey(isoDate(prevWeekStart));
+  const prevWeekVol = history.sessions.filter((s) => weekKey(s.date) === prevWk).reduce((a, s) => a + s.volume, 0);
+  const volDeltaPct = prevWeekVol > 0 ? Math.round(((weekVol - prevWeekVol) / prevWeekVol) * 1000) / 10 : null;
+  const streakWeeks = weekStreak(history.sessions);
+  const lastSession = history.sessions[history.sessions.length - 1];
+  const days = visibleDays(plan.days, allowedRoutines);
+  let suggested = days[0];
+  if (lastSession) {
+    const i = days.findIndex((d) => d.id === lastSession.dayId);
+    if (i >= 0) {
+      const sameRoutine = days.filter((d) => routineOf(d) === routineOf(days[i]));
+      const j = sameRoutine.findIndex((d) => d.id === lastSession.dayId);
+      suggested = sameRoutine[(j + 1) % sameRoutine.length] || days[0];
+    } else suggested = days[0];
+  }
+  const todayScheduled = scheduledDayFor(plan, new Date());
+  if (todayScheduled && days.some((d) => d.id === todayScheduled.id)) suggested = todayScheduled;
+  const todayScheduled2 = scheduledDayFor2(plan, new Date());
+  const suggested2 = todayScheduled2 && days.some((d) => d.id === todayScheduled2.id) ? todayScheduled2 : null;
+
+  const meso = currentMesociclo(plan);
+  const weekNum = meso ? (meso.current || 0) + 1 : null;
+  const weekTotal = meso ? meso.weeks.length : null;
+  const initials = (studentName || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "•";
+  const bw = (history.bodyweight || []);
+  const lastBw = bw.length ? bw[bw.length - 1] : null;
+  const weekAgoBw = bw.length > 1 ? [...bw].reverse().find((b) => new Date(b.date) <= prevWeekStart) : null;
+  const adh = adherencePct(plan, history, monthKeyOf(todayISO()));
+  const setsOf = (d) => (d ? d.exs.reduce((a, e) => a + e.sets.length, 0) : 0);
+  const muscles = suggested ? [...new Set(suggested.exs.map((e) => e.muscle).filter(Boolean))].slice(0, 3).join(", ") : "";
+
+  // Franja de la semana (1b): un punto por día — negro si ya hay sesión
+  // registrada ese día, gris claro si está agendado pero aún no, "off"
+  // sin ninguno de los dos. Hoy queda resaltado en negro pleno.
+  const now = new Date();
+  const weekStart = new Date(now); weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7)); // lunes
+  const weekCells = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart); d.setDate(weekStart.getDate() + i);
+    const iso = isoDate(d);
+    const isToday = iso === isoDate(now);
+    // ojo: history.sessions[].date se guarda con todayISO() (timestamp
+    // completo, no solo la fecha) — comparar con === directo nunca matchea.
+    const done = history.sessions.some((s) => isoDate(new Date(s.date)) === iso);
+    const scheduled = !!scheduledDayFor(plan, d) || !!scheduledDayFor2(plan, d);
+    return { label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, done, scheduled };
+  });
+
+  const workoutCard = (compact) => !suggested ? (
+    <MonoCard style={{ padding: 22, textAlign: "center" }}>
+      <div style={{ fontSize: 14.5, color: MONO.inkDim }}>Tu coach todavía no cargó la rutina.</div>
+    </MonoCard>
+  ) : active ? (
+    <MonoCard style={{ padding: compact ? "18px 20px" : 22, display: "flex", alignItems: "center", gap: 14 }}>
+      <div style={{ flex: 1 }}>
+        <MonoLabel>Sesión en curso</MonoLabel>
+        <div style={{ fontSize: compact ? 20 : 26, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.1, marginTop: 3 }}>{active.dayName}</div>
+      </div>
+      <button onClick={goTrain} style={{ padding: compact ? "13px 17px" : "16px 20px", borderRadius: 14, background: MONO.ink, color: "#FFFFFF", fontSize: 14.5, fontWeight: 700, flexShrink: 0 }}>Continuar</button>
+    </MonoCard>
+  ) : (
+    <MonoCard style={{ padding: compact ? "18px 20px" : 22, display: "flex", alignItems: "center", gap: 14 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <MonoLabel>Entreno de hoy</MonoLabel>
+        <div style={{ fontSize: compact ? 21 : 26, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.1, marginTop: 3 }}>{suggested.name}</div>
+        <div style={{ fontSize: 12.5, color: MONO.inkFaint, marginTop: 2 }}>
+          {compact ? `${suggested.exs.length} ejercicios · ${setsOf(suggested)} series` : muscles}
+        </div>
+      </div>
+      <button onClick={goTrain} style={{ padding: compact ? "13px 17px" : "16px 20px", borderRadius: 14, background: MONO.ink, color: "#FFFFFF", fontSize: compact ? 14 : 15.5, fontWeight: 700, flexShrink: 0 }}>{compact ? "Entrenar" : "Entrenar ahora"}</button>
+    </MonoCard>
+  );
+
+  return (
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {variant === "panel" ? (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Hoy</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {weekNum && <span style={{ fontSize: 12.5, color: MONO.inkFaint, fontWeight: 600 }}>Semana {weekNum}/{weekTotal}</span>}
+              <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.ink, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 12.5 }}>{initials}</span>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 6 }}>
+            {weekCells.map((c, i) => (
+              <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "9px 0", borderRadius: 13,
+                background: c.isToday ? MONO.ink : (c.scheduled || c.done ? MONO.surface : MONO.chipBg),
+                border: `1px solid ${c.isToday ? MONO.ink : MONO.line}` }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: c.isToday ? "#FFFFFF" : MONO.inkDim }}>{c.label}</span>
+                {c.done ? <span style={{ width: 7, height: 7, borderRadius: 4, background: c.isToday ? "#FFFFFF" : MONO.ink }} />
+                  : c.scheduled ? <span style={{ width: 7, height: 7, borderRadius: 4, background: c.isToday ? "#FFFFFF" : MONO.chipBorder }} />
+                  : <span style={{ fontSize: 9, fontWeight: 700, color: MONO.inkFaint, lineHeight: "7px" }}>off</span>}
+              </div>
+            ))}
+          </div>
+
+          {workoutCard(true)}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+            <MonoCard style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
+              <MonoLabel>Adherencia</MonoLabel>
+              <div style={{ fontSize: 25, fontWeight: 700, color: MONO.ink, lineHeight: 1 }}>{adh != null ? Math.round(adh) : "—"}{adh != null && <span style={{ fontSize: 14 }}>%</span>}</div>
+              {adh != null && <span style={{ height: 5, borderRadius: 3, background: MONO.lineFaint, overflow: "hidden", display: "block" }}><span style={{ display: "block", width: `${Math.min(100, adh)}%`, height: "100%", background: MONO.ink }} /></span>}
+            </MonoCard>
+            <MonoCard style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
+              <MonoLabel>Racha</MonoLabel>
+              <div style={{ fontSize: 25, fontWeight: 700, color: MONO.ink, lineHeight: 1 }}>{streakWeeks}<span style={{ fontSize: 13 }}> sem.</span></div>
+              <span style={{ fontSize: 12, color: MONO.inkDim }}>entrenando sin cortar</span>
+            </MonoCard>
+            <MonoCard style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
+              <MonoLabel>Peso corporal</MonoLabel>
+              <div style={{ fontSize: 25, fontWeight: 700, color: MONO.ink, lineHeight: 1 }}>{lastBw ? `${kg(lastBw.kg)}` : "—"}{lastBw && <span style={{ fontSize: 13 }}> kg</span>}</div>
+              <span style={{ fontSize: 12, color: MONO.inkFaint }}>{lastBw && weekAgoBw ? `${lastBw.kg - weekAgoBw.kg >= 0 ? "+" : ""}${kg(lastBw.kg - weekAgoBw.kg)} kg esta semana` : "Sin registro reciente"}</span>
+            </MonoCard>
+            <MonoCard style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
+              <MonoLabel>Volumen sem.</MonoLabel>
+              <div style={{ fontSize: 25, fontWeight: 700, color: MONO.ink, lineHeight: 1 }}>{Math.round(weekVol / 1000 * 10) / 10}<span style={{ fontSize: 13 }}>k kg</span></div>
+              <span style={{ fontSize: 12, color: MONO.inkFaint }}>{volDeltaPct != null ? `${volDeltaPct >= 0 ? "+" : ""}${volDeltaPct}% vs. sem. anterior` : "Sin semana previa"}</span>
+            </MonoCard>
+          </div>
+
+          {plan.nutrition && plan.nutrition.kcal > 0 && (
+            <MonoCard style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+              <MonoLabel>Objetivo de hoy</MonoLabel>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: 22, fontWeight: 700, color: MONO.ink }}>{plan.nutrition.kcal.toLocaleString("es-CL")}</span>
+                <span style={{ fontSize: 12.5, color: MONO.inkDim }}>kcal</span>
+              </div>
+              <div style={{ display: "flex", gap: 14, fontSize: 12, color: MONO.inkFaint }}>
+                <span><b style={{ color: MONO.ink }}>P</b> {plan.nutrition.p} g</span>
+                <span><b style={{ color: MONO.ink }}>C</b> {plan.nutrition.c} g</span>
+                <span><b style={{ color: MONO.ink }}>G</b> {plan.nutrition.f} g</span>
+              </div>
+            </MonoCard>
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <MonoLabel>{fmtDateFull(todayISO())}</MonoLabel>
+              <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.05 }}>Hola{studentName ? `, ${studentName}` : ""}</div>
+              {weekNum && <div style={{ fontSize: 13, color: MONO.inkFaint }}>Semana {weekNum} de {weekTotal}{meso ? ` · ${meso.name}` : ""}</div>}
+            </div>
+            <span style={{ width: 44, height: 44, borderRadius: 14, background: MONO.ink, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>{initials}</span>
+          </div>
+
+          {workoutCard(false)}
+
+          {suggested2 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 14, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "15px 16px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: MONO.ink }}>{suggested2.name}</span>
+                <span style={{ fontSize: 12.5, color: MONO.inkDim }}>También hoy · {suggested2.exs.length} ejercicios</span>
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 700, color: MONO.ink }} onClick={goTrain}>Ver</span>
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <MonoLabel>También hoy</MonoLabel>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {plan.nutrition && plan.nutrition.kcal > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 14, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "15px 16px" }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Utensils size={16} color={MONO.inkFaint} />
+                  </span>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: MONO.ink }}>Comidas</span>
+                    <span style={{ fontSize: 12.5, color: MONO.inkDim }}>Objetivo: {plan.nutrition.kcal.toLocaleString("es-CL")} kcal</span>
+                  </div>
+                </div>
+              )}
+              {plan.instructions.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 14, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "15px 16px" }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <MessageSquare size={16} color={MONO.inkFaint} />
+                  </span>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: MONO.ink }}>Indicación del coach</span>
+                    <span style={{ fontSize: 12.5, color: MONO.inkDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>"{plan.instructions[0].title}"</span>
+                  </div>
+                  <span style={{ width: 9, height: 9, borderRadius: 5, background: MONO.ink, flexShrink: 0 }} />
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+// Envoltorio que decide qué versión de "Hoy" mostrar. Guarda la elección
+// en este dispositivo (como el tema claro/oscuro) — cambiar de modo acá
+// no afecta a otros alumnos ni al coach.
+const HOY_MODE_KEY = "forja-hoy-mode";
+const TodayTabRouter = (props) => {
+  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(HOY_MODE_KEY) || "clasico"; } catch { return "clasico"; } });
+  const setMode = (m) => { setVmode(m); try { localStorage.setItem(HOY_MODE_KEY, m); } catch {} };
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
+        <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
+          {[["clasico", "Clásico"], ["enfoque", "Enfoque"], ["panel", "Panel"]].map(([id, l]) => (
+            <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
+              background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {vmode === "clasico" ? <TodayTab {...props} /> : <TodayTabMono {...props} variant={vmode} />}
     </div>
   );
 };
@@ -11116,8 +11357,8 @@ const App = () => {
             un contenido a otro. */}
         <div key={tab} className="sheetIn">
         {mode === "alumno" && tab === "hoy" && (
-          <TodayTab plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} allowedRoutines={currentStudent && currentStudent.allowedRoutines}
-            bookings={bookings.slots} sid={sid} />
+          <TodayTabRouter plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} allowedRoutines={currentStudent && currentStudent.allowedRoutines}
+            bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""} />
         )}
         {mode === "alumno" && tab === "agenda" && (
           <CalendarTab plan={plan} history={history} onGoTrain={() => setTab("entrenar")}
