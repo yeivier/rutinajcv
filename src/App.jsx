@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v113";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v114";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5653,33 +5653,73 @@ const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, booking
     return { label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, done, scheduled };
   });
 
+  // Tarjeta héroe de la pantalla 1a: etiqueta con punto, título 32px,
+  // fila de tres estadísticas entre hairlines, vista previa de los dos
+  // primeros ejercicios y botón primario de ancho completo. `compact` la
+  // reduce a una fila para la variante Panel, donde no manda.
+  const heroStat = (value, unit, label) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: MONO.ink }}>
+        {value}{unit && <span style={{ fontSize: 14, fontWeight: 700 }}>{unit}</span>}
+      </div>
+      <div className="mono" style={{ fontSize: 11.5, marginTop: 2 }}>{label}</div>
+    </div>
+  );
+
   const workoutCard = (compact) => !suggested ? (
     <MonoCard style={{ padding: 22, textAlign: "center" }}>
       <div style={{ fontSize: 14.5, color: MONO.inkDim }}>Tu coach todavía no cargó la rutina.</div>
     </MonoCard>
-  ) : active ? (
-    <MonoCard style={{ padding: compact ? "18px 20px" : 22, display: "flex", alignItems: "center", gap: 14 }}>
-      <div style={{ flex: 1 }}>
-        <MonoLabel>Sesión en curso</MonoLabel>
-        <div style={{ fontSize: compact ? 20 : 26, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.1, marginTop: 3 }}>{active.dayName}</div>
+  ) : compact ? (
+    <MonoCard style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <MonoLabel>{active ? "Sesión en curso" : "Entreno de hoy"}</MonoLabel>
+        <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.1, marginTop: 3 }}>{active ? active.dayName : suggested.name}</div>
+        <div style={{ fontSize: 12.5, color: MONO.inkTertiary, marginTop: 2 }}>{suggested.exs.length} ejercicios · {setsOf(suggested)} series</div>
       </div>
-      <button onClick={goTrain} style={{ padding: compact ? "13px 17px" : "16px 20px", borderRadius: 14, background: MONO.ink, color: "#FFFFFF", fontSize: 14.5, fontWeight: 700, flexShrink: 0 }}>Continuar</button>
+      <button onClick={goTrain} style={{ padding: "13px 17px", borderRadius: 14, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</button>
     </MonoCard>
   ) : (
-    <MonoCard style={{ padding: compact ? "18px 20px" : 22, display: "flex", alignItems: "center", gap: 14 }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <MonoLabel>Entreno de hoy</MonoLabel>
-        <div style={{ fontSize: compact ? 21 : 26, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.1, marginTop: 3 }}>{suggested.name}</div>
-        <div style={{ fontSize: 12.5, color: MONO.inkFaint, marginTop: 2 }}>
-          {compact ? `${suggested.exs.length} ejercicios · ${setsOf(suggested)} series` : muscles}
-        </div>
+    <MonoCard style={{ padding: 22, display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: MONO.ink, flexShrink: 0 }} />
+        <span className="mono">{active ? "Sesión en curso" : "Entreno de hoy"}</span>
       </div>
-      <button onClick={goTrain} style={{ padding: compact ? "13px 17px" : "16px 20px", borderRadius: 14, background: MONO.ink, color: "#FFFFFF", fontSize: compact ? 14 : 15.5, fontWeight: 700, flexShrink: 0 }}>{compact ? "Entrenar" : "Entrenar ahora"}</button>
+
+      <div>
+        <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-.03em", color: MONO.ink, lineHeight: 1.05 }}>{active ? active.dayName : suggested.name}</div>
+        {muscles && <div style={{ fontSize: 14.5, color: MONO.inkTertiary, marginTop: 6 }}>{muscles}</div>}
+      </div>
+
+      <div style={{ display: "flex", gap: 22, padding: "14px 0", borderTop: `1px solid ${MONO.lineFaint}`, borderBottom: `1px solid ${MONO.lineFaint}` }}>
+        {heroStat(suggested.exs.length, "", "Ejercicios")}
+        {heroStat(setsOf(suggested), "", "Series")}
+        {heroStat(Math.max(1, Math.round(setsOf(suggested) * 2.4)), "min", "Estimado")}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {suggested.exs.slice(0, 2).map((e, i) => (
+          <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ width: 26, height: 26, borderRadius: 8, background: MONO.chipBg, color: MONO.inkTertiary,
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: MONO.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
+            <span style={{ fontSize: 13, color: MONO.inkTertiary, flexShrink: 0 }}>{(e.sets || []).length}×{(e.sets || [])[0] ? (e.sets[0].repsT || "—") : "—"}</span>
+          </div>
+        ))}
+        {suggested.exs.length > 2 && (
+          <div style={{ fontSize: 13, color: MONO.inkTertiary, paddingLeft: 36 }}>+ {suggested.exs.length - 2} ejercicios más</div>
+        )}
+      </div>
+
+      <button onClick={goTrain} style={{ width: "100%", padding: 17, borderRadius: 16, background: MONO.ink, color: "#FFFFFF", fontSize: 17, fontWeight: 700,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        {active ? "Continuar sesión" : "Entrenar ahora"} <ChevronRight size={18} strokeWidth={2.6} />
+      </button>
     </MonoCard>
   );
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: variant === "panel" ? "18px 18px 32px" : "22px 22px 32px", display: "flex", flexDirection: "column", gap: variant === "panel" ? 16 : 20 }}>
 
       {variant === "panel" ? (
         <>
@@ -5749,8 +5789,8 @@ const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, booking
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               <MonoLabel>{fmtDateFull(todayISO())}</MonoLabel>
-              <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.05 }}>Hola{studentName ? `, ${studentName}` : ""}</div>
-              {weekNum && <div style={{ fontSize: 13, color: MONO.inkFaint }}>Semana {weekNum} de {weekTotal}{meso ? ` · ${meso.name}` : ""}</div>}
+              <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.05 }}>Hola{studentName ? `, ${studentName}` : ""}</div>
+              {weekNum && <div style={{ fontSize: 13.5, color: MONO.inkTertiary }}>Semana {weekNum} de {weekTotal}{meso ? ` · ${meso.name}` : ""}</div>}
             </div>
             <span style={{ width: 44, height: 44, borderRadius: 14, background: MONO.ink, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>{initials}</span>
           </div>
@@ -5761,7 +5801,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, booking
             <div style={{ display: "flex", alignItems: "center", gap: 14, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "15px 16px" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
                 <span style={{ fontSize: 15, fontWeight: 600, color: MONO.ink }}>{suggested2.name}</span>
-                <span style={{ fontSize: 12.5, color: MONO.inkDim }}>También hoy · {suggested2.exs.length} ejercicios</span>
+                <span style={{ fontSize: 12.5, color: MONO.inkTertiary }}>También hoy · {suggested2.exs.length} ejercicios</span>
               </div>
               <span style={{ fontSize: 13, fontWeight: 700, color: MONO.ink }} onClick={goTrain}>Ver</span>
             </div>
@@ -5773,22 +5813,22 @@ const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, booking
               {plan.nutrition && plan.nutrition.kcal > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 14, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "15px 16px" }}>
                   <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Utensils size={16} color={MONO.inkFaint} />
+                    <Utensils size={16} color={MONO.inkTertiary} />
                   </span>
                   <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
                     <span style={{ fontSize: 15, fontWeight: 600, color: MONO.ink }}>Comidas</span>
-                    <span style={{ fontSize: 12.5, color: MONO.inkDim }}>Objetivo: {plan.nutrition.kcal.toLocaleString("es-CL")} kcal</span>
+                    <span style={{ fontSize: 12.5, color: MONO.inkTertiary }}>Objetivo: {plan.nutrition.kcal.toLocaleString("es-CL")} kcal</span>
                   </div>
                 </div>
               )}
               {plan.instructions.length > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 14, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "15px 16px" }}>
                   <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <MessageSquare size={16} color={MONO.inkFaint} />
+                    <MessageSquare size={16} color={MONO.inkTertiary} />
                   </span>
                   <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
                     <span style={{ fontSize: 15, fontWeight: 600, color: MONO.ink }}>Indicación del coach</span>
-                    <span style={{ fontSize: 12.5, color: MONO.inkDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>"{plan.instructions[0].title}"</span>
+                    <span style={{ fontSize: 12.5, color: MONO.inkTertiary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>"{plan.instructions[0].title}"</span>
                   </div>
                   <span style={{ width: 9, height: 9, borderRadius: 5, background: MONO.ink, flexShrink: 0 }} />
                 </div>
