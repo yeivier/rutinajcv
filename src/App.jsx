@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v103";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v104";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4409,6 +4409,516 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
   );
 };
 
+/* ============================================================
+   FocusModeMono — modo "Nuevo" de Entrenar (pantalla "2a" del handoff
+   Forja Mobile), la más delicada de las ocho: es la sesión en vivo
+   real, la más usada de la app y la única que escribe series de
+   verdad mientras el alumno está entrenando. Se confirmó explícitamente
+   "reconstrucción completa" (mismo comportamiento, look nuevo) — así
+   que este componente es, a propósito, casi una COPIA LITERAL de
+   FocusMode: mismos hooks, mismos efectos, mismos handlers (go,
+   tapNav, undo/redo, rest timer, prefill, hold-to-exit, pantalla
+   completa, gestos de deslizar/tocar tercios), sin reescribir ni una
+   sola pieza de esa lógica. Lo ÚNICO que cambia es el JSX del return
+   y los dos "render" internos (cabecera de ejercicio y tarjeta de
+   serie): colores/tipografía al estilo mono claro del handoff en vez
+   del tema oscuro fijo (FOCUS_BG/FOCUS_FG). Si algo se ve raro acá,
+   comparar primero contra FocusMode arriba — la lógica de guardado
+   tiene que ser IDÉNTICA, carácter por carácter, en ambas.
+
+   Piezas reutilizadas tal cual, sin re-temizar (mismo criterio que
+   SetsEditor en el editor de rutina): FocusField (el stepper de
+   peso/reps/RIR con conversión kg/lb — lógica delicada, no vale la
+   pena arriesgarla por estética), HoldToExitButton, UnitToggle,
+   TempoBadge, ExerciseIconTile, ExerciseInfoSheet, Confirm,
+   ImageViewer. Todas usan P.* (el tema oscuro/claro global de FORJA,
+   no fijo al mono) — se ven consistentes consigo mismas aunque no
+   calcen 100% con el mono de alrededor; es la misma isla que ya se
+   documentó en Editor de rutina.
+
+   Diferencia de comportamiento CERO a propósito: en el mockup las
+   series "hecha/activa/siguiente" se ven con tres estilos distintos,
+   pero TODAS siguen editables en cualquier momento (igual que en
+   FocusMode) — es una señal visual, no un candado de orden. Ninguna
+   serie queda bloqueada por no haber completado la anterior.
+   ============================================================ */
+const FOCUS_MODE_VARIANT_KEY = "forja-focus-variant";
+const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onExit, onFinish, storageOK, savedAt }) => {
+  const [weightUnit] = useWeightUnit();
+  const pendingWrites = usePendingWrites();
+  const [pageIdx, setPageIdx] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [peek, setPeek] = useState(null);
+  const [instr, setInstr] = useState(null);
+  const [ficha, setFicha] = useState(null);
+  const [viewImg, setViewImg] = useState(null);
+  const [cmtKey, setCmtKey] = useState(null);
+  const [rests, setRests] = useState({});
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+  const [confirmFinish, setConfirmFinish] = useState(false);
+  // Estado propio de esta variante (FocusMode no lo necesita: ahí las
+  // casillas de peso/reps/RIR siempren están a la vista). Acá una serie
+  // "hecha" se colapsa a una línea de solo lectura para calzar con el
+  // mockup — pero sigue editable: tocar la línea la vuelve a abrir, sin
+  // necesidad de desmarcarla primero. Ninguna capacidad se pierde.
+  const [openDone, setOpenDone] = useState({}); // {"ei-si": true}
+  const peekTimer = useRef(null);
+  const instrTimer = useRef(null);
+  const cmtTimer = useRef(null);
+  const holdTimer = useRef(null);
+  const heldRef = useRef(false);
+  const touchRef = useRef(null);
+  const cmtRef = useRef(null);
+  const didPrefill = useRef(false);
+
+  useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
+  useEffect(() => () => { [peekTimer, instrTimer, cmtTimer, holdTimer].forEach((t) => clearTimeout(t.current)); }, []);
+  useEffect(() => {
+    const el = document.documentElement;
+    try { el.requestFullscreen && el.requestFullscreen().catch(() => {}); } catch {}
+    return () => { try { document.fullscreenElement && document.exitFullscreen && document.exitFullscreen().catch(() => {}); } catch {} };
+  }, []);
+
+  const exs = active.exs;
+
+  const pages = useMemo(() => {
+    const out = [];
+    let i = 0;
+    while (i < exs.length) {
+      const g = exs[i].group;
+      if (g) {
+        const members = [];
+        let j = i;
+        while (j < exs.length && exs[j].group === g) { members.push(j); j++; }
+        if (members.length >= 2) {
+          const info = exGroupInfo(exs, i);
+          const rounds = Math.max(1, ...members.map((m) => exs[m].sets.length));
+          for (let r = 0; r < rounds; r++) out.push({ group: true, kind: info.kind, members, roundIdx: r, rounds });
+          i = j; continue;
+        }
+      }
+      out.push({ group: false, ei: i });
+      i++;
+    }
+    return out.length ? out : [{ group: false, ei: 0 }];
+  }, [exs]);
+
+  const page = pages[Math.min(pageIdx, pages.length - 1)];
+  const totalSets = exs.reduce((a, e) => a + e.sets.length, 0);
+  const doneSets = exs.reduce((a, e) => a + e.sets.filter((s) => s.done).length, 0);
+  const pct = totalSets ? (doneSets / totalSets) * 100 : 0;
+  const elapsed = Math.max(0, Math.floor((now - new Date(active.startedAt).getTime()) / 1000));
+
+  const pageName = (pg) => {
+    if (!pg) return null;
+    if (pg.group) return `${GROUP_KINDS[pg.kind].label}: ${pg.members.map((m) => exs[m].name).join(" + ")}`;
+    return exs[pg.ei].name;
+  };
+  const nextPage = pages[pageIdx + 1] || null;
+  const nextNotes = nextPage && !nextPage.group ? exs[nextPage.ei].notes : "";
+
+  useEffect(() => {
+    if (didPrefill.current) return;
+    didPrefill.current = true;
+    const clone = structuredClone(active);
+    let any = false;
+    clone.exs.forEach((exx) => {
+      const entries = history.byEx[exx.id] || [];
+      const lastEntry = entries.length ? entries[entries.length - 1] : null;
+      if (!lastEntry) return;
+      exx.sets.forEach((s, si) => {
+        if (s.weight !== "" || s.reps !== "" || s.rir !== "") return;
+        const prev = (lastEntry.sets || [])[si];
+        if (!prev) return;
+        ["weight", "reps", "rir"].forEach((k) => { if (prev[k] !== "" && prev[k] != null) { s[k] = String(prev[k]); any = true; } });
+      });
+    });
+    if (any) patch(() => clone);
+  }, []);
+
+  const go = (dir) => {
+    const next = pageIdx + dir;
+    if (next < 0 || next >= pages.length) return;
+    setCmtKey(null); setInstr(null); setPeek(null);
+    setPageIdx(next);
+  };
+
+  const showInstr = (ei, pinned) => {
+    clearTimeout(instrTimer.current);
+    setInstr({ ei, pinned });
+    if (!pinned) instrTimer.current = setTimeout(() => setInstr(null), 6000);
+  };
+  const hideInstr = () => { clearTimeout(instrTimer.current); setInstr(null); };
+
+  const showPeek = (mode, ms) => {
+    clearTimeout(peekTimer.current);
+    setPeek({ mode });
+    peekTimer.current = setTimeout(() => setPeek(null), ms);
+  };
+  const barDown = () => {
+    heldRef.current = false;
+    holdTimer.current = setTimeout(() => { heldRef.current = true; showPeek("full", 12000); }, 380);
+  };
+  const barUp = () => {
+    clearTimeout(holdTimer.current);
+    if (heldRef.current) { showPeek("full", 6000); return; }
+    showPeek("name", 4000);
+  };
+
+  const openCmt = (ck) => {
+    setCmtKey(ck);
+    clearTimeout(cmtTimer.current);
+    cmtTimer.current = setTimeout(() => setCmtKey(null), 10000);
+    setTimeout(() => cmtRef.current && cmtRef.current.focus(), 30);
+  };
+  const touchCmt = () => {
+    clearTimeout(cmtTimer.current);
+    cmtTimer.current = setTimeout(() => setCmtKey(null), 10000);
+  };
+
+  const record = (ei, si, before, after) => {
+    setUndoStack((s) => [...s.slice(-40), { ei, si, before, after }]);
+    setRedoStack([]);
+  };
+  const clearField = (ei, si, field) => {
+    const s = exs[ei].sets[si];
+    if (s[field] === "") return;
+    record(ei, si, { [field]: s[field] }, { [field]: "" });
+    patchSet(ei, si, { [field]: "" });
+  };
+  const clearSet = (ei, si) => {
+    const s = exs[ei].sets[si];
+    if (s.weight === "" && s.reps === "" && s.rir === "") return;
+    record(ei, si, { weight: s.weight, reps: s.reps, rir: s.rir }, { weight: "", reps: "", rir: "" });
+    patchSet(ei, si, { weight: "", reps: "", rir: "" });
+  };
+  const undo = () => {
+    const a = undoStack[undoStack.length - 1];
+    if (!a) return;
+    patchSet(a.ei, a.si, a.before);
+    setUndoStack((s) => s.slice(0, -1));
+    setRedoStack((s) => [...s, a]);
+  };
+  const redo = () => {
+    const a = redoStack[redoStack.length - 1];
+    if (!a) return;
+    patchSet(a.ei, a.si, a.after);
+    setRedoStack((s) => s.slice(0, -1));
+    setUndoStack((s) => [...s, a]);
+  };
+
+  const restKey = (ei, si) => `${ei}-${si}`;
+  const toggleRest = (ei, si) => {
+    const k = restKey(ei, si);
+    setRests((r) => (r[k] ? { ...r, [k]: null } : { ...r, [k]: Date.now() }));
+  };
+
+  const setVal = (ei, si, field, v) => patchSet(ei, si, { [field]: v });
+
+  const tapNav = (e) => {
+    if (e.target.closest && e.target.closest("input, textarea, button, a, [data-keep]")) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    if (x > r.width * 0.66) go(1);
+    else if (x < r.width * 0.34) go(-1);
+  };
+
+  const renderExHeaderMono = (ei, { big, posLabel, color }) => {
+    const exx = exs[ei];
+    const noteOpen = instr && instr.ei === ei;
+    return (
+      <div style={{ padding: big ? "2px 0 4px" : "8px 0 2px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+          <ExerciseIconTile iconAttachId={exx.iconAttachId} size={big ? 40 : 34} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, color: color || MONO.inkFaint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>
+              {posLabel ? <span style={{ color }}>{posLabel} · </span> : null}{exx.muscle}
+            </div>
+            <div style={{ fontSize: big ? 23 : 18.5, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.15, margin: "3px 0 6px", color: MONO.ink }}>{exx.name}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onPointerDown={() => { heldRef.current = false; holdTimer.current = setTimeout(() => { heldRef.current = true; showInstr(ei, true); }, 380); }}
+            onPointerUp={() => { clearTimeout(holdTimer.current); if (!heldRef.current) (noteOpen ? hideInstr() : showInstr(ei, false)); }}
+            onPointerLeave={() => clearTimeout(holdTimer.current)}
+            disabled={!exx.notes}
+            aria-label="Indicación del coach: toca para verla 6 segundos, mantén pulsado para dejarla fija"
+            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: big ? 34 : 30, height: big ? 34 : 30, borderRadius: 17,
+              border: `1.5px solid ${exx.notes ? MONO.ink : MONO.line}`, color: exx.notes ? MONO.ink : MONO.line,
+              background: noteOpen ? MONO.chipBg : "transparent", touchAction: "manipulation", transition: "color .15s ease, border-color .15s ease" }}>
+            <Info size={big ? 19 : 17} />
+          </button>
+          <button data-keep onClick={() => setFicha(ei)} aria-label="Ver ficha técnica completa del ejercicio"
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: "#2B2B30", fontWeight: 600,
+              border: `1px solid ${MONO.line}`, borderRadius: 17, padding: big ? "7px 12px" : "6px 10px" }}>
+            <BookOpen size={big ? 16 : 14} /> Ficha
+          </button>
+          {exx.video && (
+            <a href={exx.video} target="_blank" rel="noopener noreferrer"
+              style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: P.blue, fontWeight: 600 }}>
+              <Video size={15} /> Técnica
+            </a>
+          )}
+        </div>
+        {parseTempo(exx.notes) && (
+          <div style={{ marginTop: 8 }}>
+            <TempoBadge tempo={parseTempo(exx.notes)} exerciseName={exx.name} muscle={exx.muscle} big={big} />
+          </div>
+        )}
+        <div style={{ maxHeight: noteOpen ? 200 : 0, opacity: noteOpen ? 1 : 0, overflow: "hidden",
+          transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
+          {noteOpen && (
+            <div data-keep onClick={hideInstr} style={{ background: MONO.chipBg, border: `1px solid ${MONO.line}`, borderRadius: 11,
+              padding: "9px 11px", margin: "6px 0 2px", fontSize: 13.5, color: "#2B2B30", lineHeight: 1.45, maxHeight: 180, overflowY: "auto" }}>
+              {exx.notes}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderSetCardMono = (ei, si, label, kindColor) => {
+    const exx = exs[ei];
+    const s = exx.sets[si];
+    if (!s) return null;
+    const ck = restKey(ei, si);
+    const started = rests[ck];
+    const restEl = started ? Math.max(0, Math.floor((now - started) / 1000)) : 0;
+    const target = (s.rest != null && s.rest !== "" ? +s.rest : (exx.rest || 0));
+    const over = target > 0 && restEl >= target;
+    // A diferencia de FOCUS_BG fijo en negro, acá la tarjeta "hecha" se
+    // aplana (sin borde, texto de solo lectura) y la que se está tocando
+    // ahora mismo (cronómetro corriendo o comentario abierto) se marca con
+    // borde negro grueso — el mismo lenguaje "hecha/en curso/pendiente" del
+    // mockup, sin bloquear ninguna serie: todas siguen editables siempre.
+    const showFields = !s.done || openDone[ck];
+    // Una serie hecha y reabierta a mano (showFields=true) toma el mismo
+    // padding/fondo que una pendiente: necesita el mismo espacio para los
+    // campos, aunque siga contando como "hecha" (done sigue true).
+    return (
+      <div key={s.id} style={{ background: showFields ? MONO.surface : "transparent",
+        border: showFields ? `${started ? "1.5px" : "1px"} solid ${started ? MONO.ink : MONO.line}` : "none",
+        borderRadius: 14, padding: showFields ? "10px 11px 11px" : "7px 2px", marginBottom: showFields ? 9 : 2 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: showFields ? 7 : 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: kindColor || MONO.inkFaint, width: 34, flexShrink: 0 }}>
+            {(SET_TYPES[s.type] || {}).short || label}
+          </span>
+          {s.done ? (
+            // Tocar la línea la reabre para editar (mismos campos de abajo) sin
+            // tener que desmarcar la serie primero — la colapso es solo visual.
+            <button onClick={() => setOpenDone((o) => ({ ...o, [ck]: !o[ck] }))} aria-label={`Editar ${label}`}
+              style={{ display: "flex", gap: 10, flex: 1, textAlign: "left" }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: MONO.ink, flex: 1 }}>{s.weight !== "" ? `${s.weight} kg` : "—"}</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: MONO.ink, flex: 1 }}>{s.reps !== "" ? s.reps : "—"}</span>
+            </button>
+          ) : (
+            <span style={{ fontSize: 12.5, color: MONO.inkFaint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
+              {s.repsT || "—"} reps{s.rirT !== "" ? ` @ RIR ${s.rirT}` : ""}
+            </span>
+          )}
+          <button onClick={() => clearSet(ei, si)} aria-label={`Borrar los datos de ${label}`}
+            style={{ padding: 5, color: MONO.inkFaint }}><Trash2 size={16} /></button>
+          <button data-cmt onClick={() => (cmtKey === ck ? setCmtKey(null) : openCmt(ck))} aria-label={`Comentario de ${label}`}
+            style={{ padding: 5, color: s.comment ? MONO.ink : MONO.inkFaint }}>
+            <MessageSquare size={17} fill={s.comment ? "rgba(16,16,18,.18)" : "none"} />
+          </button>
+          <button onClick={() => toggleRest(ei, si)} aria-label={`Cronómetro de descanso de ${label}`}
+            style={{ padding: 5, color: started ? MONO.ink : MONO.inkFaint }}><Timer size={17} /></button>
+          <button onClick={() => patchSet(ei, si, { done: !s.done })} aria-label={s.done ? "Desmarcar serie" : "Marcar serie hecha"}
+            style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              background: s.done ? MONO.ink : "#FFFFFF", color: s.done ? "#FFFFFF" : MONO.inkFaint, border: `1px solid ${s.done ? MONO.ink : MONO.line}` }}>
+            <Check size={17} strokeWidth={3} />
+          </button>
+        </div>
+
+        {showFields && (
+          <div style={{ display: "flex", gap: 7, alignItems: "flex-start" }}>
+            <FocusField label="Peso" value={s.weight} placeholder={weightUnit} isWeight
+              onChange={(vv) => setVal(ei, si, "weight", vv)} onClear={() => clearField(ei, si, "weight")} />
+            <FocusField label="Reps" value={s.reps} placeholder={s.repsT || "reps"}
+              onChange={(vv) => setVal(ei, si, "reps", vv)} onClear={() => clearField(ei, si, "reps")} />
+            <FocusField label="RIR" value={s.rir} placeholder={s.rirT !== "" ? String(s.rirT) : "rir"}
+              onChange={(vv) => setVal(ei, si, "rir", vv)} onClear={() => clearField(ei, si, "rir")} />
+          </div>
+        )}
+
+        {started && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "6px 9px", borderRadius: 9,
+            background: over ? "rgba(30,122,75,.08)" : MONO.chipBg,
+            border: `1px solid ${over ? "#1E7A4B" : MONO.line}` }}>
+            {/* over: ya cumpliste el descanso objetivo → verde, igual que P.green
+                marcaba en FocusMode. Sin esto se perdía la única señal de "ya
+                puedes seguir" del cronómetro. */}
+            <Timer size={15} color={over ? "#1E7A4B" : MONO.ink} />
+            <span style={{ fontSize: 19, fontWeight: 700, color: over ? "#1E7A4B" : MONO.ink }}>{bigTime(restEl)}</span>
+            <span style={{ fontSize: 12.5, color: MONO.inkFaint }}>descansando{target ? ` · objetivo ${target}s` : ""}</span>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => toggleRest(ei, si)} style={{ fontSize: 13, color: "#2B2B30", fontWeight: 600, padding: "2px 4px" }}>parar</button>
+          </div>
+        )}
+
+        <div data-cmt style={{ maxHeight: cmtKey === ck ? 130 : 0, opacity: cmtKey === ck ? 1 : 0, overflow: "hidden",
+          transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
+          <textarea ref={cmtKey === ck ? cmtRef : null} rows={2} value={s.comment || ""}
+            placeholder={`Comentario de ${label}`}
+            onChange={(e) => { setVal(ei, si, "comment", e.target.value); touchCmt(); }}
+            onFocus={touchCmt} onKeyDown={touchCmt}
+            style={{ width: "100%", marginTop: 8, padding: "8px 10px", fontSize: 16, lineHeight: 1.4, resize: "none", borderRadius: 10,
+              background: MONO.surface, border: `1px solid ${MONO.line}`, color: MONO.ink,
+              visibility: cmtKey === ck ? "visible" : "hidden", pointerEvents: cmtKey === ck ? "auto" : "none" }} />
+        </div>
+        {s.comment && cmtKey !== ck && (
+          <div data-keep onClick={() => openCmt(ck)} style={{ marginTop: 7, fontSize: 13.5, color: "#2B2B30", lineHeight: 1.4,
+            background: MONO.chipBg, border: `1px solid ${MONO.line}`, borderRadius: 9, padding: "6px 9px" }}>{s.comment}</div>
+        )}
+      </div>
+    );
+  };
+
+  // A diferencia de FocusMode, acá NO se usa GROUP_KINDS[kind].color para
+  // la superserie/triserie/gigante: esos tonos (blanco/gris claro) están
+  // pensados para el fondo negro fijo de FOCUS_BG — sobre el mono claro
+  // quedarían casi ilegibles. La insignia del bloque usa MONO.ink liso,
+  // igual que ya se hizo en Editor de rutina.
+  return (
+    <div
+      onClickCapture={(e) => {
+        if (cmtKey === null) return;
+        if (e.target.closest && e.target.closest("[data-cmt]")) return;
+        setCmtKey(null);
+      }}
+      style={{ position: "fixed", inset: 0, zIndex: 90, background: MONO.bg, display: "flex", flexDirection: "column",
+        paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)", overscrollBehavior: "contain" }}>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px 8px", flexShrink: 0 }}>
+        <HoldToExitButton onExit={onExit} />
+        <div style={{ fontSize: 25, fontWeight: 700, color: MONO.ink, letterSpacing: ".02em" }}>{bigTime(elapsed)}</div>
+        <div style={{ fontSize: 12.5, color: MONO.inkFaint, lineHeight: 1.2 }}>
+          {pageIdx + 1}/{pages.length}<br />{doneSets}/{totalSets} series
+        </div>
+        <div style={{ flex: 1 }} />
+        <UnitToggle />
+        <button onClick={undo} disabled={!undoStack.length} aria-label="Deshacer"
+          style={{ padding: 6, color: undoStack.length ? "#2B2B30" : MONO.line }}><Undo2 size={18} /></button>
+        <button onClick={redo} disabled={!redoStack.length} aria-label="Rehacer"
+          style={{ padding: 6, color: redoStack.length ? "#2B2B30" : MONO.line }}><Redo2 size={18} /></button>
+        <span title={pendingWrites ? `Guardado en el dispositivo · sincronizando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
+          style={{ width: 7, height: 7, borderRadius: 4, background: pendingWrites ? MONO.inkFaint : (storageOK ? "#1E7A4B" : "#C0362C"), flexShrink: 0 }} />
+        <button onClick={() => setConfirmFinish(true)} style={{ fontSize: 13.5, fontWeight: 700, color: "#FFFFFF", background: MONO.ink, borderRadius: 11, padding: "8px 13px" }}>
+          Terminar
+        </button>
+      </div>
+
+      <div onPointerDown={barDown} onPointerUp={barUp} onPointerLeave={() => clearTimeout(holdTimer.current)}
+        role="button" aria-label="Progreso de la sesión: toca para ver lo que sigue, mantén pulsado para ver también su indicación"
+        style={{ padding: "10px 12px 12px", flexShrink: 0, cursor: "pointer", touchAction: "manipulation" }}>
+        <div style={{ height: 9, background: MONO.chipBg, borderRadius: 5, overflow: "hidden", border: `1px solid ${MONO.line}` }}>
+          <div style={{ height: "100%", width: `${pct}%`, borderRadius: 5, background: MONO.ink, transition: "width .35s ease" }} />
+        </div>
+        {pageIdx === 0 && !peek && (
+          <div style={{ fontSize: 11.5, color: MONO.inkFaint, textAlign: "center", marginTop: 5, lineHeight: 1.3 }}>
+            Toca la barra para ver lo que sigue · mantén pulsado para leer su indicación
+          </div>
+        )}
+      </div>
+
+      <div style={{ flexShrink: 0, padding: "0 12px",
+        maxHeight: peek ? 190 : 0, opacity: peek ? 1 : 0, overflow: "hidden",
+        transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
+        {peek && (
+          <div style={{ background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "9px 11px", marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", color: MONO.inkFaint, textTransform: "uppercase", marginBottom: 3 }}>
+              {nextPage ? "Siguiente" : "Último"}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: MONO.ink, lineHeight: 1.3 }}>
+              {nextPage ? pageName(nextPage) : "Este es el final de la sesión"}
+            </div>
+            {peek.mode === "full" && nextNotes && (
+              <div style={{ fontSize: 13.5, color: "#2B2B30", lineHeight: 1.45, marginTop: 5,
+                maxHeight: 108, overflowY: "auto" }}>{nextNotes}</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", position: "relative", padding: "0 18px 16px" }}
+        onClick={tapNav}
+        onTouchStart={(e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY }; }}
+        onTouchEnd={(e) => {
+          const st = touchRef.current; if (!st) return;
+          const t = e.changedTouches[0];
+          const dx = t.clientX - st.x, dy = t.clientY - st.y;
+          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
+          touchRef.current = null;
+        }}>
+
+        <div onClick={() => go(-1)} aria-hidden style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 24, zIndex: 3 }} />
+        <div onClick={() => go(1)} aria-hidden style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 24, zIndex: 3 }} />
+
+        <div style={{ position: "relative", zIndex: 2 }}>
+          <MonoCard style={{ padding: "16px 18px", marginTop: 4 }}>
+            {page.group ? (
+              <>
+                <div style={{ marginBottom: 4, padding: "9px 11px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.line}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 800, color: MONO.ink, letterSpacing: ".04em", textTransform: "uppercase" }}>
+                      {GROUP_KINDS[page.kind].label}
+                    </span>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink }}>Ronda {page.roundIdx + 1}/{page.rounds}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "#2B2B30", marginTop: 4, lineHeight: 1.4 }}>
+                    Haz {page.members.map((mi) => exGroupInfo(exs, mi).posLabel).join(" → ")} seguidos, sin descanso entre ellos.
+                    Descansa solo al terminar la ronda y desliza a la derecha para la siguiente.
+                  </div>
+                </div>
+
+                {page.members.map((mi) => {
+                  const s = exs[mi].sets[page.roundIdx];
+                  if (!s) return null;
+                  return (
+                    <div key={mi} data-keep style={{ borderLeft: `3px solid ${MONO.ink}`, paddingLeft: 10, marginBottom: 6 }}>
+                      {renderExHeaderMono(mi, { big: false, posLabel: exGroupInfo(exs, mi).posLabel, color: MONO.ink })}
+                      {renderSetCardMono(mi, page.roundIdx, `Ronda ${page.roundIdx + 1}`, MONO.ink)}
+                    </div>
+                  );
+                })}
+              </>
+            ) : (
+              <>
+                {renderExHeaderMono(page.ei, { big: true, posLabel: exGroupInfo(exs, page.ei).posLabel, color: MONO.inkFaint })}
+                <div style={{ marginTop: 10 }}>
+                  {exs[page.ei].sets.map((s, si) => renderSetCardMono(page.ei, si, `S${si + 1}`, null))}
+                </div>
+              </>
+            )}
+          </MonoCard>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button onClick={() => go(-1)} disabled={pageIdx === 0} style={{ flex: 1, padding: "15px 14px", borderRadius: 15,
+              background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: "#2B2B30", fontSize: 15, fontWeight: 700, opacity: pageIdx === 0 ? 0.45 : 1 }}>
+              <ChevronLeft size={17} style={{ verticalAlign: -3 }} /> Anterior
+            </button>
+            <button onClick={() => go(1)} disabled={pageIdx >= pages.length - 1} style={{ flex: 2, padding: "15px 14px", borderRadius: 15,
+              background: MONO.ink, border: "none", color: "#FFFFFF", fontSize: 16, fontWeight: 700, opacity: pageIdx >= pages.length - 1 ? 0.45 : 1 }}>
+              Siguiente ejercicio <ChevronRight size={17} style={{ verticalAlign: -3 }} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <Confirm open={confirmFinish} title="Terminar sesión"
+        body={doneSets < totalSets ? `Llevas ${doneSets} de ${totalSets} series marcadas. Se guardará todo lo registrado hasta ahora.` : "¡Sesión completa! Se guardará todo en tu historial."}
+        okLabel="Terminar y guardar" onOk={() => { setConfirmFinish(false); onFinish(); }} onCancel={() => setConfirmFinish(false)} />
+      <ExerciseInfoSheet ex={ficha != null ? exs[ficha] : null} open={ficha != null} onClose={() => setFicha(null)}
+        onPatchEx={ficha != null && patchEx ? (p) => patchEx(ficha, p) : null} onOpenImg={setViewImg} onError={onError} history={history} />
+      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
+    </div>
+  );
+};
+
 const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines }) => {
   const pendingWrites = usePendingWrites();
   const [confirmFinish, setConfirmFinish] = useState(false);
@@ -4421,6 +4931,13 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   const [confirmSwitch, setConfirmSwitch] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
   const [focus, setFocus] = useState(false);              // pantalla completa de un ejercicio a la vez
+  // Qué look usa el focus mode (FocusMode clásico o FocusModeMono, la
+  // pantalla "2a" del handoff) — se elige ANTES de entrar, no adentro:
+  // una vez en pantalla completa no hay dónde poner un toggle sin
+  // estorbar. Mismo mecanismo de localStorage que el resto de los
+  // modos "Nuevo" de la app.
+  const [focusVariant, setFocusVariant] = useState(() => { try { return localStorage.getItem(FOCUS_MODE_VARIANT_KEY) || "clasico"; } catch { return "clasico"; } });
+  const setFocusVariantPersist = (m) => { setFocusVariant(m); try { localStorage.setItem(FOCUS_MODE_VARIANT_KEY, m); } catch {} };
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(iv); }, []);
 
@@ -4553,6 +5070,15 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
               <Btn kind="ghost" onClick={() => startSession(d, true)} style={{ width: "100%", borderColor: `${P.dim}` }}>
                 <Zap size={16} color={P.ember2} /> Iniciar focus mode
               </Btn>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: P.faint }}>Look del focus mode:</span>
+                <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 9, padding: 3 }}>
+                  {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
+                    <button key={id} onClick={() => setFocusVariantPersist(id)} style={{ padding: "4px 8px", borderRadius: 6, fontSize: 11.5, fontWeight: 600,
+                      background: focusVariant === id ? P.s3 : "transparent", color: focusVariant === id ? P.text : P.faint }}>{l}</button>
+                  ))}
+                </div>
+              </div>
               <div style={{ fontSize: 12.5, color: P.faint, textAlign: "center", lineHeight: 1.4 }}>
                 Focus mode: pantalla completa, un ejercicio a la vez. Puedes cambiar de modo en cualquier momento sin perder nada.
               </div>
@@ -4674,9 +5200,10 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   };
 
   if (focus && active) {
+    const FocusComp = focusVariant === "nuevo" ? FocusModeMono : FocusMode;
     return (
       <>
-        <FocusMode active={active} history={history} patch={patch} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
+        <FocusComp active={active} history={history} patch={patch} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
           onExit={() => setFocus(false)} onFinish={doFinish} />
         {summarySheet}
       </>
