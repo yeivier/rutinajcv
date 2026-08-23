@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v92";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v93";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -2065,7 +2065,11 @@ function volumeByMuscle(plan, refTable = BB_VOLUME_REF) {
   const perMuscle = {};
   const add = (day) => { (day.exs || []).forEach((ex) => addExerciseVolume(perMuscle, ex)); };
   const sched = plan.schedule || {};
-  const scheduledIds = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((k) => sched[k]).filter(Boolean);
+  const sched2 = plan.schedule2 || {};
+  // plan.schedule2 es la segunda sesión del día (PM) cuando el plan entrena
+  // dos veces el mismo día — sin esto, el total semanal se quedaba corto
+  // en cualquier día con doble turno (contaba solo la sesión AM).
+  const scheduledIds = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].flatMap((k) => [sched[k], sched2[k]]).filter(Boolean);
   let basis = "semana";
   if (scheduledIds.length) {
     scheduledIds.forEach((id) => {
