@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v90";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v91";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -40,14 +40,17 @@ const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso
 // mínimo legible), sobre todo en la barra inferior y los bordes de tarjeta.
 // Al ser tokens únicos usados en toda la app, este solo cambio sube el
 // contraste de marcos y texto secundario en todas las pantallas a la vez.
-// "ember"/"ember2" son nombres heredados del acento verde original; hoy
-// son blanco puro y un blanco levemente suavizado — se mantiene el nombre
-// para no tener que tocar los ~190 lugares que ya los usan, pero el color
-// real es monocromo. Ninguno de los dos lleva canal alpha en ningún lugar
-// donde se usan (a pedido explícito: nada de colores transparentes ni
-// translúcidos en el acento de marca) — los degradados/brillos/bordes que
-// antes eran verde con alpha ahora son tonos sólidos y opacos de esta
-// misma escala de grises.
+// "ember"/"ember2" son nombres heredados del acento verde original; pasaron
+// por blanco puro (paleta monocroma) y ahora, a pedido explícito otra vez
+// ("más colores para distinguir mejor secciones y botones"), vuelven a ser
+// un color real — esta vez sí "ember" de verdad (naranja brasa), en línea
+// con el nombre y con el resto del vocabulario de color que ya vivía en
+// SET_TYPES/EVENT_COLORS. Como son tokens únicos usados en ~190 lugares,
+// este solo cambio devuelve color a botones primarios, pestañas activas,
+// íconos de acento y highlights en toda la app de una sola vez. verde y
+// azul (P.green/P.blue) reciben el mismo tratamiento — dejan de ser gris
+// y pasan a un verde/azul reales — para que "óptimo" en Progreso → Volumen
+// y el resto de indicadores de estado se vean como corresponde.
 // ---------------- Tema claro/oscuro ----------------
 // `P` y los cuatro PLATE_* siguen siendo los mismos identificadores que ya
 // usan ~600 lugares del archivo (P.text, P.dim, PLATE_GRAD…) — para poder
@@ -58,17 +61,19 @@ const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso
 // reasignar los PLATE_*, y listo: como todo componente lee `P.xxx`/`PLATE_*`
 // en cada render (no los guarda en un closure), un solo re-render de toda
 // la app (ver useTheme/ThemeToggle) alcanza para que se vea en todos lados.
-// A pedido explícito: toda la plataforma pasa de la paleta cálida
-// (marrón/crema) a blanco y negro puro, el mismo lenguaje que ya tenían
-// las tarjetas de Focus Mode (FOCUS_BG/FOCUS_FG/FOCUS_MUTED/FOCUS_LINE,
-// más abajo en el archivo). Se mantienen los acentos funcionales (rojo de
-// eliminar/error, los colores de cada tipo de serie en TypeBadge) — el
-// usuario pidió conservarlos para no perder esas señales.
+// La plataforma pasó por una paleta cálida (marrón/crema), luego blanco y
+// negro puro (mismo lenguaje que las tarjetas de Focus Mode: FOCUS_BG/
+// FOCUS_FG/FOCUS_MUTED/FOCUS_LINE, más abajo) y ahora, a pedido explícito,
+// recupera color real en ember/green/blue (ver nota de "ember"/"ember2"
+// unas líneas más abajo) para distinguir mejor secciones y botones. Se
+// mantienen los acentos funcionales que nunca se tocaron (rojo de
+// eliminar/error, los colores de cada tipo de serie en TypeBadge, los de
+// EVENT_COLORS en la Agenda).
 const DARK_THEME = {
   P: {
     bg: "#000000", s1: "#141414", s2: "#1C1C1C", s3: "#242424", s4: "#2E2E2E",
     line: "#4A4A4A", text: "#FFFFFF", dim: "#E5E5E5", faint: "#A3A3A3",
-    ember: "#FFFFFF", ember2: "#E8E8E8", green: "#FFFFFF", red: "#E01A1A", blue: "#B5B5B5", glow: "#FFFFFF",
+    ember: "#FF6B35", ember2: "#FFA366", green: "#34D399", red: "#E01A1A", blue: "#5B9BFF", glow: "#FF6B35",
     frame: "#FFFFFF",
     bgGrad: "linear-gradient(158deg, #141414 0%, #0D0D0D 30%, #080808 54%, #030303 76%, #000000 100%)",
   },
@@ -85,7 +90,7 @@ const LIGHT_THEME = {
   P: {
     bg: "#EDEDED", s1: "#FFFFFF", s2: "#FAFAFA", s3: "#F0F0F0", s4: "#E5E5E5",
     line: "#B5B5B5", text: "#000000", dim: "#1A1A1A", faint: "#5C5C5C",
-    ember: "#000000", ember2: "#1A1A1A", green: "#000000", red: "#C21414", blue: "#5C5C5C", glow: "#000000",
+    ember: "#E0551F", ember2: "#B8623A", green: "#1E9E68", red: "#C21414", blue: "#2E6FD6", glow: "#E0551F",
     frame: "#000000",
     bgGrad: "linear-gradient(158deg, #FFFFFF 0%, #F7F7F7 30%, #F0F0F0 54%, #E8E8E8 76%, #E0E0E0 100%)",
   },
@@ -2070,7 +2075,23 @@ function volumeByMuscle(plan, refTable = BB_VOLUME_REF) {
 // un aviso de que hay que prestar atención, no un "todo bien" — usar el
 // verde de acento acá se leería como positivo cuando en realidad es una
 // advertencia intermedia entre "bajo"/"sobre MRV" (rojo) y "óptimo".
-const VOL_COLORS = { bajo: P.red, mínimo: "#E8AE4D", óptimo: P.green, alto: "#E8AE4D", "sobre MRV": P.red, "sin referencia": P.faint };
+// Función, no objeto const: si fuera un objeto armado una sola vez al
+// cargar el módulo, "óptimo"/"sobre MRV" quedarían congelados en los
+// valores de P.green/P.red del tema que estuviera activo en ese instante
+// y no cambiarían al alternar claro/oscuro. "bajo" y "sobre MRV" antes
+// compartían el mismo rojo — ahora son dos tonos de rojo distintos, como
+// se pidió, para diferenciar "muy poco volumen" de "demasiado volumen"
+// de un vistazo.
+function volStatusColor(status) {
+  switch (status) {
+    case "bajo": return "#C2410C";
+    case "mínimo": return "#E8AE4D";
+    case "óptimo": return P.green;
+    case "alto": return "#E8AE4D";
+    case "sobre MRV": return P.red;
+    default: return P.faint;
+  }
+}
 
 /* ============================================================
    Átomos de interfaz
@@ -4961,7 +4982,7 @@ const NutritionView = ({ plan, n }) => {
       {hasMacros && (
         <>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 10 }}>
-          {[["kcal", v.kcal || "—", P.ember2], ["Proteína", v.p ? `${v.p} g` : "—", P.green], ["Carbos", v.c ? `${v.c} g` : "—", P.blue], ["Grasas", v.f ? `${v.f} g` : "—", "#8C8C93"]].map(([l, val, c]) => (
+          {[["kcal", v.kcal || "—", P.ember2], ["Proteína", v.p ? `${v.p} g` : "—", P.green], ["Carbos", v.c ? `${v.c} g` : "—", P.blue], ["Grasas", v.f ? `${v.f} g` : "—", "#F2B84B"]].map(([l, val, c]) => (
             <Card key={l} style={{ padding: "11px 6px", textAlign: "center" }}>
               <div className="disp" style={{ fontSize: 18, fontWeight: 700, color: c }}>{val}</div>
               <div style={{ fontSize: 11.5, color: P.dim, marginTop: 2 }}>{l}</div>
@@ -4973,12 +4994,12 @@ const NutritionView = ({ plan, n }) => {
             <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", marginBottom: 8, background: P.s3 }}>
               <div style={{ width: `${v.pctP}%`, background: P.green }} />
               <div style={{ width: `${v.pctC}%`, background: P.blue }} />
-              <div style={{ width: `${v.pctF}%`, background: "#8C8C93" }} />
+              <div style={{ width: `${v.pctF}%`, background: "#F2B84B" }} />
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 12px", fontSize: 12.5, color: P.dim }}>
               <span><b style={{ color: P.green }}>Proteína</b> {v.pk} kcal ({v.pctP}%)</span>
               <span><b style={{ color: P.blue }}>Carbos</b> {v.ck} kcal ({v.pctC}%)</span>
-              <span><b style={{ color: "#8C8C93" }}>Grasa</b> {v.fk} kcal ({v.pctF}%)</span>
+              <span><b style={{ color: "#F2B84B" }}>Grasa</b> {v.fk} kcal ({v.pctF}%)</span>
             </div>
           </div>
         )}
@@ -6856,12 +6877,12 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
           <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", marginBottom: 8, background: P.s3 }}>
             <div style={{ width: `${v.pctP}%`, background: P.green }} />
             <div style={{ width: `${v.pctC}%`, background: P.blue }} />
-            <div style={{ width: `${v.pctF}%`, background: "#8C8C93" }} />
+            <div style={{ width: `${v.pctF}%`, background: "#F2B84B" }} />
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 12px", fontSize: 12.5, color: P.dim }}>
             <span><b style={{ color: P.green }}>Proteína</b> {v.p} g · {v.pk} kcal ({v.pctP}%)</span>
             <span><b style={{ color: P.blue }}>Carbos</b> {v.c} g · {v.ck} kcal ({v.pctC}%)</span>
-            <span><b style={{ color: "#8C8C93" }}>Grasa</b> {v.f} g · {v.fk} kcal ({v.pctF}%)</span>
+            <span><b style={{ color: "#F2B84B" }}>Grasa</b> {v.f} g · {v.fk} kcal ({v.pctF}%)</span>
           </div>
           <div style={{ fontSize: 13.5, color: P.text, fontWeight: 700, marginTop: 6 }}>Total: {v.tot} kcal</div>
         </div>
@@ -8530,13 +8551,15 @@ const AthleteForm = ({ plan, savePlan }) => {
 };
 
 /* ---- Volumen por grupo muscular ---- */
-const MuscleVolumeRow = ({ r, max }) => (
+const MuscleVolumeRow = ({ r, max }) => {
+  const col = volStatusColor(r.status);
+  return (
   <Card style={{ padding: "11px 13px", marginBottom: 8 }}>
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
       <div style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>{r.muscle}</div>
       <div style={{ fontSize: 14, fontWeight: 700, color: P.text }}>{fmtSets(r.sets)} series</div>
       <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em",
-        color: VOL_COLORS[r.status], background: `${VOL_COLORS[r.status]}1E`, border: `1px solid ${VOL_COLORS[r.status]}55`,
+        color: col, background: `${col}1E`, border: `1px solid ${col}55`,
         borderRadius: 7, padding: "2px 7px" }}>{r.status}</div>
     </div>
     <div style={{ position: "relative", height: 8, background: P.s3, borderRadius: 5, overflow: "hidden" }}>
@@ -8545,7 +8568,7 @@ const MuscleVolumeRow = ({ r, max }) => (
           top: 0, bottom: 0, background: `${P.green}33` }} />
       )}
       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(100, (r.sets / max) * 100)}%`,
-        background: VOL_COLORS[r.status], opacity: .85, borderRadius: 5 }} />
+        background: col, opacity: .85, borderRadius: 5 }} />
     </div>
     {r.ref && (
       <div style={{ fontSize: 12.5, color: P.faint, marginTop: 6 }}>
@@ -8553,7 +8576,8 @@ const MuscleVolumeRow = ({ r, max }) => (
       </div>
     )}
   </Card>
-);
+  );
+};
 
 const VolumePanel = ({ plan }) => {
   const [sub, setSub] = useState("semana");
@@ -9324,15 +9348,25 @@ const fmtWeekRange = (dateObj) => {
 };
 
 // Colores de evento en la Agenda — como con SET_TYPES, es otra excepción a
-// propósito a la paleta roja/blanco/negro del resto de la app: ayuda a
-// distinguir de un vistazo qué tipo de recordatorio es cada evento, tanto en
-// las celdas del calendario como en la lista de próximos.
+// propósito a la paleta del resto de la app: ayuda a distinguir de un
+// vistazo qué tipo de recordatorio es cada evento, tanto en las celdas del
+// calendario como en la lista de próximos. Ampliado de 5 a 12 opciones (a
+// pedido: "una gran opción de colores"), reutilizando el mismo vocabulario
+// de color que ya vive en SET_TYPES para que todo el sistema se sienta
+// coherente en vez de tener dos paletas sueltas.
 const EVENT_COLORS = {
-  ember:  { label: "Rojo",    dot: "#FF4747" },
-  blue:   { label: "Celeste", dot: "#7DA6C7" },
-  green:  { label: "Verde",   dot: "#34D399" },
-  gold:   { label: "Dorado",  dot: "#F2B84B" },
-  purple: { label: "Violeta", dot: "#B583F0" },
+  ember:  { label: "Rojo",     dot: "#FF4747" },
+  orange: { label: "Naranja",  dot: "#FF6B2C" },
+  gold:   { label: "Dorado",   dot: "#F2B84B" },
+  yellow: { label: "Amarillo", dot: "#FACC15" },
+  lime:   { label: "Lima",     dot: "#A3E635" },
+  green:  { label: "Verde",    dot: "#34D399" },
+  teal:   { label: "Verde azulado", dot: "#2DD4BF" },
+  cyan:   { label: "Cian",     dot: "#38D9E8" },
+  blue:   { label: "Celeste",  dot: "#7DA6C7" },
+  indigo: { label: "Índigo",   dot: "#818CF8" },
+  purple: { label: "Violeta",  dot: "#B583F0" },
+  pink:   { label: "Rosa",     dot: "#F472B6" },
 };
 const EVENT_COLOR_KEYS = Object.keys(EVENT_COLORS);
 
@@ -10003,11 +10037,15 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
             <Field label="Título"><Inp placeholder="Ej: Subir fotos de progreso" value={eventSheet.title} onChange={(e) => setEventSheet({ ...eventSheet, title: e.target.value })} /></Field>
             <Field label="Nota (opcional)"><Txt rows={2} placeholder="Detalles adicionales…" value={eventSheet.note} onChange={(e) => setEventSheet({ ...eventSheet, note: e.target.value })} /></Field>
             <Field label="Color">
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {EVENT_COLOR_KEYS.map((k) => (
                   <button key={k} onClick={() => setEventSheet({ ...eventSheet, color: k })} title={EVENT_COLORS[k].label} aria-label={EVENT_COLORS[k].label}
                     style={{ width: 30, height: 30, borderRadius: 999, background: EVENT_COLORS[k].dot,
-                      border: eventSheet.color === k ? `2px solid ${P.text}` : "2px solid transparent" }} />
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      border: eventSheet.color === k ? `2px solid ${P.text}` : "2px solid transparent",
+                      boxShadow: eventSheet.color === k ? `0 0 0 2px ${P.s1}` : "none" }}>
+                    {eventSheet.color === k && <Check size={15} color="#000" strokeWidth={3} />}
+                  </button>
                 ))}
               </div>
             </Field>
