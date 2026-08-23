@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v83";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v84";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -792,6 +792,120 @@ const GLOSSARY = [
   { id:"fst", term:"FST-7 (Fascia Stretch Training)", def:"Después de terminar las series de trabajo normales del ejercicio marcado, se agregan 7 series más del mismo movimiento (FST1 a FST7) con descansos muy cortos: el objetivo es un estiramiento sostenido de la fascia, no fuerza máxima. Carga inicial: la que te permita ~12-15 reps en la FST1 y todavía ≥8 reps en la FST7 — como referencia, ~55-65 % de tu carga convencional de 8-12 reps. Reps 8-15, descanso 30-45 s entre cada una; registra peso, reps, RIR y descanso real de cada serie.\n\nProgresión: si FST1 ≥15 y FST7 ≥10 con el RIR correcto, sube 2.5-5 % la próxima vez. Si FST7 se queda en 8-10, mantén la carga. Si caes debajo de 8 reps antes de la FST6, baja 5-10 %.\n\nTempos de referencia según la zona: laterales 2/0/1/2 · curls/extensiones 3/0-1/1/1-2 · pulldown/pullover 3/0-1/1/1 · cuádriceps 2/0/1/2 · isquios 3/1/1/1 · gemelos 3/2/1/1.", ej:"Aperturas en polea baja a alta: terminas tus series de trabajo normales (WRK) y agregas FST1…FST7 del mismo ejercicio, 30-45 s de descanso entre cada una, anotando peso/reps/RIR de cada una." },
   { id:"deload", term:"Deload (descarga)", def:"Semana de trabajo reducido (menos series y/o menos peso, RIR alto) para disipar fatiga acumulada y llegar fresco al siguiente bloque. No es perder el tiempo: es parte del plan.", ej:"Deload: mitad de las series, 10–20 % menos de peso, todo @ RIR 4–5." },
 ];
+
+/* ============================================================
+   Medidas corporales y guía de fotos de progreso
+   Cada campo trae su propio "how": el punto exacto, la tensión de la
+   cinta y la posición del cuerpo. Sin esto, dos mediciones del mismo
+   alumno en fechas distintas no son realmente comparables — que es
+   justo lo que hace útil (o inútil) esta sección.
+   ============================================================ */
+const BODY_MEASURE_FIELDS = [
+  { key: "cuello", label: "Cuello", how: "Cinta horizontal justo debajo de la nuez (manzana de Adán), sin inclinar la cabeza." },
+  { key: "hombros", label: "Hombros", how: "En el punto más ancho, pasando por encima de ambos deltoides, brazos relajados a los costados." },
+  { key: "pecho", label: "Pecho", how: "Cinta horizontal a la altura de los pezones, respiración normal (no infles el pecho), brazos relajados." },
+  { key: "cintura", label: "Cintura", how: "En el punto más angosto del torso (usualmente ~2 cm arriba del ombligo). No metas la panza ni la infles." },
+  { key: "cadera", label: "Cadera", how: "En el punto más ancho de los glúteos, de pie con los talones juntos." },
+  { key: "brazoDer", label: "Brazo derecho (flexionado)", how: "Brazo a 90°, bíceps contraído al máximo, cinta en el punto más grueso. Mide siempre flexionado — nunca compares un valor relajado con uno flexionado." },
+  { key: "brazoIzq", label: "Brazo izquierdo (flexionado)", how: "Igual que el derecho, en el brazo izquierdo." },
+  { key: "antebrazoDer", label: "Antebrazo derecho", how: "Puño cerrado, antebrazo contraído, cinta en el punto más grueso." },
+  { key: "antebrazoIzq", label: "Antebrazo izquierdo", how: "Igual que el derecho, en el antebrazo izquierdo." },
+  { key: "musloDer", label: "Muslo derecho", how: "De pie, peso repartido en ambas piernas, cinta en el punto más grueso (~15-20 cm arriba de la rótula)." },
+  { key: "musloIzq", label: "Muslo izquierdo", how: "Igual que el derecho, en el muslo izquierdo." },
+  { key: "pantorrillaDer", label: "Pantorrilla derecha", how: "De pie, peso repartido en ambas piernas, en el punto más grueso, pierna relajada (no en puntas de pie)." },
+  { key: "pantorrillaIzq", label: "Pantorrilla izquierda", how: "Igual que la derecha, en la pantorrilla izquierda." },
+];
+const MEASURE_GENERAL_RULES = [
+  "Usa una cinta métrica flexible (de costura), no elástica — una cinta elástica se estira distinto cada vez, y la medida cambia aunque el cuerpo no haya cambiado.",
+  "Mide siempre a la misma hora del día, idealmente en ayunas y por la mañana, antes de comer o entrenar.",
+  "Espera al menos 24-48 h desde el último entrenamiento de ese músculo: el «bombeo» post-entreno infla la medida y no es real.",
+  "La cinta debe quedar ajustada pero sin hundir la piel. Si al soltarla queda una marca profunda, estaba demasiado apretada.",
+  "Mide 2 veces cada punto y usa el promedio si hay diferencia.",
+  "Mide siempre el mismo lado del cuerpo (el derecho, salvo lesión) para poder comparar con las mediciones anteriores.",
+];
+const PHOTO_GUIDE_SECTIONS = [
+  { title: "Fondo y encuadre", items: [
+    "Pared lisa de un solo color, sin muebles ni objetos detrás, que contraste con tu tono de piel.",
+    "Celular apoyado en un trípode o repisa fija — nunca sostenido con la mano, se nota el ángulo torcido.",
+    "Altura del celular: a la altura del ombligo o el pecho. Ni mirando hacia abajo ni hacia arriba — eso distorsiona las proporciones del cuerpo.",
+    "Distancia: 2-2,5 metros, para que entre el cuerpo completo con margen arriba y abajo.",
+    "Usa el temporizador (10 s) o un control remoto para disparar la foto, y quédate quieto un segundo extra.",
+    "Lente principal, sin zoom digital — el gran angular y el zoom digital distorsionan la silueta.",
+  ] },
+  { title: "Luz — lo que más arruina una foto de progreso", items: [
+    "Mejor opción: luz de día indirecta, cerca de una ventana grande. Evita el sol entrando directo por la ventana: genera sombras duras de un lado.",
+    "Si no hay luz de día disponible: usa luz artificial blanca fría/neutra (5000-6500 K), lo más uniforme posible — idealmente dos fuentes, una a cada lado. Evita una sola lámpara lateral: exagera o esconde definición con sombras marcadas.",
+    "Nunca mezcles luz cálida (bombillas amarillas) con luz fría o luz de día en la misma foto: cambia el tono de piel y hace imposible comparar entre fechas.",
+    "Evita la luz cenital directa (desde arriba): oscurece los ojos y aplana el físico.",
+    "Usa siempre el mismo horario del día — la luz natural cambia mucho entre la mañana y la tarde.",
+  ] },
+  { title: "Estado del cuerpo al fotografiar", items: [
+    "En ayunas, por la mañana, después de ir al baño.",
+    "Sin haber entrenado ese músculo en las últimas 24-48 h (sin «bombeo»/pump): infla temporalmente el músculo y no deja comparar bien.",
+    "Bien hidratado los días previos — la deshidratación aplana la apariencia muscular.",
+    "Ropa mínima y ajustada (ropa interior o short de posado) para que no oculte la silueta.",
+  ] },
+  { title: "Poses fijas — repite siempre las mismas", items: [
+    "Relajado de frente",
+    "Relajado de espaldas",
+    "Perfil (elige un lado y úsalo siempre en todas las fotos)",
+    "Doble bíceps de frente (opcional, más orientado a competencia)",
+    "Doble bíceps de espaldas (opcional)",
+  ] },
+];
+// Se abre tanto desde "Medidas" como desde "Fotos y videos" en Progreso →
+// Cuerpo — mismo contenido completo, pero arranca en la pestaña que
+// corresponde al botón que lo abrió.
+const BodyGuideSheet = ({ open, onClose, startTab = "medidas" }) => {
+  const [sub, setSub] = useState(startTab);
+  useEffect(() => { if (open) setSub(startTab); }, [open, startTab]);
+  return (
+    <Sheet open={open} onClose={onClose} title="Guía: medidas y fotos" tall>
+      <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 11, padding: 3, marginBottom: 14 }}>
+        {[["medidas", "Medidas"], ["fotos", "Fotos"]].map(([id, l]) => (
+          <button key={id} onClick={() => setSub(id)} style={{ flex: 1, padding: "8px 6px", borderRadius: 8, fontSize: 13.5, fontWeight: 600,
+            background: sub === id ? P.s3 : "transparent", color: sub === id ? P.text : P.faint, border: `1px solid ${sub === id ? P.line : "transparent"}` }}>{l}</button>
+        ))}
+      </div>
+      {sub === "medidas" && (
+        <div>
+          <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Reglas generales</div>
+          <Card style={{ padding: "12px 14px", marginBottom: 16 }}>
+            {MEASURE_GENERAL_RULES.map((r, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, fontSize: 14.5, lineHeight: 1.5, marginBottom: i < MEASURE_GENERAL_RULES.length - 1 ? 8 : 0 }}>
+                <span style={{ color: P.ember2, flexShrink: 0 }}>•</span><span>{r}</span>
+              </div>
+            ))}
+          </Card>
+          <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Punto exacto de cada medida</div>
+          {BODY_MEASURE_FIELDS.map((f) => (
+            <div key={f.key} style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{f.label}</div>
+              <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5, marginTop: 2 }}>{f.how}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {sub === "fotos" && (
+        <div>
+          {PHOTO_GUIDE_SECTIONS.map((sec) => (
+            <div key={sec.title} style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>{sec.title}</div>
+              <Card style={{ padding: "12px 14px" }}>
+                {sec.items.map((it, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 14.5, lineHeight: 1.5, marginBottom: i < sec.items.length - 1 ? 8 : 0 }}>
+                    <span style={{ color: P.ember2, flexShrink: 0 }}>•</span><span>{it}</span>
+                  </div>
+                ))}
+              </Card>
+            </div>
+          ))}
+          <div style={{ fontSize: 13.5, color: P.faint, lineHeight: 1.5 }}>Sube fotos o videos nuevos cada 2-4 semanas, siempre el mismo día de la semana, siguiendo esta guía — así cada comparación es real y no un efecto de la luz o el ángulo.</div>
+        </div>
+      )}
+    </Sheet>
+  );
+};
 
 /* ---------------- Supabase storage (con respaldo local para trabajar sin internet) ----------------
    Antes, sin conexión, `remoteCache` (un Map en memoria) se vaciaba en cada
@@ -1663,7 +1777,7 @@ function seedPlanWithSchedule() {
   p.days = p.days.map((d) => ({ ...d, routine: routineOf(d) })).concat(routineBDays());
   return p;
 }
-const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos: [] });
+const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos: [], measurements: [] });
 
 /* ============================================================
    Base de conocimiento de culturismo
@@ -4481,6 +4595,10 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
   const [bw, setBw] = useState("");
   const [viewImg, setViewImg] = useState(null);
   const [err, setErr] = useState("");
+  const [guide, setGuide] = useState(null); // null | "medidas" | "fotos"
+  const [measForm, setMeasForm] = useState({});
+  const [measErr, setMeasErr] = useState("");
+  const [measChartKey, setMeasChartKey] = useState(BODY_MEASURE_FIELDS[0].key);
 
   const allEx = useMemo(() => {
     const m = new Map();
@@ -4502,6 +4620,33 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
     h.bodyweight.push({ date: todayISO(), kg: v });
     saveHistory(h); setBw("");
   };
+
+  // Historias reales creadas antes de esta función no tienen `measurements`
+  // en absoluto (no es que esté vacío: la clave no existe) — de ahí el
+  // `|| []` acá y el `if (!h.measurements)` al guardar/borrar.
+  const measurements = history.measurements || [];
+  const setMeasField = (key, val) => setMeasForm((f) => ({ ...f, [key]: val }));
+  const saveMeasurements = () => {
+    const values = {};
+    BODY_MEASURE_FIELDS.forEach((f) => {
+      const raw = measForm[f.key];
+      const v = raw !== undefined && raw !== "" ? parseFloat(String(raw).replace(",", ".")) : null;
+      if (v && v > 0) values[f.key] = v;
+    });
+    if (Object.keys(values).length === 0) { setMeasErr("Ingresa al menos una medida en cm."); return; }
+    setMeasErr("");
+    const h = structuredClone(history);
+    if (!h.measurements) h.measurements = [];
+    h.measurements.push({ id: uid(), date: todayISO(), values });
+    saveHistory(h);
+    setMeasForm({});
+  };
+  const removeMeasurement = (id) => {
+    const h = structuredClone(history);
+    h.measurements = (h.measurements || []).filter((m) => m.id !== id);
+    saveHistory(h);
+  };
+  const measChartData = measurements.filter((m) => m.values && m.values[measChartKey] != null).map((m) => ({ d: fmtDate(m.date), v: m.values[measChartKey] }));
 
   const subBtn = (id, label) => (
     <button onClick={() => setSub(id)} style={{ flex: 1, padding: "9px 4px", borderRadius: 10, fontSize: 14.5, fontWeight: 600,
@@ -4571,12 +4716,65 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
             {bwData.length > 1 && <div style={{ marginTop: 10 }}><ChartBox data={bwData} unit="kg" /></div>}
             {bwData.length === 1 && <div style={{ fontSize: 14, color: P.faint, marginTop: 10 }}>Último registro: {bwData[0].v} kg ({bwData[0].d}). Con dos o más registros verás la curva.</div>}
           </Card>
+
+          <Card style={{ padding: 14, marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Medidas corporales</div>
+              <button onClick={() => setGuide("medidas")} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, color: P.ember2 }}>
+                <Info size={13} /> Cómo medir
+              </button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+              {BODY_MEASURE_FIELDS.map((f) => (
+                <div key={f.key}>
+                  <div style={{ fontSize: 12, color: P.faint, marginBottom: 3 }}>{f.label}</div>
+                  <Inp type="number" inputMode="decimal" step="any" placeholder="cm" value={measForm[f.key] || ""} onChange={(e) => setMeasField(f.key, e.target.value)} />
+                </div>
+              ))}
+            </div>
+            <Btn kind="ember" onClick={saveMeasurements} style={{ width: "100%" }}><Plus size={16} /> Guardar medidas de hoy</Btn>
+            {measErr && <div style={{ color: P.red, fontSize: 13.5, marginTop: 6 }}>{measErr}</div>}
+
+            {measurements.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <select value={measChartKey} onChange={(e) => setMeasChartKey(e.target.value)} style={{ width: "100%", marginBottom: 10, fontSize: 14, padding: "9px 10px" }}>
+                  {BODY_MEASURE_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                </select>
+                {measChartData.length > 1 ? (
+                  <ChartBox data={measChartData} unit="cm" />
+                ) : measChartData.length === 1 ? (
+                  <div style={{ fontSize: 14, color: P.faint }}>Único registro: {measChartData[0].v} cm ({measChartData[0].d}). Con dos o más registros de esta medida verás la curva.</div>
+                ) : (
+                  <div style={{ fontSize: 14, color: P.faint }}>Sin registros todavía de «{BODY_MEASURE_FIELDS.find((f) => f.key === measChartKey)?.label}».</div>
+                )}
+                <div style={{ marginTop: 14 }}>
+                  {[...measurements].reverse().map((m) => (
+                    <div key={m.id} style={{ padding: "9px 0", borderTop: `1px solid ${P.line}` }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{fmtDateFull(m.date)}</div>
+                        <button onClick={() => removeMeasurement(m.id)} aria-label="Eliminar registro" style={{ color: P.faint }}><Trash2 size={13} /></button>
+                      </div>
+                      <div style={{ fontSize: 13, color: P.dim, marginTop: 3, lineHeight: 1.5 }}>
+                        {BODY_MEASURE_FIELDS.filter((f) => m.values && m.values[f.key] != null).map((f) => `${f.label}: ${m.values[f.key]} cm`).join(" · ")}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+
           <Card style={{ padding: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Progreso: fotos y videos ({history.bodyPhotos.length})</div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <AttachButton mode="photo" onError={setErr} onAttached={(id) => { const h = structuredClone(history); h.bodyPhotos.push({ id, date: todayISO() }); saveHistory(h); }} />
-                <AttachButton mode="video" onError={setErr} onAttached={(id) => { const h = structuredClone(history); h.bodyPhotos.push({ id, date: todayISO() }); saveHistory(h); }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button onClick={() => setGuide("fotos")} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, color: P.ember2 }}>
+                  <Info size={13} /> Cómo fotografiar
+                </button>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <AttachButton mode="photo" onError={setErr} onAttached={(id) => { const h = structuredClone(history); h.bodyPhotos.push({ id, date: todayISO() }); saveHistory(h); }} />
+                  <AttachButton mode="video" onError={setErr} onAttached={(id) => { const h = structuredClone(history); h.bodyPhotos.push({ id, date: todayISO() }); saveHistory(h); }} />
+                </div>
               </div>
             </div>
             {history.bodyPhotos.length === 0 ? (
@@ -4598,6 +4796,7 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
 
       <SessionDetailSheet session={openSession} onClose={() => setOpenSession(null)} history={history} onOpenImg={setViewImg} />
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
+      <BodyGuideSheet open={!!guide} onClose={() => setGuide(null)} startTab={guide || "medidas"} />
     </div>
   );
 };
