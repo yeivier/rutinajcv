@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v111";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v112";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -776,7 +776,11 @@ const DragHandle = ({ onActivate, onDragMove, onDragEnd, active, label, block, s
   const ref = useHoldDragHandle({ onActivate, onDragMove, onDragEnd });
   const base = {
     display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-    cursor: "grab", position: "relative", zIndex: 60,
+    // zIndex 1, no 60: con 60 el asa se pintaba POR ENCIMA de la barra de
+    // pestañas (zIndex 50) y los puntos asomaban debajo de ella al scrollear.
+    // No hace falta subirlo para arrastrar: durante el arrastre la barra ya
+    // se vuelve transparente al puntero (body.fj-dragging [data-tabbar]).
+    cursor: "grab", position: "relative", zIndex: 1,
     // touch-action:none le pide al navegador que ni intente scrollear
     // desde acá; el preventDefault del hook es el respaldo real.
     touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none",
@@ -2223,7 +2227,7 @@ const GlobalStyle = () => {
        de una pantalla negra. Una sola variable controla el shell principal,
        la barra de pestañas y las hojas modales, así los tres quedan
        siempre alineados al mismo ancho. */
-    :root { --fj-w: 520px; }
+    :root { --fj-w: 520px; --fj-tabbar-h: calc(58px + env(safe-area-inset-bottom)); }
     @media (min-width: 720px) { :root { --fj-w: 640px; } }
     @media (min-width: 1024px) { :root { --fj-w: 800px; } }
     /* Grillas de tarjetas (stats del Dashboard, etc.): 2 columnas en
@@ -2894,7 +2898,7 @@ const CHAT_POLL_MS = 6000;
 function fmtChatTime(ts) {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 function fmtChatDay(ts) {
   const d = new Date(ts);
@@ -2964,44 +2968,63 @@ const ChatTab = ({ sid, role, studentName }) => {
 
   const headerName = role === "coach" ? (studentName || "Alumno") : "Tu coach";
   const initials = headerName.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+  // El diseño muestra un punto de estado bajo el nombre. FORJA no tiene
+  // presencia real (nadie publica "estoy conectado"), así que en vez de
+  // inventar un "En línea" fijo se muestra el dato que sí existe: cuándo
+  // escribió por última vez la otra persona. Mismo tamaño y misma forma.
+  const lastFromOther = [...msgs].reverse().find((m) => m.from !== role);
+  const otherMins = lastFromOther ? Math.round((Date.now() - lastFromOther.ts) / 60000) : null;
+  const presence = otherMins == null ? "Sin mensajes todavía"
+    : otherMins < 5 ? "En línea"
+    : otherMins < 60 ? `Activo hace ${otherMins} min`
+    : otherMins < 1440 ? `Activo hace ${Math.round(otherMins / 60)} h`
+    : `Activo hace ${Math.round(otherMins / 1440)} d`;
   let lastDay = null;
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "100%", display: "flex", flexDirection: "column", padding: `14px 16px ${TAB_BOTTOM_PAD}` }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 4px 14px" }}>
-        <span style={{ width: 40, height: 40, borderRadius: 13, background: MONO.ink, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{initials}</span>
-        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink }}>{headerName}</span>
-          <span style={{ fontSize: 12, color: MONO.inkFaint }}>Chat con tu {role === "coach" ? "alumno" : "coach"}</span>
+    <div style={{ background: MONO.bg, minHeight: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Header blanco, como una barra de navegación de sistema */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 20px 14px",
+        background: MONO.surface, borderBottom: `1px solid ${MONO.line}` }}>
+        <span style={{ width: 40, height: 40, borderRadius: 13, background: MONO.ink, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{initials}</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headerName}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: MONO.inkFaint }}>
+            <i style={{ width: 6, height: 6, borderRadius: "50%", background: MONO.ink, flexShrink: 0 }} />{presence}
+          </span>
         </div>
       </div>
 
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "flex", flexDirection: "column", gap: 10, paddingBottom: 8, minHeight: "40vh" }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "flex", flexDirection: "column", gap: 12, padding: "18px 18px 84px", minHeight: "46vh" }}>
         {loaded && msgs.length === 0 && (
-          <div style={{ textAlign: "center", fontSize: 13.5, color: MONO.inkFaint, padding: "20px 10px" }}>Todavía no hay mensajes. Escribe el primero.</div>
+          <div style={{ textAlign: "center", fontSize: 13.5, color: MONO.inkDim, padding: "20px 10px" }}>Todavía no hay mensajes. Escribe el primero.</div>
         )}
         {msgs.map((m) => {
           const own = m.from === role;
+          // El alumno siempre en tinta y el coach siempre en blanco, mire
+          // quien mire — así el hilo se lee igual desde los dos lados.
           const isAlumno = m.from === "alumno";
           const dayLabel = fmtChatDay(m.ts);
           const showDay = dayLabel !== lastDay;
           lastDay = dayLabel;
           const bubbleBg = isAlumno ? MONO.ink : MONO.surface;
-          const bubbleColor = isAlumno ? PLATE_FG : MONO.inkDim;
+          const bubbleColor = isAlumno ? "#F0F0F3" : "#2B2B30";
           const bubbleBorder = isAlumno ? "none" : `1px solid ${MONO.line}`;
           const timeColor = isAlumno ? "#8C8C96" : MONO.inkFaint;
           return (
             <React.Fragment key={m.id}>
-              {showDay && <div style={{ textAlign: "center", fontSize: 11.5, fontWeight: 600, color: MONO.inkFaint, margin: "6px 0 2px" }}>{dayLabel}</div>}
+              {showDay && <div style={{ textAlign: "center", fontSize: 11.5, fontWeight: 600, color: MONO.inkFaint }}>{dayLabel}</div>}
               <div style={{ alignSelf: own ? "flex-end" : "flex-start", maxWidth: "78%", display: "flex", flexDirection: "column", gap: 5 }}>
                 {m.kind === "media" ? (
                   <>
-                    <AttachThumb id={m.attachId} size={140} onOpen={setViewImg} />
-                    <span style={{ fontSize: 11, color: timeColor, alignSelf: own ? "flex-end" : "flex-start" }}>{fmtChatTime(m.ts)}</span>
+                    <ChatMedia id={m.attachId} onOpen={setViewImg} />
+                    <span style={{ fontSize: 11, color: MONO.inkFaint, alignSelf: own ? "flex-end" : "flex-start" }}>{fmtChatTime(m.ts)}</span>
                   </>
                 ) : (
-                  <div style={{ background: bubbleBg, border: bubbleBorder, borderRadius: own ? "12px 18px 6px 18px" : "12px 18px 18px 6px", padding: "13px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
-                    <span style={{ fontSize: 14.5, lineHeight: 1.5, color: bubbleColor, whiteSpace: "pre-wrap" }}>{m.text}</span>
+                  <div style={{ background: bubbleBg, border: bubbleBorder,
+                    borderRadius: own ? "18px 18px 6px 18px" : "18px 18px 18px 6px",
+                    padding: "13px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
+                    <span style={{ fontSize: 14.5, fontWeight: 400, lineHeight: 1.5, color: bubbleColor, whiteSpace: "pre-wrap" }}>{m.text}</span>
                     <span style={{ fontSize: 11, color: timeColor, alignSelf: "flex-end" }}>{fmtChatTime(m.ts)}</span>
                   </div>
                 )}
@@ -3011,18 +3034,65 @@ const ChatTab = ({ sid, role, studentName }) => {
         })}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingTop: 12 }}>
-        <AttachButton mode="both" iconOnly onAttached={sendAttach} onError={() => {}} />
+      {/* Barra de composición: "+" 44px, campo, envío 44px en tinta */}
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: "var(--fj-tabbar-h)", zIndex: 45,
+        maxWidth: "var(--fj-w)", margin: "0 auto",
+        display: "flex", alignItems: "center", gap: 10, padding: "12px 18px",
+        background: MONO.surface, borderTop: `1px solid ${MONO.line}` }}>
+        <ChatPlusButton onAttached={sendAttach} />
         <input value={text} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
           placeholder="Escribe un mensaje…"
-          style={{ flex: 1, padding: "13px 15px", borderRadius: 14, background: MONO.chipBg, border: `1px solid ${MONO.line}`, fontSize: 14.5, color: MONO.ink }} />
-        <button onClick={send} disabled={!text.trim() || sending} style={{ width: 44, height: 44, borderRadius: 14, background: MONO.ink, border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: (!text.trim() || sending) ? 0.4 : 1 }}>
-          <Send size={18} color="#fff" />
+          style={{ flex: 1, minWidth: 0, padding: "13px 15px", borderRadius: 14, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, fontSize: 14.5, color: MONO.ink }} />
+        <button onClick={send} disabled={!text.trim() || sending} aria-label="Enviar"
+          style={{ width: 44, height: 44, borderRadius: 14, background: MONO.ink, border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: (!text.trim() || sending) ? 0.4 : 1 }}>
+          <ArrowRight size={19} color="#FFFFFF" strokeWidth={2.4} />
         </button>
       </div>
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
+  );
+};
+
+// Adjunto del chat: rectángulo 180x118 con el botón de play circular de
+// 42px encima, como en el diseño — no la miniatura cuadrada genérica.
+const ChatMedia = ({ id, onOpen }) => {
+  const [m, setM] = useState(null);
+  useEffect(() => { let on = true; sGet(`attach:${id}`).then((v) => on && setM(v || null)); return () => { on = false; }; }, [id]);
+  const isVideo = m && m.kind === "video";
+  const thumb = m ? (isVideo ? m.poster : m.dataUrl) : null;
+  return (
+    <button onClick={() => m && onOpen && onOpen(m)} aria-label="Abrir adjunto"
+      style={{ width: 180, height: 118, borderRadius: 16, overflow: "hidden", position: "relative",
+        background: thumb ? MONO.chipBg : "#EDEDF2", border: `1px solid ${MONO.line}`,
+        display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {thumb && <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+      {(isVideo || !thumb) && (
+        <span style={{ position: "absolute", width: 42, height: 42, borderRadius: "50%", background: MONO.ink,
+          display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Play size={16} color="#FFFFFF" fill="#FFFFFF" />
+        </span>
+      )}
+    </button>
+  );
+};
+
+// Botón "+" de adjuntar del chat: 44px, gris de sistema. Envuelve el
+// AttachButton existente para no duplicar la lógica de subida.
+const ChatPlusButton = ({ onAttached }) => {
+  const ref = useRef(null);
+  return (
+    <span style={{ position: "relative", width: 44, height: 44, flexShrink: 0, display: "block" }}>
+      <span style={{ position: "absolute", inset: 0, opacity: 0, overflow: "hidden" }} ref={ref}>
+        <AttachButton mode="both" iconOnly onAttached={onAttached} onError={() => {}} />
+      </span>
+      <button aria-label="Adjuntar foto o video"
+        onClick={() => { const b = ref.current && ref.current.querySelector("button"); b && b.click(); }}
+        style={{ width: 44, height: 44, borderRadius: 14, background: MONO.chipBg, border: `1px solid ${MONO.line}`,
+          display: "flex", alignItems: "center", justifyContent: "center", color: MONO.inkFaint }}>
+        <Plus size={19} strokeWidth={2.2} />
+      </button>
+    </span>
   );
 };
 
@@ -12070,13 +12140,16 @@ const SectionSwitch = ({ items, value, onChange, style, compact }) => {
   if (!items || items.length < 2) return null;
   const many = compact || items.length >= 4;
   return (
-    <div style={{ display: "flex", gap: 4, background: P.s4, borderRadius: 13, padding: 4, ...style }}>
+    <div style={{ display: "flex", gap: 4, background: P.s4, borderRadius: 10, padding: 3, ...style }}>
       {items.map(({ id, label }) => {
         const on = value === id;
         return (
           <button key={id} onClick={() => onChange(id)}
-            style={{ flex: 1, minWidth: 0, textAlign: "center", padding: many ? "9px 2px" : "9px 6px", borderRadius: 10,
+            style={{ flex: 1, minWidth: 0, textAlign: "center", padding: many ? "9px 2px" : "9px 6px", borderRadius: 8,
               background: on ? P.s1 : "transparent", color: on ? P.text : P.faint,
+              // Única sombra permitida en todo el sistema: la pastilla del
+              // segmentado. El README la lista como la excepción explícita.
+              boxShadow: on ? "0 2px 6px -3px rgba(0,0,0,.3)" : "none",
               fontSize: many ? 12.5 : 13.5, fontWeight: on ? 700 : 600,
               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</button>
         );
@@ -12160,6 +12233,10 @@ const StatTile = ({ label, value, unit, note, bar }) => (
   </Card>
 );
 
+// La inactiva de la barra es más clara que el texto secundario general
+// (#A0A0AA contra #5A5A63): así la activa destaca por contraste puro, sin
+// necesidad de un color de acento.
+const TAB_INACTIVE = "#A0A0AA";
 const TabBar = ({ tabs, tab, setTab }) => (
   <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
     background: `${P.s1}E6`, backdropFilter: "saturate(180%) blur(20px)", WebkitBackdropFilter: "saturate(180%) blur(20px)",
@@ -12168,14 +12245,14 @@ const TabBar = ({ tabs, tab, setTab }) => (
         en la barra de sistema de iOS. La activa se distingue por tinta y
         grosor de trazo — sin placa rellena detrás del ícono. */}
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${tabs.length}, 1fr)`, width: "100%", maxWidth: "var(--fj-w)",
-      padding: "8px 6px calc(10px + env(safe-area-inset-bottom))" }}>
+      padding: "10px 12px calc(10px + env(safe-area-inset-bottom))" }}>
       {tabs.map(({ id, label, Icon }) => {
         const on = tab === id;
         return (
           <button key={id} onClick={() => setTab(id)} aria-current={on ? "page" : undefined}
             style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "3px 2px", minWidth: 0,
-              color: on ? P.ember2 : P.faint }}>
-            <Icon size={22} strokeWidth={on ? 2.4 : 2} color={on ? P.ember2 : P.faint} />
+              color: on ? P.ember2 : TAB_INACTIVE }}>
+            <Icon size={21} strokeWidth={2.2} color={on ? P.ember2 : TAB_INACTIVE} />
             <span style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{label}</span>
           </button>
         );
@@ -12934,7 +13011,8 @@ const App = () => {
   return (
     <div className={easyMode ? "fj fj-easy" : "fj"} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
-      <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto", paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
+      <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
+        paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
         {/* Cabecera: solo identidad y un botón "Más". El tema, el Easy Mode,
             el cambio alumno/coach, Alumnos y Equipo se mudaron a la hoja
             "Más" — una barra superior con seis controles es justo lo que el
