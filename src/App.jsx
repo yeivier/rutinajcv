@@ -6,7 +6,7 @@ import {
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
-  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard
+  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2
 } from "lucide-react";
 
 /* ============================================================
@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v81";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v82";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -1899,6 +1899,8 @@ const GlobalStyle = () => (
       .fj button:not(:disabled):hover { filter: brightness(1.12); }
       .fj button:not(:disabled):active { transform: scale(.97); }
     }
+    @keyframes fjSpin { to { transform: rotate(360deg); } }
+    .fj-spin { animation: fjSpin .85s linear infinite; }
     .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
       font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; color: ${P.text}; font-variant-numeric: tabular-nums;
       line-height: 1.42; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
@@ -2002,6 +2004,16 @@ const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
 const Card = ({ children, style, onClick, ...rest }) => (
   <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: 18,
     boxShadow: CARD_LIFT, ...style }}>{children}</div>
+);
+
+// Estado de carga: reemplaza los "Cargando…" en texto plano (que se sentían
+// baratos) por un spinner sutil + etiqueta, en el mismo lugar donde antes
+// iba el texto — mismo patrón de "early return" en cada pestaña async.
+const LoadingBlock = ({ label = "Cargando…" }) => (
+  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: "58px 20px" }}>
+    <Loader2 size={26} color={P.ember} className="fj-spin" />
+    <div style={{ color: P.faint, fontSize: 13.5, fontWeight: 600 }}>{label}</div>
+  </div>
 );
 
 // `rest` deja pasar title, aria-label y demás: sin eso, un botón que solo
@@ -6707,7 +6719,7 @@ const RankingsTab = ({ roster, toast }) => {
     await sSet("forja-monthly-winners", { list });
   };
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando rankings de todos los alumnos…</div>;
+  if (loading) return <LoadingBlock label="Cargando rankings de todos los alumnos…" />;
 
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
@@ -6937,7 +6949,7 @@ const DashboardTab = ({ roster, toast }) => {
     return () => { cancelled = true; };
   }, [roster]);
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando el panel de todo el equipo…</div>;
+  if (loading) return <LoadingBlock label="Cargando el panel de todo el equipo…" />;
 
   const header = (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -7082,7 +7094,7 @@ const CobrosTab = ({ roster, toast }) => {
     if (toast) toast(`✓ Pago de ${fmtMoney(amt, next.currency)} registrado para ${payRow.name}`);
   };
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando cobros de todos los alumnos…</div>;
+  if (loading) return <LoadingBlock label="Cargando cobros de todos los alumnos…" />;
 
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
@@ -7262,7 +7274,7 @@ const LeadsTab = ({ onCreateStudent, onManageStudent, toast }) => {
   const board = LEAD_STAGES.map((s) => ({ ...s, items: leads.filter((l) => l.stage === s.id) }));
   const lost = leads.filter((l) => l.stage === "perdido");
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando leads…</div>;
+  if (loading) return <LoadingBlock label="Cargando leads…" />;
 
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
@@ -7575,7 +7587,7 @@ REGLAS:
     "¿Cuánta proteína realmente necesita para hipertrofia?",
   ];
 
-  if (!keyLoaded) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando…</div>;
+  if (!keyLoaded) return <LoadingBlock />;
 
   return (
     <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
@@ -8350,7 +8362,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
 
   const clearChat = () => { setMessages([]); setApplied({}); persist([]); };
 
-  if (sid && loadedFor !== sid) return <div style={{ padding: 30, textAlign: "center", color: P.faint }}>Cargando conversación…</div>;
+  if (sid && loadedFor !== sid) return <LoadingBlock label="Cargando conversación…" />;
 
   return (
     <div>
@@ -8569,7 +8581,7 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
     } finally { setBusy(false); }
   };
 
-  if (sid && loadedFor !== sid) return <div style={{ padding: 30, textAlign: "center", color: P.faint }}>Cargando…</div>;
+  if (sid && loadedFor !== sid) return <LoadingBlock />;
 
   if (!apiKey) {
     return (
@@ -8646,7 +8658,7 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
     setApiKey(k); setShowKeyEdit(false);
   };
 
-  if (!keyLoaded) return <div style={{ padding: 40, textAlign: "center", color: P.faint }}>Cargando…</div>;
+  if (!keyLoaded) return <LoadingBlock />;
   if (sub === "nutricion") {
     return (
       <div>
@@ -10514,6 +10526,11 @@ const App = () => {
         </div>
         <StorageBanner />
 
+        {/* key={tab}: al cambiar de pestaña, React desmonta el bloque anterior
+            y monta uno nuevo con esta key — eso dispara la animación de
+            entrada (fjUp, ya usada en las hojas) en vez de un salto seco de
+            un contenido a otro. */}
+        <div key={tab} className="sheetIn">
         {mode === "alumno" && tab === "hoy" && (
           <TodayTab plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             bookings={bookings.slots} sid={sid} />
@@ -10594,6 +10611,7 @@ const App = () => {
           </div>
         )}
         {tab === "atlas" && <AtlasTab />}
+        </div>
       </div>
 
       <TabBar tabs={tabs} tab={tab} setTab={setTab} />
