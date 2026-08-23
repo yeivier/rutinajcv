@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v99";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v100";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1084,6 +1084,29 @@ async function sSet(key, value, shared = true) {
     storageOK = false;
     queuePendingWrite(key, value, false);
     return true; // el dato SÍ quedó guardado (local + en cola) — no es una pérdida
+  }
+}
+
+// Igual que sGet, pero SIEMPRE pega a la red — sGet corta apenas
+// encuentra la clave en remoteCache, que es justo lo que no queremos acá:
+// el Chat (coach↔alumno) necesita notar mensajes nuevos que puso el OTRO
+// lado desde otro dispositivo, no solo lo que ya se cacheó en esta sesión.
+// Uso exclusivo del sondeo del chat — el resto de la app (plan/historial/
+// roster) sigue con sGet normal, sin tocar su comportamiento.
+async function sGetFresh(key) {
+  try {
+    const r = await fetchWithTimeout(`${SB_URL}?key=eq.${encodeURIComponent(key)}&select=value`, { headers: SB_H });
+    if (!r.ok) throw new Error(r.statusText);
+    const rows = await r.json();
+    const val = rows.length ? rows[0].value : null;
+    if (val !== null) { remoteCache.set(key, val); lsSetRaw(key, val); }
+    storageOK = true;
+    return val;
+  } catch (e) {
+    storageOK = false;
+    if (remoteCache.has(key)) return remoteCache.get(key);
+    const local = lsGetRaw(key);
+    return local !== undefined ? local : null;
   }
 }
 
@@ -2769,6 +2792,165 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", captu
         </Btn>
       )}
     </>
+  );
+};
+
+/* ============================================================
+   Chat coach ↔ alumno (pantalla "2d" del handoff Forja Mobile).
+   Feature nueva de punta a punta — antes no existía mensajería entre
+   personas (el "IA" del coach/alumno habla con un modelo, no con la
+   otra persona). Guarda un solo hilo por alumno en Supabase
+   (forja-chat:<sid>), compartido entre las dos vistas; `role`
+   ("coach" o "alumno") decide de qué lado se pinta cada burbuja.
+
+   Sondeo simple en vez de tiempo real de verdad: mientras la pestaña
+   está montada, cada CHAT_POLL_MS vuelve a pedir el hilo con
+   sGetFresh (bypassa el caché de sGet) para notar mensajes que puso
+   el otro lado desde otro dispositivo. Nada se pide si la pestaña no
+   está abierta.
+
+   Dos simplificaciones a propósito respecto del mockup: no hay
+   estado "en línea" (la app no tiene presencia real — inventarlo
+   sería mostrar un dato falso) y no arma la tarjeta automática de
+   "cambio de rutina aplicado" dentro del mensaje (necesitaría
+   enganchar el chat a cada edición del plan; queda para después si
+   hace falta). El color de burbuja sí sigue el mockup: alumno en
+   negro, coach en blanco, siempre, independiente de quién mira.
+   ============================================================ */
+const CHAT_POLL_MS = 6000;
+
+function fmtChatTime(ts) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+}
+function fmtChatDay(ts) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return "Hoy";
+  const yest = new Date(today); yest.setDate(yest.getDate() - 1);
+  if (d.toDateString() === yest.toDateString()) return "Ayer";
+  return d.toLocaleDateString("es-CL", { day: "2-digit", month: "short" });
+}
+
+const ChatTab = ({ sid, role, studentName }) => {
+  const [msgs, setMsgs] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [text, setText] = useState("");
+  const [viewImg, setViewImg] = useState(null);
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef(null);
+  const key = sid ? `forja-chat:${sid}` : null;
+
+  useEffect(() => {
+    if (!key) return;
+    let alive = true;
+    setLoaded(false);
+    (async () => {
+      const saved = await sGet(key);
+      if (!alive) return;
+      setMsgs(Array.isArray(saved) ? saved : []);
+      setLoaded(true);
+    })();
+    const iv = setInterval(async () => {
+      const fresh = await sGetFresh(key);
+      if (alive && Array.isArray(fresh)) setMsgs(fresh);
+    }, CHAT_POLL_MS);
+    return () => { alive = false; clearInterval(iv); };
+  }, [key]);
+
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [msgs]);
+
+  const push = async (m) => {
+    const next = [...msgs, m];
+    setMsgs(next);
+    await sSet(key, next);
+  };
+
+  const send = async () => {
+    const t = text.trim();
+    if (!t || !key || sending) return;
+    setSending(true);
+    setText("");
+    await push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, from: role, kind: "text", text: t, ts: Date.now() });
+    setSending(false);
+  };
+
+  const sendAttach = async (id) => {
+    if (!key) return;
+    await push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, from: role, kind: "media", attachId: id, ts: Date.now() });
+  };
+
+  if (!sid) {
+    return (
+      <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+        <div style={{ color: P.faint, fontSize: 14.5 }}>Elige un alumno para ver el chat.</div>
+      </div>
+    );
+  }
+
+  const headerName = role === "coach" ? (studentName || "Alumno") : "Tu coach";
+  const initials = headerName.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+  let lastDay = null;
+
+  return (
+    <div style={{ background: MONO.bg, minHeight: "100%", display: "flex", flexDirection: "column", padding: `14px 16px ${TAB_BOTTOM_PAD}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 4px 14px" }}>
+        <span style={{ width: 40, height: 40, borderRadius: 13, background: MONO.ink, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{initials}</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink }}>{headerName}</span>
+          <span style={{ fontSize: 12, color: MONO.inkFaint }}>Chat con tu {role === "coach" ? "alumno" : "coach"}</span>
+        </div>
+      </div>
+
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "flex", flexDirection: "column", gap: 10, paddingBottom: 8, minHeight: "40vh" }}>
+        {loaded && msgs.length === 0 && (
+          <div style={{ textAlign: "center", fontSize: 13.5, color: MONO.inkFaint, padding: "20px 10px" }}>Todavía no hay mensajes. Escribe el primero.</div>
+        )}
+        {msgs.map((m) => {
+          const own = m.from === role;
+          const isAlumno = m.from === "alumno";
+          const dayLabel = fmtChatDay(m.ts);
+          const showDay = dayLabel !== lastDay;
+          lastDay = dayLabel;
+          const bubbleBg = isAlumno ? MONO.ink : MONO.surface;
+          const bubbleColor = isAlumno ? "#F0F0F3" : "#2B2B30";
+          const bubbleBorder = isAlumno ? "none" : `1px solid ${MONO.line}`;
+          const timeColor = isAlumno ? "#8C8C96" : MONO.inkFaint;
+          return (
+            <React.Fragment key={m.id}>
+              {showDay && <div style={{ textAlign: "center", fontSize: 11.5, fontWeight: 600, color: MONO.inkFaint, margin: "6px 0 2px" }}>{dayLabel}</div>}
+              <div style={{ alignSelf: own ? "flex-end" : "flex-start", maxWidth: "78%", display: "flex", flexDirection: "column", gap: 5 }}>
+                {m.kind === "media" ? (
+                  <>
+                    <AttachThumb id={m.attachId} size={140} onOpen={setViewImg} />
+                    <span style={{ fontSize: 11, color: timeColor, alignSelf: own ? "flex-end" : "flex-start" }}>{fmtChatTime(m.ts)}</span>
+                  </>
+                ) : (
+                  <div style={{ background: bubbleBg, border: bubbleBorder, borderRadius: own ? "12px 18px 6px 18px" : "12px 18px 18px 6px", padding: "13px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
+                    <span style={{ fontSize: 14.5, lineHeight: 1.5, color: bubbleColor, whiteSpace: "pre-wrap" }}>{m.text}</span>
+                    <span style={{ fontSize: 11, color: timeColor, alignSelf: "flex-end" }}>{fmtChatTime(m.ts)}</span>
+                  </div>
+                )}
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingTop: 12 }}>
+        <AttachButton mode="both" iconOnly onAttached={sendAttach} onError={() => {}} />
+        <input value={text} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
+          placeholder="Escribe un mensaje…"
+          style={{ flex: 1, padding: "13px 15px", borderRadius: 14, background: MONO.chipBg, border: `1px solid ${MONO.line}`, fontSize: 14.5, color: MONO.ink }} />
+        <button onClick={send} disabled={!text.trim() || sending} style={{ width: 44, height: 44, borderRadius: 14, background: MONO.ink, border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: (!text.trim() || sending) ? 0.4 : 1 }}>
+          <Send size={18} color="#fff" />
+        </button>
+      </div>
+      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
+    </div>
   );
 };
 
@@ -10661,7 +10843,9 @@ const AtlasTab = () => (
 // Si es un objeto, solo esas pestañas aparecen, con "edit" o "view" cada una.
 // "guia"/"atlas"/"timer" son contenido de referencia sin riesgo de mutar
 // datos del alumno, así que quedan disponibles para cualquier rol.
-const ALWAYS_TABS = { timer: "edit", guia: "edit", atlas: "edit" };
+// "chat" también queda para cualquier rol: es la vía directa con el
+// alumno, no algo que tenga sentido restringir por especialidad.
+const ALWAYS_TABS = { timer: "edit", guia: "edit", atlas: "edit", chat: "edit" };
 const ROLE_META = {
   head_coach:  { label: "Head Coach", short: "Acceso completo + gestiona el equipo", manageTeam: true, tabAccess: null },
   coach_asistente: { label: "Coach asistente", short: "Acceso completo, no gestiona el equipo", manageTeam: false, tabAccess: null },
@@ -10683,7 +10867,7 @@ const ROLE_META = {
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["dashboard", "rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "timer", "guia", "atlas"];
+const TABS_COACH_IDS = ["dashboard", "rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "chat", "timer", "guia", "atlas"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -10724,6 +10908,7 @@ const TABS = {
     { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
     { id: "progreso", label: "Progreso", Icon: TrendingUp },
     { id: "nutricion", label: "Nutric.", Icon: Utensils },
+    { id: "chat", label: "Chat", Icon: MessageSquare },
     { id: "timer", label: "Timer", Icon: Timer },
     { id: "guia", label: "Guía", Icon: BookOpen },
     { id: "atlas", label: "Atlas", Icon: Library },
@@ -10739,6 +10924,7 @@ const TABS = {
     { id: "rankings", label: "Rankings", Icon: Trophy },
     { id: "cobros", label: "Cobros", Icon: Wallet },
     { id: "leads", label: "Leads", Icon: Zap },
+    { id: "chat", label: "Chat", Icon: MessageSquare },
     { id: "timer", label: "Timer", Icon: Timer },
     { id: "guia", label: "Guía", Icon: BookOpen },
     { id: "atlas", label: "Atlas", Icon: Library },
@@ -11569,6 +11755,7 @@ const App = () => {
         )}
         {mode === "alumno" && tab === "progreso" && <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory} />}
         {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} />}
+        {mode === "alumno" && tab === "chat" && <ChatTab sid={sid} role="alumno" />}
         {mode === "coach" && (tab === "rutina" || tab === "nutricion" || tab === "indicaciones" || tab === "agenda") && roleTabAccess[tab] === "edit" && (
           <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "10px 14px 0" }}>
             <Btn kind="ember" small onClick={undoPlan} disabled={planHistoryRef.current.past.length === 0}><Undo2 size={14} /> Deshacer</Btn>
@@ -11623,6 +11810,7 @@ const App = () => {
             <LeadsTab onCreateStudent={createStudentNamed} onManageStudent={manageStudent} toast={toast} />
           </ReadOnlyLock>
         )}
+        {mode === "coach" && tab === "chat" && <ChatTab sid={sid} role="coach" studentName={currentStudent ? currentStudent.name : ""} />}
         {tab === "timer" && <TimerTab />}
         {tab === "guia" && (
           <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
