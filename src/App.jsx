@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v86";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v87";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -779,7 +779,7 @@ const GLOSSARY = [
   { id:"volumen", term:"Volumen de entrenamiento", def:"Cantidad total de trabajo. La forma más usada de medirlo es el número de series efectivas por grupo muscular por semana; también se mide en kilos totales (peso × reps × series).", ej:"Espalda: 14 series efectivas/semana. FORJA calcula el tonelaje de cada sesión automáticamente." },
   { id:"mev", term:"MEV (Volumen Mínimo Efectivo)", def:"El número de series efectivas por semana, para un grupo muscular, por debajo del cual prácticamente no hay progreso: es el mínimo que hay que hacer para que el músculo crezca. Menos que el MEV es «bajo» en FORJA.", ej:"Si el MEV de pecho es 8 series/semana, con solo 4 series estás muy por debajo del estímulo mínimo: hay que sumar más volumen para progresar." },
   { id:"mav", term:"MAV (rango de Máxima Adaptación de Volumen)", def:"Rango de series efectivas por semana donde el músculo progresa mejor: ya se pasó el mínimo (MEV) pero todavía no se llega al techo recuperable (MRV). Es la «zona óptima» que FORJA destaca en cada tabla de volumen. La mayor parte del entrenamiento debería vivir en este rango.", ej:"Si el rango óptimo de espalda es 14–22 series/semana, entrenar con 18 series está justo en la zona donde más se progresa." },
-  { id:"mrv", term:"MRV (Volumen Máximo Recuperable)", def:"El techo de series efectivas por semana que el cuerpo puede recuperar en esa fase. Pasarse de este número no da más músculo: solo suma fatiga que no alcanzas a disipar entre sesiones, y el rendimiento empieza a bajar. Sirve como límite superior, no como meta.", ej:"Si el MRV de bíceps es 20 series/semana y programas 26, probablemente estés sobre-entrenando ese grupo: toca bajar volumen o meter un deload." },
+  { id:"mrv", term:"MRV (Volumen Máximo Recuperable)", def:"El techo de series efectivas por semana que el cuerpo puede recuperar en esa fase. Pasarse de este número no da más músculo: solo suma fatiga que no alcanzas a disipar entre sesiones, y el rendimiento empieza a bajar. Sirve como límite superior, no como meta.", ej:"Si el MRV de bíceps es 26 series/semana y programas 32, probablemente estés sobre-entrenando ese grupo: toca bajar volumen o meter un deload." },
   { id:"landmarks", term:"MEV / zona óptima (MAV) / MRV, todos juntos", def:"Son tres marcas en la misma escala de series semanales, de menor a mayor: MEV (mínimo para estimular) → zona óptima o MAV (donde más se progresa) → MRV (techo recuperable). FORJA los muestra en ese orden, separados por «/»: por ejemplo «8 / 12–20 / 22» significa MEV 8, zona óptima entre 12 y 20, MRV 22 series por semana.", ej:"Pecho: 8 / 12–20 / 22 · 2×/sem → con menos de 8 series vas bajo, entre 12 y 20 estás en la zona ideal, y pasar de 22 es entrenar más de lo que puedes recuperar. El «2×/sem» es la frecuencia semanal sugerida para ese grupo." },
   { id:"sobrecarga", term:"Sobrecarga progresiva", def:"Principio central del progreso: hacer más con el tiempo — más peso, más repeticiones o más series con la misma técnica. Por eso registrar cada serie importa: sin historial no hay progresión medible.", ej:"Semana 1: 80 kg × 8. Semana 3: 80 kg × 10. Semana 4: 82,5 kg × 8." },
   { id:"mesociclo", term:"Mesociclo", def:"Bloque de entrenamiento de 4 a 8 semanas con una progresión planificada (subiendo volumen o intensidad), que normalmente termina en una descarga.", ej:"Mesociclo de 5 semanas: RIR 3 → 2 → 2 → 1 → deload." },
@@ -1846,19 +1846,27 @@ const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos
    ============================================================ */
 
 // Series efectivas por grupo muscular y semana.
-// MEV = mínimo para estimular · MAV = rango donde se progresa mejor · MRV = techo recuperable.
+// MEV = mínimo para estimular · MAV = rango donde se progresa mejor (zona óptima) · MRV = techo recuperable.
+// Landmarks alineados a las guías de volumen de Renaissance Periodization
+// (Dr. Mike Israetel, "Scientific Principles of Hypertrophy Training") —
+// la referencia más citada y usada en coaching de hipertrofia basado en
+// evidencia, el punto de partida más cercano a un "consenso" que existe
+// hoy en la literatura de volumen de entrenamiento. Siguen siendo rangos
+// orientativos, no un techo ni un piso absoluto para cada persona: el
+// punto de partida real se ajusta siempre según la respuesta del atleta
+// (fatiga, dolor, progresión de cargas).
 const BB_VOLUME_REF = {
   Pecho:      { mev: 8,  mav: [12, 20], mrv: 22, freq: "2×/sem" },
   Espalda:    { mev: 10, mav: [14, 22], mrv: 25, freq: "2-3×/sem" },
-  Hombro:     { mev: 8,  mav: [16, 24], mrv: 26, freq: "2-3×/sem" },
-  Bíceps:     { mev: 6,  mav: [10, 18], mrv: 20, freq: "2-3×/sem" },
-  Tríceps:    { mev: 6,  mav: [10, 18], mrv: 20, freq: "2-3×/sem" },
+  Hombro:     { mev: 6,  mav: [16, 22], mrv: 26, freq: "2-3×/sem" },
+  Bíceps:     { mev: 8,  mav: [14, 20], mrv: 26, freq: "2-3×/sem" },
+  Tríceps:    { mev: 6,  mav: [10, 18], mrv: 22, freq: "2-3×/sem" },
   Cuádriceps: { mev: 8,  mav: [12, 18], mrv: 20, freq: "2×/sem" },
-  Femoral:    { mev: 6,  mav: [10, 16], mrv: 18, freq: "2×/sem" },
-  Glúteo:     { mev: 4,  mav: [8, 16],  mrv: 18, freq: "2×/sem" },
-  Gemelo:     { mev: 6,  mav: [10, 16], mrv: 20, freq: "2-3×/sem" },
-  Core:       { mev: 4,  mav: [8, 16],  mrv: 20, freq: "2-3×/sem" },
-  Antebrazo:  { mev: 2,  mav: [6, 12],  mrv: 16, freq: "2×/sem" },
+  Femoral:    { mev: 6,  mav: [10, 16], mrv: 20, freq: "2×/sem" },
+  Glúteo:     { mev: 4,  mav: [8, 16],  mrv: 20, freq: "2×/sem" },
+  Gemelo:     { mev: 8,  mav: [12, 16], mrv: 20, freq: "2-3×/sem" },
+  Core:       { mev: 6,  mav: [16, 20], mrv: 25, freq: "2-3×/sem" },
+  Antebrazo:  { mev: 4,  mav: [8, 14],  mrv: 20, freq: "2×/sem" },
 };
 
 // Fases de un ciclo de culturismo
@@ -8519,6 +8527,9 @@ const VolumePanel = ({ plan }) => {
             Series efectivas (sin contar aproximaciones) por <b>{vol.basis === "semana" ? "semana según el cronograma" : "vuelta completa a la rutina"}</b>. Total: {fmtSets(vol.total)} series.
             {vol.basis === "ciclo" && " Asigna los días en la pestaña Agenda para verlo en base semanal."}
             {" "}Incluye el aporte parcial de los músculos secundarios que marques en cada ejercicio.
+          </div>
+          <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 12, lineHeight: 1.45, padding: "8px 10px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10 }}>
+            MEV / zona óptima (MAV) / MRV según los landmarks de volumen de <b style={{ color: P.dim }}>Renaissance Periodization (Dr. Mike Israetel)</b> — la referencia más usada en coaching de hipertrofia basado en evidencia. Son rangos orientativos: el punto de partida real se ajusta siempre según cómo responda cada atleta.
           </div>
           {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} />)}
         </>
