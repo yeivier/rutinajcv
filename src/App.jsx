@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v115";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v116";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -259,6 +259,30 @@ function useRoutineView() {
     return () => routineViewListeners.delete(fn);
   }, []);
   return [ROUTINE_VIEW, setRoutineViewPref];
+}
+
+// Botón flotante de IA: se puede ocultar. A varias personas les tapa la
+// pantalla (es un círculo fijo por encima de todo), pero a otras les
+// resulta el atajo más rápido al asistente — así que no se saca, se
+// apaga: la función sigue entera y vuelve desde "Más" cuando se la
+// quiera. Preferencia de este dispositivo, igual que la posición del
+// propio botón.
+let AI_FAB_VISIBLE = true;
+try { AI_FAB_VISIBLE = window.localStorage.getItem("forja-ai-fab-visible") !== "0"; } catch {}
+const aiFabListeners = new Set();
+function setAiFabVisiblePref(v) {
+  AI_FAB_VISIBLE = !!v;
+  try { window.localStorage.setItem("forja-ai-fab-visible", v ? "1" : "0"); } catch {}
+  aiFabListeners.forEach((fn) => fn(AI_FAB_VISIBLE));
+}
+function useAiFabVisible() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    aiFabListeners.add(fn);
+    return () => aiFabListeners.delete(fn);
+  }, []);
+  return [AI_FAB_VISIBLE, setAiFabVisiblePref];
 }
 
 const TAB_BOTTOM_PAD = "calc(92px + env(safe-area-inset-bottom))";
@@ -5610,15 +5634,21 @@ const MonoLabel = ({ children }) => (
 const MonoCard = ({ children, style }) => (
   <div style={{ background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 16, ...style }}>{children}</div>
 );
-const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, bookings, sid, studentName, variant }) => {
+// Minutos estimados de la sesión, redondeados a múltiplos de 5: un número
+// como "47 min" simula una precisión que no existe; "45 min" se lee como
+// lo que es, una estimación.
+const estimateSessionMin = (sets) => Math.max(1, Math.round((sets * 2.5) / 5) * 5);
+const DOW_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const DOW_LETTERS = { mon: "L", tue: "M", wed: "X", thu: "J", fri: "V", sat: "S", sun: "D" };
+
+// Todo lo que la pantalla Hoy necesita calcular, en un solo lugar: las dos
+// variantes (Enfoque y Panel) muestran los mismos datos con distinta
+// jerarquía, así que el cálculo no puede vivir dentro de una de ellas.
+function useTodayData(plan, history, allowedRoutines) {
   const wk = weekKey(todayISO());
   const weekSessions = history.sessions.filter((s) => weekKey(s.date) === wk);
   const weekVol = weekSessions.reduce((a, s) => a + s.volume, 0);
-  const prevWeekStart = new Date(); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-  const prevWk = weekKey(isoDate(prevWeekStart));
-  const prevWeekVol = history.sessions.filter((s) => weekKey(s.date) === prevWk).reduce((a, s) => a + s.volume, 0);
-  const volDeltaPct = prevWeekVol > 0 ? Math.round(((weekVol - prevWeekVol) / prevWeekVol) * 1000) / 10 : null;
-  const streakWeeks = weekStreak(history.sessions);
+  const streak = weekStreak(history.sessions);
   const lastSession = history.sessions[history.sessions.length - 1];
   const days = visibleDays(plan.days, allowedRoutines);
   let suggested = days[0];
@@ -5634,221 +5664,265 @@ const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, booking
   if (todayScheduled && days.some((d) => d.id === todayScheduled.id)) suggested = todayScheduled;
   const todayScheduled2 = scheduledDayFor2(plan, new Date());
   const suggested2 = todayScheduled2 && days.some((d) => d.id === todayScheduled2.id) ? todayScheduled2 : null;
-
+  const suggested2Done = !!suggested2 && history.sessions.some((s) => isoDate(new Date(s.date)) === isoDate(new Date()) && s.dayId === suggested2.id);
+  const setsOf = (d) => (d ? d.exs.reduce((a, e) => a + e.sets.length, 0) : 0);
   const meso = currentMesociclo(plan);
   const weekNum = meso ? (meso.current || 0) + 1 : null;
-  const weekTotal = meso ? meso.weeks.length : null;
-  const initials = (studentName || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "•";
-  const bw = (history.bodyweight || []);
+  const weekTotal = meso ? (meso.weeks || []).length : null;
+  // Franja de la semana: un punto por día — negro si ya hay sesión
+  // registrada, gris si está agendado pero aún no, "off" si no hay
+  // ninguno de los dos. Hoy queda en tinta plena.
+  const todayDow = new Date().getDay();
+  const doneDows = new Set(weekSessions.map((s) => new Date(s.date).getDay()));
+  const week = DOW_KEYS
+    .map((k, dow) => ({ key: k, letter: DOW_LETTERS[k], dow,
+      planned: !!(plan.schedule && plan.schedule[k]), done: doneDows.has(dow), isToday: dow === todayDow }))
+    .sort((a, b) => ((a.dow + 6) % 7) - ((b.dow + 6) % 7));
+  const bw = history.bodyweight || [];
   const lastBw = bw.length ? bw[bw.length - 1] : null;
-  const weekAgoBw = bw.length > 1 ? [...bw].reverse().find((b) => new Date(b.date) <= prevWeekStart) : null;
-  const adh = adherencePct(plan, history, monthKeyOf(todayISO()));
-  const setsOf = (d) => (d ? d.exs.reduce((a, e) => a + e.sets.length, 0) : 0);
-  const muscles = suggested ? [...new Set(suggested.exs.map((e) => e.muscle).filter(Boolean))].slice(0, 3).join(", ") : "";
+  const prevBw = bw.length > 1 ? bw[bw.length - 2] : null;
+  const adherence = adherencePct(plan, history, monthKeyOf(todayISO()));
+  return { weekSessions, weekVol, streak, lastSession, suggested, suggested2, suggested2Done, setsOf,
+    weekNum, weekTotal, mesoName: meso ? meso.name : null, week, lastBw, prevBw, adherence };
+}
 
-  // Franja de la semana (1b): un punto por día — negro si ya hay sesión
-  // registrada ese día, gris claro si está agendado pero aún no, "off"
-  // sin ninguno de los dos. Hoy queda resaltado en negro pleno.
-  const now = new Date();
-  const weekStart = new Date(now); weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7)); // lunes
-  const weekCells = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart); d.setDate(weekStart.getDate() + i);
-    const iso = isoDate(d);
-    const isToday = iso === isoDate(now);
-    // ojo: history.sessions[].date se guarda con todayISO() (timestamp
-    // completo, no solo la fecha) — comparar con === directo nunca matchea.
-    const done = history.sessions.some((s) => isoDate(new Date(s.date)) === iso);
-    const scheduled = !!scheduledDayFor(plan, d) || !!scheduledDayFor2(plan, d);
-    return { label: ["L", "M", "X", "J", "V", "S", "D"][i], isToday, done, scheduled };
-  });
+// Fila de "También hoy": ícono en pastilla, título, detalle en una línea y
+// o bien un punto (algo sin leer) o bien la acción en texto. Misma forma
+// que las filas de ajustes, distinta densidad.
+const TodayRow = ({ Icon, title, detail, actionLabel, dot, onClick }) => (
+  <button onClick={onClick} disabled={!onClick}
+    style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left",
+      background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_ROW, padding: "15px 16px" }}>
+    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 11, background: P.s3, color: P.faint, flexShrink: 0 }}>
+      <Icon size={17} strokeWidth={2} />
+    </span>
+    <span style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0, flex: 1 }}>
+      <span style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{title}</span>
+      {detail && <span style={{ fontSize: 12.5, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detail}</span>}
+    </span>
+    {dot ? <span style={{ width: 9, height: 9, borderRadius: 5, background: P.text, flexShrink: 0 }} />
+      : actionLabel ? <span style={{ fontSize: 13, fontWeight: 700, color: P.ember2, flexShrink: 0 }}>{actionLabel}</span> : null}
+  </button>
+);
 
-  // Tarjeta héroe de la pantalla 1a: etiqueta con punto, título 32px,
-  // fila de tres estadísticas entre hairlines, vista previa de los dos
-  // primeros ejercicios y botón primario de ancho completo. `compact` la
-  // reduce a una fila para la variante Panel, donde no manda.
-  const heroStat = (value, unit, label) => (
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontSize: 22, fontWeight: 700, color: MONO.ink }}>
-        {value}{unit && <span style={{ fontSize: 14, fontWeight: 700 }}>{unit}</span>}
+// Reparto de macros en una sola barra: proteína en tinta, carbohidrato en
+// gris medio, grasa en la línea. Sin colores por macro — la proporción se
+// lee por valor, como todo el resto del sistema.
+const MacroBar = ({ v }) => (
+  <>
+    <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", background: P.s4 }}>
+      <i style={{ display: "block", width: `${v.pctP}%`, background: P.text }} />
+      <i style={{ display: "block", width: `${v.pctC}%`, background: P.faint }} />
+      <i style={{ display: "block", width: `${v.pctF}%`, background: P.line }} />
+    </div>
+    <div style={{ display: "flex", gap: 14, fontSize: 12, color: P.faint }}>
+      <span><b style={{ color: P.text }}>P</b> {v.p || 0} g</span>
+      <span><b style={{ color: P.text }}>C</b> {v.c || 0} g</span>
+      <span><b style={{ color: P.text }}>G</b> {v.f || 0} g</span>
+    </div>
+  </>
+);
+
+const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach }) => {
+  const [showInstr, setShowInstr] = useState(false);
+  const d = useTodayData(plan, history, allowedRoutines);
+  const name = studentName || "";
+  const firstName = name.split(" ")[0] || "";
+  const initials = (name || "?").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+  const n = plan.nutrition || {};
+  const macros = macroSolve(n, n.solve || "kcal");
+  const hasMacros = (+macros.kcal || 0) > 0 || (+macros.p || 0) > 0;
+  const instrCount = (plan.instructions || []).length;
+
+  // Una sola decisión por pantalla: qué entrenar hoy. Si hay sesión en
+  // curso, esa manda; si no, la sugerida.
+  const workout = active
+    ? { eyebrow: "Sesión en curso", title: active.dayName, sub: "Guardada donde la dejaste, aunque cierres la app", exs: null, sets: null, cta: "Continuar sesión" }
+    : d.suggested
+      ? { eyebrow: `Entreno de hoy · ${routineLabel(routineOf(d.suggested), plan.routineNames)}`,
+          title: d.suggested.name,
+          sub: [...new Set(d.suggested.exs.map((e) => e.muscle).filter(Boolean))].slice(0, 3).join(", "),
+          exs: d.suggested.exs, sets: d.setsOf(d.suggested), cta: "Entrenar ahora" }
+      : null;
+
+  const avatar = (
+    <div style={{ width: 44, height: 44, borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG,
+      display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>{initials}</div>
+  );
+
+  const secondary = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="mono" style={{ letterSpacing: ".16em" }}>También hoy</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {hasMacros && (
+          <TodayRow Icon={Utensils} title="Comidas"
+            detail={`${macros.kcal || "—"} kcal · P ${macros.p || 0} / C ${macros.c || 0} / G ${macros.f || 0}`}
+            actionLabel="Ver" onClick={onOpenNutrition} />
+        )}
+        {instrCount > 0 && (
+          <TodayRow Icon={MessageSquare} title="Nota del coach"
+            detail={plan.instructions[0].title || `${instrCount} indicaciones del plan`}
+            dot onClick={() => setShowInstr(true)} />
+        )}
+        <TodayRow Icon={Calendar} title="Agenda"
+          detail={d.streak > 0 ? `${d.streak} semana${d.streak !== 1 ? "s" : ""} seguida${d.streak !== 1 ? "s" : ""} entrenando` : "Tu semana y tus turnos"}
+          actionLabel="Abrir" onClick={onOpenAgenda} />
+        {d.suggested2 && (
+          <TodayRow Icon={Dumbbell} title={`Segunda sesión · ${d.suggested2.name}`}
+            detail={`${d.suggested2.exs.length} ejercicios · ${d.setsOf(d.suggested2)} series${d.suggested2Done ? " · ya la hiciste" : ""}`}
+            actionLabel={d.suggested2Done ? "Ver" : "Entrenar"} onClick={goTrain} />
+        )}
       </div>
-      <div className="mono" style={{ fontSize: 11.5, marginTop: 2 }}>{label}</div>
     </div>
   );
 
-  const workoutCard = (compact) => !suggested ? (
-    <MonoCard style={{ padding: 22, textAlign: "center" }}>
-      <div style={{ fontSize: 14.5, color: MONO.inkDim }}>Tu coach todavía no cargó la rutina.</div>
-    </MonoCard>
-  ) : compact ? (
-    <MonoCard style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 14 }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <MonoLabel>{active ? "Sesión en curso" : "Entreno de hoy"}</MonoLabel>
-        <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.1, marginTop: 3 }}>{active ? active.dayName : suggested.name}</div>
-        <div style={{ fontSize: 12.5, color: MONO.inkTertiary, marginTop: 2 }}>{suggested.exs.length} ejercicios · {setsOf(suggested)} series</div>
-      </div>
-      <button onClick={goTrain} style={{ padding: "13px 17px", borderRadius: 14, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</button>
-    </MonoCard>
-  ) : (
-    <MonoCard style={{ padding: 22, display: "flex", flexDirection: "column", gap: 18 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: MONO.ink, flexShrink: 0 }} />
-        <span className="mono">{active ? "Sesión en curso" : "Entreno de hoy"}</span>
-      </div>
-
-      <div>
-        <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-.03em", color: MONO.ink, lineHeight: 1.05 }}>{active ? active.dayName : suggested.name}</div>
-        {muscles && <div style={{ fontSize: 14.5, color: MONO.inkTertiary, marginTop: 6 }}>{muscles}</div>}
-      </div>
-
-      <div style={{ display: "flex", gap: 22, padding: "14px 0", borderTop: `1px solid ${MONO.lineFaint}`, borderBottom: `1px solid ${MONO.lineFaint}` }}>
-        {heroStat(suggested.exs.length, "", "Ejercicios")}
-        {heroStat(setsOf(suggested), "", "Series")}
-        {heroStat(Math.max(1, Math.round(setsOf(suggested) * 2.4)), "min", "Estimado")}
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {suggested.exs.slice(0, 2).map((e, i) => (
-          <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ width: 26, height: 26, borderRadius: 8, background: MONO.chipBg, color: MONO.inkTertiary,
-              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
-            <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: MONO.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
-            <span style={{ fontSize: 13, color: MONO.inkTertiary, flexShrink: 0 }}>{(e.sets || []).length}×{(e.sets || [])[0] ? (e.sets[0].repsT || "—") : "—"}</span>
-          </div>
-        ))}
-        {suggested.exs.length > 2 && (
-          <div style={{ fontSize: 13, color: MONO.inkTertiary, paddingLeft: 36 }}>+ {suggested.exs.length - 2} ejercicios más</div>
-        )}
-      </div>
-
-      <button onClick={goTrain} style={{ width: "100%", padding: 17, borderRadius: 16, background: MONO.ink, color: "#FFFFFF", fontSize: 17, fontWeight: 700,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-        {active ? "Continuar sesión" : "Entrenar ahora"} <ChevronRight size={18} strokeWidth={2.6} />
-      </button>
-    </MonoCard>
+  const instrSheet = (
+    <Sheet open={showInstr} onClose={() => setShowInstr(false)} title="Indicaciones del coach">
+      {(plan.instructions || []).map((it) => (
+        <div key={it.id} style={{ padding: "14px 0", borderBottom: `1px solid ${P.line}` }}>
+          <div style={{ fontWeight: 600, fontSize: 15.5, marginBottom: 4 }}>{it.title}</div>
+          <div style={{ fontSize: 15, color: P.faint, lineHeight: 1.55, textWrap: "pretty" }}>{it.body}</div>
+        </div>
+      ))}
+    </Sheet>
   );
 
+  const emptyCard = (
+    <Card style={{ padding: 20 }}>
+      <Empty icon={Dumbbell} title="Sin rutina cargada"
+        body={role === "coach" ? "Entra a la pestaña Rutinas para armar el plan." : "Tu coach aún no carga la rutina."} />
+    </Card>
+  );
+
+  if (variant !== "panel") {
+    return (
+      <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
+        <ScreenTitle eyebrow={fmtDateFull(todayISO())} title={firstName ? `Hola, ${firstName}` : "Hoy"}
+          sub={d.weekNum ? `Semana ${d.weekNum} de ${d.weekTotal}${d.mesoName ? ` · ${d.mesoName}` : ""}` : null}
+          right={avatar} />
+        <EventReminderBanner events={plan.events} />
+        <NextBookingBanner bookings={bookings} sid={sid} />
+        {workout ? (
+          <Card style={{ padding: 22, display: "flex", flexDirection: "column", gap: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 4, background: P.ember }} />
+              <span className="mono" style={{ letterSpacing: ".16em", color: P.ember2 }}>{workout.eyebrow}</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-.03em", lineHeight: 1.05 }}>{workout.title}</div>
+              {workout.sub && <div style={{ fontSize: 14.5, color: P.faint }}>{workout.sub}</div>}
+            </div>
+            {workout.exs && (
+              <>
+                <div style={{ display: "flex", gap: 22, padding: "14px 0", borderTop: `1px solid ${P.line}`, borderBottom: `1px solid ${P.line}` }}>
+                  {[[workout.exs.length, "ejercicios"], [workout.sets, "series"], [`${estimateSessionMin(workout.sets)}`, "min estimado"]].map(([v, l]) => (
+                    <div key={l} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <div style={{ fontSize: 22, fontWeight: 700 }}>{v}</div>
+                      <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".06em" }}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {workout.exs.slice(0, 2).map((e, i) => (
+                    <div key={e.id || i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ width: 26, height: 26, borderRadius: 8, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: P.faint, flexShrink: 0 }}>{i + 1}</span>
+                      <span style={{ fontSize: 14.5, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
+                      <span style={{ marginLeft: "auto", fontSize: 13, color: P.faint, flexShrink: 0 }}>{e.sets.length}×{(e.sets[0] && e.sets[0].repsT) || "—"}</span>
+                    </div>
+                  ))}
+                  {workout.exs.length > 2 && (
+                    <div style={{ fontSize: 13, color: P.faint, paddingLeft: 36 }}>+ {workout.exs.length - 2} ejercicios más</div>
+                  )}
+                </div>
+              </>
+            )}
+            <Btn kind="ember" onClick={goTrain} style={{ width: "100%", padding: "17px", borderRadius: R_CARD, fontSize: 17 }}>
+              <Play size={17} /> {workout.cta}
+            </Btn>
+          </Card>
+        ) : emptyCard}
+        {secondary}
+        {instrSheet}
+      </div>
+    );
+  }
+
   return (
-    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: variant === "panel" ? "18px 18px 32px" : "22px 22px 32px", display: "flex", flexDirection: "column", gap: variant === "panel" ? 16 : 20 }}>
-
-      {variant === "panel" ? (
-        <>
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
+      <ScreenTitle title="Hoy" right={
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {d.weekNum && <span style={{ fontSize: 12.5, color: P.faint, fontWeight: 600 }}>Semana {d.weekNum}/{d.weekTotal}</span>}
+          <div style={{ width: 36, height: 36, borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG,
+            display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>{initials}</div>
+        </div>
+      } />
+      <EventReminderBanner events={plan.events} />
+      <NextBookingBanner bookings={bookings} sid={sid} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+        {d.week.map((w) => (
+          <div key={w.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "9px 0", borderRadius: 13,
+            background: w.isToday ? P.ember : w.planned ? P.s1 : P.s3, border: `1px solid ${w.isToday ? P.ember : P.line}` }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: w.isToday ? PLATE_FG : P.faint }}>{w.letter}</span>
+            {w.planned
+              ? <span style={{ width: 7, height: 7, borderRadius: 4, background: w.isToday ? PLATE_FG : w.done ? P.text : P.line }} />
+              : <span style={{ fontSize: 9, fontWeight: 700, color: w.isToday ? PLATE_FG : P.faint, lineHeight: "7px" }}>off</span>}
+          </div>
+        ))}
+      </div>
+      {workout ? (
+        <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
+            <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".16em" }}>{workout.eyebrow}</span>
+            <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{workout.title}</span>
+            <span style={{ fontSize: 12.5, color: P.faint }}>
+              {workout.exs ? `${workout.exs.length} ejercicios · ${workout.sets} series · ${estimateSessionMin(workout.sets)} min` : workout.sub}
+            </span>
+          </div>
+          <Btn kind="ember" onClick={goTrain} style={{ flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</Btn>
+        </Card>
+      ) : emptyCard}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+        <StatTile label="Adherencia" value={d.adherence == null ? "—" : d.adherence} unit={d.adherence == null ? null : "%"}
+          bar={d.adherence == null ? null : d.adherence} note="sin horario armado" />
+        <StatTile label="Racha" value={d.streak} unit={` semana${d.streak !== 1 ? "s" : ""}`} note="entrenando sin cortar" />
+        <StatTile label="Peso corporal" value={d.lastBw ? d.lastBw.kg : "—"} unit={d.lastBw ? " kg" : null}
+          note={d.lastBw && d.prevBw ? `${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} kg desde el anterior` : "sin registros todavía"} />
+        <StatTile label="Volumen sem." value={Math.round((d.weekVol / 1000) * 10) / 10} unit=" t"
+          note={`${d.weekSessions.length} ${d.weekSessions.length === 1 ? "sesión" : "sesiones"} esta semana`} />
+      </div>
+      {hasMacros && (
+        <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Hoy</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {weekNum && <span style={{ fontSize: 12.5, color: MONO.inkFaint, fontWeight: 600 }}>Semana {weekNum}/{weekTotal}</span>}
-              <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.ink, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 12.5 }}>{initials}</span>
-            </div>
+            <span className="mono" style={{ letterSpacing: ".08em" }}>Objetivo de hoy</span>
+            <button onClick={onOpenNutrition} style={{ fontSize: 13, fontWeight: 700, color: P.ember2 }}>Ver comida</button>
           </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 6 }}>
-            {weekCells.map((c, i) => (
-              <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "9px 0", borderRadius: 13,
-                background: c.isToday ? MONO.ink : (c.scheduled || c.done ? MONO.surface : MONO.chipBg),
-                border: `1px solid ${c.isToday ? MONO.ink : MONO.line}` }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: c.isToday ? "#FFFFFF" : MONO.inkDim }}>{c.label}</span>
-                {c.done ? <span style={{ width: 7, height: 7, borderRadius: 4, background: c.isToday ? "#FFFFFF" : MONO.ink }} />
-                  : c.scheduled ? <span style={{ width: 7, height: 7, borderRadius: 4, background: c.isToday ? "#FFFFFF" : MONO.chipBorder }} />
-                  : <span style={{ fontSize: 9, fontWeight: 700, color: MONO.inkFaint, lineHeight: "7px" }}>off</span>}
-              </div>
-            ))}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontSize: 24, fontWeight: 700 }}>{(macros.kcal || 0).toLocaleString("es-CL")}</span>
+            <span style={{ fontSize: 13, color: P.faint }}>kcal objetivo</span>
           </div>
-
-          {workoutCard(true)}
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-            <MonoCard style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
-              <MonoLabel>Adherencia</MonoLabel>
-              <div style={{ fontSize: 25, fontWeight: 700, color: MONO.ink, lineHeight: 1 }}>{adh != null ? Math.round(adh) : "—"}{adh != null && <span style={{ fontSize: 14 }}>%</span>}</div>
-              {adh != null && <span style={{ height: 5, borderRadius: 3, background: MONO.lineFaint, overflow: "hidden", display: "block" }}><span style={{ display: "block", width: `${Math.min(100, adh)}%`, height: "100%", background: MONO.ink }} /></span>}
-            </MonoCard>
-            <MonoCard style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
-              <MonoLabel>Racha</MonoLabel>
-              <div style={{ fontSize: 25, fontWeight: 700, color: MONO.ink, lineHeight: 1 }}>{streakWeeks}<span style={{ fontSize: 13 }}> sem.</span></div>
-              <span style={{ fontSize: 12, color: MONO.inkDim }}>entrenando sin cortar</span>
-            </MonoCard>
-            <MonoCard style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
-              <MonoLabel>Peso corporal</MonoLabel>
-              <div style={{ fontSize: 25, fontWeight: 700, color: MONO.ink, lineHeight: 1 }}>{lastBw ? `${kg(lastBw.kg)}` : "—"}{lastBw && <span style={{ fontSize: 13 }}> kg</span>}</div>
-              <span style={{ fontSize: 12, color: MONO.inkFaint }}>{lastBw && weekAgoBw ? `${lastBw.kg - weekAgoBw.kg >= 0 ? "+" : ""}${kg(lastBw.kg - weekAgoBw.kg)} kg esta semana` : "Sin registro reciente"}</span>
-            </MonoCard>
-            <MonoCard style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
-              <MonoLabel>Volumen sem.</MonoLabel>
-              <div style={{ fontSize: 25, fontWeight: 700, color: MONO.ink, lineHeight: 1 }}>{Math.round(weekVol / 1000 * 10) / 10}<span style={{ fontSize: 13 }}>k kg</span></div>
-              <span style={{ fontSize: 12, color: MONO.inkFaint }}>{volDeltaPct != null ? `${volDeltaPct >= 0 ? "+" : ""}${volDeltaPct}% vs. sem. anterior` : "Sin semana previa"}</span>
-            </MonoCard>
-          </div>
-
-          {plan.nutrition && plan.nutrition.kcal > 0 && (
-            <MonoCard style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-              <MonoLabel>Objetivo de hoy</MonoLabel>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <span style={{ fontSize: 22, fontWeight: 700, color: MONO.ink }}>{plan.nutrition.kcal.toLocaleString("es-CL")}</span>
-                <span style={{ fontSize: 12.5, color: MONO.inkDim }}>kcal</span>
-              </div>
-              <div style={{ display: "flex", gap: 14, fontSize: 12, color: MONO.inkFaint }}>
-                <span><b style={{ color: MONO.ink }}>P</b> {plan.nutrition.p} g</span>
-                <span><b style={{ color: MONO.ink }}>C</b> {plan.nutrition.c} g</span>
-                <span><b style={{ color: MONO.ink }}>G</b> {plan.nutrition.f} g</span>
-              </div>
-            </MonoCard>
-          )}
-        </>
-      ) : (
-        <>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <MonoLabel>{fmtDateFull(todayISO())}</MonoLabel>
-              <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.05 }}>Hola{studentName ? `, ${studentName}` : ""}</div>
-              {weekNum && <div style={{ fontSize: 13.5, color: MONO.inkTertiary }}>Semana {weekNum} de {weekTotal}{meso ? ` · ${meso.name}` : ""}</div>}
-            </div>
-            <span style={{ width: 44, height: 44, borderRadius: 14, background: MONO.ink, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>{initials}</span>
-          </div>
-
-          {workoutCard(false)}
-
-          {suggested2 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 14, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "15px 16px" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
-                <span style={{ fontSize: 15, fontWeight: 600, color: MONO.ink }}>{suggested2.name}</span>
-                <span style={{ fontSize: 12.5, color: MONO.inkTertiary }}>También hoy · {suggested2.exs.length} ejercicios</span>
-              </div>
-              <span style={{ fontSize: 13, fontWeight: 700, color: MONO.ink }} onClick={goTrain}>Ver</span>
-            </div>
-          )}
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <MonoLabel>También hoy</MonoLabel>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {plan.nutrition && plan.nutrition.kcal > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 14, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "15px 16px" }}>
-                  <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Utensils size={16} color={MONO.inkTertiary} />
-                  </span>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: MONO.ink }}>Comidas</span>
-                    <span style={{ fontSize: 12.5, color: MONO.inkTertiary }}>Objetivo: {plan.nutrition.kcal.toLocaleString("es-CL")} kcal</span>
-                  </div>
-                </div>
-              )}
-              {plan.instructions.length > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 14, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "15px 16px" }}>
-                  <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <MessageSquare size={16} color={MONO.inkTertiary} />
-                  </span>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: MONO.ink }}>Indicación del coach</span>
-                    <span style={{ fontSize: 12.5, color: MONO.inkTertiary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>"{plan.instructions[0].title}"</span>
-                  </div>
-                  <span style={{ width: 9, height: 9, borderRadius: 5, background: MONO.ink, flexShrink: 0 }} />
-                </div>
-              )}
-            </div>
-          </div>
-        </>
+          <MacroBar v={macros} />
+        </Card>
       )}
+      {instrCount > 0 && (
+        <TodayRow Icon={MessageSquare} title="Nota del coach"
+          detail={plan.instructions[0].title || `${instrCount} indicaciones del plan`}
+          dot onClick={() => setShowInstr(true)} />
+      )}
+      {d.lastSession && (
+        <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
+          <span className="mono" style={{ letterSpacing: ".08em" }}>Última sesión</span>
+          <span style={{ fontWeight: 600, fontSize: 15.5 }}>{d.lastSession.dayName}</span>
+          <span style={{ fontSize: 13, color: P.faint }}>
+            {fmtDateFull(d.lastSession.date)} · {d.lastSession.durationMin} min · {Math.round(d.lastSession.volume).toLocaleString("es-CL")} kg
+            {d.lastSession.prs.length > 0 && <span style={{ color: P.text, fontWeight: 700 }}> · {d.lastSession.prs.length} PR</span>}
+          </span>
+        </Card>
+      )}
+      {instrSheet}
     </div>
   );
 };
+
 // Envoltorio que decide qué versión de "Hoy" mostrar. Guarda la elección
 // en este dispositivo (como el tema claro/oscuro) — cambiar de modo acá
 // no afecta a otros alumnos ni al coach.
@@ -12102,6 +12176,7 @@ const ReadOnlyLock = ({ active, toast, children }) => (
 const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewMode, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode }) => {
   const [theme, setTheme] = useTheme();
   const [easy, setEasy] = useEasyMode();
+  const [aiFab, setAiFab] = useAiFabVisible();
   return (
     <Sheet open={open} onClose={onClose} title="Más" tall>
       <SettingGroup label="Herramientas">
@@ -12130,8 +12205,10 @@ const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewM
             hint={routineView === "compacto" ? "Una fila por ejercicio, se despliega al tocar" : "Todas las funciones: crear, arrastrar, copiar y pegar"}
             control={<SectionSwitch items={[{ id: "completo", label: "Completo" }, { id: "compacto", label: "Compacto" }]} value={routineView} onChange={onChangeRoutineView} />} />
         )}
-        <SettingRow Icon={Sparkles} label="Interfaz" hint={easy ? "Solo lo esencial" : "Todos los campos"} last
+        <SettingRow Icon={Sparkles} label="Interfaz" hint={easy ? "Solo lo esencial" : "Todos los campos"}
           control={<SectionSwitch items={[{ id: "full", label: "Completa" }, { id: "easy", label: "Easy Mode" }]} value={easy ? "easy" : "full"} onChange={(v) => setEasy(v === "easy")} />} />
+        <SettingRow Icon={Zap} label="Botón de IA" hint={aiFab ? "Círculo flotante, siempre a mano" : "Oculto — el asistente sigue disponible desde acá"} last
+          control={<SectionSwitch items={[{ id: "on", label: "Mostrar" }, { id: "off", label: "Ocultar" }]} value={aiFab ? "on" : "off"} onChange={(v) => setAiFab(v === "on")} />} />
       </SettingGroup>
 
       <SettingGroup label="Modo">
@@ -12765,6 +12842,7 @@ const App = () => {
   const [utility, setUtility] = useState(null);
   const [homeView, setHomeView] = useHomeView();
   const [routineView, setRoutineView] = useRoutineView();
+  const [aiFabVisible] = useAiFabVisible();
   const [confirmDel, setConfirmDel] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -13131,7 +13209,8 @@ const App = () => {
         <div key={`${tab}-${sub || ""}`} className="sheetIn" style={{ display: utility ? "none" : undefined }}>
         {mode === "alumno" && tab === "hoy" && (
           <TodayTabRouter view={homeView} plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} allowedRoutines={currentStudent && currentStudent.allowedRoutines}
-            bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""} />
+            bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""}
+            onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => setTab("comida")} onOpenCoach={() => setTab("coach")} />
         )}
         {mode === "alumno" && tab === "entrenar" && (
           <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive}
@@ -13236,8 +13315,10 @@ const App = () => {
       <Sheet open={gloss.open} onClose={() => setGloss({ open: false, focus: null })} title="Guía rápida" tall>
         <GlossaryBody focusId={gloss.focus} />
       </Sheet>
-      <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
-        onOpenCoachTab={() => setTab("ia")} toast={toast} />
+      {aiFabVisible && (
+        <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
+          onOpenCoachTab={() => setTab("ia")} toast={toast} />
+      )}
       <Toast msg={toastMsg} />
     </div>
   );
