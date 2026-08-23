@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v96";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v97";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8580,151 +8580,6 @@ const AthleteForm = ({ plan, savePlan }) => {
   );
 };
 
-/* ---- Mapa corporal de series por grupo muscular ----
-   Silueta frontal + posterior en SVG con las zonas musculares recortadas
-   con curvas (no simples cuadrados) y, como en un mapa de analítica de
-   entrenamiento, cada zona lleva su propia etiqueta con línea guía hacia
-   afuera del cuerpo mostrando el músculo y sus series efectivas — no solo
-   color. El color sigue el mismo semáforo que ya usan las barras de
-   Volumen (verde óptimo, ámbar mínimo/alto, rojo bajo, rojo sobre MRV) y,
-   dentro de ese color, más opacidad/saturación cuanto más trabajada esté
-   esa zona respecto a las demás de la vista — el "tono" pedido para
-   distinguir de un vistazo qué se trabajó más o menos. Sigue siendo una
-   ilustración vectorial plana, esquemática pero con siluetas anatómicas
-   reales (no un escaneo 3D fotorrealista, que requeriría assets de
-   anatomía con licencia que esta app no tiene).
-   Las zonas con brazo/pierna se definen UNA vez (lado izquierdo) y el
-   lado derecho se genera espejando cada coordenada x respecto al eje
-   central (x=80) con mirrorD — así ambos lados quedan siempre simétricos. */
-function mirrorD(d) {
-  let i = 0;
-  return d.replace(/-?\d+\.?\d*/g, (n) => String(i++ % 2 === 0 ? 160 - parseFloat(n) : parseFloat(n)));
-}
-const BODY_REGIONS = {
-  front: [
-    { muscle: "Hombro", d: "M20,45 Q10,52 12,68 Q14,82 28,84 Q40,80 40,64 Q40,50 26,45 Q23,44 20,45 Z", bilateral: true, anchor: { x: 25, y: 64 }, label: { side: "left", y: 50 } },
-    { muscle: "Pecho", d: "M46,58 Q80,44 114,58 Q116,86 108,106 Q80,122 52,106 Q44,86 46,58 Z", anchor: { x: 80, y: 82 }, label: { side: "right", y: 70 } },
-    { muscle: "Bíceps", d: "M20,64 Q14,86 18,108 Q28,114 38,108 Q42,86 38,64 Q30,58 20,64 Z", bilateral: true, anchor: { x: 28, y: 86 }, label: { side: "left", y: 92 } },
-    { muscle: "Antebrazo", d: "M16,112 Q12,134 18,158 Q26,164 34,158 Q38,134 34,112 Q26,108 16,112 Z", bilateral: true, anchor: { x: 25, y: 135 }, label: { side: "left", y: 134 } },
-    { muscle: "Core", d: "M58,110 Q80,106 102,110 L100,192 Q80,202 60,192 Z", anchor: { x: 80, y: 150 }, label: { side: "right", y: 148 } },
-    { muscle: "Cuádriceps", d: "M46,246 Q44,272 48,298 Q62,306 76,298 Q78,272 74,246 Q60,240 46,246 Z", bilateral: true, anchor: { x: 61, y: 272 }, label: { side: "right", y: 268 } },
-  ],
-  back: [
-    { muscle: "Trapecio", d: "M80,40 L44,78 Q80,94 116,78 Z", anchor: { x: 80, y: 60 }, label: { side: "right", y: 46 } },
-    { muscle: "Hombro", d: "M20,45 Q10,52 12,68 Q14,82 28,84 Q40,80 40,64 Q40,50 26,45 Q23,44 20,45 Z", bilateral: true, anchor: { x: 25, y: 64 }, label: { side: "left", y: 52 } },
-    { muscle: "Espalda", d: "M46,80 Q80,64 114,80 Q118,120 108,158 Q80,174 52,158 Q42,120 46,80 Z", anchor: { x: 80, y: 119 }, label: { side: "right", y: 112 } },
-    { muscle: "Tríceps", d: "M20,64 Q14,86 18,108 Q28,114 38,108 Q42,86 38,64 Q30,58 20,64 Z", bilateral: true, anchor: { x: 28, y: 86 }, label: { side: "left", y: 92 } },
-    { muscle: "Glúteo", d: "M50,206 Q80,198 110,206 Q116,228 102,248 Q80,256 58,248 Q44,228 50,206 Z", anchor: { x: 80, y: 225 }, label: { side: "right", y: 218 } },
-    { muscle: "Femoral", d: "M46,246 Q44,272 48,298 Q62,306 76,298 Q78,272 74,246 Q60,240 46,246 Z", bilateral: true, anchor: { x: 61, y: 272 }, label: { side: "left", y: 270 } },
-    { muscle: "Gemelo", d: "M48,302 Q44,320 50,340 Q62,346 74,340 Q78,320 74,302 Q62,296 48,302 Z", bilateral: true, anchor: { x: 61, y: 320 }, label: { side: "right", y: 320 } },
-  ],
-};
-// Color + opacidad de una zona según el volumen de ESA vista puntual
-// (maxSets = la más alta de las zonas visibles, para que el degradé de
-// tono sea relativo a lo que se está mostrando, no a un tope fijo).
-function regionColor(muscle, volMap, maxSets) {
-  const row = volMap[muscle];
-  if (!row || !row.sets) return { fill: P.s3, opacity: .3 };
-  const rel = maxSets > 0 ? Math.min(1, row.sets / maxSets) : 0;
-  return { fill: volStatusColor(row.status), opacity: .42 + rel * .58 };
-}
-const RegionLabel = ({ muscle, sets, side, ax, ay, ly }) => {
-  const text = `${muscle} · ${fmtSets(sets)}`;
-  const w = Math.max(46, 13 + text.length * 5.4);
-  const lx = side === "left" ? -14 : 174;
-  const px = side === "left" ? lx - w : lx;
-  return (
-    <g>
-      <line x1={ax} y1={ay} x2={lx} y2={ly} stroke={P.faint} strokeWidth={1} opacity={.8} />
-      <circle cx={ax} cy={ay} r={2.6} fill={P.text} stroke={P.bg} strokeWidth={1} />
-      <rect x={px} y={ly - 8} width={w} height={16} rx={8} fill={P.s1} stroke={P.line} strokeWidth={1} />
-      <text x={px + w / 2} y={ly + 3.6} textAnchor="middle" fontSize={8.6} fontWeight={700} fill={P.text}>{text}</text>
-    </g>
-  );
-};
-const BodySilhouette = ({ view, volMap, maxSets, width = 210 }) => (
-  <svg viewBox="-95 0 355 350" width={width} style={{ display: "block", overflow: "visible" }}>
-    {/* Brillo/sombra radial por zona (independiente del color de estado:
-        blanco translúcido arriba-izq → transparente → negro translúcido
-        abajo-der) para dar sensación de volumen/3D sobre el relleno plano,
-        sin depender de ningún asset externo. */}
-    <defs>
-      <radialGradient id={`bm-${view}-l`} cx="32%" cy="26%" r="85%">
-        <stop offset="0%" stopColor="#fff" stopOpacity=".38" />
-        <stop offset="35%" stopColor="#fff" stopOpacity="0" />
-        <stop offset="100%" stopColor="#000" stopOpacity=".3" />
-      </radialGradient>
-      <radialGradient id={`bm-${view}-r`} cx="68%" cy="26%" r="85%">
-        <stop offset="0%" stopColor="#fff" stopOpacity=".38" />
-        <stop offset="35%" stopColor="#fff" stopOpacity="0" />
-        <stop offset="100%" stopColor="#000" stopOpacity=".3" />
-      </radialGradient>
-    </defs>
-    {/* silueta neutra de base, debajo de las zonas coloreadas */}
-    <g fill={P.s2} stroke={P.line} strokeWidth={1}>
-      <circle cx="80" cy="26" r="17" />
-      <rect x="71" y="41" width="18" height="12" rx="5" />
-      <path d="M46,50 Q38,80 42,115 Q40,150 52,180 Q46,198 52,212 L108,212 Q114,198 108,180 Q120,150 118,115 Q122,80 114,50 Q97,42 80,42 Q63,42 46,50 Z" />
-      <path d="M50,210 L110,210 L102,246 L58,246 Z" />
-      <rect x="18" y="56" width="24" height="56" rx="12" />
-      <rect x="15" y="110" width="24" height="52" rx="12" />
-      <rect x="118" y="56" width="24" height="56" rx="12" />
-      <rect x="121" y="110" width="24" height="52" rx="12" />
-      <rect x="44" y="244" width="34" height="60" rx="15" />
-      <rect x="47" y="300" width="28" height="44" rx="13" />
-      <rect x="82" y="244" width="34" height="60" rx="15" />
-      <rect x="85" y="300" width="28" height="44" rx="13" />
-      <ellipse cx="27" cy="166" rx="9" ry="11" />
-      <ellipse cx="133" cy="166" rx="9" ry="11" />
-      <ellipse cx="61" cy="340" rx="14" ry="7" />
-      <ellipse cx="99" cy="340" rx="14" ry="7" />
-    </g>
-    {BODY_REGIONS[view].map((reg) => {
-      const { fill, opacity } = regionColor(reg.muscle, volMap, maxSets);
-      const common = { fill, fillOpacity: opacity, stroke: P.line, strokeWidth: .75 };
-      const row = volMap[reg.muscle];
-      return (
-        <g key={reg.muscle}>
-          <path d={reg.d} {...common} />
-          <path d={reg.d} fill={`url(#bm-${view}-l)`} fillOpacity={opacity} />
-          {reg.bilateral && <path d={mirrorD(reg.d)} {...common} />}
-          {reg.bilateral && <path d={mirrorD(reg.d)} fill={`url(#bm-${view}-r)`} fillOpacity={opacity} />}
-          {row && row.sets > 0 && (
-            <RegionLabel muscle={reg.muscle} sets={row.sets} side={reg.label.side} ax={reg.anchor.x} ay={reg.anchor.y} ly={reg.label.y} />
-          )}
-        </g>
-      );
-    })}
-  </svg>
-);
-const MuscleBodyMap = ({ rows, title, subtitle }) => {
-  const volMap = useMemo(() => Object.fromEntries((rows || []).map((r) => [r.muscle, r])), [rows]);
-  const maxSets = Math.max(1, ...(rows || []).map((r) => r.sets), 0);
-  const other = (rows || []).find((r) => r.muscle === "Otro" && r.sets > 0);
-  if (!rows || !rows.length) return null;
-  return (
-    <Card style={{ padding: 14, marginBottom: 14 }}>
-      {title && <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 2 }}>{title}</div>}
-      {subtitle && <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 10, lineHeight: 1.4 }}>{subtitle}</div>}
-      <div style={{ display: "flex", gap: 4, justifyContent: "center", flexWrap: "wrap", overflowX: "auto" }}>
-        <div style={{ textAlign: "center" }}>
-          <BodySilhouette view="front" volMap={volMap} maxSets={maxSets} />
-          <div style={{ fontSize: 11, color: P.faint, marginTop: 1, fontWeight: 600, letterSpacing: ".03em" }}>FRONTAL</div>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <BodySilhouette view="back" volMap={volMap} maxSets={maxSets} />
-          <div style={{ fontSize: 11, color: P.faint, marginTop: 1, fontWeight: 600, letterSpacing: ".03em" }}>POSTERIOR</div>
-        </div>
-      </div>
-      {other && (
-        <div style={{ fontSize: 11.5, color: P.faint, textAlign: "center", marginTop: 6 }}>
-          Otro (sin zona en el mapa): <b style={{ color: P.text }}>{fmtSets(other.sets)}</b> series
-        </div>
-      )}
-    </Card>
-  );
-};
-
 /* ---- Volumen por grupo muscular ---- */
 const MuscleVolumeRow = ({ r, max }) => {
   const col = volStatusColor(r.status);
@@ -8756,11 +8611,6 @@ const MuscleVolumeRow = ({ r, max }) => {
 
 const VolumePanel = ({ plan }) => {
   const [sub, setSub] = useState("semana");
-  // Qué mapas musculares por sesión están desplegados — colapsados por
-  // default para no saturar la pantalla con 20+ siluetas de una: el coach
-  // abre la que le interesa.
-  const [openMaps, setOpenMaps] = useState([]);
-  const toggleMap = (id) => setOpenMaps((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   // Arranca según lo cargado en el perfil del atleta (Preparación, en la
   // pestaña IA), pero el coach puede cambiarlo acá mismo para comparar
   // sin tener que ir a editar el perfil.
@@ -8804,9 +8654,6 @@ const VolumePanel = ({ plan }) => {
               <>MEV / zona óptima (MAV) / MRV según los landmarks de volumen de <b style={{ color: P.dim }}>Renaissance Periodization (Dr. Mike Israetel)</b> — la referencia más usada en coaching de hipertrofia basado en evidencia. Son rangos orientativos: el punto de partida real se ajusta siempre según cómo responda cada atleta.</>
             )}
           </div>
-          <MuscleBodyMap rows={vol.rows}
-            title="Mapa muscular de la semana"
-            subtitle="Más color y más saturado = más series efectivas trabajadas esa zona. El color sigue el mismo semáforo de las barras de abajo: verde óptimo, ámbar cerca del límite, rojo bajo el MEV o sobre el MRV." />
           {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} />)}
         </>
       )}
@@ -8839,18 +8686,6 @@ const VolumePanel = ({ plan }) => {
                           {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
                         </div>
                       ))}
-                    </div>
-                  )}
-                  {rows.length > 0 && (
-                    <button onClick={() => toggleMap(day.id)}
-                      style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 9, fontSize: 12.5, color: P.ember2, fontWeight: 600 }}>
-                      {openMaps.includes(day.id) ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      {openMaps.includes(day.id) ? "Ocultar mapa muscular" : "Ver mapa muscular de esta sesión"}
-                    </button>
-                  )}
-                  {openMaps.includes(day.id) && (
-                    <div style={{ marginTop: 10 }}>
-                      <MuscleBodyMap rows={rows} />
                     </div>
                   )}
                 </Card>
