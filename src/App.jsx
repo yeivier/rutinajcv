@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v85";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v86";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -901,6 +901,64 @@ const BodyGuideSheet = ({ open, onClose, startTab = "medidas" }) => {
             </div>
           ))}
           <div style={{ fontSize: 13.5, color: P.faint, lineHeight: 1.5 }}>Sube fotos o videos nuevos cada 2-4 semanas, siempre el mismo día de la semana, siguiendo esta guía — así cada comparación es real y no un efecto de la luz o el ángulo.</div>
+        </div>
+      )}
+    </Sheet>
+  );
+};
+
+// Compara dos fotos/videos de progreso lado a lado (elige fecha A y fecha
+// B, por defecto la más antigua y la más reciente). Solo lectura: no
+// escribe nada, solo relee entradas que ya están en history.bodyPhotos.
+const PhotoCompareSheet = ({ open, onClose, photos }) => {
+  const [aId, setAId] = useState(null);
+  const [bId, setBId] = useState(null);
+  const sorted = useMemo(() => [...(photos || [])].sort((x, y) => (x.date < y.date ? -1 : 1)), [photos]);
+  useEffect(() => {
+    if (open && sorted.length >= 2) { setAId(sorted[0].id); setBId(sorted[sorted.length - 1].id); }
+  }, [open, sorted]);
+  const [aMedia, setAMedia] = useState(null);
+  const [bMedia, setBMedia] = useState(null);
+  useEffect(() => { let on = true; if (aId) sGet(`attach:${aId}`).then((v) => on && setAMedia(v || null)); else setAMedia(null); return () => { on = false; }; }, [aId]);
+  useEffect(() => { let on = true; if (bId) sGet(`attach:${bId}`).then((v) => on && setBMedia(v || null)); else setBMedia(null); return () => { on = false; }; }, [bId]);
+
+  const aEntry = sorted.find((p) => p.id === aId);
+  const bEntry = sorted.find((p) => p.id === bId);
+  // bodyPhotos guarda la fecha con todayISO() (timestamp completo), no
+  // isoDate() ("YYYY-MM-DD") — new Date(...) la entiende tal cual, a
+  // diferencia de parseDate() que espera el segundo formato.
+  const dayGap = (aEntry && bEntry) ? Math.abs(Math.round((new Date(bEntry.date) - new Date(aEntry.date)) / 86400000)) : null;
+  const slotSrc = (m) => (m ? (m.kind === "video" ? m.poster : m.dataUrl) : null);
+
+  const slot = (label, src, entry) => (
+    <div style={{ flex: 1, textAlign: "center", minWidth: 0 }}>
+      <div style={{ fontSize: 11, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+      <div style={{ width: "100%", aspectRatio: "3/4", borderRadius: 12, background: P.s3, border: `1px solid ${P.line}`, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {src ? <img src={src} alt={label} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Camera size={22} color={P.faint} />}
+      </div>
+      <div style={{ fontSize: 12.5, color: P.dim, marginTop: 6 }}>{entry ? fmtDateFull(entry.date) : "—"}</div>
+    </div>
+  );
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Comparar progreso" tall>
+      {sorted.length < 2 ? (
+        <Empty icon={Camera} title="Necesitas al menos 2 fotos" body="Sube al menos 2 fotos o videos de progreso para poder compararlos lado a lado." />
+      ) : (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <select value={aId || ""} onChange={(e) => setAId(e.target.value)} style={{ flex: 1, padding: "9px 8px", fontSize: 13.5 }}>
+              {sorted.map((p) => <option key={p.id} value={p.id}>{fmtDateFull(p.date)}</option>)}
+            </select>
+            <select value={bId || ""} onChange={(e) => setBId(e.target.value)} style={{ flex: 1, padding: "9px 8px", fontSize: 13.5 }}>
+              {sorted.map((p) => <option key={p.id} value={p.id}>{fmtDateFull(p.date)}</option>)}
+            </select>
+          </div>
+          {dayGap != null && <div style={{ textAlign: "center", fontSize: 13, color: P.dim, marginBottom: 12 }}>{dayGap} día{dayGap !== 1 ? "s" : ""} de diferencia</div>}
+          <div style={{ display: "flex", gap: 10 }}>
+            {slot("Antes", slotSrc(aMedia), aEntry)}
+            {slot("Después", slotSrc(bMedia), bEntry)}
+          </div>
         </div>
       )}
     </Sheet>
@@ -4596,6 +4654,7 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
   const [viewImg, setViewImg] = useState(null);
   const [err, setErr] = useState("");
   const [guide, setGuide] = useState(null); // null | "medidas" | "fotos"
+  const [compareOpen, setCompareOpen] = useState(false);
   const [measForm, setMeasForm] = useState({});
   const [measErr, setMeasErr] = useState("");
   const [measChartKey, setMeasChartKey] = useState(BODY_MEASURE_FIELDS[0].key);
@@ -4767,7 +4826,12 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
           <Card style={{ padding: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Progreso: fotos y videos ({history.bodyPhotos.length})</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {history.bodyPhotos.length > 0 && (
+                  <button onClick={() => setCompareOpen(true)} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, color: P.ember2 }}>
+                    <Layers size={13} /> Comparar
+                  </button>
+                )}
                 <button onClick={() => setGuide("fotos")} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, color: P.ember2 }}>
                   <Info size={13} /> Cómo fotografiar
                 </button>
@@ -4797,6 +4861,7 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
       <SessionDetailSheet session={openSession} onClose={() => setOpenSession(null)} history={history} onOpenImg={setViewImg} />
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
       <BodyGuideSheet open={!!guide} onClose={() => setGuide(null)} startTab={guide || "medidas"} />
+      <PhotoCompareSheet open={compareOpen} onClose={() => setCompareOpen(false)} photos={history.bodyPhotos} />
     </div>
   );
 };
@@ -6660,7 +6725,12 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
     const bw = (history && history.bodyweight) || [];
     if (bw.length < 2) return null;
     const todayD = parseDate(isoDate(new Date()));
-    const daysAgo = (d) => Math.round((todayD - parseDate(d)) / 86400000);
+    // history.bodyweight guarda la fecha con todayISO() (timestamp ISO
+    // completo, "2026-08-23T05:38:12.345Z"), no con isoDate() ("YYYY-MM-DD")
+    // — parseDate() espera este segundo formato y parte el primero mal
+    // (corta en el primer "-" después de la hora), dando NaN. new Date(d)
+    // sí entiende el timestamp completo tal cual se guardó.
+    const daysAgo = (d) => Math.round((todayD - new Date(d)) / 86400000);
     const recent = bw.filter((b) => { const d = daysAgo(b.date); return d >= 0 && d <= 13; });
     const prior = bw.filter((b) => { const d = daysAgo(b.date); return d >= 14 && d <= 27; });
     if (!recent.length || !prior.length) return null;
@@ -7301,7 +7371,13 @@ const DashboardTab = ({ roster, toast }) => {
   }
 
   const todayD = parseDate(isoDate(new Date()));
-  const daysAgo = (dateStr) => Math.round((todayD - parseDate(dateStr)) / 86400000);
+  // history.sessions guarda la fecha con todayISO() (timestamp completo),
+  // no isoDate() ("YYYY-MM-DD") — parseDate() esperaba el segundo formato
+  // y devolvía NaN con el primero, dejando este Dashboard entero en cero
+  // desde que se creó (check-ins, cumplimiento, progreso, gráfica de 8
+  // semanas y el desglose por alumno). new Date(dateStr) sí entiende el
+  // timestamp completo tal cual se guardó.
+  const daysAgo = (dateStr) => Math.round((todayD - new Date(dateStr)) / 86400000);
   const sessThisWeek = (r) => r.sessions.filter((s) => { const d = daysAgo(s.date); return d >= 0 && d <= 6; });
   const sessLastWeek = (r) => r.sessions.filter((s) => { const d = daysAgo(s.date); return d >= 7 && d <= 13; });
 
@@ -10262,7 +10338,9 @@ const RosterSheet = ({ open, onClose, roster, sid, onEnter, onAdd, onRename, onR
         out[s.id] = {
           pay: (pay && typeof pay.amount === "number") ? pay : emptyPayments(),
           weight: numN(((plan && plan.athlete) || {}).weight),
-          lastSessionDaysAgo: lastSession ? Math.max(0, Math.round((parseDate(isoDate(new Date())) - parseDate(lastSession.date)) / 86400000)) : null,
+          // lastSession.date es un timestamp ISO completo (todayISO()), no
+          // "YYYY-MM-DD" — new Date(...) lo entiende tal cual, parseDate() no.
+          lastSessionDaysAgo: lastSession ? Math.max(0, Math.round((parseDate(isoDate(new Date())) - new Date(lastSession.date)) / 86400000)) : null,
           dayCount: plan ? (plan.days || []).length : 0,
         };
       }
