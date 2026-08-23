@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v94";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v95";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8581,31 +8581,42 @@ const AthleteForm = ({ plan, savePlan }) => {
 };
 
 /* ---- Mapa corporal de series por grupo muscular ----
-   Silueta frontal + posterior en SVG, con cada zona coloreada según el
-   mismo lenguaje de color que ya usan las barras de Volumen (verde óptimo,
-   ámbar mínimo/alto, rojo bajo, rojo sobre MRV) — y, dentro de ese color,
-   más opacidad/saturación cuanto más series tenga esa zona respecto a la
-   más trabajada de la vista (el "tono" que pidió el coach para distinguir
-   de un vistazo qué se trabajó más o menos). Las siluetas son geométricas
-   y esquemáticas (no una lámina anatómica realista): el objetivo es que se
-   lea rápido en el celular, no un póster de anatomía. */
+   Silueta frontal + posterior en SVG con las zonas musculares recortadas
+   con curvas (no simples cuadrados) y, como en un mapa de analítica de
+   entrenamiento, cada zona lleva su propia etiqueta con línea guía hacia
+   afuera del cuerpo mostrando el músculo y sus series efectivas — no solo
+   color. El color sigue el mismo semáforo que ya usan las barras de
+   Volumen (verde óptimo, ámbar mínimo/alto, rojo bajo, rojo sobre MRV) y,
+   dentro de ese color, más opacidad/saturación cuanto más trabajada esté
+   esa zona respecto a las demás de la vista — el "tono" pedido para
+   distinguir de un vistazo qué se trabajó más o menos. Sigue siendo una
+   ilustración vectorial plana, esquemática pero con siluetas anatómicas
+   reales (no un escaneo 3D fotorrealista, que requeriría assets de
+   anatomía con licencia que esta app no tiene).
+   Las zonas con brazo/pierna se definen UNA vez (lado izquierdo) y el
+   lado derecho se genera espejando cada coordenada x respecto al eje
+   central (x=80) con mirrorD — así ambos lados quedan siempre simétricos. */
+function mirrorD(d) {
+  let i = 0;
+  return d.replace(/-?\d+\.?\d*/g, (n) => String(i++ % 2 === 0 ? 160 - parseFloat(n) : parseFloat(n)));
+}
 const BODY_REGIONS = {
   front: [
-    { muscle: "Hombro", shapes: [{ t: "c", cx: 40, cy: 58, r: 15 }, { t: "c", cx: 120, cy: 58, r: 15 }] },
-    { muscle: "Pecho", shapes: [{ t: "p", d: "M48,60 Q80,48 112,60 L109,108 Q80,120 51,108 Z" }] },
-    { muscle: "Bíceps", shapes: [{ t: "r", x: 21, y: 62, w: 18, h: 45, rx: 9 }, { t: "r", x: 121, y: 62, w: 18, h: 45, rx: 9 }] },
-    { muscle: "Antebrazo", shapes: [{ t: "r", x: 17, y: 112, w: 18, h: 46, rx: 9 }, { t: "r", x: 125, y: 112, w: 18, h: 46, rx: 9 }] },
-    { muscle: "Core", shapes: [{ t: "r", x: 57, y: 112, w: 46, h: 82, rx: 12 }] },
-    { muscle: "Cuádriceps", shapes: [{ t: "r", x: 47, y: 248, w: 28, h: 52, rx: 12 }, { t: "r", x: 85, y: 248, w: 28, h: 52, rx: 12 }] },
+    { muscle: "Hombro", d: "M20,45 Q10,52 12,68 Q14,82 28,84 Q40,80 40,64 Q40,50 26,45 Q23,44 20,45 Z", bilateral: true, anchor: { x: 25, y: 64 }, label: { side: "left", y: 50 } },
+    { muscle: "Pecho", d: "M46,58 Q80,44 114,58 Q116,86 108,106 Q80,122 52,106 Q44,86 46,58 Z", anchor: { x: 80, y: 82 }, label: { side: "right", y: 70 } },
+    { muscle: "Bíceps", d: "M20,64 Q14,86 18,108 Q28,114 38,108 Q42,86 38,64 Q30,58 20,64 Z", bilateral: true, anchor: { x: 28, y: 86 }, label: { side: "left", y: 92 } },
+    { muscle: "Antebrazo", d: "M16,112 Q12,134 18,158 Q26,164 34,158 Q38,134 34,112 Q26,108 16,112 Z", bilateral: true, anchor: { x: 25, y: 135 }, label: { side: "left", y: 134 } },
+    { muscle: "Core", d: "M58,110 Q80,106 102,110 L100,192 Q80,202 60,192 Z", anchor: { x: 80, y: 150 }, label: { side: "right", y: 148 } },
+    { muscle: "Cuádriceps", d: "M46,246 Q44,272 48,298 Q62,306 76,298 Q78,272 74,246 Q60,240 46,246 Z", bilateral: true, anchor: { x: 61, y: 272 }, label: { side: "right", y: 268 } },
   ],
   back: [
-    { muscle: "Trapecio", shapes: [{ t: "p", d: "M80,42 L46,76 Q80,90 114,76 Z" }] },
-    { muscle: "Hombro", shapes: [{ t: "c", cx: 40, cy: 58, r: 15 }, { t: "c", cx: 120, cy: 58, r: 15 }] },
-    { muscle: "Espalda", shapes: [{ t: "p", d: "M48,78 Q80,66 112,78 L107,158 Q80,172 53,158 Z" }] },
-    { muscle: "Tríceps", shapes: [{ t: "r", x: 21, y: 62, w: 18, h: 45, rx: 9 }, { t: "r", x: 121, y: 62, w: 18, h: 45, rx: 9 }] },
-    { muscle: "Glúteo", shapes: [{ t: "p", d: "M53,206 L107,206 Q112,232 100,246 L60,246 Q48,232 53,206 Z" }] },
-    { muscle: "Femoral", shapes: [{ t: "r", x: 47, y: 248, w: 28, h: 52, rx: 12 }, { t: "r", x: 85, y: 248, w: 28, h: 52, rx: 12 }] },
-    { muscle: "Gemelo", shapes: [{ t: "r", x: 49, y: 304, w: 24, h: 36, rx: 10 }, { t: "r", x: 87, y: 304, w: 24, h: 36, rx: 10 }] },
+    { muscle: "Trapecio", d: "M80,40 L44,78 Q80,94 116,78 Z", anchor: { x: 80, y: 60 }, label: { side: "right", y: 46 } },
+    { muscle: "Hombro", d: "M20,45 Q10,52 12,68 Q14,82 28,84 Q40,80 40,64 Q40,50 26,45 Q23,44 20,45 Z", bilateral: true, anchor: { x: 25, y: 64 }, label: { side: "left", y: 52 } },
+    { muscle: "Espalda", d: "M46,80 Q80,64 114,80 Q118,120 108,158 Q80,174 52,158 Q42,120 46,80 Z", anchor: { x: 80, y: 119 }, label: { side: "right", y: 112 } },
+    { muscle: "Tríceps", d: "M20,64 Q14,86 18,108 Q28,114 38,108 Q42,86 38,64 Q30,58 20,64 Z", bilateral: true, anchor: { x: 28, y: 86 }, label: { side: "left", y: 92 } },
+    { muscle: "Glúteo", d: "M50,206 Q80,198 110,206 Q116,228 102,248 Q80,256 58,248 Q44,228 50,206 Z", anchor: { x: 80, y: 225 }, label: { side: "right", y: 218 } },
+    { muscle: "Femoral", d: "M46,246 Q44,272 48,298 Q62,306 76,298 Q78,272 74,246 Q60,240 46,246 Z", bilateral: true, anchor: { x: 61, y: 272 }, label: { side: "left", y: 270 } },
+    { muscle: "Gemelo", d: "M48,302 Q44,320 50,340 Q62,346 74,340 Q78,320 74,302 Q62,296 48,302 Z", bilateral: true, anchor: { x: 61, y: 320 }, label: { side: "right", y: 320 } },
   ],
 };
 // Color + opacidad de una zona según el volumen de ESA vista puntual
@@ -8613,41 +8624,56 @@ const BODY_REGIONS = {
 // tono sea relativo a lo que se está mostrando, no a un tope fijo).
 function regionColor(muscle, volMap, maxSets) {
   const row = volMap[muscle];
-  if (!row || !row.sets) return { fill: P.s3, opacity: .32 };
+  if (!row || !row.sets) return { fill: P.s3, opacity: .3 };
   const rel = maxSets > 0 ? Math.min(1, row.sets / maxSets) : 0;
   return { fill: volStatusColor(row.status), opacity: .42 + rel * .58 };
 }
-const BodySilhouette = ({ view, volMap, maxSets, size = 132 }) => (
-  <svg viewBox="0 0 160 350" width={size} style={{ display: "block", overflow: "visible" }}>
+const RegionLabel = ({ muscle, sets, side, ax, ay, ly }) => {
+  const text = `${muscle} · ${fmtSets(sets)}`;
+  const w = Math.max(46, 13 + text.length * 5.4);
+  const lx = side === "left" ? -14 : 174;
+  const px = side === "left" ? lx - w : lx;
+  return (
+    <g>
+      <line x1={ax} y1={ay} x2={lx} y2={ly} stroke={P.faint} strokeWidth={1} opacity={.8} />
+      <circle cx={ax} cy={ay} r={2.6} fill={P.text} stroke={P.bg} strokeWidth={1} />
+      <rect x={px} y={ly - 8} width={w} height={16} rx={8} fill={P.s1} stroke={P.line} strokeWidth={1} />
+      <text x={px + w / 2} y={ly + 3.6} textAnchor="middle" fontSize={8.6} fontWeight={700} fill={P.text}>{text}</text>
+    </g>
+  );
+};
+const BodySilhouette = ({ view, volMap, maxSets, width = 210 }) => (
+  <svg viewBox="-95 0 355 350" width={width} style={{ display: "block", overflow: "visible" }}>
+    {/* silueta neutra de base, debajo de las zonas coloreadas */}
     <g fill={P.s2} stroke={P.line} strokeWidth={1}>
       <circle cx="80" cy="26" r="17" />
       <rect x="71" y="41" width="18" height="12" rx="5" />
-      <path d="M50,50 Q38,90 42,142 Q44,182 56,212 L104,212 Q116,182 118,142 Q122,90 110,50 Z" />
-      <path d="M54,208 L106,208 L100,250 L60,250 Z" />
-      <rect x="20" y="58" width="22" height="52" rx="11" />
-      <rect x="16" y="110" width="22" height="50" rx="11" />
-      <rect x="118" y="58" width="22" height="52" rx="11" />
-      <rect x="122" y="110" width="22" height="50" rx="11" />
-      <rect x="45" y="245" width="32" height="58" rx="14" />
-      <rect x="48" y="300" width="26" height="42" rx="12" />
-      <rect x="83" y="245" width="32" height="58" rx="14" />
-      <rect x="86" y="300" width="26" height="42" rx="12" />
-      <ellipse cx="26" cy="163" rx="9" ry="11" />
-      <ellipse cx="134" cy="163" rx="9" ry="11" />
-      <ellipse cx="61" cy="336" rx="13" ry="7" />
-      <ellipse cx="99" cy="336" rx="13" ry="7" />
+      <path d="M46,50 Q38,80 42,115 Q40,150 52,180 Q46,198 52,212 L108,212 Q114,198 108,180 Q120,150 118,115 Q122,80 114,50 Q97,42 80,42 Q63,42 46,50 Z" />
+      <path d="M50,210 L110,210 L102,246 L58,246 Z" />
+      <rect x="18" y="56" width="24" height="56" rx="12" />
+      <rect x="15" y="110" width="24" height="52" rx="12" />
+      <rect x="118" y="56" width="24" height="56" rx="12" />
+      <rect x="121" y="110" width="24" height="52" rx="12" />
+      <rect x="44" y="244" width="34" height="60" rx="15" />
+      <rect x="47" y="300" width="28" height="44" rx="13" />
+      <rect x="82" y="244" width="34" height="60" rx="15" />
+      <rect x="85" y="300" width="28" height="44" rx="13" />
+      <ellipse cx="27" cy="166" rx="9" ry="11" />
+      <ellipse cx="133" cy="166" rx="9" ry="11" />
+      <ellipse cx="61" cy="340" rx="14" ry="7" />
+      <ellipse cx="99" cy="340" rx="14" ry="7" />
     </g>
     {BODY_REGIONS[view].map((reg) => {
       const { fill, opacity } = regionColor(reg.muscle, volMap, maxSets);
+      const common = { fill, fillOpacity: opacity, stroke: P.line, strokeWidth: .75 };
+      const row = volMap[reg.muscle];
       return (
         <g key={reg.muscle}>
-          {reg.shapes.map((s, i) => {
-            const key = `${reg.muscle}-${i}`;
-            const common = { fill, fillOpacity: opacity, stroke: P.line, strokeWidth: .75 };
-            if (s.t === "c") return <circle key={key} cx={s.cx} cy={s.cy} r={s.r} {...common} />;
-            if (s.t === "r") return <rect key={key} x={s.x} y={s.y} width={s.w} height={s.h} rx={s.rx} {...common} />;
-            return <path key={key} d={s.d} {...common} />;
-          })}
+          <path d={reg.d} {...common} />
+          {reg.bilateral && <path d={mirrorD(reg.d)} {...common} />}
+          {row && row.sets > 0 && (
+            <RegionLabel muscle={reg.muscle} sets={row.sets} side={reg.label.side} ax={reg.anchor.x} ay={reg.anchor.y} ly={reg.label.y} />
+          )}
         </g>
       );
     })}
@@ -8656,29 +8682,27 @@ const BodySilhouette = ({ view, volMap, maxSets, size = 132 }) => (
 const MuscleBodyMap = ({ rows, title, subtitle }) => {
   const volMap = useMemo(() => Object.fromEntries((rows || []).map((r) => [r.muscle, r])), [rows]);
   const maxSets = Math.max(1, ...(rows || []).map((r) => r.sets), 0);
+  const other = (rows || []).find((r) => r.muscle === "Otro" && r.sets > 0);
   if (!rows || !rows.length) return null;
   return (
     <Card style={{ padding: 14, marginBottom: 14 }}>
       {title && <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 2 }}>{title}</div>}
       {subtitle && <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 10, lineHeight: 1.4 }}>{subtitle}</div>}
-      <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 4, justifyContent: "center", flexWrap: "wrap", overflowX: "auto" }}>
         <div style={{ textAlign: "center" }}>
           <BodySilhouette view="front" volMap={volMap} maxSets={maxSets} />
-          <div style={{ fontSize: 11, color: P.faint, marginTop: 3, fontWeight: 600, letterSpacing: ".03em" }}>FRONTAL</div>
+          <div style={{ fontSize: 11, color: P.faint, marginTop: 1, fontWeight: 600, letterSpacing: ".03em" }}>FRONTAL</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <BodySilhouette view="back" volMap={volMap} maxSets={maxSets} />
-          <div style={{ fontSize: 11, color: P.faint, marginTop: 3, fontWeight: 600, letterSpacing: ".03em" }}>POSTERIOR</div>
+          <div style={{ fontSize: 11, color: P.faint, marginTop: 1, fontWeight: 600, letterSpacing: ".03em" }}>POSTERIOR</div>
         </div>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12, justifyContent: "center" }}>
-        {rows.map((r) => (
-          <span key={r.muscle} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "3px 7px" }}>
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: volStatusColor(r.status), flexShrink: 0 }} />
-            {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
-          </span>
-        ))}
-      </div>
+      {other && (
+        <div style={{ fontSize: 11.5, color: P.faint, textAlign: "center", marginTop: 6 }}>
+          Otro (sin zona en el mapa): <b style={{ color: P.text }}>{fmtSets(other.sets)}</b> series
+        </div>
+      )}
     </Card>
   );
 };
