@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v102";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v103";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3233,15 +3233,127 @@ const ExHistorySheet = ({ open, onClose, exName, entries, onOpenImg }) => (
   </Sheet>
 );
 
+// Barritas de "mejor peso por sesión" (hasta 6, más reciente a la derecha)
+// + el PR más reciente de este ejercicio en particular, para el modo
+// "Nuevo" de ExerciseInfoSheet — misma lógica de withBest/recentPRs que
+// ya usan ExerciseProgress y ProgressTabMono, filtrada a un solo ejercicio.
+function exerciseHistorySummary(ex, history) {
+  const entries = (history && history.byEx && history.byEx[ex.id]) || [];
+  const withBest = entries.map((en) => {
+    const done = (en.sets || []).filter((s) => s.done && s.weight !== "");
+    return { date: en.date, best: done.length ? Math.max(...done.map((s) => +s.weight)) : null };
+  }).filter((x) => x.best != null);
+  const last6 = withBest.slice(-6);
+  const pr = ((history && history.sessions) || []).reduce((found, s) => {
+    if (found) return found;
+    const hit = (s.prs || []).map((p) => {
+      const idx = p.lastIndexOf(":");
+      return { name: idx > 0 ? p.slice(0, idx).trim() : p, value: idx > 0 ? p.slice(idx + 1).trim() : "" };
+    }).find((p) => p.name.toLowerCase() === (ex.name || "").toLowerCase());
+    return hit ? { ...hit, date: s.date } : null;
+  }, null);
+  return { last6, pr };
+}
+
+const FICHA_MODE_KEY = "forja-ficha-mode";
+
 /* ============================================================
    Ficha de técnica: junta en una sola tarjeta lo que antes vivía repartido
    (músculo, indicaciones del coach, video, demostración) y suma un rincón
    nuevo para que el alumno guarde sus propias fotos de forma — una
    referencia fija, a diferencia de las fotos de "Historial" que quedan
    atadas a una sesión puntual.
+
+   `history` es OPCIONAL — pantalla "2b Detalle de ejercicio" del handoff
+   Forja Mobile: cuando se pasa, aparece un toggle Clásico/Nuevo con el
+   estilo mono del handoff (video, ejecución, y un mini gráfico de las
+   últimas 6 sesiones + PR). Sin `history` (como en las tres llamadas de
+   Entrenar/Focus Mode, que no lo tienen a mano y quedan fuera de esta
+   pantalla — es la de más riesgo, se deja para el final) el toggle no
+   aparece y la ficha se ve exactamente igual que siempre.
    ============================================================ */
-const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError }) => {
+const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, history }) => {
+  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(FICHA_MODE_KEY) || "clasico"; } catch { return "clasico"; } });
+  const setMode = (m) => { setVmode(m); try { localStorage.setItem(FICHA_MODE_KEY, m); } catch {} };
   if (!ex) return null;
+  if (history && vmode === "nuevo") {
+    const { last6, pr } = exerciseHistorySummary(ex, history);
+    const maxV = Math.max(1, ...last6.map((x) => x.best));
+    return (
+      <Sheet open={open} onClose={onClose} title={ex.name} tall>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
+            {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
+              <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
+                background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {/* Panel propio con borde/radio (no un "sangrado" a los bordes del
+            Sheet vía márgenes negativos): el padding del Sheet no es un
+            número estable del que depender acá, así que un panel
+            autocontenido es más robusto que intentar calzar píxeles. */}
+        <div style={{ background: MONO.bg, borderRadius: 18, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+          {ex.video ? (
+            <button onClick={() => window.open(ex.video, "_blank")} style={{ height: 150, borderRadius: 16, background: "#E8E8EE", border: `1px solid ${MONO.line}`,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <Video size={28} color={MONO.inkFaint} />
+              <span style={{ fontSize: 12, color: MONO.inkDim, fontWeight: 600 }}>Ver demostración en video</span>
+            </button>
+          ) : (
+            <div style={{ height: 150, borderRadius: 16, background: "#E8E8EE", border: `1px solid ${MONO.line}`,
+              display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: 12, color: MONO.inkFaint, fontWeight: 600 }}>Sin video todavía</span>
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink, lineHeight: 1.15 }}>{ex.name}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#2B2B30", background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 8, padding: "5px 9px" }}>{ex.muscle}</span>
+              {(ex.secondary || []).map((s, i) => (
+                <span key={i} style={{ fontSize: 12, fontWeight: 600, color: "#2B2B30", background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 8, padding: "5px 9px" }}>{s.muscle}</span>
+              ))}
+            </div>
+          </div>
+
+          <MonoCard style={{ padding: "16px 17px", display: "flex", flexDirection: "column", gap: 11 }}>
+            <MonoLabel>Ejecución</MonoLabel>
+            {ex.notes ? (
+              <div style={{ fontSize: 14, lineHeight: 1.5, color: "#2B2B30", whiteSpace: "pre-wrap" }}>{ex.notes}</div>
+            ) : (
+              <div style={{ fontSize: 13.5, color: MONO.inkFaint }}>Tu coach todavía no dejó indicaciones para este ejercicio.</div>
+            )}
+          </MonoCard>
+
+          <MonoCard style={{ padding: "16px 17px", display: "flex", flexDirection: "column", gap: 13 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <MonoLabel>Tu historial</MonoLabel>
+              <span style={{ fontSize: 12.5, color: MONO.inkFaint }}>últimas {last6.length} sesion{last6.length !== 1 ? "es" : ""}</span>
+            </div>
+            {last6.length === 0 ? (
+              <div style={{ fontSize: 13.5, color: MONO.inkFaint }}>Sin sesiones registradas todavía.</div>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 9, height: 74 }}>
+                  {last6.map((x, i) => (
+                    <span key={i} title={`${x.best} kg`} style={{ flex: 1, height: `${Math.max(8, Math.round((x.best / maxV) * 100))}%`, borderRadius: "6px 6px 3px 3px",
+                      background: i === last6.length - 1 ? MONO.ink : "#D4D4D9" }} />
+                  ))}
+                </div>
+                {pr && (
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", paddingTop: 8, borderTop: `1px solid ${MONO.lineFaint}` }}>
+                    <span style={{ fontSize: 12.5, color: MONO.inkFaint }}>Récord personal</span>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: MONO.ink }}>{pr.value}</span>
+                  </div>
+                )}
+              </>
+            )}
+          </MonoCard>
+        </div>
+      </Sheet>
+    );
+  }
   const formPhotos = ex.formPhotoIds || [];
   const canEdit = !!onPatchEx;
   const addFormPhoto = (id) => onPatchEx && onPatchEx({ formPhotoIds: [...formPhotos, id].slice(0, 2) });
@@ -3250,6 +3362,16 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError })
   const tempoResult = tempo ? explainTempo(tempo, ex.name, ex.muscle) : null;
   return (
     <Sheet open={open} onClose={onClose} title={`Ficha · ${ex.name}`} tall>
+      {history && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 3, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3 }}>
+            {[["clasico", "Clásico"], ["nuevo", "Nuevo"]].map(([id, l]) => (
+              <button key={id} onClick={() => setMode(id)} style={{ padding: "5px 9px", borderRadius: 7, fontSize: 11.5, fontWeight: 600,
+                background: vmode === id ? P.s3 : "transparent", color: vmode === id ? P.text : P.faint }}>{l}</button>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
         <span style={{ fontSize: 13, fontWeight: 700, padding: "4px 10px", borderRadius: 8, background: P.s2, border: `1px solid ${P.line}`, color: P.ember2 }}>{ex.muscle}</span>
         {(ex.secondary || []).map((s, i) => (
@@ -7366,7 +7488,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         onOk={() => { mut((p) => { if (del.type === "day") p.days = p.days.filter((x) => x.id !== del.dayId);
           else { const day = p.days.find((x) => x.id === del.dayId); day.exs = day.exs.filter((x) => x.id !== del.exId); } }); setDel(null); }} />
       <ImportRoutineSheet open={importOpen} onClose={() => setImportOpen(false)} plan={plan} savePlan={savePlan} toast={toast} />
-      <ExerciseInfoSheet ex={fichaEx} open={!!fichaEx} onClose={() => setFichaEx(null)} onOpenImg={setViewImg} />
+      <ExerciseInfoSheet ex={fichaEx} open={!!fichaEx} onClose={() => setFichaEx(null)} onOpenImg={setViewImg} history={history} />
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
   );
