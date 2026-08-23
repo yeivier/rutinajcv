@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v87";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v88";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 
 // Nombre y eslogan de marca centralizados en un solo lugar: el logo y el
 // splash de arranque leen de acá en vez de tener el texto "FORJA" pegado
@@ -1869,6 +1869,36 @@ const BB_VOLUME_REF = {
   Antebrazo:  { mev: 4,  mav: [8, 14],  mrv: 20, freq: "2×/sem" },
 };
 
+// Landmarks para atletas asistidos (en ciclo de esteroides anabólicos).
+// A diferencia de la tabla natural, acá NO hay estudios controlados —
+// por motivos éticos y legales obvios nadie corre un ensayo clínico
+// dando esteroides a atletas para medir volumen óptimo — así que esto
+// es la heurística de campo más citada entre coaches de culturismo
+// "evidence-based" que trabajan con atletas asistidos (incluye
+// comentarios públicos del propio equipo de Renaissance Periodization
+// sobre atletas mejorados). El principio fisiológico detrás sí está
+// bien establecido: la síntesis proteica y la recuperación mejoran
+// muchísimo con soporte anabólico, así que el techo recuperable (MRV)
+// sube bastante más que el mínimo efectivo (MEV) — grupos pequeños y
+// de recuperación rápida (brazos, hombros, pantorrillas, abdomen)
+// toleran el mayor salto relativo; los grandes y de más costo
+// sistémico (piernas, espalda, pecho) suben menos en proporción.
+// Esto es SOLO volumen de entrenamiento — no es guía de sustancias,
+// dosis ni protocolos, que están fuera del alcance de esta app.
+const BB_VOLUME_REF_ENHANCED = {
+  Pecho:      { mev: 9,  mav: [13, 25], mrv: 30, freq: "2-3×/sem" },
+  Espalda:    { mev: 12, mav: [16, 29], mrv: 34, freq: "3×/sem" },
+  Hombro:     { mev: 7,  mav: [18, 34], mrv: 40, freq: "3×/sem" },
+  Bíceps:     { mev: 10, mav: [17, 34], mrv: 40, freq: "3×/sem" },
+  Tríceps:    { mev: 7,  mav: [13, 29], mrv: 34, freq: "3×/sem" },
+  Cuádriceps: { mev: 9,  mav: [13, 22], mrv: 27, freq: "2-3×/sem" },
+  Femoral:    { mev: 7,  mav: [11, 22], mrv: 27, freq: "2-3×/sem" },
+  Glúteo:     { mev: 5,  mav: [9, 22],  mrv: 27, freq: "2-3×/sem" },
+  Gemelo:     { mev: 10, mav: [15, 26], mrv: 31, freq: "3×/sem" },
+  Core:       { mev: 7,  mav: [18, 32], mrv: 39, freq: "3×/sem" },
+  Antebrazo:  { mev: 5,  mav: [10, 25], mrv: 31, freq: "2-3×/sem" },
+};
+
 // Fases de un ciclo de culturismo
 const BB_PHASES = [
   { id: "volumen", label: "Volumen (lean bulk)", kcal: "+10 a +20 % sobre mantención",
@@ -1940,7 +1970,7 @@ const BB_PLATEAU = [
 const emptyAthlete = () => ({
   sex: "", age: "", height: "", weight: "", bf: "", years: "", level: "intermedio",
   phase: "volumen", category: "", compDate: "", weakPoints: [], injuries: "",
-  daysWeek: "", sessionMin: "", equipment: "", notes: "",
+  daysWeek: "", sessionMin: "", equipment: "", notes: "", enhanced: "natural",
 });
 
 /* Convierte los días que devuelve la IA (o el importador) al formato interno del plan */
@@ -1998,12 +2028,13 @@ const statusFor = (sets, ref) => {
 };
 
 /* Series efectivas por grupo muscular para UN día (sesión) puntual —
-   incluye el aporte parcial de músculos secundarios. */
-function volumeByMuscleForDay(day) {
+   incluye el aporte parcial de músculos secundarios.
+   refTable: BB_VOLUME_REF (natural, default) o BB_VOLUME_REF_ENHANCED. */
+function volumeByMuscleForDay(day, refTable = BB_VOLUME_REF) {
   const perMuscle = {};
   (day.exs || []).forEach((ex) => addExerciseVolume(perMuscle, ex));
   const rows = Object.entries(perMuscle)
-    .map(([muscle, sets]) => ({ muscle, sets, ref: BB_VOLUME_REF[muscle], status: statusFor(sets, BB_VOLUME_REF[muscle]) }))
+    .map(([muscle, sets]) => ({ muscle, sets, ref: refTable[muscle], status: statusFor(sets, refTable[muscle]) }))
     .sort((a, b) => b.sets - a.sets);
   const totalSets = (day.exs || []).reduce((a, e) => a + (e.sets || []).filter((s) => s.type !== "warmup").length, 0);
   return { rows, totalSets };
@@ -2012,8 +2043,9 @@ function volumeByMuscleForDay(day) {
 /* Series efectivas por grupo muscular.
    Si el plan tiene cronograma semanal, cuenta lo que realmente toca cada semana;
    si no, cuenta una vuelta completa a la rutina. Incluye el aporte parcial de
-   músculos secundarios marcados en cada ejercicio. */
-function volumeByMuscle(plan) {
+   músculos secundarios marcados en cada ejercicio.
+   refTable: BB_VOLUME_REF (natural, default) o BB_VOLUME_REF_ENHANCED. */
+function volumeByMuscle(plan, refTable = BB_VOLUME_REF) {
   const perMuscle = {};
   const add = (day) => { (day.exs || []).forEach((ex) => addExerciseVolume(perMuscle, ex)); };
   const sched = plan.schedule || {};
@@ -2029,7 +2061,7 @@ function volumeByMuscle(plan) {
     (plan.days || []).forEach(add);
   }
   const rows = Object.entries(perMuscle)
-    .map(([muscle, sets]) => ({ muscle, sets, ref: BB_VOLUME_REF[muscle], status: statusFor(sets, BB_VOLUME_REF[muscle]) }))
+    .map(([muscle, sets]) => ({ muscle, sets, ref: refTable[muscle], status: statusFor(sets, refTable[muscle]) }))
     .sort((a, b) => b.sets - a.sets);
   return { basis, rows, total: rows.reduce((a, r) => a + r.sets, 0) };
 }
@@ -8201,7 +8233,7 @@ function parseAIActions(text) {
 /* Todo lo que el agente sabe del alumno, en texto plano */
 function buildAthleteContext({ plan, history, athlete, student }) {
   const a = athlete || emptyAthlete();
-  const vol = volumeByMuscle(plan);
+  const vol = volumeByMuscle(plan, a.enhanced === "asistido" ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF);
   const sessions = history.sessions || [];
   const recent = sessions.slice(-8);
   const bw = history.bodyweight || [];
@@ -8261,6 +8293,7 @@ CRONOGRAMA SEMANAL
 ${schedTxt}
 
 VOLUMEN ACTUAL POR GRUPO MUSCULAR (series efectivas por ${vol.basis}, total ${vol.total})
+Preparación: ${a.enhanced === "asistido" ? "asistido / en ciclo — landmarks ya ajustados al alza" : "natural"}
 ${volTxt}
 
 RUTINA COMPLETA
@@ -8280,13 +8313,14 @@ INDICACIONES GENERALES DEL PLAN
 ${instrTxt}`;
 }
 
-function buildBBSystemPrompt(ctx, specialty) {
+function buildBBSystemPrompt(ctx, specialty, enhanced) {
   const spec = BB_SPECIALTIES.find((s) => s.id === specialty) || BB_SPECIALTIES[0];
+  const volRef = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
   return `Eres un entrenador de culturismo profesional integrado en FORJA, la plataforma con la que un coach gestiona a sus alumnos. Tienes el nivel de un preparador con años dirigiendo atletas de físico en competencia y dominas la literatura científica de hipertrofia. Hablas con el coach, no con el alumno.
 
 DOMINIO TÉCNICO QUE MANEJAS
 1. Hipertrofia: tensión mecánica como estímulo principal, series efectivas cerca del fallo (RIR 0-4), rango de 5 a 30 repeticiones útil si la proximidad al fallo es suficiente, importancia de la tensión en posición de estiramiento, rango completo y control excéntrico.
-2. Volumen: MEV, MAV y MRV por grupo muscular; el volumen productivo sube a lo largo del mesociclo y se recorta en el deload. Referencias por semana: ${Object.entries(BB_VOLUME_REF).map(([m, r]) => `${m} ${r.mev}/${r.mav[0]}-${r.mav[1]}/${r.mrv}`).join(", ")} (MEV/MAV/MRV en series efectivas).
+2. Volumen: MEV, MAV y MRV por grupo muscular; el volumen productivo sube a lo largo del mesociclo y se recorta en el deload. Este atleta está marcado como "${enhanced ? "asistido / en ciclo" : "natural"}" en su perfil, así que usa estas referencias por semana (ya ajustadas a eso): ${Object.entries(volRef).map(([m, r]) => `${m} ${r.mev}/${r.mav[0]}-${r.mav[1]}/${r.mrv}`).join(", ")} (MEV/MAV/MRV en series efectivas). Los atletas asistidos recuperan más y toleran bastante más volumen (sobre todo el techo/MRV) que un natural — nunca les des consejos de volumen calculados para un natural. No das ni comentas dosis, compuestos ni protocolos: eso está fuera de tu rol, solo programas entrenamiento.
 3. Frecuencia y distribución: 2-3 estímulos por grupo y semana funcionan mejor que 1 cuando el volumen es alto; organización full body, torso-pierna, push-pull-legs o híbridos según disponibilidad.
 4. Progresión: sobrecarga progresiva en carga, repeticiones o series, con doble progresión como método base; el RIR guía la intensidad real.
 5. Técnicas de intensidad: top set + back-off, drop sets, rest-pause, series mioreps, parciales en estiramiento y superseries. Todas suben fatiga por unidad de estímulo: se dosifican, casi siempre en aislamientos y al final del ejercicio.
@@ -8432,6 +8466,12 @@ const AthleteForm = ({ plan, savePlan }) => {
             <option value="avanzado">Avanzado</option><option value="competidor">Competidor</option>
           </select></Field>
         </div>
+        <Field label="Preparación" hint="Cambia los landmarks de volumen (MEV/MAV/MRV) que se usan en Progreso → Volumen y en el contexto del agente IA: los atletas asistidos recuperan más y toleran bastante más volumen semanal.">
+          <select value={a.enhanced || "natural"} onChange={(e) => set("enhanced", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
+            <option value="natural">Natural</option>
+            <option value="asistido">Asistido (en ciclo)</option>
+          </select>
+        </Field>
       </Card>
 
       <Card style={{ padding: "13px 14px", marginBottom: 12 }}>
@@ -8503,21 +8543,32 @@ const MuscleVolumeRow = ({ r, max }) => (
 
 const VolumePanel = ({ plan }) => {
   const [sub, setSub] = useState("semana");
-  const vol = useMemo(() => volumeByMuscle(plan), [plan]);
+  // Arranca según lo cargado en el perfil del atleta (Preparación, en la
+  // pestaña IA), pero el coach puede cambiarlo acá mismo para comparar
+  // sin tener que ir a editar el perfil.
+  const [prep, setPrep] = useState((plan.athlete || {}).enhanced === "asistido" ? "asistido" : "natural");
+  const refTable = prep === "asistido" ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
+  const vol = useMemo(() => volumeByMuscle(plan, refTable), [plan, refTable]);
   // Agrupado por rutina (A, B, C…), igual que en la pestaña Rutina, para no
   // mezclar sesiones de rutinas distintas en una sola lista.
   const groups = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames).map((g) => ({
-    ...g, perDay: g.days.map((d) => ({ day: d, ...volumeByMuscleForDay(d) })),
-  })), [plan.days, plan.routineNames]);
+    ...g, perDay: g.days.map((d) => ({ day: d, ...volumeByMuscleForDay(d, refTable) })),
+  })), [plan.days, plan.routineNames, refTable]);
   if (!vol.rows.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Carga la rutina del alumno para ver el volumen efectivo por grupo muscular." />;
   const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 11, padding: 3, marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 11, padding: 3, marginBottom: 8 }}>
         {[["semana", "Semanal por músculo"], ["sesion", "Por sesión"]].map(([id, l]) => (
           <button key={id} onClick={() => setSub(id)} style={{ flex: 1, padding: "8px 6px", borderRadius: 8, fontSize: 13.5, fontWeight: 600,
             background: sub === id ? P.s3 : "transparent", color: sub === id ? P.text : P.faint, border: `1px solid ${sub === id ? P.line : "transparent"}` }}>{l}</button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 11, padding: 3, marginBottom: 12 }}>
+        {[["natural", "Natural"], ["asistido", "Asistido (en ciclo)"]].map(([id, l]) => (
+          <button key={id} onClick={() => setPrep(id)} style={{ flex: 1, padding: "8px 6px", borderRadius: 8, fontSize: 13.5, fontWeight: 600,
+            background: prep === id ? P.s3 : "transparent", color: prep === id ? P.text : P.faint, border: `1px solid ${prep === id ? P.line : "transparent"}` }}>{l}</button>
         ))}
       </div>
 
@@ -8529,7 +8580,11 @@ const VolumePanel = ({ plan }) => {
             {" "}Incluye el aporte parcial de los músculos secundarios que marques en cada ejercicio.
           </div>
           <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 12, lineHeight: 1.45, padding: "8px 10px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10 }}>
-            MEV / zona óptima (MAV) / MRV según los landmarks de volumen de <b style={{ color: P.dim }}>Renaissance Periodization (Dr. Mike Israetel)</b> — la referencia más usada en coaching de hipertrofia basado en evidencia. Son rangos orientativos: el punto de partida real se ajusta siempre según cómo responda cada atleta.
+            {prep === "asistido" ? (
+              <>MEV / zona óptima (MAV) / MRV para <b style={{ color: P.dim }}>atletas asistidos (en ciclo)</b>: heurística de campo citada por coaches de culturismo basado en evidencia (no hay estudios controlados con esteroides, por motivos éticos obvios) — la recuperación mejora mucho con soporte anabólico, así que el techo recuperable sube bastante más que el mínimo efectivo. Solo volumen de entrenamiento: esta app no da guía de sustancias, dosis ni protocolos.</>
+            ) : (
+              <>MEV / zona óptima (MAV) / MRV según los landmarks de volumen de <b style={{ color: P.dim }}>Renaissance Periodization (Dr. Mike Israetel)</b> — la referencia más usada en coaching de hipertrofia basado en evidencia. Son rangos orientativos: el punto de partida real se ajusta siempre según cómo responda cada atleta.</>
+            )}
           </div>
           {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} />)}
         </>
@@ -8611,6 +8666,25 @@ const KnowledgePanel = () => {
           Pasarse del MRV no da más músculo, solo más fatiga.
         </div>
         {Object.entries(BB_VOLUME_REF).map(([m, r]) => (
+          <div key={m} style={{ padding: "8px 0", borderBottom: `1px solid ${P.line}55` }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
+              <div style={{ flex: 1, color: P.text, fontWeight: 700, fontSize: 14.5 }}>{m}</div>
+              <div style={{ color: P.faint, fontSize: 13 }}>{r.freq}</div>
+            </div>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", fontSize: 13 }}>
+              <span style={{ color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>MEV {r.mev}</span>
+              <span style={{ color: P.green, background: "rgba(255,255,255,.08)", border: `1px solid rgba(255,255,255,.35)`, borderRadius: 6, padding: "2px 7px", fontWeight: 700 }}>Óptimo {r.mav[0]}–{r.mav[1]}</span>
+              <span style={{ color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>MRV {r.mrv}</span>
+            </div>
+          </div>
+        ))}
+      </Section>
+
+      <Section id="volumen-asistido" title="Volumen semanal — atletas asistidos (en ciclo)">
+        <div style={{ fontSize: 13.5, color: P.faint, marginBottom: 10, lineHeight: 1.5 }}>
+          Con soporte anabólico la recuperación mejora mucho, así que el techo recuperable (MRV) sube bastante más que el mínimo efectivo (MEV) — no hay estudios controlados que midan esto (por motivos éticos obvios), así que son la heurística de campo más citada entre coaches de culturismo basado en evidencia que trabajan con atletas asistidos. Esta app solo programa volumen de entrenamiento: no da guía de sustancias, dosis ni protocolos.
+        </div>
+        {Object.entries(BB_VOLUME_REF_ENHANCED).map(([m, r]) => (
           <div key={m} style={{ padding: "8px 0", borderBottom: `1px solid ${P.line}55` }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
               <div style={{ flex: 1, color: P.text, fontWeight: 700, fontSize: 14.5 }}>{m}</div>
@@ -8731,7 +8805,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
       const data = await callClaudeAPI(apiKey, {
         model: AI_MODEL,
         max_tokens: 3000,
-        system: buildBBSystemPrompt(ctx, specialty),
+        system: buildBBSystemPrompt(ctx, specialty, (plan.athlete || {}).enhanced === "asistido"),
         messages: apiMessages,
       });
       const answer = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n") || "(sin respuesta)";
