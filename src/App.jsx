@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v105";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v106";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -78,7 +78,11 @@ const DARK_THEME = {
   P: {
     bg: "#000000", s1: "#141414", s2: "#1C1C1C", s3: "#242424", s4: "#2E2E2E",
     line: "#4A4A4A", text: "#FFFFFF", dim: "#E5E5E5", faint: "#A3A3A3",
-    ember: "#FF6B35", ember2: "#FFA366", green: "#34D399", red: "#E01A1A", blue: "#5B9BFF", glow: "#FF6B35",
+    // Sin acento de color: en oscuro la "tinta" de lo accionable es el blanco.
+    // ember/green/red/blue se conservan como NOMBRES (los lee media app) pero
+    // todos apuntan al mismo blanco — el sistema distingue por jerarquía y
+    // forma, nunca por un color extra.
+    ember: "#FFFFFF", ember2: "#FFFFFF", green: "#FFFFFF", red: "#FFFFFF", blue: "#FFFFFF", glow: "#FFFFFF",
     frame: "#FFFFFF",
     bgGrad: "linear-gradient(158deg, #141414 0%, #0D0D0D 30%, #080808 54%, #030303 76%, #000000 100%)",
   },
@@ -93,16 +97,23 @@ const DARK_THEME = {
 // teniendo el mismo contraste fuerte.
 const LIGHT_THEME = {
   P: {
-    bg: "#EDEDED", s1: "#FFFFFF", s2: "#FAFAFA", s3: "#F0F0F0", s4: "#E5E5E5",
-    line: "#B5B5B5", text: "#000000", dim: "#1A1A1A", faint: "#5C5C5C",
-    ember: "#E0551F", ember2: "#B8623A", green: "#1E9E68", red: "#C21414", blue: "#2E6FD6", glow: "#E0551F",
-    frame: "#000000",
-    bgGrad: "linear-gradient(158deg, #FFFFFF 0%, #F7F7F7 30%, #F0F0F0 54%, #E8E8E8 76%, #E0E0E0 100%)",
+    // Sistema del diseño "Forja Mobile": grises de sistema iOS + tinta.
+    // Neutros exactos del spec: #F2F2F7 / #FFFFFF / #E5E5EA / #101012.
+    bg: "#F2F2F7", s1: "#FFFFFF", s2: "#F7F7FA", s3: "#EFEFF4", s4: "#E8E8EE",
+    line: "#E5E5EA", text: "#101012", dim: "#2B2B30", faint: "#6B6B75",
+    // Todo lo accionable es tinta #101012: botón principal, pestaña activa,
+    // serie hecha, día de hoy. Lo que requiere atención (alertas, sin leer,
+    // récords) también va en tinta — contorno, chip o punto, nunca un color
+    // extra. Por eso ember/green/red/blue son el MISMO negro: los nombres
+    // siguen porque los lee toda la app, pero ya no aportan color.
+    ember: "#101012", ember2: "#101012", green: "#101012", red: "#101012", blue: "#101012", glow: "#101012",
+    frame: "#E5E5EA",
+    bgGrad: "#F2F2F7",
   },
-  plateGrad: "#000000",
+  plateGrad: "#101012",
   plateFg: "#FFFFFF",
-  plateDim: "#CFCFCF",
-  plateBorder: "#000000",
+  plateDim: "#D9D9DE",
+  plateBorder: "#101012",
 };
 
 const P = { ...DARK_THEME.P };
@@ -111,8 +122,8 @@ let PLATE_FG = DARK_THEME.plateFg;
 let PLATE_DIM = DARK_THEME.plateDim;
 let PLATE_BORDER = DARK_THEME.plateBorder;
 
-let THEME_MODE = "dark";
-try { THEME_MODE = window.localStorage.getItem("forja-theme") || "dark"; } catch {}
+let THEME_MODE = "light";
+try { THEME_MODE = window.localStorage.getItem("forja-theme") || "light"; } catch {}
 const themeListeners = new Set();
 function applyTheme(mode) {
   const t = mode === "light" ? LIGHT_THEME : DARK_THEME;
@@ -213,20 +224,35 @@ const TAB_BOTTOM_PAD = "calc(92px + env(safe-area-inset-bottom))";
 // reconozcan de un vistazo durante el entrenamiento (el resto de la app
 // se mantiene en blanco y negro; esto es la única excepción a propósito).
 const SET_TYPES = {
-  warmup:   { label: "Calentamiento (Warm-up set)", short: "WRM", color: "#7DA6C7", g: "warmup" },
-  normal:   { label: "Serie de trabajo (Working set)", short: "WRK", color: "#34D399", g: "efectiva" },
-  top:      { label: "Top set",      short: "TOP", color: "#FF6B2C", g: "topset" },
-  backoff:  { label: "Back-off",     short: "B-O", color: "#F2B84B", g: "backoff" },
-  drop:     { label: "Drop set",     short: "DROP",color: "#F0555F", g: "dropset" },
-  restpause:{ label: "Rest-pause",   short: "R-P", color: "#B583F0", g: "restpause" },
-  amrap:    { label: "AMRAP",        short: "AMR", color: "#38D9E8", g: "amrap" },
-  cluster:  { label: "Cluster set",  short: "CLU", color: "#2DD4BF", g: "cluster" },
-  vma:      { label: "VMA (iso final)", short: "VMA", color: "#F472B6", g: "vma" },
-  midiso:   { label: "Iso media + reps", short: "ISO", color: "#818CF8", g: "midiso" },
-  pfi:      { label: "Pre-fatiga iso", short: "PFI", color: "#FB8A5C", g: "pfi" },
-  density:  { label: "Serie de densidad (Density set)", short: "DNS", color: "#A3E635", g: "density" },
-  fst:      { label: "FST-7 (Fascia Stretch)", short: "FST", color: "#FACC15", g: "fst" },
+  warmup:   { label: "Calentamiento (Warm-up set)", short: "WRM", g: "warmup" },
+  normal:   { label: "Serie de trabajo (Working set)", short: "WRK", g: "efectiva" },
+  top:      { label: "Top set",      short: "TOP", g: "topset" },
+  backoff:  { label: "Back-off",     short: "B-O", g: "backoff" },
+  drop:     { label: "Drop set",     short: "DROP", g: "dropset" },
+  restpause:{ label: "Rest-pause",   short: "R-P", g: "restpause" },
+  amrap:    { label: "AMRAP",        short: "AMR", g: "amrap" },
+  cluster:  { label: "Cluster set",  short: "CLU", g: "cluster" },
+  vma:      { label: "VMA (iso final)", short: "VMA", g: "vma" },
+  midiso:   { label: "Iso media + reps", short: "ISO", g: "midiso" },
+  pfi:      { label: "Pre-fatiga iso", short: "PFI", g: "pfi" },
+  density:  { label: "Serie de densidad (Density set)", short: "DNS", g: "density" },
+  fst:      { label: "FST-7 (Fascia Stretch)", short: "FST", g: "fst" },
 };
+
+// Los 13 tipos de serie (y los bloques superserie/triserie/gigante) se
+// resuelven TIPOGRÁFICAMENTE, no con color: el sistema es blanco y negro
+// puro y "las secciones se distinguen por jerarquía y forma, no por colores
+// distintos". Los `color:` de arriba quedan como estaban para no reescribir
+// las ~20 llamadas que los leen, pero se redefinen como getter a la tinta
+// activa (P.text) — así siguen funcionando, cambian con el tema claro/oscuro
+// y no aportan ningún color extra. La distinción la hace `short` (WRM, TOP,
+// B-O, DROP…), que es lo que el diseño usa.
+[SET_TYPES, GROUP_KINDS].forEach((table) => {
+  Object.values(table).forEach((t) => {
+    delete t.color;
+    Object.defineProperty(t, "color", { get: () => P.text, enumerable: true });
+  });
+});
 
 const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Trapecio","Otro"];
 // Equipo usado por un ejercicio de la biblioteca — sirve para filtrar la búsqueda.
@@ -248,9 +274,9 @@ const PCT_HINT = {
    Los ejercicios consecutivos con el mismo `group` se ejecutan seguidos, sin
    descanso entre ellos, y se repiten tantas veces como diga `groupRounds`. */
 const GROUP_KINDS = {
-  superset: { label: "Superserie", short: "SS", min: 2, color: "#FFFFFF" },
-  triset:   { label: "Triserie",   short: "TRI", min: 3, color: "#CFCFD5" },
-  giant:    { label: "Serie gigante", short: "GIG", min: 4, color: "#A6A6AD" },
+  superset: { label: "Superserie", short: "SS", min: 2, },
+  triset:   { label: "Triserie",   short: "TRI", min: 3, },
+  giant:    { label: "Serie gigante", short: "GIG", min: 4, },
 };
 // Nombre según cuántos ejercicios acabaron en el grupo (2 = superserie, 3 = triserie, 4+ = gigante)
 const groupKindFor = (n) => (n >= 4 ? "giant" : n === 3 ? "triset" : "superset");
@@ -2127,11 +2153,13 @@ function volumeByMuscle(plan, refTable = BB_VOLUME_REF) {
 // de un vistazo.
 function volStatusColor(status) {
   switch (status) {
-    case "bajo": return "#C2410C";
-    case "mínimo": return "#E8AE4D";
-    case "óptimo": return P.green;
-    case "alto": return "#E8AE4D";
-    case "sobre MRV": return P.red;
+    // Sin semáforo: el estado ya viene escrito ("bajo", "óptimo", "sobre
+    // MRV"…). Lo que pide atención va en tinta plena; lo normal, atenuado.
+    case "bajo": return P.text;
+    case "mínimo": return P.dim;
+    case "óptimo": return P.faint;
+    case "alto": return P.dim;
+    case "sobre MRV": return P.text;
     default: return P.faint;
   }
 }
@@ -2185,18 +2213,9 @@ const GlobalStyle = () => {
     @keyframes fjSpin { to { transform: rotate(360deg); } }
     .fj-spin { animation: fjSpin .85s linear infinite; }
     .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
-      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; color: ${P.text}; font-variant-numeric: tabular-nums;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, 'Segoe UI', Roboto, sans-serif; color: ${P.text}; font-variant-numeric: tabular-nums;
       line-height: 1.42; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-    .fj h1,.fj h2,.fj .disp { font-family: 'Archivo','Inter',ui-sans-serif,sans-serif; letter-spacing: -.01em; }
-    /* Pantallas del handoff "Forja Mobile": sistema visual iOS, tipografía de
-       sistema de Apple (San Francisco). Tiene que pisar tanto la Inter de .fj
-       como la Archivo de .fj .disp/h1/h2, y alcanzar también los controles de
-       formulario (que heredan). Las etiquetas monoespaciadas del diseño se
-       pintan con estilo inline (MONO.mono), que le gana a esta regla. */
-    .fj .fj-mono, .fj .fj-mono h1, .fj .fj-mono h2, .fj .fj-mono .disp,
-    .fj .fj-mono input, .fj .fj-mono textarea, .fj .fj-mono select, .fj .fj-mono button {
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, 'Segoe UI', Roboto, sans-serif;
-    }
+    .fj h1,.fj h2,.fj .disp { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif; letter-spacing: -.022em; }
     .fj input, .fj textarea, .fj select {
       background: ${P.s3}; border: 1px solid ${P.line}; color: ${P.text};
       border-radius: 12px; font-family: inherit; font-size: 15.5px; outline: none;
@@ -2289,7 +2308,18 @@ const GlobalStyle = () => {
 // Con el fondo ahora en degradado (ya no negro plano), las tarjetas necesitan
 // más separación para no perderse contra las zonas más claras/rojizas del
 // fondo: sombra inferior más profunda + un halo sutil detrás de cada tarjeta.
-const CARD_LIFT = "0 1px 0 rgba(255,255,255,.07) inset, 0 14px 34px -14px rgba(0,0,0,.92), 0 0 0 1px rgba(0,0,0,.35)";
+// Sombra de tarjeta. En el sistema iOS del diseño las tarjetas se apoyan en
+// el gris de fondo casi sin relieve — la profundidad la da el contraste
+// superficie/fondo, no una sombra dura. El relieve fuerte del tema oscuro
+// original quedaría fuera de lugar sobre #F2F2F7.
+let CARD_LIFT = "0 1px 2px rgba(16,16,18,.04)";
+function refreshCardLift(mode) {
+  CARD_LIFT = mode === "light"
+    ? "0 1px 2px rgba(16,16,18,.04)"
+    : "0 1px 0 rgba(255,255,255,.07) inset, 0 14px 34px -14px rgba(0,0,0,.92), 0 0 0 1px rgba(0,0,0,.35)";
+}
+refreshCardLift(THEME_MODE);
+themeListeners.add(refreshCardLift);
 // Efecto "3D" de la ficha que se está arrastrando: se agranda, se levanta
 // (translateY negativo) y una sombra profunda + anillo verde neón la separan
 // del resto, como si se despegara de la pantalla hacia el usuario. El marco
@@ -2326,17 +2356,16 @@ const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...res
   const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
     borderRadius: 13, fontWeight: 600, fontSize: small ? 13 : 16,
     padding: small ? "7px 11px" : "13px 19px", opacity: disabled ? 0.45 : 1, transition: "filter .15s, transform .1s" };
+  // Botones del sistema del diseño: el principal es una pieza de tinta
+  // plena (#101012) con texto blanco y sin relieve; los secundarios son
+  // superficie gris de sistema o solo contorno. Ningún botón lleva color:
+  // la jerarquía es relleno > gris > contorno.
   const kinds = {
-    // Degradado de 3 puntos (no un solo rojo plano) + brillo interior arriba
-    // y sombra de color abajo: se lee como un botón con volumen, no un parche.
-    ember: { background: PLATE_GRAD, color: PLATE_FG,
-      boxShadow: "0 1px 0 rgba(255,255,255,.6) inset, 0 10px 22px -8px rgba(0,0,0,.55)" },
-    ghost: { background: `linear-gradient(165deg, ${P.s3}, ${P.s2})`, border: `1px solid ${P.line}`, color: P.text,
-      boxShadow: "0 1px 0 rgba(255,255,255,.07) inset, 0 6px 16px -10px rgba(0,0,0,.7)" },
+    ember: { background: PLATE_GRAD, color: PLATE_FG, border: "1px solid transparent" },
+    ghost: { background: P.s3, border: `1px solid ${P.line}`, color: P.text },
     line:  { background: "transparent", border: `1px solid ${P.line}`, color: P.dim },
-    green: { background: "rgba(255,255,255,.10)", border: `1px solid rgba(255,255,255,.32)`, color: P.green,
-      boxShadow: "0 1px 0 rgba(255,255,255,.14) inset" },
-    red:   { background: "rgba(224,26,26,.14)", border: `1px solid rgba(224,26,26,.45)`, color: P.red },
+    green: { background: P.s3, border: `1px solid ${P.line}`, color: P.text },
+    red:   { background: "transparent", border: `1.5px solid ${P.text}`, color: P.text },
   };
   return <button {...rest} disabled={disabled} onClick={onClick} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
 };
@@ -2904,7 +2933,7 @@ const ChatTab = ({ sid, role, studentName }) => {
   let lastDay = null;
 
   return (
-    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "100%", display: "flex", flexDirection: "column", padding: `14px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ background: MONO.bg, minHeight: "100%", display: "flex", flexDirection: "column", padding: `14px 16px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 4px 14px" }}>
         <span style={{ width: 40, height: 40, borderRadius: 13, background: MONO.ink, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{initials}</span>
         <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -3282,7 +3311,7 @@ const FICHA_MODE_KEY = "forja-ficha-mode";
    aparece y la ficha se ve exactamente igual que siempre.
    ============================================================ */
 const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, history }) => {
-  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(FICHA_MODE_KEY) || "clasico"; } catch { return "clasico"; } });
+  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(FICHA_MODE_KEY) || "nuevo"; } catch { return "nuevo"; } });
   const setMode = (m) => { setVmode(m); try { localStorage.setItem(FICHA_MODE_KEY, m); } catch {} };
   if (!ex) return null;
   if (history && vmode === "nuevo") {
@@ -3302,7 +3331,7 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
             Sheet vía márgenes negativos): el padding del Sheet no es un
             número estable del que depender acá, así que un panel
             autocontenido es más robusto que intentar calzar píxeles. */}
-        <div className="fj-mono" style={{ background: MONO.bg, borderRadius: 18, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ background: MONO.bg, borderRadius: 18, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
           {ex.video ? (
             <button onClick={() => window.open(ex.video, "_blank")} style={{ height: 150, borderRadius: 16, background: "#E8E8EE", border: `1px solid ${MONO.line}`,
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
@@ -4306,7 +4335,9 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
         <button onClick={redo} disabled={!redoStack.length} aria-label="Rehacer"
           style={{ padding: 6, color: redoStack.length ? P.dim : P.line }}><Redo2 size={18} /></button>
         <span title={pendingWrites ? `Guardado en el dispositivo · sincronizando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
-          style={{ width: 7, height: 7, borderRadius: 4, background: pendingWrites ? P.faint : (storageOK ? P.green : P.red), flexShrink: 0 }} />
+          style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0,
+            background: pendingWrites ? P.faint : (storageOK ? P.text : "transparent"),
+            border: !pendingWrites && !storageOK ? `1.5px solid ${P.text}` : "none" }} />
         <Btn kind="ember" small onClick={() => setConfirmFinish(true)}>Terminar</Btn>
       </div>
 
@@ -4756,13 +4787,13 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
 
         {started && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "6px 9px", borderRadius: 9,
-            background: over ? "rgba(30,122,75,.08)" : MONO.chipBg,
-            border: `1px solid ${over ? "#1E7A4B" : MONO.line}` }}>
+            background: over ? MONO.chipBg : "transparent",
+            border: `1px solid ${over ? MONO.ink : MONO.line}` }}>
             {/* over: ya cumpliste el descanso objetivo → verde, igual que P.green
                 marcaba en FocusMode. Sin esto se perdía la única señal de "ya
                 puedes seguir" del cronómetro. */}
-            <Timer size={15} color={over ? "#1E7A4B" : MONO.ink} />
-            <span style={{ fontSize: 19, fontWeight: 700, color: over ? "#1E7A4B" : MONO.ink }}>{bigTime(restEl)}</span>
+            <Timer size={15} color={MONO.ink} />
+            <span style={{ fontSize: 19, fontWeight: 700, color: MONO.ink }}>{bigTime(restEl)}</span>
             <span style={{ fontSize: 12.5, color: MONO.inkFaint }}>descansando{target ? ` · objetivo ${target}s` : ""}</span>
             <div style={{ flex: 1 }} />
             <button onClick={() => toggleRest(ei, si)} style={{ fontSize: 13, color: "#2B2B30", fontWeight: 600, padding: "2px 4px" }}>parar</button>
@@ -4794,7 +4825,6 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   // igual que ya se hizo en Editor de rutina.
   return (
     <div
-      className="fj-mono"
       onClickCapture={(e) => {
         if (cmtKey === null) return;
         if (e.target.closest && e.target.closest("[data-cmt]")) return;
@@ -4816,7 +4846,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
         <button onClick={redo} disabled={!redoStack.length} aria-label="Rehacer"
           style={{ padding: 6, color: redoStack.length ? "#2B2B30" : MONO.line }}><Redo2 size={18} /></button>
         <span title={pendingWrites ? `Guardado en el dispositivo · sincronizando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
-          style={{ width: 7, height: 7, borderRadius: 4, background: pendingWrites ? MONO.inkFaint : (storageOK ? "#1E7A4B" : "#C0362C"), flexShrink: 0 }} />
+          style={{ width: 7, height: 7, borderRadius: 4, background: pendingWrites ? MONO.line : (storageOK ? MONO.inkFaint : MONO.ink), flexShrink: 0 }} />
         <button onClick={() => setConfirmFinish(true)} style={{ fontSize: 13.5, fontWeight: 700, color: "#FFFFFF", background: MONO.ink, borderRadius: 11, padding: "8px 13px" }}>
           Terminar
         </button>
@@ -4946,7 +4976,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   // una vez en pantalla completa no hay dónde poner un toggle sin
   // estorbar. Mismo mecanismo de localStorage que el resto de los
   // modos "Nuevo" de la app.
-  const [focusVariant, setFocusVariant] = useState(() => { try { return localStorage.getItem(FOCUS_MODE_VARIANT_KEY) || "clasico"; } catch { return "clasico"; } });
+  const [focusVariant, setFocusVariant] = useState(() => { try { return localStorage.getItem(FOCUS_MODE_VARIANT_KEY) || "nuevo"; } catch { return "nuevo"; } });
   const setFocusVariantPersist = (m) => { setFocusVariant(m); try { localStorage.setItem(FOCUS_MODE_VARIANT_KEY, m); } catch {} };
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(iv); }, []);
@@ -5232,7 +5262,9 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
                   de guardado ya lo dice el StorageBanner de arriba en prosa, y esta fila
                   angosta no tiene espacio para un tercer bloque de texto sin romperse */}
               <span title={pendingWrites ? `Guardado en el dispositivo · sincronizando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
-                style={{ width: 6, height: 6, borderRadius: 3, background: pendingWrites ? P.faint : (storageOK ? P.green : P.red), flexShrink: 0 }} />
+                style={{ width: 6, height: 6, borderRadius: 3, flexShrink: 0,
+                  background: pendingWrites ? P.faint : (storageOK ? P.text : "transparent"),
+                  border: !pendingWrites && !storageOK ? `1.5px solid ${P.text}` : "none" }} />
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
@@ -5472,11 +5504,9 @@ const MONO = {
   line: "#E5E5EA", lineFaint: "#EDEDF2", chipBg: "#EFEFF4", chipBorder: "#D9D9DE",
   mono: "ui-monospace,SFMono-Regular,'SF Mono',Menlo,monospace",
   // Tipografía de sistema de Apple (San Francisco), tal cual la declara el
-  // archivo de diseño en su <style> raíz. NO es la de FORJA (Inter/Archivo):
-  // las pantallas del handoff son un sistema visual iOS y la fuente es parte
-  // del diseño, no un detalle. Se aplica vía la clase .fj-mono (más abajo en
-  // el <style> global) porque tiene que ganarle a la regla `.fj` que fija
-  // Inter en toda la app, y a `.fj h1,.fj h2,.fj .disp` que fija Archivo.
+  // archivo de diseño en su <style> raíz. Ya no hace falta forzarla acá: el
+  // <style> global de la app la fija para TODO (`.fj` y `.fj h1/h2/.disp`),
+  // porque el sistema del diseño reemplazó al de FORJA, no convive con él.
   sans: "-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display',system-ui,'Segoe UI',Roboto,sans-serif",
 };
 const MonoLabel = ({ children }) => (
@@ -5563,7 +5593,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, booking
   );
 
   return (
-    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
 
       {variant === "panel" ? (
         <>
@@ -5689,7 +5719,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, allowedRoutines, booking
 // no afecta a otros alumnos ni al coach.
 const HOY_MODE_KEY = "forja-hoy-mode";
 const TodayTabRouter = (props) => {
-  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(HOY_MODE_KEY) || "clasico"; } catch { return "clasico"; } });
+  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(HOY_MODE_KEY) || "enfoque"; } catch { return "enfoque"; } });
   const setMode = (m) => { setVmode(m); try { localStorage.setItem(HOY_MODE_KEY, m); } catch {} };
   return (
     <div>
@@ -6118,7 +6148,7 @@ const ProgressTabMono = ({ plan, history, variant }) => {
   };
 
   return (
-    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Progreso</div>
 
       <div style={{ display: "flex", gap: 6, background: "#E8E8EE", borderRadius: 13, padding: 4 }}>
@@ -6217,7 +6247,7 @@ const ProgressTabMono = ({ plan, history, variant }) => {
 // binario: Clásico o Nuevo.
 const PROGRESS_MODE_KEY = "forja-progreso-mode";
 const ProgressTabRouter = (props) => {
-  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(PROGRESS_MODE_KEY) || "clasico"; } catch { return "clasico"; } });
+  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(PROGRESS_MODE_KEY) || "nuevo"; } catch { return "nuevo"; } });
   const setMode = (m) => { setVmode(m); try { localStorage.setItem(PROGRESS_MODE_KEY, m); } catch {} };
   return (
     <div>
@@ -6289,7 +6319,10 @@ const NutritionView = ({ plan, n }) => {
       {hasMacros && (
         <>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 10 }}>
-          {[["kcal", v.kcal || "—", P.ember2], ["Proteína", v.p ? `${v.p} g` : "—", P.green], ["Carbos", v.c ? `${v.c} g` : "—", P.blue], ["Grasas", v.f ? `${v.f} g` : "—", "#F2B84B"]].map(([l, val, c]) => (
+          {/* Los cuatro macros se distinguen por la etiqueta, no por color:
+              todos en tinta. La proporción se lee en la barra de abajo, que
+              usa tres tonos del mismo neutro. */}
+          {[["kcal", v.kcal || "—", P.text], ["Proteína", v.p ? `${v.p} g` : "—", P.text], ["Carbos", v.c ? `${v.c} g` : "—", P.text], ["Grasas", v.f ? `${v.f} g` : "—", P.text]].map(([l, val, c]) => (
             <Card key={l} style={{ padding: "11px 6px", textAlign: "center" }}>
               <div className="disp" style={{ fontSize: 18, fontWeight: 700, color: c }}>{val}</div>
               <div style={{ fontSize: 11.5, color: P.dim, marginTop: 2 }}>{l}</div>
@@ -6299,14 +6332,14 @@ const NutritionView = ({ plan, n }) => {
         {v.tot > 0 && (
           <div style={{ padding: "10px 12px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, marginBottom: 14 }}>
             <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", marginBottom: 8, background: P.s3 }}>
-              <div style={{ width: `${v.pctP}%`, background: P.green }} />
-              <div style={{ width: `${v.pctC}%`, background: P.blue }} />
-              <div style={{ width: `${v.pctF}%`, background: "#F2B84B" }} />
+              <div style={{ width: `${v.pctP}%`, background: P.text }} />
+              <div style={{ width: `${v.pctC}%`, background: P.faint }} />
+              <div style={{ width: `${v.pctF}%`, background: P.line }} />
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 12px", fontSize: 12.5, color: P.dim }}>
               <span><b style={{ color: P.green }}>Proteína</b> {v.pk} kcal ({v.pctP}%)</span>
               <span><b style={{ color: P.blue }}>Carbos</b> {v.ck} kcal ({v.pctC}%)</span>
-              <span><b style={{ color: "#F2B84B" }}>Grasa</b> {v.fk} kcal ({v.pctF}%)</span>
+              <span><b style={{ color: P.text }}>Grasa</b> {v.fk} kcal ({v.pctF}%)</span>
             </div>
           </div>
         )}
@@ -8084,7 +8117,7 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
   const topVol = vol.rows[0];
 
   return (
-    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <button onClick={onBack} style={{ width: 36, height: 36, borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.line}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <ChevronLeft size={17} color={MONO.ink} />
@@ -8202,7 +8235,7 @@ const RoutineTabMono = (props) => {
   }
 
   return (
-    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Rutina</div>
         <div style={{ fontSize: 13, color: MONO.inkFaint }}>Toca un día para editarlo. Crear días o rutinas nuevas sigue en el modo Clásico.</div>
@@ -8239,7 +8272,7 @@ const RoutineTabMono = (props) => {
 };
 
 const RoutineTabRouter = (props) => {
-  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(ROUTINE_MODE_KEY) || "clasico"; } catch { return "clasico"; } });
+  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(ROUTINE_MODE_KEY) || "nuevo"; } catch { return "nuevo"; } });
   const setMode = (m) => { setVmode(m); try { localStorage.setItem(ROUTINE_MODE_KEY, m); } catch {} };
   return (
     <div>
@@ -8412,12 +8445,12 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
           <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", marginBottom: 8, background: P.s3 }}>
             <div style={{ width: `${v.pctP}%`, background: P.green }} />
             <div style={{ width: `${v.pctC}%`, background: P.blue }} />
-            <div style={{ width: `${v.pctF}%`, background: "#F2B84B" }} />
+            <div style={{ width: `${v.pctF}%`, background: P.line }} />
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 12px", fontSize: 12.5, color: P.dim }}>
             <span><b style={{ color: P.green }}>Proteína</b> {v.p} g · {v.pk} kcal ({v.pctP}%)</span>
             <span><b style={{ color: P.blue }}>Carbos</b> {v.c} g · {v.ck} kcal ({v.pctC}%)</span>
-            <span><b style={{ color: "#F2B84B" }}>Grasa</b> {v.f} g · {v.fk} kcal ({v.pctF}%)</span>
+            <span><b style={{ color: P.text }}>Grasa</b> {v.f} g · {v.fk} kcal ({v.pctF}%)</span>
           </div>
           <div style={{ fontSize: 13.5, color: P.text, fontWeight: 700, marginTop: 6 }}>Total: {v.tot} kcal</div>
         </div>
@@ -8850,7 +8883,7 @@ const paymentStatus = (nextDue) => {
   if (!nextDue) return { key: "sin_fecha", label: "Sin vencimiento", color: P.faint };
   const days = daysUntil(nextDue);
   if (days < 0) return { key: "vencido", label: `Vencido hace ${-days} día${-days !== 1 ? "s" : ""}`, color: P.red };
-  if (days <= 5) return { key: "por_vencer", label: days === 0 ? "Vence hoy" : `Vence en ${days} día${days !== 1 ? "s" : ""}`, color: "#E8AE4D" };
+  if (days <= 5) return { key: "por_vencer", label: days === 0 ? "Vence hoy" : `Vence en ${days} día${days !== 1 ? "s" : ""}`, color: P.dim };
   return { key: "al_dia", label: "Al día", color: P.green };
 };
 
@@ -9112,7 +9145,7 @@ const DashboardTabMono = ({ roster, toast }) => {
 
   if (loading) {
     return (
-      <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px" }}>
+      <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px" }}>
         <LoadingBlock label="Cargando el panel de todo el equipo…" />
       </div>
     );
@@ -9157,7 +9190,7 @@ const DashboardTabMono = ({ roster, toast }) => {
   const todayLabel = new Date().toLocaleDateString("es-CL", { weekday: "long", day: "numeric" });
 
   return (
-    <div className="fj-mono" style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 15 }}>
+    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 15 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <MonoLabel>{todayLabel}</MonoLabel>
@@ -9221,7 +9254,7 @@ const DashboardTabMono = ({ roster, toast }) => {
 };
 
 const DashboardTabRouter = (props) => {
-  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(DASHBOARD_MODE_KEY) || "clasico"; } catch { return "clasico"; } });
+  const [vmode, setVmode] = useState(() => { try { return localStorage.getItem(DASHBOARD_MODE_KEY) || "nuevo"; } catch { return "nuevo"; } });
   const setMode = (m) => { setVmode(m); try { localStorage.setItem(DASHBOARD_MODE_KEY, m); } catch {} };
   return (
     <div>
@@ -9306,7 +9339,7 @@ const CobrosTab = ({ roster, toast }) => {
         </Card>
         <Card style={{ padding: "14px 15px" }}>
           <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Vencidos / por vencer</div>
-          <div className="disp" style={{ fontSize: 22, fontWeight: 800, color: counts.vencido ? P.red : (counts.por_vencer ? "#E8AE4D" : P.green), marginTop: 4 }}>{atRisk}</div>
+          <div className="disp" style={{ fontSize: 22, fontWeight: 800, color: counts.vencido ? P.text : (counts.por_vencer ? P.dim : P.faint), marginTop: 4 }}>{atRisk}</div>
         </Card>
       </div>
 
@@ -11117,9 +11150,9 @@ const NextBookingBanner = ({ bookings, sid }) => {
   const inDays = daysUntil(next.date);
   const when = inDays === 0 ? "Hoy" : inDays === 1 ? "Mañana" : fmtDateFull(next.date);
   return (
-    <Card style={{ padding: "12px 14px", marginBottom: 14, borderColor: "#7DA6C755" }}>
+    <Card style={{ padding: "12px 14px", marginBottom: 14, borderColor: P.line }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Timer size={18} color="#7DA6C7" style={{ flexShrink: 0 }} />
+        <Timer size={18} color={P.text} style={{ flexShrink: 0 }} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14.5, fontWeight: 700 }}>Sesión reservada con tu coach</div>
           <div style={{ fontSize: 13, color: P.dim, marginTop: 1 }}>{when} a las {next.time}{next.durationMin ? ` · ${next.durationMin} min` : ""}</div>
@@ -11198,7 +11231,7 @@ const CalendarGrid = ({ plan, cursor, setCursor, view, setView, selected, setSel
           alignItems: "center", justifyContent: "flex-start", gap: 2 }}>
         {bks.length > 0 && (
           <span title={`${bks.length} sesión${bks.length !== 1 ? "es" : ""} reservada${bks.length !== 1 ? "s" : ""}`}
-            style={{ position: "absolute", top: 2, right: 3, display: "flex", alignItems: "center", gap: 1, fontSize: 9, fontWeight: 700, color: "#7DA6C7" }}>
+            style={{ position: "absolute", top: 2, right: 3, display: "flex", alignItems: "center", gap: 1, fontSize: 9, fontWeight: 700, color: P.text }}>
             <Timer size={8} strokeWidth={3} />{bks.length > 1 ? bks.length : ""}
           </span>
         )}
@@ -11259,7 +11292,7 @@ const CalendarGrid = ({ plan, cursor, setCursor, view, setView, selected, setSel
           Ya entrenado
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 6, height: 6, background: eventColorDot("blue"), borderRadius: 999 }} />Evento</span>
-        {bookingsFor && <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Timer size={10} color="#7DA6C7" strokeWidth={3} />Sesión reservada</span>}
+        {bookingsFor && <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Timer size={10} color={P.text} strokeWidth={3} />Sesión reservada</span>}
       </div>
     </Card>
   );
@@ -11404,8 +11437,8 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
             <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Sesión reservada con tu coach</div>
             {selBookings.map((b) => (
-              <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", background: "#7DA6C718", border: "1px solid #7DA6C755", borderRadius: 9, marginBottom: 6 }}>
-                <Timer size={15} color="#7DA6C7" style={{ flexShrink: 0 }} />
+              <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", background: P.s3, border: `1px solid ${P.line}`, borderRadius: 9, marginBottom: 6 }}>
+                <Timer size={15} color={P.text} style={{ flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14.5, fontWeight: 600 }}>{b.time || "Hora sin definir"}{b.durationMin ? ` · ${b.durationMin} min` : ""}</div>
                   {b.note && <div style={{ fontSize: 13, color: P.dim, marginTop: 1 }}>{b.note}</div>}
@@ -11573,7 +11606,7 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
               return (
                 <button key={b.id} onClick={() => setBookingSheet({ ...b })} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 9, padding: "8px 10px",
                   background: P.s2, border: `1px solid ${P.line}`, borderRadius: 9, marginBottom: 6, opacity: lost ? 0.55 : 1 }}>
-                  <Timer size={15} color={lost ? P.faint : "#7DA6C7"} style={{ flexShrink: 0 }} />
+                  <Timer size={15} color={lost ? P.faint : P.text} style={{ flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14.5, fontWeight: 600, textDecoration: lost ? "line-through" : "none" }}>{b.time} · {studentName(b.studentId)}</div>
                     <div style={{ fontSize: 12, color: P.faint, marginTop: 1 }}>{b.durationMin} min{lost ? " · cancelada" : ""}{b.note ? ` · ${b.note}` : ""}</div>
@@ -12000,7 +12033,7 @@ const EASY_TAB_LABELS = { rutina: "Rutina", agenda: "Agenda", nutricion: "Comida
 const TabBar = ({ tabs, tab, setTab }) => (
   <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
     background: `${P.s1}F0`, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderTop: `1px solid ${P.line}`,
-    boxShadow: "0 1px 0 rgba(255,255,255,.05) inset, 0 -14px 30px -16px rgba(0,0,0,.7)" }}>
+    boxShadow: "none" }}>
     <div style={{ display: "flex", width: "100%", maxWidth: "var(--fj-w)", padding: "7px 2px calc(8px + env(safe-area-inset-bottom))",
       overflowX: "auto", WebkitOverflowScrolling: "touch", scrollSnapType: "x proximity" }}>
       {tabs.map(({ id, label, Icon }) => {
@@ -12016,18 +12049,17 @@ const TabBar = ({ tabs, tab, setTab }) => (
           // sí es donde la barra debe scrollear en vez de aplastarse.
           <button key={id} onClick={() => setTab(id)} style={{ flex: "1 0 60px", minWidth: 60, scrollSnapAlign: "start",
             display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "5px 2px 4px",
-            color: on ? P.ember2 : P.faint }}>
-            {/* La pestaña activa se ve como una placa con relieve (degradado +
-                brillo) y marco propio, no solo un ícono coloreado: más
-                volumen, más clara y más fácil de distinguir de las inactivas. */}
-            <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 25, borderRadius: 9,
-              background: on ? PLATE_GRAD : "transparent",
-              border: on ? `1px solid ${P.ember2}` : "1px solid transparent",
-              boxShadow: on ? "0 1px 0 rgba(255,255,255,.6) inset, 0 4px 12px -4px rgba(0,0,0,.6)" : "none",
-              transition: "background .15s, box-shadow .15s, border-color .15s" }}>
-              <Icon size={18} strokeWidth={on ? 2.3 : 2} color={on ? PLATE_FG : P.faint} />
+            color: on ? P.text : P.faint }}>
+            {/* Barra de pestañas del sistema iOS del diseño: la activa se
+                distingue SOLO por tinta y peso (ícono y etiqueta en #101012,
+                trazo un poco más grueso); las inactivas en gris. Sin placa
+                rellena detrás del ícono — el diseño no la tiene y esa placa
+                era lo que hacía que la pestaña activa se leyera como un
+                botón de color en vez de como jerarquía. */}
+            <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 25 }}>
+              <Icon size={21} strokeWidth={on ? 2.3 : 2} color={on ? P.text : P.faint} />
             </span>
-            <span style={{ fontSize: 11, fontWeight: on ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 64 }}>{label}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 64 }}>{label}</span>
           </button>
         );
       })}
