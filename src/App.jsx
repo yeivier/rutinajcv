@@ -7465,7 +7465,11 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
                     <div style={{ fontSize: 15, fontWeight: 600, color: MONO.ink, overflowWrap: "break-word" }}>{e.name || "Ejercicio sin nombre"}</div>
                     {!isOpen && <div style={{ fontSize: 12.5, color: MONO.inkFaint, marginTop: 2 }}>{summary}</div>}
                   </button>
-                  <button onClick={() => setEditEx({ ex: structuredClone(e) })} title="Editar datos del ejercicio" aria-label={`Editar datos de ${e.name}`} style={{ padding: 5, color: MONO.inkFaint }}><Info size={15} /></button>
+                  {/* PencilLine (no Info): en el resto de la app el ícono de Info
+                      significa "ficha técnica de solo lectura" (fichaEx en
+                      Clásico), no editar — usarlo acá para abrir el editor
+                      confundiría el lenguaje de íconos ya establecido. */}
+                  <button onClick={() => setEditEx({ ex: structuredClone(e) })} title="Editar datos del ejercicio" aria-label={`Editar datos de ${e.name}`} style={{ padding: 5, color: MONO.inkFaint }}><PencilLine size={15} /></button>
                   {ei < day.exs.length - 1 && (
                     <button onClick={() => mut((p) => toggleLink(p.days[dayIndex].exs, ei))}
                       title={gr.linkedToNext ? "Separar de aquí (rompe el bloque)" : "Unir con el siguiente en superserie"}
@@ -7474,8 +7478,12 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
                       <Paperclip size={15} />
                     </button>
                   )}
-                  <button onClick={() => mut((p) => { const arr = p.days[dayIndex].exs; const j = ei - 1; if (j >= 0) [arr[ei], arr[j]] = [arr[j], arr[ei]]; })} style={{ padding: 5, color: MONO.inkFaint }}><ArrowUp size={13} /></button>
-                  <button onClick={() => mut((p) => { const arr = p.days[dayIndex].exs; const j = ei + 1; if (j < arr.length) [arr[ei], arr[j]] = [arr[j], arr[ei]]; })} style={{ padding: 5, color: MONO.inkFaint }}><ArrowDown size={13} /></button>
+                  {/* normalizeGroups() después del swap: si el reordenamiento parte una
+                      superserie/triserie/gigante dejando un solo miembro con `group`
+                      colgando, lo limpia — mismo comportamiento que move() en RoutineTab
+                      Clásico (sin esto, quedaba un grupo huérfano con groupRounds vivo). */}
+                  <button onClick={() => mut((p) => { const arr = p.days[dayIndex].exs; const j = ei - 1; if (j >= 0) { [arr[ei], arr[j]] = [arr[j], arr[ei]]; normalizeGroups(arr); } })} style={{ padding: 5, color: MONO.inkFaint }}><ArrowUp size={13} /></button>
+                  <button onClick={() => mut((p) => { const arr = p.days[dayIndex].exs; const j = ei + 1; if (j < arr.length) { [arr[ei], arr[j]] = [arr[j], arr[ei]]; normalizeGroups(arr); } })} style={{ padding: 5, color: MONO.inkFaint }}><ArrowDown size={13} /></button>
                   <button onClick={() => setDel({ exId: e.id, name: e.name })} aria-label={`Eliminar ${e.name}`} style={{ padding: 5, color: MONO.inkFaint }}><Trash2 size={14} /></button>
                 </div>
                 {isOpen && (
