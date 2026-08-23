@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v116";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v117";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -66,14 +66,14 @@ const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso
 // reasignar los PLATE_*, y listo: como todo componente lee `P.xxx`/`PLATE_*`
 // en cada render (no los guarda en un closure), un solo re-render de toda
 // la app (ver useTheme/ThemeToggle) alcanza para que se vea en todos lados.
-// La plataforma pasó por una paleta cálida (marrón/crema), luego blanco y
-// negro puro (mismo lenguaje que las tarjetas de Focus Mode: FOCUS_BG/
-// FOCUS_FG/FOCUS_MUTED/FOCUS_LINE, más abajo) y ahora, a pedido explícito,
-// recupera color real en ember/green/blue (ver nota de "ember"/"ember2"
-// unas líneas más abajo) para distinguir mejor secciones y botones. Se
-// mantienen los acentos funcionales que nunca se tocaron (rojo de
-// eliminar/error, los colores de cada tipo de serie en TypeBadge, los de
-// EVENT_COLORS en la Agenda).
+// La plataforma pasó por una paleta cálida (marrón/crema) y por una etapa
+// con acentos de color, y hoy es el sistema del artefacto: blanco y negro,
+// tinta #101012 sobre grises de sistema iOS. `ember`/`green`/`blue` siguen
+// existiendo como nombres para no tocar cientos de usos, pero todos
+// apuntan a la misma tinta — el acento se consiguió sacando color, no
+// agregándolo. Los únicos colores que quedan son funcionales: el rojo de
+// eliminar/error y los de EVENT_COLORS, que el coach elige a mano para
+// etiquetar eventos en la Agenda.
 const LIGHT_THEME = {
   P: {
     bg: "#F2F2F7", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#EFEFF4", s4: "#E8E8EE",
@@ -2301,12 +2301,6 @@ const GlobalStyle = () => {
       outline: 2px solid ${P.ember}; outline-offset: 1px;
     }
     .fj input::placeholder, .fj textarea::placeholder { color: ${P.faint}; }
-    /* Casillas de Peso/Reps/RIR del Focus Mode (FocusField): el placeholder
-       ("kg", "10-12", "0") no puede pisarse con estilo inline —::placeholder
-       es un pseudo-elemento— así que necesita esta regla aparte para no
-       heredar P.faint (un beige claro casi invisible sobre el fondo blanco
-       de esa casilla). Más específica que la regla genérica de arriba. */
-    .fj input.ff-input::placeholder { color: #5A5A5A; opacity: 1; }
     .fj input.chat-input::placeholder { color: ${P.faint2}; opacity: 1; }
     .fj button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
     /* Easy Mode: todo un punto más grande y con más aire. Se hace con una
@@ -2988,7 +2982,7 @@ const ChatTab = ({ sid, role, studentName }) => {
 
   if (!sid) {
     return (
-      <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+      <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
         <div style={{ color: P.faint, fontSize: 14.5 }}>Elige un alumno para ver el chat.</div>
       </div>
     );
@@ -3610,7 +3604,7 @@ const InlineRest = ({ timer, onAdjust, onDismiss }) => {
         <span className="disp" style={{ fontSize: 22, fontWeight: 700, color: col }}>{fmtClock(left)}</span>
       </div>
       <div style={{ height: 4, background: P.s3, borderRadius: 2, marginTop: 6, overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${frac * 100}%`, background: `linear-gradient(90deg, ${P.ember}, ${P.ember2})`, transition: "width .3s linear" }} />
+        <div style={{ height: "100%", width: `${frac * 100}%`, background: P.ember, transition: "width .3s linear" }} />
       </div>
       <div style={{ display: "flex", gap: 6, marginTop: 7 }}>
         <Btn kind="line" small onClick={() => onAdjust(-15)} style={{ flex: 1 }}>−15 s</Btn>
@@ -3711,7 +3705,7 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
         </div>
         <button onClick={onToggleDone} title={done ? "Desmarcar" : "Serie completada"}
           style={{ width: 48, height: 48, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center",
-            background: done ? P.green : P.s3, color: done ? "#000000" : P.dim,
+            background: done ? P.green : P.s3, color: done ? PLATE_FG : P.dim,
             border: `1px solid ${done ? P.green : P.line}` }}>
           <Check size={21} strokeWidth={3} />
         </button>
@@ -3965,604 +3959,15 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    Temporizador de descanso flotante
    ============================================================ */
 /* ============================================================
-   FOCUS MODE — una sola pantalla, un solo ejercicio
-   Pensado para registrar con el mínimo número de toques cuando
-   vas apurado o no quieres distraerte con la lista completa.
-   La pantalla de entrenamiento normal sigue intacta.
+   FOCUS MODE — la sesión en vivo, una pantalla por ejercicio.
+   Hubo dos versiones: la vieja, sobre negro puro fijo
+   (FOCUS_BG/FOCUS_FG), y esta. La vieja ya no se renderizaba
+   desde ningún lado y era la única fuente de negro puro que
+   quedaba en la app — justo las "casillas negras" que se
+   reportaron —, así que se borró en vez de dejarla dormida.
+   El sistema de diseño no tiene negro puro: la tinta es #101012
+   y las casillas son blancas con contorno fino.
    ============================================================ */
-
-// Campo numérico grande: acepta coma o punto, flechas para subir/bajar
-// respetando los decimales escritos, y una X para vaciarlo de un toque.
-// Casilla de Peso/Reps/RIR en focus mode: negro sólido con texto blanco —
-// a pedido explícito, "el cuadro donde se ingresan los datos" durante el
-// entrenamiento tiene que leerse fuerte de un vistazo, así que usa sus
-// propios tonos fijos (FOCUS_BG/FOCUS_FG/FOCUS_MUTED/FOCUS_LINE) en vez de
-// PLATE_* o P.*, que cambian con el tema claro/oscuro.
-// `isWeight` activa la conversión de unidad (kg/lb): `value`/`onChange`
-// siguen hablando SIEMPRE en kg hacia el padre (igual que en WeightInput);
-// lo que se muestra y se tipea es la unidad activa, con un buffer local
-// para no reformatear el número debajo de los dedos mientras se escribe, y
-// una línea chica de conversión a la otra unidad debajo del campo.
-const FOCUS_BG = "#000000";
-const FOCUS_BG_EMPTY = "#1A1A1A";
-const FOCUS_FG = "#FFFFFF";
-const FOCUS_MUTED = "#A3A3A3";
-const FOCUS_LINE = "#4A4A4A";
-const FocusField = ({ label, value, placeholder, onChange, onClear, isWeight }) => {
-  const [unit] = useWeightUnit();
-  const [focused, setFocused] = useState(false);
-  const toActive = (v) => {
-    if (!isWeight) return v;
-    if (v === "" || v == null) return "";
-    const n = num(v);
-    return unit === "kg" ? String(v) : fmtUnit(kgToLb(n)).replace(",", ".");
-  };
-  const [local, setLocal] = useState(() => toActive(value));
-  useEffect(() => { if (!focused) setLocal(toActive(value)); }, [value, unit, focused, isWeight]);
-
-  const commitFromActive = (activeStr) => {
-    if (!isWeight) { onChange(activeStr); return; }
-    if (activeStr === "") { onChange(""); return; }
-    onChange(unit === "kg" ? activeStr : String(lbToKg(num(activeStr))));
-  };
-  const step = (dir) => {
-    const next = stepNumeric(isWeight ? local : value, dir);
-    if (isWeight) setLocal(next);
-    commitFromActive(next);
-  };
-  const displayValue = isWeight ? local : value;
-
-  return (
-    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 4, height: 14 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", color: FOCUS_MUTED, textTransform: "uppercase" }}>{label}</span>
-        {displayValue !== "" && (
-          <button onClick={onClear} aria-label={`Borrar ${label}`} title={`Borrar ${label}`}
-            style={{ color: FOCUS_MUTED, lineHeight: 0, padding: 1 }}><X size={11} strokeWidth={3} /></button>
-        )}
-      </div>
-      <button onClick={() => step(+1)} aria-label={`Subir ${label}`}
-        style={{ width: "100%", padding: "3px 0", color: FOCUS_FG, background: FOCUS_BG, border: `1px solid ${FOCUS_LINE}`, borderRadius: "9px 9px 0 0" }}>
-        <ChevronUp size={20} strokeWidth={2.5} />
-      </button>
-      <input type="text" inputMode="decimal" enterKeyHint="done" placeholder={placeholder} value={displayValue}
-        className="ff-input"
-        onFocus={() => setFocused(true)}
-        onBlur={() => { setFocused(false); setLocal(toActive(value)); }}
-        onChange={(e) => {
-          const clean = e.target.value.replace(/[^0-9.,]/g, "");
-          if (isWeight) setLocal(clean);
-          commitFromActive(clean);
-        }}
-        style={{ width: "100%", padding: "9px 2px", textAlign: "center", fontWeight: 700, fontSize: 20, color: FOCUS_FG,
-          background: displayValue !== "" ? FOCUS_BG : FOCUS_BG_EMPTY,
-          borderColor: displayValue !== "" ? FOCUS_FG : FOCUS_LINE, borderRadius: 0 }} />
-      <button onClick={() => step(-1)} aria-label={`Bajar ${label}`}
-        style={{ width: "100%", padding: "3px 0", color: FOCUS_FG, background: FOCUS_BG, border: `1px solid ${FOCUS_LINE}`, borderRadius: "0 0 9px 9px" }}>
-        <ChevronDown size={20} strokeWidth={2.5} />
-      </button>
-      {isWeight && <WeightConversionHint valueKg={value} style={{ marginTop: 1, color: FOCUS_MUTED }} />}
-    </div>
-  );
-};
-
-// Salir del focus mode ya no es un toque: hay que mantener pulsado 5s. Un
-// anillo circular (SVG) muestra el progreso y el número de segundos que
-// faltan, para que quede claro que hace falta sostener, no tocar.
-const HOLD_EXIT_MS = 5000;
-const HoldToExitButton = ({ onExit }) => {
-  const [progress, setProgress] = useState(0); // 0..1
-  const startAt = useRef(null);
-  const raf = useRef(null);
-  const cancel = () => {
-    if (raf.current) cancelAnimationFrame(raf.current);
-    raf.current = null; startAt.current = null;
-    setProgress(0);
-  };
-  const start = () => {
-    startAt.current = Date.now();
-    const tick = () => {
-      if (!startAt.current) return;
-      const p = Math.min(1, (Date.now() - startAt.current) / HOLD_EXIT_MS);
-      setProgress(p);
-      if (p >= 1) { cancel(); onExit(); return; }
-      raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-  };
-  useEffect(() => () => cancel(), []);
-  const active = progress > 0;
-  const remaining = Math.max(1, Math.ceil((1 - progress) * (HOLD_EXIT_MS / 1000)));
-  const R = 16, C = 2 * Math.PI * R;
-  return (
-    <button
-      onPointerDown={(e) => { e.preventDefault(); start(); }}
-      onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={cancel}
-      onContextMenu={(e) => e.preventDefault()}
-      aria-label="Mantén pulsado 5 segundos para salir del focus mode"
-      title="Mantén pulsado 5 segundos para salir"
-      style={{ position: "relative", width: 38, height: 38, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-        color: active ? P.ember2 : P.faint, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12,
-        touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
-      <svg width={38} height={38} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }} aria-hidden="true">
-        <circle cx="19" cy="19" r={R} fill="none" stroke={P.line} strokeWidth={2.5} />
-        {active && (
-          <circle cx="19" cy="19" r={R} fill="none" stroke={P.ember} strokeWidth={2.5} strokeLinecap="round"
-            strokeDasharray={C} strokeDashoffset={C * (1 - progress)} />
-        )}
-      </svg>
-      {active ? <span style={{ fontSize: 13, fontWeight: 700 }}>{remaining}</span> : <X size={17} />}
-    </button>
-  );
-};
-
-const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit, onFinish, storageOK, savedAt }) => {
-  const [weightUnit] = useWeightUnit();
-  const pendingWrites = usePendingWrites();
-  const [pageIdx, setPageIdx] = useState(0);
-  const [now, setNow] = useState(Date.now());
-  const [peek, setPeek] = useState(null);          // {mode:"name"|"full"} → siguiente página
-  const [instr, setInstr] = useState(null);        // {ei, pinned} → nota del coach de ese ejercicio
-  const [ficha, setFicha] = useState(null);        // ei → ficha técnica abierta de ese ejercicio
-  const [viewImg, setViewImg] = useState(null);
-  const [cmtKey, setCmtKey] = useState(null);      // "ei-si" de la serie con el comentario abierto
-  const [rests, setRests] = useState({});          // {"ei-si": timestamp de inicio del descanso}
-  const [undoStack, setUndoStack] = useState([]);
-  const [redoStack, setRedoStack] = useState([]);
-  const [confirmFinish, setConfirmFinish] = useState(false);
-  const peekTimer = useRef(null);
-  const instrTimer = useRef(null);
-  const cmtTimer = useRef(null);
-  const holdTimer = useRef(null);
-  const heldRef = useRef(false);
-  const touchRef = useRef(null);
-  const cmtRef = useRef(null);
-  const didPrefill = useRef(false);
-
-  useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
-  useEffect(() => () => { [peekTimer, instrTimer, cmtTimer, holdTimer].forEach((t) => clearTimeout(t.current)); }, []);
-  // Pide pantalla completa real del navegador (oculta barra de dirección) al
-  // entrar y la libera al salir. No todos los navegadores lo soportan (Safari
-  // de iPhone, en particular, no deja pedirla fuera de <video>) — por eso va
-  // en un try/catch silencioso: si falla, el focus mode sigue funcionando
-  // igual, solo que dentro del navegador en vez de a pantalla completa del SO.
-  useEffect(() => {
-    const el = document.documentElement;
-    try { el.requestFullscreen && el.requestFullscreen().catch(() => {}); } catch {}
-    return () => { try { document.fullscreenElement && document.exitFullscreen && document.exitFullscreen().catch(() => {}); } catch {} };
-  }, []);
-
-  const exs = active.exs;
-
-  // Páginas del focus: un ejercicio suelto ocupa una página con todas sus
-  // series; una superserie/triserie/gigante ocupa una página POR RONDA, y en
-  // esa página aparecen todos los ejercicios del bloque juntos (A1, A2, A3…).
-  const pages = useMemo(() => {
-    const out = [];
-    let i = 0;
-    while (i < exs.length) {
-      const g = exs[i].group;
-      if (g) {
-        const members = [];
-        let j = i;
-        while (j < exs.length && exs[j].group === g) { members.push(j); j++; }
-        if (members.length >= 2) {
-          const info = exGroupInfo(exs, i);
-          const rounds = Math.max(1, ...members.map((m) => exs[m].sets.length));
-          for (let r = 0; r < rounds; r++) out.push({ group: true, kind: info.kind, members, roundIdx: r, rounds });
-          i = j; continue;
-        }
-      }
-      out.push({ group: false, ei: i });
-      i++;
-    }
-    return out.length ? out : [{ group: false, ei: 0 }];
-  }, [exs]);
-
-  const page = pages[Math.min(pageIdx, pages.length - 1)];
-  const totalSets = exs.reduce((a, e) => a + e.sets.length, 0);
-  const doneSets = exs.reduce((a, e) => a + e.sets.filter((s) => s.done).length, 0);
-  const pct = totalSets ? (doneSets / totalSets) * 100 : 0;
-  const elapsed = Math.max(0, Math.floor((now - new Date(active.startedAt).getTime()) / 1000));
-
-  const pageName = (pg) => {
-    if (!pg) return null;
-    if (pg.group) return `${GROUP_KINDS[pg.kind].label}: ${pg.members.map((m) => exs[m].name).join(" + ")}`;
-    return exs[pg.ei].name;
-  };
-  const nextPage = pages[pageIdx + 1] || null;
-  const nextNotes = nextPage && !nextPage.group ? exs[nextPage.ei].notes : "";
-
-  // Prefill: las series vacías se rellenan una sola vez con lo último que se
-  // registró en ese ejercicio, para no teclear lo mismo cada vez.
-  useEffect(() => {
-    if (didPrefill.current) return;
-    didPrefill.current = true;
-    const clone = structuredClone(active);
-    let any = false;
-    clone.exs.forEach((exx) => {
-      const entries = history.byEx[exx.id] || [];
-      const lastEntry = entries.length ? entries[entries.length - 1] : null;
-      if (!lastEntry) return;
-      exx.sets.forEach((s, si) => {
-        if (s.weight !== "" || s.reps !== "" || s.rir !== "") return;
-        const prev = (lastEntry.sets || [])[si];
-        if (!prev) return;
-        ["weight", "reps", "rir"].forEach((k) => { if (prev[k] !== "" && prev[k] != null) { s[k] = String(prev[k]); any = true; } });
-      });
-    });
-    if (any) patch(() => clone);
-  }, []);
-
-  const go = (dir) => {
-    const next = pageIdx + dir;
-    if (next < 0 || next >= pages.length) return;
-    setCmtKey(null); setInstr(null); setPeek(null);
-    setPageIdx(next);
-  };
-
-  /* --- Nota del coach: un toque la muestra 6 s, mantener pulsado la fija --- */
-  const showInstr = (ei, pinned) => {
-    clearTimeout(instrTimer.current);
-    setInstr({ ei, pinned });
-    if (!pinned) instrTimer.current = setTimeout(() => setInstr(null), 6000);
-  };
-  const hideInstr = () => { clearTimeout(instrTimer.current); setInstr(null); };
-
-  /* --- Barra de progreso: toque = nombre del siguiente · mantener = nombre + indicación --- */
-  const showPeek = (mode, ms) => {
-    clearTimeout(peekTimer.current);
-    setPeek({ mode });
-    peekTimer.current = setTimeout(() => setPeek(null), ms);
-  };
-  const barDown = () => {
-    heldRef.current = false;
-    holdTimer.current = setTimeout(() => { heldRef.current = true; showPeek("full", 12000); }, 380);
-  };
-  const barUp = () => {
-    clearTimeout(holdTimer.current);
-    if (heldRef.current) { showPeek("full", 6000); return; }   // al soltar, deja leer 6 s más
-    showPeek("name", 4000);
-  };
-
-  /* --- Comentario de la serie: se guarda mientras escribes, sin botón guardar --- */
-  const openCmt = (ck) => {
-    setCmtKey(ck);
-    clearTimeout(cmtTimer.current);
-    cmtTimer.current = setTimeout(() => setCmtKey(null), 10000);
-    setTimeout(() => cmtRef.current && cmtRef.current.focus(), 30);
-  };
-  const touchCmt = () => {
-    clearTimeout(cmtTimer.current);
-    cmtTimer.current = setTimeout(() => setCmtKey(null), 10000);
-  };
-
-  /* --- Borrados con deshacer/rehacer --- */
-  const record = (ei, si, before, after) => {
-    setUndoStack((s) => [...s.slice(-40), { ei, si, before, after }]);
-    setRedoStack([]);
-  };
-  const clearField = (ei, si, field) => {
-    const s = exs[ei].sets[si];
-    if (s[field] === "") return;
-    record(ei, si, { [field]: s[field] }, { [field]: "" });
-    patchSet(ei, si, { [field]: "" });
-  };
-  const clearSet = (ei, si) => {
-    const s = exs[ei].sets[si];
-    if (s.weight === "" && s.reps === "" && s.rir === "") return;
-    record(ei, si, { weight: s.weight, reps: s.reps, rir: s.rir }, { weight: "", reps: "", rir: "" });
-    patchSet(ei, si, { weight: "", reps: "", rir: "" });
-  };
-  const undo = () => {
-    const a = undoStack[undoStack.length - 1];
-    if (!a) return;
-    patchSet(a.ei, a.si, a.before);
-    setUndoStack((s) => s.slice(0, -1));
-    setRedoStack((s) => [...s, a]);
-  };
-  const redo = () => {
-    const a = redoStack[redoStack.length - 1];
-    if (!a) return;
-    patchSet(a.ei, a.si, a.after);
-    setRedoStack((s) => s.slice(0, -1));
-    setUndoStack((s) => [...s, a]);
-  };
-
-  const restKey = (ei, si) => `${ei}-${si}`;
-  const toggleRest = (ei, si) => {
-    const k = restKey(ei, si);
-    setRests((r) => (r[k] ? { ...r, [k]: null } : { ...r, [k]: Date.now() }));
-  };
-
-  const setVal = (ei, si, field, v) => patchSet(ei, si, { [field]: v });
-
-  // Navegación como en las historias: tocar el tercio derecho avanza y el
-  // izquierdo retrocede. Los toques sobre un control se respetan.
-  const tapNav = (e) => {
-    if (e.target.closest && e.target.closest("input, textarea, button, a, [data-keep]")) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    if (x > r.width * 0.66) go(1);
-    else if (x < r.width * 0.34) go(-1);
-  };
-
-  /* --- Cabecera de un ejercicio dentro de una página --- */
-  const renderExHeader = (ei, { big, posLabel, color }) => {
-    const exx = exs[ei];
-    const noteOpen = instr && instr.ei === ei;
-    return (
-      <div style={{ padding: big ? "2px 0 4px" : "8px 0 2px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
-          <ExerciseIconTile iconAttachId={exx.iconAttachId} size={big ? 40 : 34} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: color || P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>
-              {posLabel ? <span style={{ color }}>{posLabel} · </span> : null}{exx.muscle}
-            </div>
-            <div className="disp" style={{ fontSize: big ? 23 : 18.5, fontWeight: 700, lineHeight: 1.15, margin: "3px 0 6px" }}>{exx.name}</div>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button
-            onPointerDown={() => { heldRef.current = false; holdTimer.current = setTimeout(() => { heldRef.current = true; showInstr(ei, true); }, 380); }}
-            onPointerUp={() => { clearTimeout(holdTimer.current); if (!heldRef.current) (noteOpen ? hideInstr() : showInstr(ei, false)); }}
-            onPointerLeave={() => clearTimeout(holdTimer.current)}
-            disabled={!exx.notes}
-            aria-label="Indicación del coach: toca para verla 6 segundos, mantén pulsado para dejarla fija"
-            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: big ? 34 : 30, height: big ? 34 : 30, borderRadius: 17,
-              border: `1.5px solid ${exx.notes ? (noteOpen ? P.ember : P.dim) : P.line}`, color: exx.notes ? (noteOpen ? P.ember : P.dim) : P.line,
-              background: noteOpen ? `${P.s4}` : "transparent", touchAction: "manipulation", transition: "color .15s ease, border-color .15s ease" }}>
-            <Info size={big ? 19 : 17} />
-          </button>
-          <button data-keep onClick={() => setFicha(ei)} aria-label="Ver ficha técnica completa del ejercicio"
-            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: P.dim, fontWeight: 600,
-              border: `1px solid ${P.line}`, borderRadius: 17, padding: big ? "7px 12px" : "6px 10px" }}>
-            <BookOpen size={big ? 16 : 14} /> Ficha
-          </button>
-          {exx.video && (
-            <a href={exx.video} target="_blank" rel="noopener noreferrer"
-              style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: P.blue, fontWeight: 600 }}>
-              <Video size={15} /> Técnica
-            </a>
-          )}
-        </div>
-        {parseTempo(exx.notes) && (
-          <div style={{ marginTop: 8 }}>
-            <TempoBadge tempo={parseTempo(exx.notes)} exerciseName={exx.name} muscle={exx.muscle} big={big} />
-          </div>
-        )}
-        <div style={{ maxHeight: noteOpen ? 200 : 0, opacity: noteOpen ? 1 : 0, overflow: "hidden",
-          transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
-          {noteOpen && (
-            <div data-keep onClick={hideInstr} style={{ background: `${P.s4}`, border: `1px solid ${P.faint}`, borderRadius: 11,
-              padding: "9px 11px", margin: "6px 0 2px", fontSize: 13.5, color: P.ember2, lineHeight: 1.45, maxHeight: 180, overflowY: "auto" }}>
-              {exx.notes}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  /* --- Tarjeta de una serie/ronda: casillas de peso, reps y RIR --- */
-  const renderSetCard = (ei, si, label, kindColor) => {
-    const exx = exs[ei];
-    const s = exx.sets[si];
-    if (!s) return null;
-    const ck = restKey(ei, si);
-    const started = rests[ck];
-    const restEl = started ? Math.max(0, Math.floor((now - started) / 1000)) : 0;
-    const target = (s.rest != null && s.rest !== "" ? +s.rest : (exx.rest || 0));
-    const over = target > 0 && restEl >= target;
-    return (
-      // Tarjeta de la ronda en negro sólido con texto blanco — "el cuadro
-      // que contiene donde ingresar los datos" durante el entrenamiento
-      // tiene que verse negro, a pedido explícito. Sus hijos (texto,
-      // íconos, botón de hecho) usan las mismas constantes fijas
-      // FOCUS_BG/FOCUS_FG/FOCUS_MUTED/FOCUS_LINE.
-      <div key={s.id} style={{ background: FOCUS_BG, border: `1px solid ${s.done ? FOCUS_FG : FOCUS_LINE}`,
-        borderRadius: 14, padding: "9px 10px 10px", marginBottom: 9 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
-          <span className="disp" style={{ fontSize: 16, fontWeight: 700, color: kindColor || FOCUS_FG }}>{label}</span>
-          <TypeBadge type={s.type} />
-          <span style={{ fontSize: 12.5, color: FOCUS_MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {s.repsT || "—"} reps{s.rirT !== "" ? ` @ RIR ${s.rirT}` : ""}
-          </span>
-          <div style={{ flex: 1 }} />
-          <button onClick={() => clearSet(ei, si)} aria-label={`Borrar los datos de ${label}`}
-            style={{ padding: 5, color: FOCUS_MUTED }}><Trash2 size={16} /></button>
-          <button data-cmt onClick={() => (cmtKey === ck ? setCmtKey(null) : openCmt(ck))} aria-label={`Comentario de ${label}`}
-            style={{ padding: 5, color: s.comment ? FOCUS_FG : FOCUS_MUTED }}>
-            <MessageSquare size={17} fill={s.comment ? "rgba(255,255,255,.2)" : "none"} />
-          </button>
-          <button onClick={() => toggleRest(ei, si)} aria-label={`Cronómetro de descanso de ${label}`}
-            style={{ padding: 5, color: started ? FOCUS_FG : FOCUS_MUTED }}><Timer size={17} /></button>
-          <button onClick={() => patchSet(ei, si, { done: !s.done })} aria-label={s.done ? "Desmarcar serie" : "Marcar serie hecha"}
-            style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-              background: s.done ? FOCUS_FG : FOCUS_BG, color: s.done ? FOCUS_BG : FOCUS_MUTED, border: `1px solid ${s.done ? FOCUS_FG : FOCUS_LINE}` }}>
-            <Check size={17} strokeWidth={3} />
-          </button>
-        </div>
-
-        <div style={{ display: "flex", gap: 7, alignItems: "flex-start" }}>
-          <FocusField label="Peso" value={s.weight} placeholder={weightUnit} isWeight
-            onChange={(vv) => setVal(ei, si, "weight", vv)} onClear={() => clearField(ei, si, "weight")} />
-          <FocusField label="Reps" value={s.reps} placeholder={s.repsT || "reps"}
-            onChange={(vv) => setVal(ei, si, "reps", vv)} onClear={() => clearField(ei, si, "reps")} />
-          <FocusField label="RIR" value={s.rir} placeholder={s.rirT !== "" ? String(s.rirT) : "rir"}
-            onChange={(vv) => setVal(ei, si, "rir", vv)} onClear={() => clearField(ei, si, "rir")} />
-        </div>
-
-        {started && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "6px 9px", borderRadius: 9,
-            background: over ? "rgba(255,255,255,.10)" : `${P.s4}`,
-            border: `1px solid ${over ? "rgba(255,255,255,.45)" : `${P.faint}`}` }}>
-            <Timer size={15} color={over ? P.green : P.ember} />
-            <span className="disp" style={{ fontSize: 19, fontWeight: 700, color: over ? P.green : P.ember }}>{bigTime(restEl)}</span>
-            <span style={{ fontSize: 12.5, color: P.faint }}>descansando{target ? ` · objetivo ${target}s` : ""}</span>
-            <div style={{ flex: 1 }} />
-            <button onClick={() => toggleRest(ei, si)} style={{ fontSize: 13, color: P.dim, fontWeight: 600, padding: "2px 4px" }}>parar</button>
-          </div>
-        )}
-
-        <div data-cmt style={{ maxHeight: cmtKey === ck ? 130 : 0, opacity: cmtKey === ck ? 1 : 0, overflow: "hidden",
-          transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
-          <textarea ref={cmtKey === ck ? cmtRef : null} rows={2} value={s.comment || ""}
-            placeholder={`Comentario de ${label}`}
-            onChange={(e) => { setVal(ei, si, "comment", e.target.value); touchCmt(); }}
-            onFocus={touchCmt} onKeyDown={touchCmt}
-            style={{ width: "100%", marginTop: 8, padding: "8px 10px", fontSize: 16, lineHeight: 1.4, resize: "none",
-              visibility: cmtKey === ck ? "visible" : "hidden", pointerEvents: cmtKey === ck ? "auto" : "none" }} />
-        </div>
-        {s.comment && cmtKey !== ck && (
-          <div data-keep onClick={() => openCmt(ck)} style={{ marginTop: 7, fontSize: 13.5, color: P.dim, lineHeight: 1.4,
-            background: P.s2, border: `1px solid ${P.line}`, borderRadius: 9, padding: "6px 9px" }}>{s.comment}</div>
-        )}
-      </div>
-    );
-  };
-
-  const col = page.group ? GROUP_KINDS[page.kind].color : null;
-
-  return (
-    <div
-      // Un toque en cualquier punto fuera del cuadro cierra el comentario.
-      // Lo escrito ya está guardado: no hace falta pulsar guardar.
-      onClickCapture={(e) => {
-        if (cmtKey === null) return;
-        if (e.target.closest && e.target.closest("[data-cmt]")) return;
-        setCmtKey(null);
-      }}
-      style={{ position: "fixed", inset: 0, zIndex: 90, background: P.bgGrad, display: "flex", flexDirection: "column",
-        paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)", overscrollBehavior: "contain" }}>
-
-      {/* Cabecera: tiempo, posición y salidas */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px 8px", flexShrink: 0 }}>
-        <HoldToExitButton onExit={onExit} />
-        <div className="disp" style={{ fontSize: 25, fontWeight: 700, color: P.text, letterSpacing: ".02em" }}>{bigTime(elapsed)}</div>
-        <div style={{ fontSize: 12.5, color: P.faint, lineHeight: 1.2 }}>
-          {pageIdx + 1}/{pages.length}<br />{doneSets}/{totalSets} series
-        </div>
-        <div style={{ flex: 1 }} />
-        <UnitToggle />
-        <button onClick={undo} disabled={!undoStack.length} aria-label="Deshacer"
-          style={{ padding: 6, color: undoStack.length ? P.dim : P.line }}><Undo2 size={18} /></button>
-        <button onClick={redo} disabled={!redoStack.length} aria-label="Rehacer"
-          style={{ padding: 6, color: redoStack.length ? P.dim : P.line }}><Redo2 size={18} /></button>
-        <span title={pendingWrites ? `Guardado en el dispositivo · sincronizando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
-          style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0,
-            background: pendingWrites ? P.faint : (storageOK ? P.text : "transparent"),
-            border: !pendingWrites && !storageOK ? `1.5px solid ${P.text}` : "none" }} />
-        <Btn kind="ember" small onClick={() => setConfirmFinish(true)}>Terminar</Btn>
-      </div>
-
-      {/* Barra de progreso de la sesión */}
-      <div onPointerDown={barDown} onPointerUp={barUp} onPointerLeave={() => clearTimeout(holdTimer.current)}
-        role="button" aria-label="Progreso de la sesión: toca para ver lo que sigue, mantén pulsado para ver también su indicación"
-        style={{ padding: "10px 12px 12px", flexShrink: 0, cursor: "pointer", touchAction: "manipulation" }}>
-        <div style={{ height: 9, background: P.s2, borderRadius: 5, overflow: "hidden", border: `1px solid ${P.line}` }}>
-          <div style={{ height: "100%", width: `${pct}%`, borderRadius: 5,
-            background: `linear-gradient(90deg, ${P.ember}, ${P.ember2})`, transition: "width .35s ease" }} />
-        </div>
-        {pageIdx === 0 && !peek && (
-          <div style={{ fontSize: 11.5, color: P.faint, textAlign: "center", marginTop: 5, lineHeight: 1.3 }}>
-            Toca la barra para ver lo que sigue · mantén pulsado para leer su indicación
-          </div>
-        )}
-      </div>
-
-      {/* Zona reservada para los avisos: crece y encoge, nunca tapa el contenido */}
-      <div style={{ flexShrink: 0, padding: "0 12px",
-        maxHeight: peek ? 190 : 0, opacity: peek ? 1 : 0, overflow: "hidden",
-        transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
-        {peek && (
-          <div style={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12, padding: "9px 11px", marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", color: P.faint, textTransform: "uppercase", marginBottom: 3 }}>
-              {nextPage ? "Siguiente" : "Último"}
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: P.text, lineHeight: 1.3 }}>
-              {nextPage ? pageName(nextPage) : "Este es el final de la sesión"}
-            </div>
-            {peek.mode === "full" && nextNotes && (
-              <div style={{ fontSize: 13.5, color: P.ember2, lineHeight: 1.45, marginTop: 5,
-                maxHeight: 108, overflowY: "auto" }}>{nextNotes}</div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Cuerpo: la página actual (un ejercicio suelto, o una ronda del bloque) */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", position: "relative", padding: "0 30px 16px" }}
-        onClick={tapNav}
-        onTouchStart={(e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY }; }}
-        onTouchEnd={(e) => {
-          const st = touchRef.current; if (!st) return;
-          const t = e.changedTouches[0];
-          const dx = t.clientX - st.x, dy = t.clientY - st.y;
-          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
-          touchRef.current = null;
-        }}>
-
-        {/* Franjas de los bordes, siempre libres de controles: derecha avanza, izquierda retrocede */}
-        <div onClick={() => go(-1)} aria-hidden style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 30, zIndex: 3 }} />
-        <div onClick={() => go(1)} aria-hidden style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 30, zIndex: 3 }} />
-
-        <div style={{ position: "relative", zIndex: 2 }}>
-          {page.group ? (
-            <>
-              {/* Cabecera del bloque: qué ronda es y cómo se hace */}
-              <div style={{ marginTop: 4, marginBottom: 4, padding: "9px 11px", borderRadius: 12,
-                background: `${col}16`, border: `1px solid ${col}55` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 800, color: col, letterSpacing: ".04em", textTransform: "uppercase" }}>
-                    {GROUP_KINDS[page.kind].label}
-                  </span>
-                  <span className="disp" style={{ fontSize: 16, fontWeight: 700, color: P.text }}>Ronda {page.roundIdx + 1}/{page.rounds}</span>
-                </div>
-                <div style={{ fontSize: 12.5, color: P.dim, marginTop: 4, lineHeight: 1.4 }}>
-                  Haz {page.members.map((mi) => exGroupInfo(exs, mi).posLabel).join(" → ")} seguidos, sin descanso entre ellos.
-                  Descansa solo al terminar la ronda y desliza a la derecha para la siguiente.
-                </div>
-              </div>
-
-              {page.members.map((mi) => {
-                const s = exs[mi].sets[page.roundIdx];
-                if (!s) return null;
-                return (
-                  <div key={mi} data-keep style={{ borderLeft: `3px solid ${col}`, paddingLeft: 10, marginBottom: 6 }}>
-                    {renderExHeader(mi, { big: false, posLabel: exGroupInfo(exs, mi).posLabel, color: col })}
-                    {renderSetCard(mi, page.roundIdx, `Ronda ${page.roundIdx + 1}`, col)}
-                  </div>
-                );
-              })}
-            </>
-          ) : (
-            <>
-              {renderExHeader(page.ei, { big: true, posLabel: exGroupInfo(exs, page.ei).posLabel, color: P.dim })}
-              <div style={{ marginTop: 10 }}>
-                {exs[page.ei].sets.map((s, si) => renderSetCard(page.ei, si, `S${si + 1}`, null))}
-              </div>
-            </>
-          )}
-
-          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-            <Btn kind="line" onClick={() => go(-1)} disabled={pageIdx === 0} style={{ flex: 1 }}><ChevronLeft size={17} /> Anterior</Btn>
-            <Btn kind={pageIdx === pages.length - 1 ? "line" : "ember"} onClick={() => go(1)} disabled={pageIdx >= pages.length - 1} style={{ flex: 2 }}>
-              Siguiente <ChevronRight size={17} />
-            </Btn>
-          </div>
-        </div>
-      </div>
-
-      <Confirm open={confirmFinish} title="Terminar sesión"
-        body={doneSets < totalSets ? `Llevas ${doneSets} de ${totalSets} series marcadas. Se guardará todo lo registrado hasta ahora.` : "¡Sesión completa! Se guardará todo en tu historial."}
-        okLabel="Terminar y guardar" onOk={() => { setConfirmFinish(false); onFinish(); }} onCancel={() => setConfirmFinish(false)} />
-      <ExerciseInfoSheet ex={ficha != null ? exs[ficha] : null} open={ficha != null} onClose={() => setFicha(null)}
-        onPatchEx={ficha != null && patchEx ? (p) => patchEx(ficha, p) : null} onOpenImg={setViewImg} onError={onError} />
-      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
-    </div>
-  );
-};
 
 /* ============================================================
    FocusModeMono — modo "Nuevo" de Entrenar (pantalla "2a" del handoff
@@ -4571,20 +3976,16 @@ const FocusMode = ({ active, history, patch, patchSet, patchEx, onError, onExit,
    verdad mientras el alumno está entrenando. Se confirmó explícitamente
    "reconstrucción completa" (mismo comportamiento, look nuevo) — así
    que este componente es, a propósito, casi una COPIA LITERAL de
-   FocusMode: mismos hooks, mismos efectos, mismos handlers (go,
-   tapNav, undo/redo, rest timer, prefill, hold-to-exit, pantalla
+   la pantalla vieja: mismos hooks, mismos efectos, mismos handlers
+   (go, tapNav, undo/redo, rest timer, prefill, hold-to-exit, pantalla
    completa, gestos de deslizar/tocar tercios), sin reescribir ni una
-   sola pieza de esa lógica. Lo ÚNICO que cambia es el JSX del return
-   y los dos "render" internos (cabecera de ejercicio y tarjeta de
-   serie): colores/tipografía al estilo mono claro del handoff en vez
-   del tema oscuro fijo (FOCUS_BG/FOCUS_FG). Si algo se ve raro acá,
-   comparar primero contra FocusMode arriba — la lógica de guardado
-   tiene que ser IDÉNTICA, carácter por carácter, en ambas.
+   sola pieza de esa lógica. Lo único que cambió fue el JSX: la tabla
+   de series del handoff en vez del tema oscuro fijo. Ahora que la
+   versión negra se borró, ésta es la única pantalla de sesión en vivo
+   que existe.
 
    Piezas reutilizadas tal cual, sin re-temizar (mismo criterio que
-   SetsEditor en el editor de rutina): FocusField (el stepper de
-   peso/reps/RIR con conversión kg/lb — lógica delicada, no vale la
-   pena arriesgarla por estética), HoldToExitButton, UnitToggle,
+   SetsEditor en el editor de rutina): HoldToExitButton, UnitToggle,
    TempoBadge, ExerciseIconTile, ExerciseInfoSheet, Confirm,
    ImageViewer. Todas usan P.* (el tema oscuro/claro global de FORJA,
    no fijo al mono) — se ven consistentes consigo mismas aunque no
@@ -4928,11 +4329,10 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
     );
   };
 
-  // A diferencia de FocusMode, acá NO se usa GROUP_KINDS[kind].color para
-  // la superserie/triserie/gigante: esos tonos (blanco/gris claro) están
-  // pensados para el fondo negro fijo de FOCUS_BG — sobre el mono claro
-  // quedarían casi ilegibles. La insignia del bloque usa MONO.ink liso,
-  // igual que ya se hizo en Editor de rutina.
+  // La insignia de superserie/triserie/gigante usa MONO.ink liso y no
+  // GROUP_KINDS[kind].color: en este sistema el tipo de bloque se
+  // distingue por la etiqueta de texto, nunca por color — igual que ya
+  // se hizo en Editor de rutina.
   return (
     <div
       onClickCapture={(e) => {
@@ -5242,11 +4642,11 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
 
   if (listMode) {
     return (
-      <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+      <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
         <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Entrenar</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego un día para ver los ejercicios. Solo cuando aprietes «Iniciar entrenamiento» se creará la sesión y empezarán los cronómetros.</div>
         {active && (
-          <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.dim}`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
+          <Card style={{ padding: 16, marginBottom: 14, borderColor: P.text, borderWidth: 1.5 }}>
             <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 3 }}>Sesión en curso: {active.dayName}</div>
             <div style={{ fontSize: 13.5, color: P.dim, marginBottom: 10 }}>Estás mirando la rutina. Tu registro sigue guardado tal como lo dejaste.</div>
             <Btn kind="ember" small onClick={() => { setPreviewDay(null); setBrowsing(false); }} style={{ width: "100%" }}>
@@ -5259,13 +4659,11 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         ) : routineGroups.map((g) => {
           const open = openRoutines.includes(g.key);
           return (
-            <Card key={g.key} style={{ marginBottom: 12, overflow: "hidden",
-              borderColor: open ? `${P.dim}` : P.line,
-              background: open ? `linear-gradient(160deg, ${P.s4}, ${P.s1})` : P.s1 }}>
+            <Card key={g.key} style={{ marginBottom: 12, overflow: "hidden" }}>
               <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
                 style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
-                <div className="disp" style={{ width: 38, height: 38, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: `linear-gradient(140deg, ${P.line}, ${P.s3})`, border: `1px solid ${P.faint}`, color: P.ember, fontSize: 18, fontWeight: 700, flexShrink: 0 }}>{g.key}</div>
+                <div style={{ width: 38, height: 38, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: open ? PLATE_GRAD : P.s3, color: open ? PLATE_FG : P.faint, fontSize: 16, fontWeight: 700, flexShrink: 0 }}>{g.key}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="disp" style={{ fontWeight: 700, fontSize: 18, textTransform: "uppercase" }}>{g.label}</div>
                   <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>
@@ -5282,8 +4680,8 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
                     return (
                       <Card key={d.id} style={{ marginBottom: 10, background: P.s2 }}>
                         <button onClick={() => setPreviewDay(d)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
-                          <div className="disp" style={{ width: 38, height: 38, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
-                            background: `linear-gradient(140deg, ${P.line}, ${P.s3})`, border: `1px solid ${P.faint}`, color: P.ember, fontSize: 18, fontWeight: 700 }}>{i + 1}</div>
+                          <div style={{ width: 36, height: 36, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
+                            background: P.s3, color: P.faint, fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 700, fontSize: 16.5 }}>{d.name}</div>
                             <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>
@@ -5388,7 +4786,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         </div>
         <div style={{ height: 5, background: P.s2, borderRadius: 3, marginTop: 8, overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${totalSets ? (doneSets / totalSets) * 100 : 0}%`,
-            background: `linear-gradient(90deg, ${P.ember}, ${P.ember2})`, transition: "width .35s ease", borderRadius: 3 }} />
+            background: P.ember, transition: "width .35s ease", borderRadius: 3 }} />
         </div>
       </div>
 
@@ -5498,7 +4896,7 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
   const suggested2 = todayScheduled2 && days.some((d) => d.id === todayScheduled2.id) ? todayScheduled2 : null;
   const suggested2Done = suggested2 && history.sessions.some((s) => s.date === todayISO() && s.dayId === suggested2.id);
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Logo />
         <div style={{ fontSize: 13, color: P.faint, textAlign: "right" }}>{fmtDateFull(todayISO())}</div>
@@ -5508,7 +4906,7 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
       <NextBookingBanner bookings={bookings} sid={sid} />
 
       {active ? (
-        <Card style={{ padding: 16, marginBottom: 14, borderColor: `${P.dim}`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
+        <Card style={{ padding: 16, marginBottom: 14, borderColor: P.text, borderWidth: 1.5 }}>
           <div style={{ fontWeight: 700, fontSize: 16.5, marginBottom: 4 }}>Tienes una sesión en curso</div>
           <div style={{ fontSize: 14.5, color: P.dim, marginBottom: 12 }}>{active.dayName} — todos tus datos están guardados. Puedes retomarla exactamente donde quedaste, aunque cierres la app.</div>
           <Btn kind="ember" onClick={goTrain} style={{ width: "100%" }}><Play size={16} /> Continuar sesión</Btn>
@@ -5542,8 +4940,7 @@ const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, booki
       )}
 
       {streak > 0 && (
-        <Card style={{ padding: "13px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12,
-          borderColor: `${P.dim}`, background: `linear-gradient(160deg, rgba(255,255,255,.10), ${P.s1})` }}>
+        <Card style={{ padding: "13px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}>
           <Flame size={26} color={P.ember2} className="pulse" />
           <div style={{ flex: 1 }}>
             <div className="disp" style={{ fontSize: 19, fontWeight: 700, lineHeight: 1.15 }}>{streak} semana{streak !== 1 ? "s" : ""} seguida{streak !== 1 ? "s" : ""}</div>
@@ -6017,7 +5414,7 @@ const AchievementGrid = ({ history }) => {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
             {list.filter((a) => a.group === g).map((a) => (
               <div key={a.id} style={{ padding: "13px 10px", borderRadius: 13, textAlign: "center",
-                background: a.earned ? `linear-gradient(160deg, ${P.s3}, ${P.s2})` : P.s1,
+                background: a.earned ? P.s3 : P.s1,
                 border: `1px solid ${a.earned ? `${P.dim}` : P.line}`,
                 boxShadow: a.earned ? CARD_LIFT : "none", opacity: a.earned ? 1 : .68 }}>
                 <div style={{ width: 44, height: 44, borderRadius: 14, margin: "0 auto 8px", display: "flex", alignItems: "center", justifyContent: "center",
@@ -6108,7 +5505,7 @@ const ProgressTab = ({ plan, history, saveHistory }) => {
   );
 
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 12px" }}>Progreso</h1>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
         {subBtn("ex", "Ejercicios")}{subBtn("ses", "Sesiones")}{subBtn("vol", "Volumen")}{subBtn("body", "Cuerpo")}{subBtn("logros", "Logros")}
@@ -6481,7 +5878,7 @@ const NutritionView = ({ plan, n }) => {
     : ((+active.kcal || 0) > 0 || (+active.p || 0) > 0 || (+active.c || 0) > 0 || (+active.f || 0) > 0);
   const v = macroSolve(active, active.solve || "kcal");
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 12px" }}>Nutrición</h1>
       {cyc && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: isTrainDay ? P.ember2 : P.blue,
@@ -7912,7 +7309,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       {(easy || view === "dias") && (<>
       {!easy && <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} />}
 
-      <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.s4}, ${P.s1} 55%)`, borderColor: `${P.faint}` }}>
+      <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden" }}>
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
             background: PLATE_GRAD,
@@ -8565,10 +7962,10 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
     );
   };
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 12px" }}>Nutrición</h1>
       {onOpenNutritionAI && (
-        <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden", background: `linear-gradient(150deg, ${P.s4}, ${P.s1} 55%)`, borderColor: `${P.faint}` }}>
+        <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden" }}>
           <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
               background: PLATE_GRAD,
@@ -8719,7 +8116,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
 const InstructionsEditor = ({ plan, savePlan }) => {
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Indicaciones</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Instrucciones generales del plan (cardio, pasos, sueño, suplementos…). El alumno las ve en su inicio.</div>
       {plan.instructions.map((it, i) => (
@@ -8756,7 +8153,7 @@ const ActivityTab = ({ plan, history }) => {
   const commented = history.sessions.filter((s) => s.hasComments).length;
 
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Actividad del alumno</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>{history.sessions.length} sesiones registradas{commented ? ` · ${commented} con comentarios` : ""}. Revisa pesos, RIR, notas y fotos de cada entrenamiento.</div>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
@@ -8924,7 +8321,7 @@ const RankingsTab = ({ roster, toast }) => {
   if (loading) return <LoadingBlock label="Cargando rankings de todos los alumnos…" />;
 
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Trophy size={22} color={P.ember} />
         <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Rankings</h1>
@@ -8933,7 +8330,7 @@ const RankingsTab = ({ roster, toast }) => {
         Compara a tus alumnos por distintos criterios. Las calorías son una estimación (duración × peso corporal) — FORJA no mide gasto real.
       </div>
 
-      <Card style={{ padding: 14, marginBottom: 16, background: `linear-gradient(150deg, ${P.s4}, ${P.s1} 55%)`, borderColor: `${P.faint}` }}>
+      <Card style={{ padding: 14, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <Gift size={17} color={P.ember} />
           <div style={{ fontWeight: 700, fontSize: 15.5, textTransform: "capitalize" }}>Premio de {monthLabel}</div>
@@ -9162,7 +8559,7 @@ const DashboardTab = ({ roster, toast }) => {
 
   if (rows.length === 0) {
     return (
-      <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+      <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
         {header}
         <Empty icon={LayoutDashboard} title="Sin alumnos todavía" body="Agrega alumnos para ver aquí el resumen de actividad, check-ins y cumplimiento de todo tu equipo." />
       </div>
@@ -9211,7 +8608,7 @@ const DashboardTab = ({ roster, toast }) => {
   );
 
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       {header}
       <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 16, lineHeight: 1.45 }}>
         Resumen en vivo de tu equipo: actividad, check-ins y cumplimiento de los últimos 7 días, calculado desde las sesiones reales que registró cada alumno.
@@ -9500,7 +8897,7 @@ const CobrosTab = ({ roster, toast }) => {
   if (loading) return <LoadingBlock label="Cargando cobros de todos los alumnos…" />;
 
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Wallet size={22} color={P.ember} />
         <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Cobros</h1>
@@ -9680,7 +9077,7 @@ const LeadsTab = ({ onCreateStudent, onManageStudent, toast }) => {
   if (loading) return <LoadingBlock label="Cargando leads…" />;
 
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Zap size={22} color={P.ember} />
         <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Adquisición</h1>
@@ -9803,7 +9200,7 @@ const Countdown = () => {
         <div>
           <div className="disp" style={{ fontSize: 74, fontWeight: 700, lineHeight: 1, color: left <= 5 ? P.green : P.text }}>{bigTime(left)}</div>
           <div style={{ height: 6, background: P.s2, borderRadius: 3, margin: "16px auto 0", maxWidth: 320, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${total ? (left / total) * 100 : 0}%`, background: `linear-gradient(90deg, ${P.ember2}, ${P.ember})`, transition: "width 1s linear" }} />
+            <div style={{ height: "100%", width: `${total ? (left / total) * 100 : 0}%`, background: P.ember, transition: "width 1s linear" }} />
           </div>
           <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 20 }}>
             <Btn kind={running ? "line" : "ember"} onClick={() => setRunning((r) => !r)} style={{ minWidth: 120 }}>{running ? <><Pause size={16} /> Pausar</> : <><Play size={16} /> Reanudar</>}</Btn>
@@ -9993,7 +9390,7 @@ REGLAS:
   if (!keyLoaded) return <LoadingBlock />;
 
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Sparkles size={22} color={P.ember} />
         <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>IA Nutrición</h1>
@@ -11121,7 +10518,7 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
   }
 
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <SubNav sub={sub} setSub={setSub} />
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -11501,7 +10898,7 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
   const isToday = selected === isoDate(today);
 
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 8px" }}>Agenda</h1>
 
       <EventReminderBanner events={plan.events} />
@@ -11750,7 +11147,7 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
   const cancelBooking = (id) => { onSaveBookings && onSaveBookings(slots.map((s) => (s.id === id ? { ...s, status: "cancelada" } : s))); setBookingSheet(null); };
 
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Agenda</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Toca cualquier día del calendario para ver qué entrena tu alumno, reservar sesiones y agregar recordatorios. Abajo configuras qué rutina toca cada día de la semana.</div>
 
@@ -12016,7 +11413,7 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
 const TimerTab = () => {
   const [sub, setSub] = useState("interval");
   return (
-    <div style={{ padding: `18px 16px ${TAB_BOTTOM_PAD}` }}>
+    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Timer</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Cronómetro, temporizador e intervalos de trabajo/descanso. Suena y vibra en cada cambio.</div>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 18 }}>
@@ -12507,7 +11904,7 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
         Este dispositivo recordará tu elección. Podrás cambiarla cuando quieras desde el encabezado.
       </div>
       <Card onClick={() => hasTeam ? setPickingTeam(true) : onEnter("coach", roster.students[0]?.id)} style={{ padding: "15px 16px", marginBottom: 16, borderColor: P.frame, cursor: "pointer",
-        background: `linear-gradient(150deg, rgba(255,255,255,.10), ${P.s1})` }}>
+        background: P.s1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}><ClipboardList size={20} color={PLATE_FG} /></div>
           <div><div style={{ fontWeight: 700, fontSize: 16 }}>Soy el coach</div><div style={{ fontSize: 13.5, color: P.dim }}>{hasTeam ? "Elige quién del equipo eres" : "Crear y editar rutinas, ver la actividad de todos"}</div></div>
