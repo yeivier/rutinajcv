@@ -8,7 +8,7 @@
    index.html, bundle.js, manifest, íconos). Nunca toca las llamadas a
    Supabase ni a la API de Anthropic — esas siguen su curso normal y las
    maneja el respaldo local de sGet/sSet/sDel dentro de la app. */
-const CACHE_NAME = "forja-shell-v1";
+const CACHE_NAME = "forja-shell-v2";
 const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -38,7 +38,24 @@ self.addEventListener("fetch", (event) => {
     caches.open(CACHE_NAME).then(async (cache) => {
       try {
         const fresh = await fetch(req);
-        if (fresh && fresh.ok) cache.put(req, fresh.clone());
+        if (fresh && fresh.ok) {
+          // bundle.js se pide con ?v=NN distinto en cada build (para saltar
+          // el Cache-Control: immutable del CDN) — cache.put lo guarda con
+          // esa URL exacta como clave, así que sin este borrado la caché
+          // del service worker iba acumulando UNA ENTRADA POR CADA VERSIÓN
+          // visitada alguna vez, para siempre. El respaldo de más abajo usa
+          // ignoreSearch (necesario: no sabe qué ?v= pedir sin red), y con
+          // varias versiones conviviendo, matchear por ruta sin importar la
+          // query es ambiguo — puede devolver una vieja en vez de la última
+          // buena. Por eso, antes de guardar la nueva, se borra cualquier
+          // otra copia de esta misma ruta.
+          const stale = (await cache.keys()).filter((k) => {
+            const ku = new URL(k.url);
+            return ku.origin === url.origin && ku.pathname === url.pathname && ku.search !== url.search;
+          });
+          await Promise.all(stale.map((k) => cache.delete(k)));
+          cache.put(req, fresh.clone());
+        }
         return fresh;
       } catch (e) {
         const cached = await cache.match(req, { ignoreSearch: true });

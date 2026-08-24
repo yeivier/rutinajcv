@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v119";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v120";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -28,7 +28,7 @@ const BUILD = "v119";   // sube al cambiar el bundle: sirve para saber qué vers
 // de otro coach/estudio) tocando solo estas dos líneas — el resto de las
 // menciones a "FORJA" dentro de textos de copy (glosario, IA, logros) se
 // dejan como están porque son prosa, no elementos de marca visual.
-const BRAND = { name: "FORJA", tagline: "Entrenamiento · Nutrición · Progreso" };
+const BRAND = { name: "FORJA", tagline: "The Ultimate Bodybuilding App" };
 
 // Paleta FORJA: negro pastel y blanco — en capas, no en bloques planos:
 // superficies grises oscuras para dar profundidad (nada de negro plano), y
@@ -7061,6 +7061,205 @@ const LibraryPanel = ({ plan, history, library, onSaveLibrary, onInfo, toast, on
   );
 };
 
+// ---- Borradores: rutinas en construcción, sin alumno asignado ----
+// Antes, para armar o probar una rutina había que crearla dentro del plan
+// de un alumno real (aunque fuera "Alumno ejemplo"): se mezclaba con las
+// rutinas de verdad y quedaba ahí colgada si no se terminaba. Los
+// borradores viven en su propio almacenamiento (forja-drafts, el índice, y
+// forja-draft-plan:<id>, un plan por borrador), AJENO a
+// forja-roster/forja-plan:<alumnoId> — nunca aparecen en la lista de
+// alumnos, el dashboard ni las estadísticas. El editor es el MISMO que usa
+// un alumno real (RoutineTabRouter, con plan/savePlan apuntando acá en vez
+// de al alumno): nada nuevo que mantener por partida doble. Cuando una
+// rutina está lista, "Enviar" la copia — con ids nuevos, igual que
+// copiar/pegar una rutina dentro del editor — al plan de un alumno real,
+// bajo una letra libre; el borrador sigue existiendo tal cual, por si se
+// reutiliza para otro alumno.
+const DRAFTS_KEY = "forja-drafts";
+const draftPlanKey = (id) => `forja-draft-plan:${id}`;
+const planStats = (p) => {
+  const days = (p.days || []).length;
+  const exs = (p.days || []).reduce((a, d) => a + (d.exs || []).length, 0);
+  return { days, exs };
+};
+
+const DraftsPanel = ({ toast, onInfo, roster }) => {
+  const [drafts, setDrafts] = useState(null); // null = todavía cargando
+  const [openId, setOpenId] = useState(null);
+  const [openPlan, setOpenPlan] = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [sendStep, setSendStep] = useState(null); // {step:'group'} | {step:'student', group}
+  const saveTimer = useRef(null);
+
+  useEffect(() => {
+    (async () => {
+      const idx = await sGet(DRAFTS_KEY);
+      setDrafts(idx && Array.isArray(idx.drafts) ? idx.drafts : []);
+    })();
+  }, []);
+
+  const saveIndex = (list) => { setDrafts(list); sSet(DRAFTS_KEY, { v: 1, drafts: list }); };
+
+  const createDraft = async () => {
+    const name = (typeof window !== "undefined" && window.prompt ? window.prompt("Nombre del borrador:", `Borrador ${(drafts || []).length + 1}`) : "") || "";
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const id = uid();
+    const now = todayISO();
+    const p = emptyPlan();
+    await sSet(draftPlanKey(id), p);
+    saveIndex([...(drafts || []), { id, name: trimmed, createdAt: now, updatedAt: now, ...planStats(p) }]);
+    setOpenPlan(p);
+    setOpenId(id);
+  };
+
+  const openDraft = async (d) => {
+    const p = await sGet(draftPlanKey(d.id));
+    setOpenPlan(p || emptyPlan());
+    setOpenId(d.id);
+  };
+
+  // Igual patrón que el savePlan de un alumno: optimista + debounce de
+  // 500ms, para no pegarle a Supabase en cada tecla mientras se escribe.
+  const saveDraftPlan = useCallback((p) => {
+    setOpenPlan(p);
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      sSet(draftPlanKey(openId), p);
+      setDrafts((list) => {
+        const next = (list || []).map((d) => (d.id === openId ? { ...d, updatedAt: todayISO(), ...planStats(p) } : d));
+        sSet(DRAFTS_KEY, { v: 1, drafts: next });
+        return next;
+      });
+    }, 500);
+  }, [openId]);
+
+  const renameDraft = (d) => {
+    const name = (typeof window !== "undefined" && window.prompt ? window.prompt("Nuevo nombre:", d.name) : "") || "";
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    saveIndex(drafts.map((x) => (x.id === d.id ? { ...x, name: trimmed } : x)));
+  };
+
+  const deleteDraft = async (d) => {
+    saveIndex(drafts.filter((x) => x.id !== d.id));
+    await sSet(draftPlanKey(d.id), null); // libera el registro en Supabase
+    if (openId === d.id) { setOpenId(null); setOpenPlan(null); }
+    setConfirmDel(null);
+    if (toast) toast(`✓ Borrador «${d.name}» eliminado`);
+  };
+
+  // Copia el grupo de rutina completo (todos sus días, ejercicios y
+  // series, con ids nuevos) al plan de un alumno real, bajo una letra
+  // libre — mismo mecanismo que "pegar rutina" dentro del editor.
+  const sendToStudent = async (studentId, group) => {
+    const sp = (await sGet(`forja-plan:${studentId}`)) || emptyPlan();
+    const key = nextRoutineKey(sp.days);
+    const clones = group.days.map((d) => ({
+      ...structuredClone(d), id: uid(), routine: key,
+      exs: (d.exs || []).map((e) => ({ ...e, id: uid(), sets: (e.sets || []).map((s) => ({ ...s, id: uid() })) })),
+    }));
+    const next = { ...sp, days: [...(sp.days || []), ...clones],
+      routineNames: { ...(sp.routineNames || {}), [key]: group.label }, updatedAt: todayISO() };
+    await sSet(`forja-plan:${studentId}`, next);
+    const studentName = ((roster.students || []).find((s) => s.id === studentId) || {}).name || "el alumno";
+    if (toast) toast(`✓ «${group.label}» enviada a ${studentName} como ${routineLabel(key, next.routineNames)}`);
+    setSendStep(null);
+  };
+
+  if (drafts === null) return <div style={{ padding: "30px 16px", textAlign: "center" }}><Loader2 className="fj-spin" size={20} color={P.faint} /></div>;
+
+  // ---- Editando un borrador abierto ----
+  if (openId && openPlan) {
+    const groups = groupDaysByRoutine(openPlan.days, openPlan.routineNames);
+    const draftMeta = (drafts || []).find((d) => d.id === openId);
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 16px 4px" }}>
+          <button onClick={() => { setOpenId(null); setOpenPlan(null); }} aria-label="Volver a borradores" style={{ padding: 6, color: P.dim, flexShrink: 0 }}><ChevronLeft size={20} /></button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="mono" style={{ letterSpacing: ".08em" }}>Borrador</div>
+            <div style={{ fontSize: 17, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{draftMeta ? draftMeta.name : "…"}</div>
+          </div>
+          {groups.length > 0 && (
+            <Btn kind="line" small onClick={() => setSendStep(groups.length > 1 ? { step: "group" } : { step: "student", group: { key: groups[0].key, label: groups[0].label, days: groups[0].days } })} style={{ flexShrink: 0 }}>
+              <Send size={13} /> Enviar
+            </Btn>
+          )}
+        </div>
+        <RoutineTabRouter plan={openPlan} savePlan={saveDraftPlan} onInfo={onInfo} toast={toast}
+          history={emptyHistory()} student={null} onUpdateStudent={null} library={[]} onSaveLibrary={() => {}} />
+
+        <Sheet open={sendStep && sendStep.step === "group"} onClose={() => setSendStep(null)} title="¿Qué rutina enviar?">
+          {groups.map((g) => (
+            <button key={g.key} onClick={() => setSendStep({ step: "student", group: { key: g.key, label: g.label, days: g.days } })}
+              style={{ width: "100%", textAlign: "left", padding: "13px 4px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${P.line}` }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{g.label}</div>
+                <div style={{ fontSize: 12.5, color: P.faint }}>{g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios</div>
+              </div>
+              <ChevronRight size={16} color={P.faint} />
+            </button>
+          ))}
+        </Sheet>
+        <Sheet open={sendStep && sendStep.step === "student"} onClose={() => setSendStep(null)} title={sendStep && sendStep.group ? `Enviar «${sendStep.group.label}» a…` : "Enviar a…"}>
+          {(roster.students || []).length === 0 ? (
+            <div style={{ padding: "16px 4px", color: P.faint, fontSize: 14.5 }}>Todavía no hay alumnos.</div>
+          ) : (roster.students || []).map((s) => (
+            <button key={s.id} onClick={() => sendToStudent(s.id, sendStep.group)}
+              style={{ width: "100%", textAlign: "left", padding: "13px 4px", display: "flex", alignItems: "center", gap: 12, borderBottom: `1px solid ${P.line}` }}>
+              <div style={{ width: 34, height: 34, borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
+                {(s.name || "?").trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("")}
+              </div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</div>
+            </button>
+          ))}
+        </Sheet>
+      </div>
+    );
+  }
+
+  // ---- Lista de borradores ----
+  return (
+    <div style={{ padding: `14px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
+      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 6px" }}>Borradores</h1>
+      <div style={{ color: P.dim, fontSize: 15.5, marginBottom: 16, lineHeight: 1.5 }}>
+        Rutinas en construcción, sin alumno asignado — arma o prueba acá sin tocar el plan de nadie. Cuando esté lista, la envías a un alumno.
+      </div>
+      {drafts.length === 0 ? (
+        <Card style={{ padding: 20 }}><Empty icon={ClipboardList} title="Sin borradores todavía" body="Crea uno para armar una rutina sin asignarla a ningún alumno." /></Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+          {[...drafts].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")).map((d) => (
+            <Card key={d.id} style={{ padding: 0, overflow: "hidden" }}>
+              <button onClick={() => openDraft(d)} style={{ width: "100%", textAlign: "left", padding: "14px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 12, background: P.s3, color: P.faint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <ClipboardList size={17} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>{d.name}</div>
+                  <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>{d.days || 0} día{d.days !== 1 ? "s" : ""} · {d.exs || 0} ejercicios · editado {fmtDateFull(d.updatedAt)}</div>
+                </div>
+                <ChevronRight size={16} color={P.faint} />
+              </button>
+              <div style={{ display: "flex", gap: 6, padding: "0 15px 12px" }}>
+                <Btn kind="ghost" small onClick={() => renameDraft(d)}><PencilLine size={13} /> Renombrar</Btn>
+                <div style={{ flex: 1 }} />
+                <Btn kind="line" small onClick={() => setConfirmDel(d)}><Trash2 size={13} /> Eliminar</Btn>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+      <Btn kind="line" onClick={createDraft} style={{ width: "100%" }}><Plus size={16} /> Nuevo borrador</Btn>
+
+      <Confirm open={!!confirmDel} danger title="Eliminar borrador"
+        body={confirmDel ? `¿Eliminar «${confirmDel.name}»? Esto no se puede deshacer.` : ""}
+        okLabel="Eliminar" onCancel={() => setConfirmDel(null)} onOk={() => deleteDraft(confirmDel)} />
+    </div>
+  );
+};
+
 const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent, library, onSaveLibrary }) => {
   const [easy] = useEasyMode();
   const [view, setView] = useState("dias"); // 'dias' | 'biblioteca'
@@ -11592,24 +11791,24 @@ const ROLE_META = {
   head_coach:  { label: "Head Coach", short: "Acceso completo + gestiona el equipo", manageTeam: true, tabAccess: null },
   coach_asistente: { label: "Coach asistente", short: "Acceso completo, no gestiona el equipo", manageTeam: false, tabAccess: null },
   asistente:   { label: "Asistente", short: "Rutina, agenda e indicaciones", manageTeam: false,
-    tabAccess: { rutina: "edit", agenda: "edit", indicaciones: "edit", actividad: "view", ...ALWAYS_TABS } },
+    tabAccess: { rutina: "edit", borradores: "edit", agenda: "edit", indicaciones: "edit", actividad: "view", ...ALWAYS_TABS } },
   nutricionista: { label: "Nutricionista", short: "Nutrición, ve rutina y actividad", manageTeam: false,
-    tabAccess: { nutricion: "edit", ia: "edit", rutina: "view", actividad: "view", ...ALWAYS_TABS } },
+    tabAccess: { nutricion: "edit", ia: "edit", rutina: "view", borradores: "view", actividad: "view", ...ALWAYS_TABS } },
   nutricionista_deportivo: { label: "Nutricionista deportivo", short: "Nutrición, ve rutina y actividad", manageTeam: false,
-    tabAccess: { nutricion: "edit", ia: "edit", rutina: "view", actividad: "view", ...ALWAYS_TABS } },
+    tabAccess: { nutricion: "edit", ia: "edit", rutina: "view", borradores: "view", actividad: "view", ...ALWAYS_TABS } },
   doctor:        { label: "Doctor", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
-    tabAccess: { rutina: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+    tabAccess: { rutina: "view", borradores: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
   kinesiologo:   { label: "Kinesiólogo", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
-    tabAccess: { rutina: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+    tabAccess: { rutina: "view", borradores: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
   quiropractico: { label: "Quiropráctico", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
-    tabAccess: { rutina: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+    tabAccess: { rutina: "view", borradores: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
   masoterapeuta: { label: "Masoterapeuta", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
-    tabAccess: { rutina: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+    tabAccess: { rutina: "view", borradores: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
   solo_ver:      { label: "Solo visualización", short: "Ve todo, no puede editar nada", manageTeam: false, tabAccess: null, forceView: true },
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["dashboard", "rutina", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "chat", "timer", "guia", "atlas"];
+const TABS_COACH_IDS = ["dashboard", "rutina", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "chat", "timer", "guia", "atlas"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -11714,7 +11913,7 @@ const TABS = {
   coach: [
     { id: "dashboard", label: "Panel", Icon: LayoutDashboard, sections: ["dashboard"] },
     { id: "atletas", label: "Atletas", Icon: Users, sections: ["actividad", "rankings", "cobros", "leads"] },
-    { id: "rutina", label: "Rutinas", Icon: ClipboardList, sections: ["rutina", "nutricion", "ia"] },
+    { id: "rutina", label: "Rutinas", Icon: ClipboardList, sections: ["rutina", "borradores", "nutricion", "ia"] },
     { id: "indicaciones", label: "Mensajes", Icon: MessageSquare, sections: ["chat", "indicaciones"] },
     { id: "agenda", label: "Agenda", Icon: Calendar, sections: ["agenda"] },
   ],
@@ -11722,7 +11921,7 @@ const TABS = {
 const SECTION_LABELS = {
   chat: "Chat", indicaciones: "Indicaciones",
   actividad: "Actividad", rankings: "Rankings", cobros: "Cobros", leads: "Leads",
-  rutina: "Rutina", nutricion: "Nutrición", ia: "IA",
+  rutina: "Rutina", borradores: "Borradores", nutricion: "Nutrición", ia: "IA",
 };
 const UTILITY_SCREENS = {
   timer: { label: "Temporizador", Icon: Timer },
@@ -12721,6 +12920,11 @@ const App = () => {
             <RoutineTabRouter plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history}
               student={currentStudent} onUpdateStudent={(patch) => currentStudent && updateStudent(currentStudent.id, patch)}
               library={library} onSaveLibrary={saveLibrary} />
+          </ReadOnlyLock>
+        )}
+        {mode === "coach" && sub === "borradores" && (
+          <ReadOnlyLock active={roleTabAccess.borradores === "view"} toast={toast}>
+            <DraftsPanel toast={toast} onInfo={onInfo} roster={roster} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && sub === "agenda" && (
