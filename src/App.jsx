@@ -6,7 +6,8 @@ import {
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
-  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator
+  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
+  Ruler, HeartPulse
 } from "lucide-react";
 
 /* ============================================================
@@ -15,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v123";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v124";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -914,6 +915,26 @@ const BODY_MEASURE_FIELDS = [
   { key: "musloIzq", label: "Muslo izquierdo", how: "Igual que el derecho, en el muslo izquierdo." },
   { key: "pantorrillaDer", label: "Pantorrilla derecha", how: "De pie, peso repartido en ambas piernas, en el punto más grueso, pierna relajada (no en puntas de pie)." },
   { key: "pantorrillaIzq", label: "Pantorrilla izquierda", how: "Igual que la derecha, en la pantorrilla izquierda." },
+  { key: "grasa", label: "Grasa corporal", unit: "%", how: "Con caliper de pliegues, báscula de bioimpedancia o estimación del coach — usa siempre el mismo método y el mismo momento del día, para que las fechas sean comparables entre sí." },
+];
+// 14 medidas en total (13 con cinta + % de grasa) — el estándar de
+// composición corporal que se usa en preparación física/culturismo.
+
+// Cuestionario de recuperación del check-in: 10 escalas de 1 a 10 (no de
+// 1 a 5 — con solo 5 niveles dos días bien distintos caen en el mismo
+// número, y el coach pierde la resolución que necesita para decidir).
+// Cada una se responde con un toque, sin escribir nada.
+const RECOVERY_FIELDS = [
+  { key: "energia", label: "Energía general", tag: "Estado físico", lo: "Sin energía", hi: "Excelente" },
+  { key: "sueno", label: "Calidad del sueño", tag: "Recuperación", lo: "Muy mala", hi: "Excelente" },
+  { key: "dolor", label: "Dolor muscular", tag: "DOMS", lo: "Nada", hi: "Extremo" },
+  { key: "estres", label: "Estrés", tag: "Sistema nervioso", lo: "Nulo", hi: "Muy alto" },
+  { key: "hambre", label: "Nivel de hambre", tag: "Apetito", lo: "Sin hambre", hi: "Hambre extrema" },
+  { key: "saturacion", label: "Saturación digestiva", tag: "Plenitud", lo: "Vacío / cómodo", hi: "Saturado" },
+  { key: "digestion", label: "Calidad digestiva", tag: "Confort GI", lo: "Muy mala", hi: "Perfecta" },
+  { key: "plenitudMuscular", label: "Depleción / plenitud muscular", tag: "Look", lo: "Muy depletado", hi: "Muy lleno" },
+  { key: "pump", label: "Calidad del pump", tag: "Entrenamiento", lo: "Muy malo", hi: "Excelente" },
+  { key: "motivacion", label: "Motivación para entrenar", tag: "Readiness", lo: "Muy baja", hi: "Máxima" },
 ];
 const MEASURE_GENERAL_RULES = [
   "Usa una cinta métrica flexible (de costura), no elástica — una cinta elástica se estira distinto cada vez, y la medida cambia aunque el cuerpo no haya cambiado.",
@@ -1993,7 +2014,10 @@ const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos
   // Pasos/agua/sueño: mismo mecanismo que bodyweight (un registro por
   // fecha, más reciente al final). Historias reales creadas antes de esto
   // no tienen estas claves — de ahí el `|| []` en cada lugar que las lee.
-  steps: [], water: [], sleep: [] });
+  steps: [], water: [], sleep: [],
+  // Cuestionario de recuperación del check-in (un registro por envío, no
+  // uno por día — el alumno puede mandar más de uno si algo cambió).
+  recovery: [] });
 
 /* ============================================================
    Base de conocimiento de culturismo
@@ -5309,15 +5333,168 @@ const MacroBar = ({ v }) => (
   </>
 );
 
-const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat }) => {
+/* ============================================================
+   Check-in del alumno: 3 secciones (Estado físico, Recuperación,
+   Fotos y Posing), cada una con su propio guardado — igual que en la
+   referencia, en vez de un solo formulario gigante con un botón único
+   al final. Cada guardado escribe en history (mismos arreglos que ya
+   usa Progreso: bodyweight, measurements, bodyPhotos, + el nuevo
+   recovery) y, además, manda un mensaje resumen al chat con el coach
+   (forja-chat:<sid>) — así "guardar" y "mandar el check-in al coach"
+   son la misma acción, sin pantalla nueva del lado del coach.
+   ============================================================ */
+
+// Fila navegable de una sección del check-in: mientras no hay nada
+// registrado hoy, muestra "Pendiente" + flecha; en cuanto se guarda algo,
+// cambia a un check en tinta — mismo lenguaje visual que la referencia.
+const CheckinRow = ({ Icon, title, detail, done, onClick }) => (
+  <button onClick={onClick} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "15px 4px", textAlign: "left" }}>
+    <span style={{ width: 40, height: 40, borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.line}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <Icon size={18} color={MONO.inkDim} />
+    </span>
+    <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+      <span style={{ fontSize: 15.5, fontWeight: 700, color: MONO.ink }}>{title}</span>
+      <span style={{ fontSize: 12.5, color: MONO.inkDim }}>{detail}</span>
+    </span>
+    {done ? (
+      <span style={{ width: 26, height: 26, borderRadius: 13, background: MONO.ink, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <Check size={14} color="#FFFFFF" strokeWidth={3} />
+      </span>
+    ) : <ChevronRight size={17} color={MONO.inkFaint} style={{ flexShrink: 0 }} />}
+  </button>
+);
+
+// Una escala de recuperación: 10 botones numerados, uno solo seleccionado
+// a la vez. Del 1 al 10 (no del 1 al 5) para que el coach tenga margen
+// real de leer una tendencia entre un día y otro.
+const RecoveryScale = ({ label, tag, lo, hi, value, onChange }) => (
+  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+      <span style={{ fontSize: 14.5, fontWeight: 700, color: MONO.ink }}>{label}</span>
+      <span style={{ fontSize: 11.5, color: MONO.inkFaint, flexShrink: 0 }}>{tag}</span>
+    </div>
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: MONO.inkFaint }}>
+      <span>{lo}</span><span>{hi}</span>
+    </div>
+    <div style={{ display: "flex", gap: 4 }}>
+      {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+        <button key={n} onClick={() => onChange(n)} aria-pressed={value === n} aria-label={`${label}: ${n} de 10`}
+          style={{ flex: 1, padding: "9px 0", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+            background: value === n ? MONO.ink : MONO.chipBg, color: value === n ? "#FFFFFF" : MONO.inkDim,
+            border: `1px solid ${value === n ? MONO.ink : MONO.chipBorder}` }}>{n}</button>
+      ))}
+    </div>
+  </div>
+);
+
+// Casillero cuadrado para una foto de posing (frontal/lateral/posterior):
+// toca para elegir de galería o cámara, y de ahí en más muestra la miniatura
+// en vez del ícono. Reutiliza el mismo mecanismo de subida que el ícono de
+// ejercicio (compressImage + attach:<id>), no uno nuevo.
+const PosingPhotoSlot = ({ label, attachId, onChange, onError }) => {
+  const [m, setM] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    let on = true;
+    if (attachId) sGet(`attach:${attachId}`).then((v) => on && setM(v || null));
+    else setM(null);
+    return () => { on = false; };
+  }, [attachId]);
+  const onFile = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    setBusy(true);
+    try {
+      const dataUrl = await compressImage(f);
+      const id = uid();
+      const ok = await sSet(`attach:${id}`, { dataUrl, kind: "image", date: todayISO() });
+      if (!ok) throw new Error("No se pudo guardar la foto. Revisa la conexión.");
+      onChange(id);
+    } catch (err) { onError && onError(err.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+      <button onClick={() => ref.current && ref.current.click()} disabled={busy} aria-label={`Subir foto ${label}`}
+        style={{ width: "100%", aspectRatio: "3/4", borderRadius: 14, overflow: "hidden", position: "relative",
+          background: MONO.chipBg, border: `1px solid ${MONO.line}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {m ? <img src={m.dataUrl} alt={label} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          : busy ? <span style={{ fontSize: 11, color: MONO.inkDim }}>…</span> : <Camera size={22} color={MONO.inkFaint} />}
+      </button>
+      <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={onFile} />
+      <span style={{ fontSize: 12, fontWeight: 600, color: MONO.inkDim }}>{label}</span>
+    </div>
+  );
+};
+
+// Formulario de las 14 medidas corporales. Ninguna es obligatoria — se
+// guarda lo que el alumno haya llenado, y "guardar" queda deshabilitado
+// hasta que al menos una tenga un número real. El "?" de cada campo
+// despliega ahí mismo el punto exacto de esa medida (mismo texto que ya
+// usa la guía de Progreso → Cuerpo), sin abrir una hoja encima de esta.
+const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
+  const [vals, setVals] = useState({});
+  const [howOpen, setHowOpen] = useState(null);
+  useEffect(() => { if (open) { setVals({}); setHowOpen(null); } }, [open]);
+  const setF = (k, v) => setVals((o) => ({ ...o, [k]: v }));
+  const filledCount = BODY_MEASURE_FIELDS.filter((f) => num(vals[f.key]) > 0).length;
+  const save = () => {
+    const values = {};
+    BODY_MEASURE_FIELDS.forEach((f) => { const n = num(vals[f.key]); if (n > 0) values[f.key] = n; });
+    if (!Object.keys(values).length) return;
+    onSave(values);
+  };
+  return (
+    <Sheet open={open} onClose={onClose} title="Métricas corporales" tall>
+      <div style={{ fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.5, marginBottom: 16 }}>
+        Completa las que puedas medir hoy — no hace falta llenarlas todas. Toca el <Info size={11} style={{ verticalAlign: -1 }} /> de cada una para ver el punto exacto donde medir.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {BODY_MEASURE_FIELDS.map((f) => (
+          <div key={f.key}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={() => setHowOpen(howOpen === f.key ? null : f.key)}
+                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, fontSize: 14.5, fontWeight: 600, color: MONO.ink, textAlign: "left" }}>
+                {f.label} <Info size={12} color={MONO.inkFaint} style={{ flexShrink: 0 }} />
+              </button>
+              <input type="number" inputMode="decimal" step="any" placeholder={f.unit === "%" ? "%" : "cm"} value={vals[f.key] || ""}
+                onChange={(e) => setF(f.key, e.target.value)}
+                style={{ width: 78, padding: "9px 10px", borderRadius: 10, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5, textAlign: "right", flexShrink: 0 }} />
+            </div>
+            {howOpen === f.key && <div style={{ fontSize: 12.5, color: MONO.inkFaint, lineHeight: 1.45, marginTop: 5 }}>{f.how}</div>}
+          </div>
+        ))}
+      </div>
+      <Btn kind="ember" onClick={save} disabled={!filledCount} style={{ width: "100%", marginTop: 20 }}>
+        Guardar métricas{filledCount ? ` (${filledCount})` : ""}
+      </Btn>
+    </Sheet>
+  );
+};
+
+const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat, saveHistory }) => {
   const [showInstr, setShowInstr] = useState(false);
   const [exExpanded, setExExpanded] = useState(false);
   const [dayDetail, setDayDetail] = useState(null);   // día de la franja semanal tocado (variante panel)
   const [statDetail, setStatDetail] = useState(null);  // "adherencia" | "racha" | "peso" | "volumen" | "pasos" | "agua" | "sueno"
   const [checkinOpen, setCheckinOpen] = useState(false);
-  const [checkinEnergy, setCheckinEnergy] = useState("medio");
-  const [checkinNote, setCheckinNote] = useState("");
-  const [checkinSending, setCheckinSending] = useState(false);
+  // Estado físico
+  const [ciWeight, setCiWeight] = useState("");
+  const [weighInOpen, setWeighInOpen] = useState(false);
+  const [measureOpen, setMeasureOpen] = useState(false);
+  // Recuperación
+  const [rec, setRec] = useState({});
+  const [recComment, setRecComment] = useState("");
+  const [recAttachIds, setRecAttachIds] = useState([]);
+  const [recSaving, setRecSaving] = useState(false);
+  // Fotos y posing
+  const [poseFrontal, setPoseFrontal] = useState(null);
+  const [poseLateral, setPoseLateral] = useState(null);
+  const [posePosterior, setPosePosterior] = useState(null);
+  const [poseVideos, setPoseVideos] = useState([]);
+  const [poseSaving, setPoseSaving] = useState(false);
   const d = useTodayData(plan, history, allowedRoutines);
   const name = studentName || "";
   const firstName = name.split(" ")[0] || "";
@@ -5327,25 +5504,90 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const hasMacros = (+macros.kcal || 0) > 0 || (+macros.p || 0) > 0;
   const instrCount = (plan.instructions || []).length;
 
-  // El check-in no es un dato nuevo que guardar por separado — es un
-  // mensaje más al mismo chat de siempre (forja-chat:<sid>, el que ya usa
-  // ChatTab), solo que con un formato fijo, para que el coach lo distinga
-  // de un mensaje suelto de un vistazo. Nada nuevo que sincronizar ni
-  // ninguna pantalla nueva del lado del coach: ya lee este chat.
-  const CHECKIN_ENERGY_LABEL = { bajo: "Baja", medio: "Media", alto: "Alta" };
-  const sendCheckin = async () => {
-    if (!sid || checkinSending) return;
-    setCheckinSending(true);
-    const lines = [`Check-in · ${fmtDateFull(todayISO())}`, `Energía: ${CHECKIN_ENERGY_LABEL[checkinEnergy]}`];
-    if (checkinNote.trim()) lines.push(checkinNote.trim());
+  // El check-in no guarda un dato nuevo aislado por sección: cada botón
+  // "Guardar" escribe en los mismos arreglos de history que ya usa
+  // Progreso (bodyweight, measurements, bodyPhotos, + el nuevo recovery)
+  // y, además, manda un resumen al mismo chat de siempre con el coach
+  // (forja-chat:<sid>, el que ya usa ChatTab) — así "guardar" y "avisarle
+  // al coach" son un solo toque, sin pantalla nueva del lado del coach.
+  const [ciError, setCiError] = useState("");
+  const todayKey = todayISO().slice(0, 10);
+  const bwToday = (history.bodyweight || []).find((b) => (b.date || "").slice(0, 10) === todayKey);
+  const lastMeasure = (history.measurements || [])[(history.measurements || []).length - 1];
+  const measureToday = lastMeasure && (lastMeasure.date || "").slice(0, 10) === todayKey ? lastMeasure : null;
+  const lastRecovery = (history.recovery || [])[(history.recovery || []).length - 1];
+  const recoveryToday = lastRecovery && (lastRecovery.date || "").slice(0, 10) === todayKey ? lastRecovery : null;
+  const poseToday = (history.bodyPhotos || []).filter((p) => (p.date || "").slice(0, 10) === todayKey);
+
+  const pushChat = async (msg) => {
+    if (!sid) return;
     const key = `forja-chat:${sid}`;
     const current = (await sGet(key)) || [];
-    const next = [...current, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, from: "alumno", kind: "text", text: lines.join("\n"), ts: Date.now() }];
-    await sSet(key, next);
-    setCheckinSending(false);
-    setCheckinOpen(false);
-    setCheckinNote("");
-    setCheckinEnergy("medio");
+    await sSet(key, [...current, msg]);
+  };
+  const sendChatText = (text) => pushChat({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, from: "alumno", kind: "text", text, ts: Date.now() });
+  const sendChatMedia = (attachId) => pushChat({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}m`, from: "alumno", kind: "media", attachId, ts: Date.now() });
+
+  const saveWeighIn = async () => {
+    const v = num(ciWeight);
+    if (!v || v <= 0 || !saveHistory) return;
+    const h = structuredClone(history);
+    h.bodyweight = [...(h.bodyweight || []), { date: todayISO(), kg: v }];
+    saveHistory(h);
+    setCiWeight("");
+    setWeighInOpen(false);
+    await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nPeso en ayunas: ${kg(v)} kg`);
+  };
+
+  const saveMeasurements = async (values) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.measurements = [...(h.measurements || []), { date: todayISO(), values }];
+    saveHistory(h);
+    setMeasureOpen(false);
+    const lines = BODY_MEASURE_FIELDS.filter((f) => values[f.key] != null)
+      .map((f) => `${f.label}: ${kg(values[f.key])}${f.unit === "%" ? "%" : " cm"}`);
+    await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nMétricas corporales:\n${lines.join("\n")}`);
+  };
+
+  const saveRecovery = async () => {
+    if (recSaving || !saveHistory) return;
+    const answered = RECOVERY_FIELDS.filter((f) => rec[f.key] != null);
+    if (!answered.length && !recComment.trim()) return;
+    setRecSaving(true);
+    const h = structuredClone(history);
+    h.recovery = [...(h.recovery || []), { date: todayISO(), scores: { ...rec },
+      comment: recComment.trim() || undefined, attachIds: recAttachIds.length ? recAttachIds : undefined }];
+    saveHistory(h);
+    const lines = [`Check-in · ${fmtDateFull(todayISO())} · Recuperación`];
+    answered.forEach((f) => lines.push(`${f.label}: ${rec[f.key]}/10`));
+    if (recComment.trim()) lines.push(recComment.trim());
+    await sendChatText(lines.join("\n"));
+    for (const id of recAttachIds) await sendChatMedia(id);
+    setRec({});
+    setRecComment("");
+    setRecAttachIds([]);
+    setRecSaving(false);
+  };
+
+  const savePosing = async () => {
+    if (poseSaving || !saveHistory) return;
+    const shots = [
+      poseFrontal && { id: poseFrontal, angle: "frontal" },
+      poseLateral && { id: poseLateral, angle: "lateral" },
+      posePosterior && { id: posePosterior, angle: "posterior" },
+      ...poseVideos.map((id) => ({ id, angle: "video" })),
+    ].filter(Boolean);
+    if (!shots.length) return;
+    setPoseSaving(true);
+    const h = structuredClone(history);
+    h.bodyPhotos = [...(h.bodyPhotos || []), ...shots.map((s) => ({ id: s.id, date: todayISO(), angle: s.angle }))];
+    saveHistory(h);
+    const labels = { frontal: "Frontal", lateral: "Lateral", posterior: "Posterior", video: "Video de posing" };
+    await sendChatText(`Check-in · ${fmtDateFull(todayISO())} · Fotos y posing\n${shots.map((s) => labels[s.angle]).join(", ")}`);
+    for (const s of shots) await sendChatMedia(s.id);
+    setPoseFrontal(null); setPoseLateral(null); setPosePosterior(null); setPoseVideos([]);
+    setPoseSaving(false);
   };
 
   // Una sola decisión por pantalla: qué entrenar hoy. Si hay sesión en
@@ -5678,23 +5920,87 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         )}
       </Sheet>
 
-      <Sheet open={checkinOpen} onClose={() => setCheckinOpen(false)} title="Check-in">
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Un mensaje rápido a tu coach con cómo llegas hoy — llega directo a tu chat de siempre.</div>
-          <div>
-            <div className="mono" style={{ letterSpacing: ".08em", marginBottom: 8 }}>Energía</div>
-            <SectionSwitch items={[{ id: "bajo", label: "Baja" }, { id: "medio", label: "Media" }, { id: "alto", label: "Alta" }]}
-              value={checkinEnergy} onChange={setCheckinEnergy} />
+      <Sheet open={checkinOpen} onClose={() => setCheckinOpen(false)} title="Check-in" tall>
+        <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
+          <div style={{ fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.5 }}>
+            Cada sección se guarda por su cuenta y le llega a tu coach directo a tu chat de siempre — no hace falta llenarlas todas de una vez.
           </div>
-          <div>
-            <div className="mono" style={{ letterSpacing: ".08em", marginBottom: 8 }}>Nota (opcional)</div>
-            <Txt value={checkinNote} onChange={(e) => setCheckinNote(e.target.value)} placeholder="Cómo dormiste, algo que te molesta, cómo vienes con la dieta…" rows={3} />
+
+          {/* 1 · Estado físico */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <MonoLabel>1 · Estado físico</MonoLabel>
+            <MonoCard style={{ padding: "2px 14px" }}>
+              <CheckinRow Icon={Scale} title="Peso en ayunas"
+                detail={bwToday ? `${kg(bwToday.kg)} kg · registrado hoy` : "Pendiente"}
+                done={!!bwToday} onClick={() => setWeighInOpen((v) => !v)} />
+              {weighInOpen && (
+                <div style={{ display: "flex", gap: 8, padding: "0 0 14px" }}>
+                  <input type="number" inputMode="decimal" step="any" placeholder="kg de hoy" value={ciWeight} onChange={(e) => setCiWeight(e.target.value)}
+                    style={{ flex: 1, padding: "10px 12px", borderRadius: 11, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+                  <button onClick={saveWeighIn} style={{ padding: "10px 15px", borderRadius: 11, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Registrar</button>
+                </div>
+              )}
+              <div style={{ height: 1, background: MONO.line }} />
+              <CheckinRow Icon={Ruler} title="Métricas corporales"
+                detail={measureToday ? "Registradas hoy" : lastMeasure ? `Última: ${daysAgoLabel(lastMeasure.date)}` : "Pendiente"}
+                done={!!measureToday} onClick={() => setMeasureOpen(true)} />
+            </MonoCard>
           </div>
-          <Btn kind="ember" onClick={sendCheckin} disabled={checkinSending} style={{ width: "100%" }}>
-            {checkinSending ? "Enviando…" : "Enviar check-in"}
-          </Btn>
+
+          {/* 2 · Recuperación */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <MonoLabel>2 · Recuperación</MonoLabel>
+            <MonoCard style={{ padding: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <HeartPulse size={18} color={MONO.ink} />
+                <span style={{ fontSize: 15.5, fontWeight: 700, color: MONO.ink }}>¿Cómo estás?</span>
+              </div>
+              <span style={{ fontSize: 12.5, color: MONO.inkDim }}>Más detalle = mejores decisiones de tu coach · toma 60-90 s</span>
+            </MonoCard>
+            {recoveryToday && (
+              <div style={{ fontSize: 12.5, color: MONO.inkDim }}>Ya mandaste una recuperación hoy — puedes enviar otra si algo cambió.</div>
+            )}
+            {RECOVERY_FIELDS.map((f) => (
+              <RecoveryScale key={f.key} label={f.label} tag={f.tag} lo={f.lo} hi={f.hi}
+                value={rec[f.key]} onChange={(n) => setRec((o) => ({ ...o, [f.key]: n }))} />
+            ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <MonoLabel>Comentario de recuperación</MonoLabel>
+              <Txt value={recComment} onChange={(e) => setRecComment(e.target.value)} placeholder="Añade algo que las escalas no reflejen…" rows={3}
+                style={{ borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <AttachButton mode="both" label="Adjuntar foto o archivo" onAttached={(id) => setRecAttachIds((a) => [...a, id])} onError={setCiError} />
+                {recAttachIds.length > 0 && <span style={{ fontSize: 12.5, color: MONO.inkDim }}>{recAttachIds.length} adjunto{recAttachIds.length !== 1 ? "s" : ""}</span>}
+              </div>
+            </div>
+            <Btn kind="ember" onClick={saveRecovery} disabled={recSaving} style={{ width: "100%" }}>
+              {recSaving ? "Guardando…" : "Guardar recuperación"}
+            </Btn>
+          </div>
+
+          {/* 3 · Fotos y posing */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <MonoLabel>3 · Fotos y posing</MonoLabel>
+            <div style={{ fontSize: 12.5, color: MONO.inkDim, lineHeight: 1.45 }}>
+              Sube tus fotos frontal, lateral y posterior, y los videos de posing que quieras (los que planeas usar en tu competencia, por ejemplo) para que tu coach los revise y te corrija.
+            </div>
+            {poseToday.length > 0 && <div style={{ fontSize: 12.5, color: MONO.inkDim }}>Ya mandaste {poseToday.length} foto{poseToday.length !== 1 ? "s" : ""}/video{poseToday.length !== 1 ? "s" : ""} hoy.</div>}
+            <div style={{ display: "flex", gap: 10 }}>
+              <PosingPhotoSlot label="Frontal" attachId={poseFrontal} onChange={setPoseFrontal} onError={setCiError} />
+              <PosingPhotoSlot label="Lateral" attachId={poseLateral} onChange={setPoseLateral} onError={setCiError} />
+              <PosingPhotoSlot label="Posterior" attachId={posePosterior} onChange={setPosePosterior} onError={setCiError} />
+            </div>
+            <AttachButton mode="video" label={`Agregar video de posing${poseVideos.length ? ` (${poseVideos.length})` : ""}`}
+              onAttached={(id) => setPoseVideos((v) => [...v, id])} onError={setCiError} />
+            <Btn kind="ember" onClick={savePosing} disabled={poseSaving} style={{ width: "100%" }}>
+              {poseSaving ? "Guardando…" : "Guardar fotos y videos"}
+            </Btn>
+          </div>
+
+          {ciError && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4 }}>{ciError}</div>}
         </div>
       </Sheet>
+      <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} />
     </div>
   );
 };
@@ -13093,7 +13399,7 @@ const App = () => {
 
         <div key={`${tab}-${sub || ""}`} className="sheetIn" style={{ display: utility ? "none" : undefined }}>
         {mode === "alumno" && tab === "hoy" && (
-          <TodayTabRouter view={homeView} plan={plan} history={history} active={active} role={mode}
+          <TodayTabRouter view={homeView} plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory}
             goTrain={(dayId) => { if (dayId) setAutoStartDayId(dayId); setTab("entrenar"); }}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""}
