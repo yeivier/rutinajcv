@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import {
-  Flame, Dumbbell, TrendingUp, BookOpen, Utensils, ClipboardList, MessageSquare,
+  Flame, Dumbbell, TrendingUp, BarChart3, BookOpen, Utensils, ClipboardList, MessageSquare,
   Camera, Check, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v121";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v122";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1426,6 +1426,11 @@ const fmtDateFull = (iso) => {
 };
 const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 const kg = (n) => (n % 1 === 0 ? String(n) : n.toFixed(1).replace(".", ","));
+// Etiqueta cualitativa para las horas de sueño — no hay un "objetivo" de
+// sueño configurable en la app (a diferencia de pasos/agua, donde 12.000 y
+// 5 L son metas redondas de sistema), así que en vez de una meta numérica
+// que nadie fijó, se lee la cifra misma.
+const sleepQuality = (h) => (h >= 7.5 ? "Recuperación óptima" : h >= 6 ? "Recuperación buena" : h >= 4.5 ? "Sueño corto" : "Sueño muy corto");
 
 /* ---------------- Unidad de peso (kg/lb) ---------------- */
 // Preferencia de UNIDAD DE VISUALIZACIÓN, no de dato: todo lo que se
@@ -1984,7 +1989,11 @@ function seedPlanWithSchedule() {
   p.days = p.days.map((d) => ({ ...d, routine: routineOf(d) })).concat(routineBDays());
   return p;
 }
-const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos: [], measurements: [] });
+const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos: [], measurements: [],
+  // Pasos/agua/sueño: mismo mecanismo que bodyweight (un registro por
+  // fecha, más reciente al final). Historias reales creadas antes de esto
+  // no tienen estas claves — de ahí el `|| []` en cada lugar que las lee.
+  steps: [], water: [], sleep: [] });
 
 /* ============================================================
    Base de conocimiento de culturismo
@@ -5038,9 +5047,16 @@ function useTodayData(plan, history, allowedRoutines) {
   const bw = history.bodyweight || [];
   const lastBw = bw.length ? bw[bw.length - 1] : null;
   const prevBw = bw.length > 1 ? bw[bw.length - 2] : null;
+  const steps = history.steps || [];
+  const lastSteps = steps.length ? steps[steps.length - 1] : null;
+  const water = history.water || [];
+  const lastWater = water.length ? water[water.length - 1] : null;
+  const sleep = history.sleep || [];
+  const lastSleep = sleep.length ? sleep[sleep.length - 1] : null;
   const adherence = adherencePct(plan, history, monthKeyOf(todayISO()));
   return { weekSessions, weekVol, streak, lastSession, suggested, suggested2, suggested2Done, setsOf,
-    weekNum, weekTotal, mesoName: meso ? meso.name : null, week, lastBw, prevBw, adherence };
+    weekNum, weekTotal, mesoName: meso ? meso.name : null, week, lastBw, prevBw,
+    lastSteps, lastWater, lastSleep, adherence };
 }
 
 // Una semana calendario (lunes→domingo) con el día que toca cada fecha y si
@@ -5158,7 +5174,7 @@ const MacroBar = ({ v }) => (
   </>
 );
 
-const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress }) => {
+const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat }) => {
   const [showInstr, setShowInstr] = useState(false);
   const [exExpanded, setExExpanded] = useState(false);
   const [dayDetail, setDayDetail] = useState(null);   // día de la franja semanal tocado (variante panel)
@@ -5330,16 +5346,53 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} style={{ flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</Btn>
         </Card>
       ) : emptyCard}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-        <StatTile label="Adherencia" value={d.adherence == null ? "—" : d.adherence} unit={d.adherence == null ? null : "%"}
-          bar={d.adherence == null ? null : d.adherence} note="sin horario armado" onClick={() => setStatDetail("adherencia")} />
-        <StatTile label="Racha" value={d.streak} unit={` semana${d.streak !== 1 ? "s" : ""}`} note="entrenando sin cortar" onClick={() => setStatDetail("racha")} />
-        <StatTile label="Peso corporal" value={d.lastBw ? d.lastBw.kg : "—"} unit={d.lastBw ? " kg" : null}
-          note={d.lastBw && d.prevBw ? `${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} kg desde el anterior` : "sin registros todavía"}
-          onClick={() => setStatDetail("peso")} />
-        <StatTile label="Volumen sem." value={Math.round((d.weekVol / 1000) * 10) / 10} unit=" t"
-          note={`${d.weekSessions.length} ${d.weekSessions.length === 1 ? "sesión" : "sesiones"} esta semana`} onClick={() => setStatDetail("volumen")} />
+
+      {/* Resumen: las 4 fichas de siempre (entrenamiento) + pasos/agua/sueño
+          (bienestar general) bajo un mismo encabezado, todas tocables. No
+          hay una ficha "Peso" separada de "Peso corporal": son el mismo
+          dato — duplicarla solo para llegar a ocho se leería como un bug,
+          no como más información. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="mono" style={{ letterSpacing: ".16em" }}>Resumen</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+          <StatTile label="Adherencia" value={d.adherence == null ? "—" : d.adherence} unit={d.adherence == null ? null : "%"}
+            bar={d.adherence == null ? null : d.adherence} note="sin horario armado" onClick={() => setStatDetail("adherencia")} />
+          <StatTile label="Racha" value={d.streak} unit={` semana${d.streak !== 1 ? "s" : ""}`} note="entrenando sin cortar" onClick={() => setStatDetail("racha")} />
+          <StatTile label="Peso corporal" value={d.lastBw ? d.lastBw.kg : "—"} unit={d.lastBw ? " kg" : null}
+            note={d.lastBw && d.prevBw ? `${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} kg desde el anterior` : "sin registros todavía"}
+            onClick={() => setStatDetail("peso")} />
+          <StatTile label="Volumen sem." value={Math.round((d.weekVol / 1000) * 10) / 10} unit=" t"
+            note={`${d.weekSessions.length} ${d.weekSessions.length === 1 ? "sesión" : "sesiones"} esta semana`} onClick={() => setStatDetail("volumen")} />
+          <StatTile label="Pasos" value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
+            note="meta: 12.000" onClick={() => setStatDetail("pasos")} />
+          <StatTile label="Agua" value={d.lastWater ? kg(d.lastWater.liters) : "—"} unit={d.lastWater ? " L" : null}
+            note="meta: 5 L" onClick={() => setStatDetail("agua")} />
+          <StatTile label="Sueño" value={d.lastSleep ? kg(d.lastSleep.hours) : "—"} unit={d.lastSleep ? " h" : null}
+            note={d.lastSleep ? sleepQuality(d.lastSleep.hours) : "sin registros todavía"} onClick={() => setStatDetail("sueno")} />
+        </div>
       </div>
+
+      {/* Acciones rápidas: los cuatro atajos que más se repiten, uno por
+          toque. "Entrenar ahora" duplica el CTA de la tarjeta de arriba a
+          propósito — después de bajar hasta acá, volver a subir por uno
+          solo sería peor UX que tenerlo también aquí. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="mono" style={{ letterSpacing: ".16em" }}>Acciones rápidas</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+          {[
+            { label: "Entrenar ahora", Icon: Play, onClick: () => goTrain(active ? undefined : d.suggested && d.suggested.id) },
+            { label: "Preguntar a IA", Icon: Sparkles, onClick: onOpenAIChat },
+            { label: "Timer", Icon: Timer, onClick: onOpenTimer },
+            { label: "Agenda", Icon: Calendar, onClick: onOpenAgenda },
+          ].map(({ label, Icon, onClick }) => (
+            <Card key={label} onClick={onClick} style={{ padding: "16px 15px", display: "flex", flexDirection: "column", gap: 22, cursor: onClick ? "pointer" : undefined }}>
+              <Icon size={20} color={P.text} strokeWidth={2} />
+              <span style={{ fontSize: 14.5, fontWeight: 700 }}>{label}</span>
+            </Card>
+          ))}
+        </div>
+      </div>
+
       {hasMacros && (
         <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -5410,7 +5463,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           con más profundidad (el gráfico de Progreso), se ofrece saltar
           ahí en vez de duplicar ese gráfico acá. */}
       <Sheet open={!!statDetail} onClose={() => setStatDetail(null)}
-        title={{ adherencia: "Adherencia", racha: "Racha", peso: "Peso corporal", volumen: "Volumen semanal" }[statDetail] || ""}>
+        title={{ adherencia: "Adherencia", racha: "Racha", peso: "Peso corporal", volumen: "Volumen semanal", pasos: "Pasos", agua: "Agua", sueno: "Sueño" }[statDetail] || ""}>
         {statDetail === "adherencia" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.adherence == null ? "—" : `${Math.round(d.adherence)}%`}</div>
@@ -5439,6 +5492,27 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</div>
             <div style={{ fontSize: 14.5, color: P.dim }}>{d.weekSessions.length} {d.weekSessions.length === 1 ? "sesión" : "sesiones"} esta semana.</div>
             <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("volumen"); setStatDetail(null); }} style={{ width: "100%" }}>Ver progreso completo</Btn>
+          </div>
+        )}
+        {statDetail === "pasos" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "Sin registros"}</div>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Meta de referencia: 12.000 pasos al día.</div>
+            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Registrar de hoy</Btn>
+          </div>
+        )}
+        {statDetail === "agua" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastWater ? `${kg(d.lastWater.liters)} L` : "Sin registros"}</div>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Meta de referencia: 5 L al día.</div>
+            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Registrar de hoy</Btn>
+          </div>
+        )}
+        {statDetail === "sueno" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastSleep ? `${kg(d.lastSleep.hours)} h` : "Sin registros"}</div>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>{d.lastSleep ? sleepQuality(d.lastSleep.hours) : "Registra tus horas de sueño para ver cómo viene tu recuperación."}</div>
+            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Registrar de hoy</Btn>
           </div>
         )}
       </Sheet>
@@ -5590,10 +5664,13 @@ const daysAgoLabel = (dateStr) => {
   if (days < 14) return `hace ${days} días`;
   return `hace ${Math.round(days / 7)} semanas`;
 };
-const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed }) => {
+const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed, saveHistory }) => {
   const [sub, setSub] = useState("fuerza");
   const [exId, setExId] = useState("");
   const [bw, setBw] = useState("");
+  const [stepsInput, setStepsInput] = useState("");
+  const [waterInput, setWaterInput] = useState("");
+  const [sleepInput, setSleepInput] = useState("");
   // Permite abrir esta pestaña directo en una sub-sección (p.ej. desde las
   // fichas de Hoy: tocar "Peso corporal" cae en "Cuerpo", "Volumen sem."
   // cae en "Volumen"), igual que ya hace AITab con jumpSub/onJumpConsumed.
@@ -5634,14 +5711,37 @@ const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed }) =>
   const bwPoints = bwEntries.map((b) => ({ v: b.kg }));
   const lastPhoto = (history.bodyPhotos || [])[history.bodyPhotos.length - 1];
 
+  // El input y el botón "Registrar" existían en la pantalla desde el
+  // rediseño, pero nunca llegaron a guardar nada — history.bodyweight no
+  // se tocaba. Se notaba clic tras clic: "registrar" no hacía nada,
+  // exactamente el tipo de pantalla muerta que se reportó.
   const addBW = () => {
     const v = parseFloat(String(bw).replace(",", "."));
-    if (!v || v <= 0) return;
-    // Nota: el modo Enfoque/Panel no recibe saveHistory por diseño (se
-    // mantiene de solo lectura salvo lo esencial) — este input queda
-    // preparado pero inactivo hasta que se decida exponer escritura acá.
+    if (!v || v <= 0 || !saveHistory) return;
+    const h = structuredClone(history);
+    h.bodyweight = [...(h.bodyweight || []), { date: todayISO(), kg: v }];
+    saveHistory(h);
     setBw("");
   };
+  // Pasos, agua y sueño: mismo mecanismo que el peso (un registro fechado
+  // por toque de "Registrar"), factorizado en una sola función en vez de
+  // repetirla tres veces — la única diferencia real es qué arreglo de
+  // history tocan y qué campo numérico guardan.
+  const addDailyMetric = (key, field, raw, setInput) => {
+    const v = parseFloat(String(raw).replace(",", "."));
+    if (!v || v <= 0 || !saveHistory) return;
+    const h = structuredClone(history);
+    h[key] = [...(h[key] || []), { date: todayISO(), [field]: v }];
+    saveHistory(h);
+    setInput("");
+  };
+  const addSteps = () => addDailyMetric("steps", "count", stepsInput, setStepsInput);
+  const addWater = () => addDailyMetric("water", "liters", waterInput, setWaterInput);
+  const addSleep = () => addDailyMetric("sleep", "hours", sleepInput, setSleepInput);
+
+  const stepsEntries = history.steps || [];
+  const waterEntries = history.water || [];
+  const sleepEntries = history.sleep || [];
 
   return (
     <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
@@ -5721,6 +5821,43 @@ const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed }) =>
               <div style={{ fontSize: 13.5, color: MONO.inkDim }}>Sin registros todavía.</div>
             )}
           </MonoCard>
+
+          <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            <MonoLabel>Pasos</MonoLabel>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="number" inputMode="numeric" placeholder="pasos de hoy" value={stepsInput} onChange={(e) => setStepsInput(e.target.value)}
+                style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+              <button onClick={addSteps} style={{ padding: "11px 16px", borderRadius: 12, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Registrar</button>
+            </div>
+            <div style={{ fontSize: 13.5, color: MONO.inkDim }}>
+              {stepsEntries.length ? `Último registro: ${stepsEntries[stepsEntries.length - 1].count.toLocaleString("es-CL")} pasos.` : "Sin registros todavía."}
+            </div>
+          </MonoCard>
+
+          <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            <MonoLabel>Agua</MonoLabel>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="number" inputMode="decimal" step="any" placeholder="litros de hoy" value={waterInput} onChange={(e) => setWaterInput(e.target.value)}
+                style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+              <button onClick={addWater} style={{ padding: "11px 16px", borderRadius: 12, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Registrar</button>
+            </div>
+            <div style={{ fontSize: 13.5, color: MONO.inkDim }}>
+              {waterEntries.length ? `Último registro: ${kg(waterEntries[waterEntries.length - 1].liters)} L.` : "Sin registros todavía."}
+            </div>
+          </MonoCard>
+
+          <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            <MonoLabel>Sueño</MonoLabel>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="number" inputMode="decimal" step="any" placeholder="horas dormidas" value={sleepInput} onChange={(e) => setSleepInput(e.target.value)}
+                style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+              <button onClick={addSleep} style={{ padding: "11px 16px", borderRadius: 12, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Registrar</button>
+            </div>
+            <div style={{ fontSize: 13.5, color: MONO.inkDim }}>
+              {sleepEntries.length ? `Último registro: ${kg(sleepEntries[sleepEntries.length - 1].hours)} h.` : "Sin registros todavía."}
+            </div>
+          </MonoCard>
+
           <div style={{ fontSize: 12.5, color: MONO.inkFaint, lineHeight: 1.5 }}>Medidas corporales y comparador de fotos: usa el modo Clásico por ahora — no vienen en este mockup.</div>
         </>
       )}
@@ -10366,7 +10503,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
                   </div>
                 )}
                 {m.content && (
-                  <div style={{ maxWidth: "85%", padding: "10px 13px", borderRadius: 14, background: `${P.line}`,
+                  <div style={{ maxWidth: "85%", padding: "10px 13px", borderRadius: "18px 18px 6px 18px", background: `${P.line}`,
                     border: `1px solid ${P.dim}`, fontSize: 14.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{m.content}</div>
                 )}
               </div>
@@ -10376,7 +10513,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
           return (
             <div key={i} style={{ marginBottom: 10 }}>
               <div style={{ display: "flex" }}>
-                <div style={{ maxWidth: "92%", padding: "10px 13px", borderRadius: 14, background: P.s2,
+                <div style={{ maxWidth: "92%", padding: "10px 13px", borderRadius: "18px 18px 18px 6px", background: P.s2,
                   border: `1px solid ${P.line}`, fontSize: 14.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{clean || "(sin texto)"}</div>
               </div>
               {actions.map((act, j) => {
@@ -10566,7 +10703,8 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
       <div ref={scrollRef} style={{ maxHeight: "48dvh", overflowY: "auto", WebkitOverflowScrolling: "touch", marginBottom: 10 }}>
         {messages.map((m, i) => (
           <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 8 }}>
-            <div style={{ maxWidth: "88%", padding: "9px 12px", borderRadius: 14, fontSize: 14.5, lineHeight: 1.45, whiteSpace: "pre-wrap",
+            <div style={{ maxWidth: "88%", padding: "9px 13px", borderRadius: m.role === "user" ? "18px 18px 6px 18px" : "18px 18px 18px 6px",
+              fontSize: 14.5, lineHeight: 1.45, whiteSpace: "pre-wrap",
               background: m.role === "user" ? PLATE_GRAD : P.s2, color: m.role === "user" ? PLATE_FG : P.text,
               border: m.role === "user" ? "none" : `1px solid ${P.line}` }}>{m.content}</div>
           </div>
@@ -11722,7 +11860,7 @@ const TABS = {
   alumno: [
     { id: "hoy", label: "Inicio", Icon: Home },
     { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
-    { id: "progreso", label: "Progreso", Icon: TrendingUp },
+    { id: "progreso", label: "Progreso", Icon: BarChart3 },
     { id: "nutricion", label: "Nutrición", Icon: Utensils },
     { id: "mas", label: "Más", Icon: MoreHorizontal },
   ],
@@ -12176,12 +12314,22 @@ function clampFabPos(p) {
 // y su posición se recuerda en este dispositivo; un toque sin arrastre lo
 // abre. En modo coach abre la pestaña IA de siempre (con todas sus
 // herramientas); en modo alumno abre un chat nuevo, de solo consulta.
-const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, toast }) => {
+const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatSignal, toast }) => {
   const [pos, setPos] = useState(() => clampFabPos(loadFabPos() || { right: 16, bottom: 110 }));
   const [dragging, setDragging] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const dragRef = useRef({ startX: 0, startY: 0, startRight: 0, startBottom: 0, moved: false });
+
+  // Señal externa (Acciones rápidas en Hoy → "Preguntar a IA"): abre el
+  // MISMO sheet que ya abre este botón, sin duplicar nada. 0 es "todavía
+  // nadie pidió nada" — solo actúa cuando el número sube.
+  const seenSignal = useRef(0);
+  useEffect(() => {
+    if (mode !== "alumno" || !openChatSignal || openChatSignal === seenSignal.current) return;
+    seenSignal.current = openChatSignal;
+    setChatOpen(true);
+  }, [openChatSignal, mode]);
 
   useEffect(() => {
     const onResize = () => setPos((p) => clampFabPos(p));
@@ -12323,6 +12471,13 @@ const App = () => {
   const [tab, setTab] = useState("dashboard");
   const [aiJumpSub, setAiJumpSub] = useState(null);
   const [progressJumpSub, setProgressJumpSub] = useState(null);
+  // "Preguntar a IA" en Acciones rápidas (Hoy) necesita abrir el MISMO
+  // sheet que ya abre el botón flotante — no uno nuevo, que duplicaría la
+  // carga de la API key y el hilo de conversación. En vez de mover el
+  // estado del sheet fuera de AIFab (arriesgar ese componente, que ya
+  // funciona), se le manda una señal que solo crece: AIFab la mira y abre
+  // su sheet cuando cambia, sin que a ella le importe de dónde vino.
+  const [aiChatOpenSignal, setAiChatOpenSignal] = useState(0);
   const [savedAt, setSavedAt] = useState("");
   const [gloss, setGloss] = useState({ open: false, focus: null });
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -12764,7 +12919,9 @@ const App = () => {
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""}
             onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => setTab("nutricion")} onOpenCoach={() => setTab("coach")}
-            onOpenProgress={(jumpSub) => { if (jumpSub) setProgressJumpSub(jumpSub); setTab("progreso"); }} />
+            onOpenProgress={(jumpSub) => { if (jumpSub) setProgressJumpSub(jumpSub); setTab("progreso"); }}
+            onOpenTimer={() => setUtility("timer")}
+            onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)} />
         )}
         {mode === "alumno" && tab === "entrenar" && (
           <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive}
@@ -12884,7 +13041,8 @@ const App = () => {
       </Sheet>
       {aiFabVisible && (
         <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
-          onOpenCoachTab={() => setTab("ia")} toast={toast} />
+          onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
+          openChatSignal={aiChatOpenSignal} toast={toast} />
       )}
       <Toast msg={toastMsg} />
     </div>
