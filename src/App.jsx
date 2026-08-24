@@ -6,7 +6,7 @@ import {
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
-  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2
+  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal
 } from "lucide-react";
 
 /* ============================================================
@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v120";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v121";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -77,10 +77,13 @@ const BRAND = { name: "FORJA", tagline: "The Ultimate Bodybuilding App" };
 const LIGHT_THEME = {
   P: {
     bg: "#F2F2F7", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#EFEFF4", s4: "#E8E8EE",
-    line: "#E5E5EA", text: "#101012", dim: "#2B2B30", faint: "#5A5A63",
-    // El README distingue secundario (#5A5A63) de terciario (#6B6B75):
-    // el terciario es el de metadatos, horas y valores atenuados.
-    faint2: "#6B6B75",
+    line: "#E5E5EA", text: "#101012", dim: "#2B2B30",
+    // Secundario y terciario, un punto más oscuros que el gris de sistema
+    // original (#5A5A63/#6B6B75): a pedido explícito, para que la
+    // descripción de cada pantalla y los metadatos no se sientan
+    // "lavados" junto a la tinta casi negra del texto principal — sigue
+    // siendo gris, no negro, pero un gris con más cuerpo.
+    faint: "#494950", faint2: "#55555D",
     // Acento = tinta. ember2 es la variante para texto chico e iconografía
     // secundaria; en claro coincide con la tinta porque ya pasa AA de sobra.
     ember: "#101012", ember2: "#101012", glow: "#101012",
@@ -4558,7 +4561,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines }) => {
+const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, autoStartDayId, onAutoStartConsumed }) => {
   const pendingWrites = usePendingWrites();
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -4606,6 +4609,20 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     setPreviewDay(null); setBrowsing(false);
     setFocus(!!withFocus);
   };
+
+  // "Entrenar ahora" desde Hoy ya no debe aterrizar en el selector de
+  // rutinas — eso son tres toques (rutina → día → «Iniciar entrenamiento»)
+  // para algo que Hoy ya decidió por el alumno. Hoy manda el id del día
+  // sugerido; acá se arranca esa sesión directo en focus mode, como si el
+  // alumno hubiera hecho los tres toques él mismo. Si ya había una sesión
+  // en curso, `active` manda y esto no hace nada — nunca pisa una sesión
+  // a mitad de camino.
+  useEffect(() => {
+    if (!autoStartDayId || active) { if (autoStartDayId) onAutoStartConsumed && onAutoStartConsumed(); return; }
+    const day = (plan.days || []).find((d) => d.id === autoStartDayId);
+    if (day) startSession(day, true);
+    onAutoStartConsumed && onAutoStartConsumed();
+  }, [autoStartDayId]);
 
   const listMode = !active || browsing;
 
@@ -4938,139 +4955,6 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
 };
 
 /* ============================================================
-   Hoy (inicio del alumno)
-   ============================================================ */
-const TodayTab = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid }) => {
-  const [showInstr, setShowInstr] = useState(false);
-  const wk = weekKey(todayISO());
-  const weekSessions = history.sessions.filter((s) => weekKey(s.date) === wk);
-  const weekVol = weekSessions.reduce((a, s) => a + s.volume, 0);
-  const streak = weekStreak(history.sessions);
-  const lastSession = history.sessions[history.sessions.length - 1];
-  const days = visibleDays(plan.days, allowedRoutines);
-  let suggested = days[0];
-  if (lastSession) {
-    const i = days.findIndex((d) => d.id === lastSession.dayId);
-    // El siguiente día se busca dentro de la misma rutina que la última sesión
-    if (i >= 0) {
-      const sameRoutine = days.filter((d) => routineOf(d) === routineOf(days[i]));
-      const j = sameRoutine.findIndex((d) => d.id === lastSession.dayId);
-      suggested = sameRoutine[(j + 1) % sameRoutine.length] || days[0];
-    } else {
-      suggested = days[0];
-    }
-  }
-  // Si el coach dejó una sesión agendada para hoy (semana concreta o semana
-  // tipo), esa manda: «Hoy» y la Agenda tienen que decir lo mismo. La
-  // rotación por última sesión queda de respaldo cuando no hay nada agendado.
-  const todayScheduled = scheduledDayFor(plan, new Date());
-  if (todayScheduled && days.some((d) => d.id === todayScheduled.id)) suggested = todayScheduled;
-  // Segunda sesión del mismo día (ej. Push B AM + Push B PM): si el coach
-  // dejó una segunda sesión agendada para hoy, se muestra aparte, debajo de
-  // la principal — son dos entrenamientos, no un reemplazo.
-  const todayScheduled2 = scheduledDayFor2(plan, new Date());
-  const suggested2 = todayScheduled2 && days.some((d) => d.id === todayScheduled2.id) ? todayScheduled2 : null;
-  const suggested2Done = suggested2 && history.sessions.some((s) => s.date === todayISO() && s.dayId === suggested2.id);
-  return (
-    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <Logo />
-        <div style={{ fontSize: 13, color: P.faint, textAlign: "right" }}>{fmtDateFull(todayISO())}</div>
-      </div>
-
-      <EventReminderBanner events={plan.events} />
-      <NextBookingBanner bookings={bookings} sid={sid} />
-
-      {active ? (
-        <Card style={{ padding: 16, marginBottom: 14, borderColor: P.text, borderWidth: 1.5 }}>
-          <div style={{ fontWeight: 700, fontSize: 16.5, marginBottom: 4 }}>Tienes una sesión en curso</div>
-          <div style={{ fontSize: 14.5, color: P.dim, marginBottom: 12 }}>{active.dayName} — todos tus datos están guardados. Puedes retomarla exactamente donde quedaste, aunque cierres la app.</div>
-          <Btn kind="ember" onClick={goTrain} style={{ width: "100%" }}><Play size={16} /> Continuar sesión</Btn>
-        </Card>
-      ) : suggested ? (
-        <Card style={{ padding: 16, marginBottom: 14 }}>
-          <div style={{ fontSize: 13, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>Te toca · {routineLabel(routineOf(suggested), plan.routineNames)}</div>
-          <div className="disp" style={{ fontSize: 21, fontWeight: 700, marginBottom: 3 }}>{suggested.name}</div>
-          <div style={{ fontSize: 14, color: P.faint, marginBottom: 12 }}>{suggested.exs.length} ejercicios · {suggested.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
-          <Btn kind="ember" onClick={goTrain} style={{ width: "100%" }}><Play size={16} /> Empezar a entrenar</Btn>
-        </Card>
-      ) : (
-        <Card style={{ padding: 16, marginBottom: 14 }}>
-          <Empty icon={Dumbbell} title="Sin rutina cargada" body={role === "coach" ? "Entra a la pestaña Rutina para armar el plan." : "Tu coach aún no carga la rutina."} />
-        </Card>
-      )}
-
-      {suggested2 && (
-        <Card style={{ padding: 16, marginBottom: 14 }}>
-          <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 4 }}>
-            También hoy · {routineLabel(routineOf(suggested2), plan.routineNames)}
-          </div>
-          <div className="disp" style={{ fontSize: 21, fontWeight: 700, marginBottom: 3 }}>{suggested2.name}</div>
-          <div style={{ fontSize: 14, color: P.faint, marginBottom: 12 }}>
-            {suggested2.exs.length} ejercicios · {suggested2.exs.reduce((a, e) => a + e.sets.length, 0)} series{suggested2Done ? " · ya la hiciste" : ""}
-          </div>
-          <Btn kind={suggested2Done ? "line" : "ember"} onClick={goTrain} style={{ width: "100%" }}>
-            <Play size={16} /> {suggested2Done ? "Ver / repetir" : "Empezar esta segunda sesión"}
-          </Btn>
-        </Card>
-      )}
-
-      {streak > 0 && (
-        <Card style={{ padding: "13px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}>
-          <Flame size={26} color={P.ember2} className="pulse" />
-          <div style={{ flex: 1 }}>
-            <div className="disp" style={{ fontSize: 19, fontWeight: 700, lineHeight: 1.15 }}>{streak} semana{streak !== 1 ? "s" : ""} seguida{streak !== 1 ? "s" : ""}</div>
-            <div style={{ fontSize: 13, color: P.faint, marginTop: 2 }}>entrenando sin cortar la racha</div>
-          </div>
-        </Card>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
-        {[["Sesiones esta semana", weekSessions.length], ["Tonelaje semanal", `${Math.round(weekVol / 1000 * 10) / 10} t`], ["Sesiones totales", history.sessions.length]].map(([l, v]) => (
-          <Card key={l} style={{ padding: "12px 8px", textAlign: "center" }}>
-            <div className="disp" style={{ fontSize: 20, fontWeight: 700, color: P.ember2 }}>{v}</div>
-            <div style={{ fontSize: 11.5, color: P.dim, marginTop: 3, lineHeight: 1.3 }}>{l}</div>
-          </Card>
-        ))}
-      </div>
-
-      {plan.instructions.length > 0 && (
-        <Card style={{ padding: 14, marginBottom: 14 }}>
-          <button onClick={() => setShowInstr(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10 }}>
-            <ClipboardList size={18} color={P.ember2} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 15.5 }}>Indicaciones del coach</div>
-              <div style={{ fontSize: 13.5, color: P.faint }}>{plan.instructions.length} indicaciones generales del plan</div>
-            </div>
-            <ChevronRight size={16} color={P.faint} />
-          </button>
-        </Card>
-      )}
-
-      {lastSession && (
-        <Card style={{ padding: 14 }}>
-          <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 6 }}>Última sesión</div>
-          <div style={{ fontWeight: 700, fontSize: 15.5 }}>{lastSession.dayName}</div>
-          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>
-            {fmtDateFull(lastSession.date)} · {lastSession.durationMin} min · {Math.round(lastSession.volume).toLocaleString("es-CL")} kg
-            {lastSession.prs.length > 0 && <span style={{ color: P.ember2 }}> · {lastSession.prs.length} PR</span>}
-          </div>
-        </Card>
-      )}
-
-      <Sheet open={showInstr} onClose={() => setShowInstr(false)} title="Indicaciones del coach">
-        {plan.instructions.map((it) => (
-          <div key={it.id} style={{ padding: "12px 0", borderBottom: `1px solid ${P.line}` }}>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>{it.title}</div>
-            <div style={{ fontSize: 15, color: P.dim, lineHeight: 1.55 }}>{it.body}</div>
-          </div>
-        ))}
-      </Sheet>
-    </div>
-  );
-};
-
-/* ============================================================
    Hoy — modo "Enfoque/Panel" (sistema visual monocromo)
    Handoff de Claude Design (proyecto "Forja Mobile"): fondo claro iOS,
    tinta negra pura #101012, cero color de acento — a propósito distinto
@@ -5159,6 +5043,84 @@ function useTodayData(plan, history, allowedRoutines) {
     weekNum, weekTotal, mesoName: meso ? meso.name : null, week, lastBw, prevBw, adherence };
 }
 
+// Una semana calendario (lunes→domingo) con el día que toca cada fecha y si
+// ya hay sesión registrada — a diferencia del `week` de arriba (que solo
+// mira `plan.schedule` en bruto), esto resuelve semana a semana, así que
+// respeta cualquier excepción puesta en el calendario (weekPlans) y sirve
+// igual para semanas pasadas o futuras. `weekOffset` en semanas relativas
+// a hoy (0 = esta semana).
+function computeWeekStrip(plan, history, weekOffset) {
+  const now = new Date();
+  const base = new Date(now); base.setDate(now.getDate() + weekOffset * 7);
+  const weekStart = new Date(base); weekStart.setDate(base.getDate() - ((base.getDay() + 6) % 7));
+  const todayIso = isoDate(now);
+  return Array.from({ length: 7 }, (_, i) => {
+    const dateObj = new Date(weekStart); dateObj.setDate(weekStart.getDate() + i);
+    const iso = isoDate(dateObj);
+    const day = scheduledDayFor(plan, dateObj);
+    const session = (history.sessions || []).find((s) => isoDate(new Date(s.date)) === iso) || null;
+    return { key: DOW_KEYS[dateObj.getDay()], letter: DOW_LETTERS[DOW_KEYS[dateObj.getDay()]],
+      dateIso: iso, isToday: iso === todayIso, day, done: !!session, session };
+  });
+}
+
+// Franja semanal con arrastre horizontal para cambiar de semana — a
+// diferencia de un carrusel con botones, este responde al dedo en tiempo
+// real (la franja sigue el toque mientras se arrastra) y solo "compromete"
+// el cambio de semana si el arrastre pasa un umbral; si no, vuelve a su
+// lugar. Cada celda es un botón real: toca cualquier día (pasado, futuro,
+// de descanso) para ver qué le tocaba.
+const WeekStrip = ({ plan, history, weekNum, weekTotal, onSelectDay }) => {
+  const [offset, setOffset] = useState(0);
+  const [drag, setDrag] = useState(0);       // desplazamiento en vivo mientras se arrastra
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef({ startX: 0, active: false });
+  const week = computeWeekStrip(plan, history, offset);
+
+  const onPointerDown = (e) => {
+    dragRef.current = { startX: e.clientX, active: true };
+    setDragging(true);
+  };
+  const onPointerMove = (e) => {
+    if (!dragRef.current.active) return;
+    setDrag(e.clientX - dragRef.current.startX);
+  };
+  const commit = () => {
+    if (!dragRef.current.active) return;
+    dragRef.current.active = false;
+    const THRESHOLD = 46;
+    setDragging(false);
+    if (drag <= -THRESHOLD) setOffset((o) => o + 1);
+    else if (drag >= THRESHOLD) setOffset((o) => o - 1);
+    setDrag(0);
+  };
+
+  return (
+    <div style={{ overflow: "hidden", touchAction: "pan-y" }}
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+      onPointerUp={commit} onPointerCancel={commit} onPointerLeave={commit}>
+      {weekNum && (
+        <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", color: P.faint, marginBottom: 6, textAlign: "center" }}>
+          {offset === 0 ? `Semana ${weekNum} de ${weekTotal}` : offset < 0 ? `${-offset} semana${offset < -1 ? "s" : ""} atrás` : `${offset} semana${offset > 1 ? "s" : ""} adelante`}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6,
+        transform: `translateX(${drag}px)`, transition: dragging ? "none" : "transform .3s cubic-bezier(.2,.8,.3,1)" }}>
+        {week.map((w) => (
+          <button key={w.dateIso} onClick={() => { if (Math.abs(drag) < 6) onSelectDay(w); }}
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "9px 0", borderRadius: 13,
+              background: w.isToday ? P.ember : w.day ? P.s1 : P.s3, border: `1px solid ${w.isToday ? P.ember : P.line}` }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: w.isToday ? PLATE_FG : P.faint }}>{w.letter}</span>
+            {w.day
+              ? <span style={{ width: 7, height: 7, borderRadius: 4, background: w.isToday ? PLATE_FG : w.done ? P.text : P.line }} />
+              : <span style={{ fontSize: 9, fontWeight: 700, color: w.isToday ? PLATE_FG : P.faint, lineHeight: "7px" }}>off</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // Fila de "También hoy": ícono en pastilla, título, detalle en una línea y
 // o bien un punto (algo sin leer) o bien la acción en texto. Misma forma
 // que las filas de ajustes, distinta densidad.
@@ -5196,8 +5158,11 @@ const MacroBar = ({ v }) => (
   </>
 );
 
-const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach }) => {
+const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress }) => {
   const [showInstr, setShowInstr] = useState(false);
+  const [exExpanded, setExExpanded] = useState(false);
+  const [dayDetail, setDayDetail] = useState(null);   // día de la franja semanal tocado (variante panel)
+  const [statDetail, setStatDetail] = useState(null);  // "adherencia" | "racha" | "peso" | "volumen"
   const d = useTodayData(plan, history, allowedRoutines);
   const name = studentName || "";
   const firstName = name.split(" ")[0] || "";
@@ -5243,7 +5208,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         {d.suggested2 && (
           <TodayRow Icon={Dumbbell} title={`Segunda sesión · ${d.suggested2.name}`}
             detail={`${d.suggested2.exs.length} ejercicios · ${d.setsOf(d.suggested2)} series${d.suggested2Done ? " · ya la hiciste" : ""}`}
-            actionLabel={d.suggested2Done ? "Ver" : "Entrenar"} onClick={goTrain} />
+            actionLabel={d.suggested2Done ? "Ver" : "Entrenar"} onClick={() => goTrain(d.suggested2Done ? undefined : d.suggested2.id)} />
         )}
       </div>
     </div>
@@ -5303,13 +5268,34 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
                       <span style={{ marginLeft: "auto", fontSize: 13, color: P.faint, flexShrink: 0 }}>{e.sets.length}×{(e.sets[0] && e.sets[0].repsT) || "—"}</span>
                     </div>
                   ))}
+                  {/* El resto se revela en el lugar, no navega a ningún lado
+                      — un vistazo rápido a lo que viene sin salir de Hoy.
+                      grid-template-rows 0fr→1fr anima el alto sin medir el
+                      contenido a mano: mismo timing que el resto de la app. */}
                   {workout.exs.length > 2 && (
-                    <div style={{ fontSize: 13, color: P.faint, paddingLeft: 36 }}>+ {workout.exs.length - 2} ejercicios más</div>
+                    <div style={{ display: "grid", gridTemplateRows: exExpanded ? "1fr" : "0fr", transition: "grid-template-rows .35s ease" }}>
+                      <div style={{ overflow: "hidden", display: "flex", flexDirection: "column", gap: 10, paddingTop: 10 }}>
+                        {workout.exs.slice(2).map((e, i) => (
+                          <div key={e.id || i + 2} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ width: 26, height: 26, borderRadius: 8, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: P.faint, flexShrink: 0 }}>{i + 3}</span>
+                            <span style={{ fontSize: 14.5, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
+                            <span style={{ marginLeft: "auto", fontSize: 13, color: P.faint, flexShrink: 0 }}>{e.sets.length}×{(e.sets[0] && e.sets[0].repsT) || "—"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {workout.exs.length > 2 && (
+                    <button onClick={() => setExExpanded((v) => !v)}
+                      style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 700, color: P.ember2, paddingLeft: 36 }}>
+                      {exExpanded ? "Ver menos" : `+ ${workout.exs.length - 2} ejercicios más`}
+                      <ChevronDown size={14} style={{ transform: exExpanded ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
+                    </button>
                   )}
                 </div>
               </>
             )}
-            <Btn kind="ember" onClick={goTrain} style={{ width: "100%", padding: "17px", borderRadius: R_CARD, fontSize: 17 }}>
+            <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} style={{ width: "100%", padding: "17px", borderRadius: R_CARD, fontSize: 17 }}>
               <Play size={17} /> {workout.cta}
             </Btn>
           </Card>
@@ -5331,17 +5317,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
       } />
       <EventReminderBanner events={plan.events} />
       <NextBookingBanner bookings={bookings} sid={sid} />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
-        {d.week.map((w) => (
-          <div key={w.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "9px 0", borderRadius: 13,
-            background: w.isToday ? P.ember : w.planned ? P.s1 : P.s3, border: `1px solid ${w.isToday ? P.ember : P.line}` }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: w.isToday ? PLATE_FG : P.faint }}>{w.letter}</span>
-            {w.planned
-              ? <span style={{ width: 7, height: 7, borderRadius: 4, background: w.isToday ? PLATE_FG : w.done ? P.text : P.line }} />
-              : <span style={{ fontSize: 9, fontWeight: 700, color: w.isToday ? PLATE_FG : P.faint, lineHeight: "7px" }}>off</span>}
-          </div>
-        ))}
-      </div>
+      <WeekStrip plan={plan} history={history} weekNum={d.weekNum} weekTotal={d.weekTotal} onSelectDay={setDayDetail} />
       {workout ? (
         <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
@@ -5351,17 +5327,18 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
               {workout.exs ? `${workout.exs.length} ejercicios · ${workout.sets} series · ${estimateSessionMin(workout.sets)} min` : workout.sub}
             </span>
           </div>
-          <Btn kind="ember" onClick={goTrain} style={{ flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</Btn>
+          <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} style={{ flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</Btn>
         </Card>
       ) : emptyCard}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
         <StatTile label="Adherencia" value={d.adherence == null ? "—" : d.adherence} unit={d.adherence == null ? null : "%"}
-          bar={d.adherence == null ? null : d.adherence} note="sin horario armado" />
-        <StatTile label="Racha" value={d.streak} unit={` semana${d.streak !== 1 ? "s" : ""}`} note="entrenando sin cortar" />
+          bar={d.adherence == null ? null : d.adherence} note="sin horario armado" onClick={() => setStatDetail("adherencia")} />
+        <StatTile label="Racha" value={d.streak} unit={` semana${d.streak !== 1 ? "s" : ""}`} note="entrenando sin cortar" onClick={() => setStatDetail("racha")} />
         <StatTile label="Peso corporal" value={d.lastBw ? d.lastBw.kg : "—"} unit={d.lastBw ? " kg" : null}
-          note={d.lastBw && d.prevBw ? `${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} kg desde el anterior` : "sin registros todavía"} />
+          note={d.lastBw && d.prevBw ? `${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} kg desde el anterior` : "sin registros todavía"}
+          onClick={() => setStatDetail("peso")} />
         <StatTile label="Volumen sem." value={Math.round((d.weekVol / 1000) * 10) / 10} unit=" t"
-          note={`${d.weekSessions.length} ${d.weekSessions.length === 1 ? "sesión" : "sesiones"} esta semana`} />
+          note={`${d.weekSessions.length} ${d.weekSessions.length === 1 ? "sesión" : "sesiones"} esta semana`} onClick={() => setStatDetail("volumen")} />
       </div>
       {hasMacros && (
         <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
@@ -5392,6 +5369,79 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         </Card>
       )}
       {instrSheet}
+
+      {/* Detalle de un día de la franja semanal: qué toca, si ya se
+          entrenó, y — solo si es HOY y todavía no hay sesión — el atajo
+          para arrancarla directo. Un día pasado sin sesión no ofrece
+          "Entrenar": empezar una sesión fechada en el pasado no tiene
+          sentido acá (para eso está el registro manual en Progreso). */}
+      <Sheet open={!!dayDetail} onClose={() => setDayDetail(null)} title={dayDetail ? fmtDateFull(dayDetail.dateIso) : ""}>
+        {dayDetail && (dayDetail.day ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <div className="mono" style={{ letterSpacing: ".1em", marginBottom: 4 }}>{routineLabel(routineOf(dayDetail.day), plan.routineNames)}</div>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{dayDetail.day.name}</div>
+              <div style={{ fontSize: 13.5, color: P.faint, marginTop: 3 }}>
+                {dayDetail.day.exs.length} ejercicios · {dayDetail.day.exs.reduce((a, e) => a + e.sets.length, 0)} series
+              </div>
+            </div>
+            {dayDetail.done ? (
+              <Card style={{ padding: "13px 15px" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 2 }}>✓ Entrenado</div>
+                <div style={{ fontSize: 12.5, color: P.faint }}>{dayDetail.session.durationMin} min · {Math.round(dayDetail.session.volume).toLocaleString("es-CL")} kg</div>
+              </Card>
+            ) : dayDetail.isToday ? (
+              <Btn kind="ember" onClick={() => { goTrain(dayDetail.day.id); setDayDetail(null); }} style={{ width: "100%" }}>
+                <Play size={16} /> Entrenar ahora
+              </Btn>
+            ) : (
+              <div style={{ fontSize: 13.5, color: P.faint }}>
+                {dayDetail.dateIso < isoDate(new Date()) ? "No se registró sesión ese día." : "Todavía no llega."}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ padding: "4px 0", color: P.faint, fontSize: 14.5 }}>Día de descanso — no hay rutina programada.</div>
+        ))}
+      </Sheet>
+
+      {/* Detalle de cada ficha de "Resumen": el número solo no alcanza, así
+          que al tocar se explica qué significa y, cuando existe un lugar
+          con más profundidad (el gráfico de Progreso), se ofrece saltar
+          ahí en vez de duplicar ese gráfico acá. */}
+      <Sheet open={!!statDetail} onClose={() => setStatDetail(null)}
+        title={{ adherencia: "Adherencia", racha: "Racha", peso: "Peso corporal", volumen: "Volumen semanal" }[statDetail] || ""}>
+        {statDetail === "adherencia" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.adherence == null ? "—" : `${Math.round(d.adherence)}%`}</div>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Porcentaje de sesiones programadas en tu horario que efectivamente entrenaste este mes.</div>
+          </div>
+        )}
+        {statDetail === "racha" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.streak} semana{d.streak !== 1 ? "s" : ""}</div>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Semanas seguidas con al menos una sesión entrenada, sin cortar.</div>
+          </div>
+        )}
+        {statDetail === "peso" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastBw ? `${d.lastBw.kg} kg` : "Sin registros"}</div>
+            {d.lastBw && d.prevBw && (
+              <div style={{ fontSize: 14.5, color: P.dim }}>
+                {d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}{Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} kg desde el registro anterior
+              </div>
+            )}
+            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Ver gráfico completo</Btn>
+          </div>
+        )}
+        {statDetail === "volumen" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</div>
+            <div style={{ fontSize: 14.5, color: P.dim }}>{d.weekSessions.length} {d.weekSessions.length === 1 ? "sesión" : "sesiones"} esta semana.</div>
+            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("volumen"); setStatDetail(null); }} style={{ width: "100%" }}>Ver progreso completo</Btn>
+          </div>
+        )}
+      </Sheet>
     </div>
   );
 };
@@ -5514,234 +5564,6 @@ const AchievementGrid = ({ history }) => {
   );
 };
 
-const ProgressTab = ({ plan, history, saveHistory }) => {
-  const [sub, setSub] = useState("ex");
-  const [exId, setExId] = useState("");
-  const [openSession, setOpenSession] = useState(null);
-  const [bw, setBw] = useState("");
-  const [viewImg, setViewImg] = useState(null);
-  const [err, setErr] = useState("");
-  const [guide, setGuide] = useState(null); // null | "medidas" | "fotos"
-  const [compareOpen, setCompareOpen] = useState(false);
-  const [measForm, setMeasForm] = useState({});
-  const [measErr, setMeasErr] = useState("");
-  const [measChartKey, setMeasChartKey] = useState(BODY_MEASURE_FIELDS[0].key);
-
-  const allEx = useMemo(() => {
-    const m = new Map();
-    plan.days.forEach((d) => d.exs.forEach((e) => m.set(e.id, e.name)));
-    Object.keys(history.byEx).forEach((id) => {
-      if (!m.has(id) && history.byEx[id].length) m.set(id, history.byEx[id][history.byEx[id].length - 1].exName || "Ejercicio");
-    });
-    return [...m.entries()];
-  }, [plan, history]);
-  useEffect(() => { if (!exId && allEx.length) setExId(allEx[0][0]); }, [allEx, exId]);
-
-  const bwData = history.bodyweight.map((b) => ({ d: fmtDate(b.date), v: b.kg }));
-
-  const addBW = () => {
-    const v = parseFloat(String(bw).replace(",", "."));
-    if (!v || v <= 0) { setErr("Ingresa un peso válido en kg."); return; }
-    setErr("");
-    const h = structuredClone(history);
-    h.bodyweight.push({ date: todayISO(), kg: v });
-    saveHistory(h); setBw("");
-  };
-
-  // Historias reales creadas antes de esta función no tienen `measurements`
-  // en absoluto (no es que esté vacío: la clave no existe) — de ahí el
-  // `|| []` acá y el `if (!h.measurements)` al guardar/borrar.
-  const measurements = history.measurements || [];
-  const setMeasField = (key, val) => setMeasForm((f) => ({ ...f, [key]: val }));
-  const saveMeasurements = () => {
-    const values = {};
-    BODY_MEASURE_FIELDS.forEach((f) => {
-      const raw = measForm[f.key];
-      const v = raw !== undefined && raw !== "" ? parseFloat(String(raw).replace(",", ".")) : null;
-      if (v && v > 0) values[f.key] = v;
-    });
-    if (Object.keys(values).length === 0) { setMeasErr("Ingresa al menos una medida en cm."); return; }
-    setMeasErr("");
-    const h = structuredClone(history);
-    if (!h.measurements) h.measurements = [];
-    h.measurements.push({ id: uid(), date: todayISO(), values });
-    saveHistory(h);
-    setMeasForm({});
-  };
-  const removeMeasurement = (id) => {
-    const h = structuredClone(history);
-    h.measurements = (h.measurements || []).filter((m) => m.id !== id);
-    saveHistory(h);
-  };
-  const measChartData = measurements.filter((m) => m.values && m.values[measChartKey] != null).map((m) => ({ d: fmtDate(m.date), v: m.values[measChartKey] }));
-
-  const subBtn = (id, label) => (
-    <button onClick={() => setSub(id)} style={{ flex: 1, padding: "9px 4px", borderRadius: 10, fontSize: 14.5, fontWeight: 600,
-      background: sub === id ? P.s3 : "transparent", color: sub === id ? P.text : P.faint, border: `1px solid ${sub === id ? P.line : "transparent"}` }}>{label}</button>
-  );
-
-  return (
-    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 12px" }}>Progreso</h1>
-      <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
-        {subBtn("ex", "Ejercicios")}{subBtn("ses", "Sesiones")}{subBtn("vol", "Volumen")}{subBtn("body", "Cuerpo")}{subBtn("logros", "Logros")}
-      </div>
-
-      {sub === "logros" && <AchievementGrid history={history} />}
-
-      {sub === "ex" && (
-        <div>
-          <select value={exId} onChange={(e) => setExId(e.target.value)} style={{ width: "100%", padding: "11px 12px", marginBottom: 12 }}>
-            {allEx.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-          </select>
-          {(history.byEx[exId] || []).length === 0 ? (
-            <Empty icon={TrendingUp} title="Sin datos aún" body="Cuando registres este ejercicio en una sesión, acá verás la curva de tu mejor peso, tu marca y el detalle serie a serie." />
-          ) : (
-            <>
-              <ExerciseProgress entries={history.byEx[exId]} />
-              <div style={{ marginTop: 2 }}>
-                <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Registro completo</div>
-                <ExHistorySheetInline entries={history.byEx[exId]} onOpenImg={setViewImg} />
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {sub === "ses" && (
-        history.sessions.length === 0 ? (
-          <Empty icon={History} title="Sin sesiones guardadas" body="Termina tu primera sesión en la pestaña Entrenar y aparecerá acá con todo el detalle." />
-        ) : (
-          [...history.sessions].reverse().map((s) => (
-            <Card key={s.id} style={{ marginBottom: 10 }}>
-              <button onClick={() => setOpenSession(s)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.dayName}</div>
-                  <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>
-                    {fmtDateFull(s.date)} · {s.durationMin} min · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg
-                  </div>
-                </div>
-                {s.prs.length > 0 && <Award size={16} color={P.ember2} />}
-                <ChevronRight size={16} color={P.faint} />
-              </button>
-            </Card>
-          ))
-        )
-      )}
-
-      {sub === "vol" && <VolumePanel plan={plan} />}
-
-      {sub === "body" && (
-        <div>
-          <Card style={{ padding: 14, marginBottom: 14 }}>
-            <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Peso corporal</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Inp type="number" inputMode="decimal" step="any" placeholder="kg de hoy" value={bw} onChange={(e) => setBw(e.target.value)} />
-              <Btn kind="ember" onClick={addBW}><Plus size={16} /> Registrar</Btn>
-            </div>
-            {err && <div style={{ color: P.red, fontSize: 13.5, marginTop: 6 }}>{err}</div>}
-            {bwData.length > 1 && <div style={{ marginTop: 10 }}><ChartBox data={bwData} unit="kg" /></div>}
-            {bwData.length === 1 && <div style={{ fontSize: 14, color: P.faint, marginTop: 10 }}>Último registro: {bwData[0].v} kg ({bwData[0].d}). Con dos o más registros verás la curva.</div>}
-          </Card>
-
-          <Card style={{ padding: 14, marginBottom: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Medidas corporales</div>
-              <button onClick={() => setGuide("medidas")} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, color: P.ember2 }}>
-                <Info size={13} /> Cómo medir
-              </button>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-              {BODY_MEASURE_FIELDS.map((f) => (
-                <div key={f.key}>
-                  <div style={{ fontSize: 12, color: P.faint, marginBottom: 3 }}>{f.label}</div>
-                  <Inp type="number" inputMode="decimal" step="any" placeholder="cm" value={measForm[f.key] || ""} onChange={(e) => setMeasField(f.key, e.target.value)} />
-                </div>
-              ))}
-            </div>
-            <Btn kind="ember" onClick={saveMeasurements} style={{ width: "100%" }}><Plus size={16} /> Guardar medidas de hoy</Btn>
-            {measErr && <div style={{ color: P.red, fontSize: 13.5, marginTop: 6 }}>{measErr}</div>}
-
-            {measurements.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <select value={measChartKey} onChange={(e) => setMeasChartKey(e.target.value)} style={{ width: "100%", marginBottom: 10, fontSize: 14, padding: "9px 10px" }}>
-                  {BODY_MEASURE_FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-                </select>
-                {measChartData.length > 1 ? (
-                  <ChartBox data={measChartData} unit="cm" />
-                ) : measChartData.length === 1 ? (
-                  <div style={{ fontSize: 14, color: P.faint }}>Único registro: {measChartData[0].v} cm ({measChartData[0].d}). Con dos o más registros de esta medida verás la curva.</div>
-                ) : (
-                  <div style={{ fontSize: 14, color: P.faint }}>Sin registros todavía de «{BODY_MEASURE_FIELDS.find((f) => f.key === measChartKey)?.label}».</div>
-                )}
-                <div style={{ marginTop: 14 }}>
-                  {[...measurements].reverse().map((m) => (
-                    <div key={m.id} style={{ padding: "9px 0", borderTop: `1px solid ${P.line}` }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{fmtDateFull(m.date)}</div>
-                        <button onClick={() => removeMeasurement(m.id)} aria-label="Eliminar registro" style={{ color: P.faint }}><Trash2 size={13} /></button>
-                      </div>
-                      <div style={{ fontSize: 13, color: P.dim, marginTop: 3, lineHeight: 1.5 }}>
-                        {BODY_MEASURE_FIELDS.filter((f) => m.values && m.values[f.key] != null).map((f) => `${f.label}: ${m.values[f.key]} cm`).join(" · ")}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Card>
-
-          <Card style={{ padding: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>Progreso: fotos y videos ({history.bodyPhotos.length})</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                {history.bodyPhotos.length > 0 && (
-                  <button onClick={() => setCompareOpen(true)} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, color: P.ember2 }}>
-                    <Layers size={13} /> Comparar
-                  </button>
-                )}
-                <button onClick={() => setGuide("fotos")} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, color: P.ember2 }}>
-                  <Info size={13} /> Cómo fotografiar
-                </button>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <AttachButton mode="photo" onError={setErr} onAttached={(id) => { const h = structuredClone(history); h.bodyPhotos.push({ id, date: todayISO() }); saveHistory(h); }} />
-                  <AttachButton mode="video" onError={setErr} onAttached={(id) => { const h = structuredClone(history); h.bodyPhotos.push({ id, date: todayISO() }); saveHistory(h); }} />
-                </div>
-              </div>
-            </div>
-            {history.bodyPhotos.length === 0 ? (
-              <div style={{ fontSize: 14, color: P.faint }}>Sube una foto o video cada 2–4 semanas, con la misma luz y pose, para comparar tu recomposición. Sin límite de cantidad.</div>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-                {[...history.bodyPhotos].reverse().map((p) => (
-                  <div key={p.id} style={{ textAlign: "center" }}>
-                    <AttachThumb id={p.id} onOpen={setViewImg} size={96}
-                      onRemove={() => { const h = structuredClone(history); h.bodyPhotos = h.bodyPhotos.filter((x) => x.id !== p.id); saveHistory(h); }} />
-                    <div style={{ fontSize: 12, color: P.faint, marginTop: 3 }}>{fmtDate(p.date)}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
-      )}
-
-      <SessionDetailSheet session={openSession} onClose={() => setOpenSession(null)} history={history} onOpenImg={setViewImg} />
-      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
-      <BodyGuideSheet open={!!guide} onClose={() => setGuide(null)} startTab={guide || "medidas"} />
-      <PhotoCompareSheet open={compareOpen} onClose={() => setCompareOpen(false)} photos={history.bodyPhotos} />
-    </div>
-  );
-};
-
-/* ---- Progreso — modo Enfoque/Panel (mismo handoff, pantalla 2c) ----
-   El mockup solo dibuja el segmento "Fuerza" en detalle (gráfico grande +
-   PRs recientes); "Cuerpo" y "Volumen" no vienen especificados ahí, así
-   que se extienden con el mismo lenguaje visual (MONO) en vez de
-   inventar contenido que el archivo no tiene. Datos reales: mejor peso
-   por sesión de history.byEx (igual cálculo que <ExerciseProgress/>),
-   PRs reales de history.sessions[].prs, peso corporal de
-   history.bodyweight. */
 const MiniLineChart = ({ points, height = 110 }) => {
   if (points.length < 2) return (
     <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: MONO.inkFaint }}>Necesitas al menos 2 registros</div>
@@ -5768,10 +5590,16 @@ const daysAgoLabel = (dateStr) => {
   if (days < 14) return `hace ${days} días`;
   return `hace ${Math.round(days / 7)} semanas`;
 };
-const ProgressTabMono = ({ plan, history, variant }) => {
+const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed }) => {
   const [sub, setSub] = useState("fuerza");
   const [exId, setExId] = useState("");
   const [bw, setBw] = useState("");
+  // Permite abrir esta pestaña directo en una sub-sección (p.ej. desde las
+  // fichas de Hoy: tocar "Peso corporal" cae en "Cuerpo", "Volumen sem."
+  // cae en "Volumen"), igual que ya hace AITab con jumpSub/onJumpConsumed.
+  useEffect(() => {
+    if (jumpSub) { setSub(jumpSub); onJumpConsumed && onJumpConsumed(); }
+  }, [jumpSub]);
 
   const allEx = useMemo(() => {
     const m = new Map();
@@ -6662,6 +6490,13 @@ REGLAS ESTRICTAS:
    El header de cada bloque muestra su NOMBRE (Mesociclo 1, o el que le
    pongas) — las "Semana 1, 2, 3..." solo aparecen al desplegarlo. ---- */
 const MesociclosPanel = ({ plan, savePlan, toast }) => {
+  // La tarjeta entera arranca colapsada — antes, entrar a Rutina abría de
+  // entrada toda esta sección (texto explicativo, botón "Sin mesociclo" y
+  // la lista de mesociclos) aunque nadie la hubiera tocado. Un toque en la
+  // cabecera la despliega; adentro, cada mesociclo se sigue abriendo por
+  // separado (openMesoId, más abajo) — dos niveles de "ir abriendo de a
+  // poco" en vez de todo de una.
+  const [panelOpen, setPanelOpen] = useState(false);
   const [openMesoId, setOpenMesoId] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -6755,7 +6590,8 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
   return (
     <>
       <Card style={{ marginBottom: 22, overflow: "hidden", borderColor: `${P.blue}44` }}>
-        <div style={{ padding: "13px 14px 2px", display: "flex", alignItems: "center", gap: 11 }}>
+        <button onClick={() => setPanelOpen((v) => !v)} style={{ width: "100%", textAlign: "left",
+          padding: panelOpen ? "13px 14px 2px" : "13px 14px", display: "flex", alignItems: "center", gap: 11 }}>
           <div style={{ width: 38, height: 38, borderRadius: 11, background: `${P.blue}1E`, border: `1px solid ${P.blue}55`,
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <Calendar size={19} color={P.blue} />
@@ -6764,7 +6600,9 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
             <div style={{ fontWeight: 700, fontSize: 15.5 }}>Mesociclos</div>
             <div style={{ fontSize: 13.5, fontWeight: 600, color: P.dim, marginTop: 2 }}>{state.mesociclos.length} mesociclo{state.mesociclos.length !== 1 ? "s" : ""} · en curso: {cm ? cm.name : "sin mesociclo asignado"}</div>
           </div>
-        </div>
+          {panelOpen ? <ChevronUp size={17} color={P.faint} /> : <ChevronDown size={17} color={P.faint} />}
+        </button>
+        {panelOpen && (
         <div style={{ padding: "10px 14px 14px" }}>
           <div style={{ fontSize: 14, fontWeight: 500, color: P.dim, lineHeight: 1.5, marginBottom: 10 }}>
             Cada mesociclo agrupa varias semanas. El que está «en curso» es el que ve el alumno; dentro de cada semana marcas cuál es la activa. Los objetivos por semana de cada ejercicio se editan dentro del ejercicio. Mantén pulsado el asa para reordenarlos.
@@ -6863,6 +6701,7 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
             <Btn kind="ember" small onClick={() => setImportOpen(true)} style={{ flex: 1, minWidth: 160 }}><Sparkles size={14} /> Importar con IA</Btn>
           </div>
         </div>
+        )}
       </Card>
 
       <Sheet open={templatesOpen} onClose={() => setTemplatesOpen(false)} title="Plantillas de mesociclo" tall>
@@ -11751,28 +11590,6 @@ const Toast = ({ msg }) => !msg ? null : (
 );
 
 /* ============================================================
-   ATLAS — enciclopedia + guía de ejercicios (Olympia Training Atlas)
-   Se sirve como archivos propios dentro de esta misma plataforma
-   (carpeta /atlas), así que queda embebido sin salir del sitio.
-   ============================================================ */
-const AtlasTab = () => (
-  <div style={{ padding: "16px 12px 6px" }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-      <Library size={21} color={P.ember} />
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Atlas</h1>
-    </div>
-    <div style={{ color: P.dim, fontSize: 14, marginBottom: 10, lineHeight: 1.4 }}>
-      Enciclopedia profesional de fuerza e hipertrofia + guía definitiva de ejercicios: 248 conceptos, 83 ejercicios y 22 fuentes científicas.
-    </div>
-    <div style={{ borderRadius: 14, overflow: "hidden", border: `1px solid ${P.line}`,
-      height: "calc(100dvh - 220px)", minHeight: 460, background: "#000000" }}>
-      <iframe src="atlas/index.html" title="Olympia Training Atlas" loading="lazy"
-        style={{ width: "100%", height: "100%", border: "none", display: "block" }} />
-    </div>
-  </div>
-);
-
-/* ============================================================
    EQUIPO — roles del lado coach (Head Coach y su staff)
    No hay login con contraseña en FORJA (la identidad se elige tocando un
    nombre, igual que con los alumnos): esto es una separación de
@@ -11782,11 +11599,11 @@ const AtlasTab = () => (
    ============================================================ */
 // tabAccess: null = acceso completo a todas las pestañas de coach (editar).
 // Si es un objeto, solo esas pestañas aparecen, con "edit" o "view" cada una.
-// "guia"/"atlas"/"timer" son contenido de referencia sin riesgo de mutar
+// "guia"/"timer" son contenido de referencia sin riesgo de mutar
 // datos del alumno, así que quedan disponibles para cualquier rol.
 // "chat" también queda para cualquier rol: es la vía directa con el
 // alumno, no algo que tenga sentido restringir por especialidad.
-const ALWAYS_TABS = { timer: "edit", guia: "edit", atlas: "edit", chat: "edit" };
+const ALWAYS_TABS = { timer: "edit", guia: "edit", chat: "edit" };
 const ROLE_META = {
   head_coach:  { label: "Head Coach", short: "Acceso completo + gestiona el equipo", manageTeam: true, tabAccess: null },
   coach_asistente: { label: "Coach asistente", short: "Acceso completo, no gestiona el equipo", manageTeam: false, tabAccess: null },
@@ -11808,7 +11625,7 @@ const ROLE_META = {
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["dashboard", "rutina", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "chat", "timer", "guia", "atlas"];
+const TABS_COACH_IDS = ["dashboard", "rutina", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "chat", "timer", "guia"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -11853,8 +11670,7 @@ const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewM
     <Sheet open={open} onClose={onClose} title="Más" tall>
       <SettingGroup label="Herramientas">
         <SettingRow Icon={Timer} label="Temporizador" hint="Intervalos, cuenta regresiva y cronómetro" onClick={() => onOpenUtility("timer")} />
-        <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} />
-        <SettingRow Icon={Library} label="Atlas de ejercicios" hint="Ficha, técnica y músculos de cada ejercicio" onClick={() => onOpenUtility("atlas")} last={mode === "coach"} />
+        <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} last={mode === "coach"} />
         {mode === "alumno" && <SettingRow Icon={Calendar} label="Agenda" hint="Tu semana y tus turnos reservados" onClick={() => onOpenUtility("agenda")} last />}
       </SettingGroup>
 
@@ -11900,15 +11716,15 @@ const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewM
    "Atletas"; Nutrición e IA dentro de "Rutinas". Cada pestaña de coach
    declara sus `sections`: si tiene más de una (y el rol da acceso), la
    pantalla muestra un segmentado arriba para moverse entre ellas. Las
-   herramientas de referencia (Temporizador, Guía, Atlas y, para el alumno,
-   Agenda) salen de la barra y viven en la hoja "Más". */
+   herramientas de referencia (Temporizador, Guía y, para el alumno, Agenda)
+   salen de la barra y viven en la hoja "Más". */
 const TABS = {
   alumno: [
-    { id: "hoy", label: "Hoy", Icon: Home },
+    { id: "hoy", label: "Inicio", Icon: Home },
     { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
     { id: "progreso", label: "Progreso", Icon: TrendingUp },
-    { id: "nutricion", label: "Comida", Icon: Utensils },
-    { id: "coach", label: "Coach", Icon: MessageSquare },
+    { id: "nutricion", label: "Nutrición", Icon: Utensils },
+    { id: "mas", label: "Más", Icon: MoreHorizontal },
   ],
   coach: [
     { id: "dashboard", label: "Panel", Icon: LayoutDashboard, sections: ["dashboard"] },
@@ -11926,14 +11742,13 @@ const SECTION_LABELS = {
 const UTILITY_SCREENS = {
   timer: { label: "Temporizador", Icon: Timer },
   guia:  { label: "Guía de términos", Icon: BookOpen },
-  atlas: { label: "Atlas de ejercicios", Icon: Library },
   agenda: { label: "Agenda", Icon: Calendar },
 };
 
 // Easy Mode deja solo lo imprescindible en la barra inferior. Todo lo
 // demás sigue existiendo: vuelve al toque con el switch de Interfaz.
-const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion"] };
-const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Comida", hoy: "Hoy", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas" };
+const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "mas"] };
+const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
 
 /* ============================================================
    Componentes de sistema (portados de la implementación de
@@ -12026,8 +11841,14 @@ const SettingGroup = ({ label, children }) => (
 
 // Tarjeta de dato: rótulo en versalitas, número grande y, opcional,
 // una barra de progreso o una nota.
-const StatTile = ({ label, value, unit, note, bar }) => (
-  <Card style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
+// `onClick` es opcional: la mayoría de los usos (dashboard del coach, etc.)
+// son informativos y siguen exactamente igual. Cuando se pasa, la tarjeta
+// entera se vuelve tocable — con su propio chevron, para que quede claro
+// de un vistazo que hay más detrás, en vez de que el alumno tenga que
+// adivinar (o descubrir tocando a ciegas) qué responde y qué no.
+const StatTile = ({ label, value, unit, note, bar, onClick }) => (
+  <Card onClick={onClick} style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5,
+    cursor: onClick ? "pointer" : undefined, position: "relative" }}>
     <span className="mono" style={{ letterSpacing: ".08em" }}>{label}</span>
     <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, letterSpacing: "-.02em" }}>
       {value}{unit && <span style={{ fontSize: 14 }}>{unit}</span>}
@@ -12037,6 +11858,7 @@ const StatTile = ({ label, value, unit, note, bar }) => (
         <i style={{ display: "block", width: `${Math.max(0, Math.min(100, bar))}%`, height: "100%", background: P.text }} />
       </span>
     ) : note ? <span style={{ fontSize: 12, color: P.faint }}>{note}</span> : null}
+    {onClick && <ChevronRight size={14} color={P.faint} style={{ position: "absolute", top: 14, right: 13 }} />}
   </Card>
 );
 
@@ -12500,6 +12322,7 @@ const App = () => {
   const [active, setActive] = useState(null);
   const [tab, setTab] = useState("dashboard");
   const [aiJumpSub, setAiJumpSub] = useState(null);
+  const [progressJumpSub, setProgressJumpSub] = useState(null);
   const [savedAt, setSavedAt] = useState("");
   const [gloss, setGloss] = useState({ open: false, focus: null });
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -12508,13 +12331,52 @@ const App = () => {
   // pestaña para que volver a ella recuerde dónde estabas.
   const [section, setSection] = useState({});
   const [moreOpen, setMoreOpen] = useState(false);
-  // Pantalla de utilidad abierta desde "Más" (temporizador, guía, atlas,
-  // agenda del alumno). Se muestra por encima de la pestaña actual con una
+  // Pantalla de utilidad abierta desde "Más" (temporizador, guía, agenda
+  // del alumno). Se muestra por encima de la pestaña actual con una
   // cabecera de "volver", en vez de ocupar un lugar en la barra.
   const [utility, setUtility] = useState(null);
+  // Id del día que "Entrenar ahora" (desde Hoy) le pide a TrainTab que
+  // arranque directo en focus mode, sin pasar por el selector de rutinas.
+  // Vive acá (no dentro de TrainTab) porque el gesto nace en Hoy, una
+  // pantalla distinta — TrainTab lo consume una vez y avisa para que
+  // vuelva a null (si no, reabrir la pestaña Entrenar más tarde
+  // arrancaría la sesión de nuevo sin que nadie lo pidiera).
+  const [autoStartDayId, setAutoStartDayId] = useState(null);
   const [homeView, setHomeView] = useHomeView();
   const [routineView, setRoutineView] = useRoutineView();
-  const [aiFabVisible] = useAiFabVisible();
+  const [aiFabVisible, setAiFabVisible] = useAiFabVisible();
+  // Gesto para ocultar/mostrar el botón de IA sin pasar por "Más": tres
+  // toques seguidos en cualquier parte de la pantalla (no hace falta
+  // acertarle al botón, que es chico y a veces molesta tocarlo aposta). El
+  // ajuste de "Más" sigue siendo la forma normal — esto es un atajo, no un
+  // reemplazo. Se ignoran los toques que caen DENTRO del propio botón: ese
+  // ya tiene su propio gesto (tocar para abrir, mantener para arrastrar) y
+  // no debe competir con este.
+  const tapCountRef = useRef({ n: 0, timer: null });
+  // setAiFabVisible NO acepta un actualizador funcional (guarda el valor
+  // tal cual en una variable de módulo, ver setAiFabVisiblePref más
+  // arriba) — pasarle `(v) => !v` guardaría la función misma, y `!!fn` es
+  // siempre true. Por eso este ref: el listener se registra una sola vez
+  // (no depende de aiFabVisible), así que necesita una forma de leer el
+  // valor MÁS RECIENTE en el momento del toque, no el de cuando se montó.
+  const aiFabVisibleRef = useRef(aiFabVisible);
+  aiFabVisibleRef.current = aiFabVisible;
+  useEffect(() => {
+    const onTap = (e) => {
+      if (e.target.closest && e.target.closest('[aria-label^="Asistente de IA"]')) return;
+      const t = tapCountRef.current;
+      t.n += 1;
+      clearTimeout(t.timer);
+      if (t.n >= 3) {
+        t.n = 0;
+        setAiFabVisible(!aiFabVisibleRef.current);
+      } else {
+        t.timer = setTimeout(() => { t.n = 0; }, 600);
+      }
+    };
+    document.addEventListener("pointerdown", onTap);
+    return () => document.removeEventListener("pointerdown", onTap);
+  }, []);
   const [confirmDel, setConfirmDel] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -12846,10 +12708,17 @@ const App = () => {
               <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>modo {mode} · cambiar</div>
             </div>
           </button>
-          <button onClick={() => setMoreOpen(true)} aria-label="Más opciones"
+          {/* Para el alumno este botón ya no abre "Más" (eso se mudó al
+              "···" de la barra de pestañas, donde antes estaba Coach): abre
+              directo el chat con su coach, como el ícono de mensajería de
+              cualquier app — es lo que un alumno busca en la esquina
+              superior derecha, no un menú de ajustes. Para el coach sigue
+              abriendo "Más": su barra ya tiene una pestaña Mensajes propia. */}
+          <button onClick={() => (mode === "alumno" ? setTab("coach") : setMoreOpen(true))}
+            aria-label={mode === "alumno" ? "Chat con tu coach" : "Más opciones"}
             style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
               background: P.s1, border: `1px solid ${P.line}`, color: P.text, flexShrink: 0 }}>
-            <Layers size={18} strokeWidth={2.2} />
+            {mode === "alumno" ? <MessageSquare size={18} strokeWidth={2.2} /> : <Layers size={18} strokeWidth={2.2} />}
           </button>
         </div>
         <StorageBanner />
@@ -12872,7 +12741,6 @@ const App = () => {
                 <GlossaryBody showTopButton />
               </div>
             )}
-            {utility === "atlas" && <AtlasTab />}
             {utility === "agenda" && (
               <CalendarTab plan={plan} history={history} onGoTrain={() => { setUtility(null); setTab("entrenar"); }}
                 bookings={bookings.slots} sid={sid} onCancelBooking={(id) => saveBookings(bookings.slots.map((x) => (x.id === id ? { ...x, status: "cancelada" } : x)))} />
@@ -12891,16 +12759,23 @@ const App = () => {
 
         <div key={`${tab}-${sub || ""}`} className="sheetIn" style={{ display: utility ? "none" : undefined }}>
         {mode === "alumno" && tab === "hoy" && (
-          <TodayTabRouter view={homeView} plan={plan} history={history} active={active} role={mode} goTrain={() => setTab("entrenar")} allowedRoutines={currentStudent && currentStudent.allowedRoutines}
+          <TodayTabRouter view={homeView} plan={plan} history={history} active={active} role={mode}
+            goTrain={(dayId) => { if (dayId) setAutoStartDayId(dayId); setTab("entrenar"); }}
+            allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""}
-            onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => setTab("comida")} onOpenCoach={() => setTab("coach")} />
+            onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => setTab("nutricion")} onOpenCoach={() => setTab("coach")}
+            onOpenProgress={(jumpSub) => { if (jumpSub) setProgressJumpSub(jumpSub); setTab("progreso"); }} />
         )}
         {mode === "alumno" && tab === "entrenar" && (
           <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive}
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
-            allowedRoutines={currentStudent && currentStudent.allowedRoutines} />
+            allowedRoutines={currentStudent && currentStudent.allowedRoutines}
+            autoStartDayId={autoStartDayId} onAutoStartConsumed={() => setAutoStartDayId(null)} />
         )}
-        {mode === "alumno" && tab === "progreso" && <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory} />}
+        {mode === "alumno" && tab === "progreso" && (
+          <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
+            jumpSub={progressJumpSub} onJumpConsumed={() => setProgressJumpSub(null)} />
+        )}
         {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} />}
         {mode === "alumno" && tab === "coach" && <ChatTab sid={sid} role="alumno" />}
         {/* Jerarquía: deshacer/rehacer son acciones corrientes (gris de
@@ -12970,7 +12845,11 @@ const App = () => {
         </div>
       </div>
 
-      <TabBar tabs={tabs} tab={tab} setTab={setTab} />
+      {/* "mas" (el "···" que reemplazó a Coach en la barra del alumno) no es
+          una pantalla propia: abre la misma hoja "Más" de siempre en vez de
+          cambiar de pestaña, así que se intercepta acá en vez de tocar
+          TabBar (que sigue sin saber nada de casos especiales). */}
+      <TabBar tabs={tabs} tab={tab} setTab={(id) => (id === "mas" ? setMoreOpen(true) : setTab(id))} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode}
         canManageTeam={myRoleMeta.manageTeam} viewMode={homeView} onChangeViewMode={setHomeView}
         routineView={routineView} onChangeRoutineView={setRoutineView}
