@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v118";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v119";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1171,6 +1171,32 @@ async function sSet(key, value, shared = true) {
     storageOK = false;
     queuePendingWrite(key, value, false);
     return true; // el dato SÍ quedó guardado (local + en cola) — no es una pérdida
+  }
+}
+
+// Igual que sGet, pero distingue "no existe" de "no pude leer": devuelve
+// { ok, value }, donde ok=false significa que la lectura NO llegó al
+// servidor. sGet devuelve null en los dos casos y eso ya costó caro: si
+// la primera lectura del roster fallaba por red, el arranque armaba un
+// roster nuevo con un alumno de ejemplo y lo ESCRIBÍA encima del real en
+// Supabase — la lista de alumnos del coach desaparecía, y con ella el
+// acceso a sus planes (los planes quedaban intactos en la base, pero sin
+// forma de llegar a ellos desde la app). Sembrar datos iniciales solo
+// puede pasar cuando sabemos que la consulta llegó y volvió vacía.
+async function sGetKnown(key) {
+  try {
+    const r = await fetchWithTimeout(`${SB_URL}?key=eq.${encodeURIComponent(key)}&select=value`, { headers: SB_H });
+    if (!r.ok) throw new Error(r.statusText);
+    const rows = await r.json();
+    const val = rows.length ? rows[0].value : null;
+    if (val !== null) { remoteCache.set(key, val); lsSetRaw(key, val); }
+    storageOK = true;
+    return { ok: true, value: val };
+  } catch (e) {
+    storageOK = false;
+    if (remoteCache.has(key)) return { ok: false, value: remoteCache.get(key) };
+    const local = lsGetRaw(key);
+    return { ok: false, value: local !== undefined ? local : null };
   }
 }
 
@@ -12344,8 +12370,19 @@ const App = () => {
 
   useEffect(() => {
     (async () => {
-      let r = await sGet("forja-roster");
-      if (!r || r.v !== ROSTER_VERSION || !r.students || r.students.length === 0) {
+      const got = await sGetKnown("forja-roster");
+      let r = got.value;
+      const usable = r && r.v === ROSTER_VERSION && r.students && r.students.length > 0;
+      if (!usable) {
+        if (!got.ok) {
+          // La lectura no llegó al servidor. NO se siembra nada: un roster
+          // de ejemplo escrito acá pisaría el real, que sigue existiendo
+          // en la base. Se muestra vacío y el usuario reintenta con señal.
+          setRoster({ v: ROSTER_VERSION, students: [] });
+          setLoading(false);
+          return;
+        }
+        // Lectura confirmada y sin roster: primera vez de verdad.
         const id = uid();
         r = { v: ROSTER_VERSION, students: [{ id, name: "Alumno ejemplo", createdAt: todayISO() }] };
         await sSet(`forja-plan:${id}`, seedPlanWithSchedule());
