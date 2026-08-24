@@ -6,7 +6,7 @@ import {
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
-  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal
+  Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator
 } from "lucide-react";
 
 /* ============================================================
@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v122";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v123";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4007,56 +4007,6 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    y las casillas son blancas con contorno fino.
    ============================================================ */
 
-// Salir del focus mode ya no es un toque: hay que mantener pulsado 5s. Un
-// anillo circular (SVG) muestra el progreso y el número de segundos que
-// faltan, para que quede claro que hace falta sostener, no tocar.
-const HOLD_EXIT_MS = 5000;
-const HoldToExitButton = ({ onExit }) => {
-  const [progress, setProgress] = useState(0); // 0..1
-  const startAt = useRef(null);
-  const raf = useRef(null);
-  const cancel = () => {
-    if (raf.current) cancelAnimationFrame(raf.current);
-    raf.current = null; startAt.current = null;
-    setProgress(0);
-  };
-  const start = () => {
-    startAt.current = Date.now();
-    const tick = () => {
-      if (!startAt.current) return;
-      const p = Math.min(1, (Date.now() - startAt.current) / HOLD_EXIT_MS);
-      setProgress(p);
-      if (p >= 1) { cancel(); onExit(); return; }
-      raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-  };
-  useEffect(() => () => cancel(), []);
-  const active = progress > 0;
-  const remaining = Math.max(1, Math.ceil((1 - progress) * (HOLD_EXIT_MS / 1000)));
-  const R = 16, C = 2 * Math.PI * R;
-  return (
-    <button
-      onPointerDown={(e) => { e.preventDefault(); start(); }}
-      onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={cancel}
-      onContextMenu={(e) => e.preventDefault()}
-      aria-label="Mantén pulsado 5 segundos para salir del focus mode"
-      title="Mantén pulsado 5 segundos para salir"
-      style={{ position: "relative", width: 38, height: 38, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-        color: active ? P.ember2 : P.faint, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12,
-        touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
-      <svg width={38} height={38} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }} aria-hidden="true">
-        <circle cx="19" cy="19" r={R} fill="none" stroke={P.line} strokeWidth={2.5} />
-        {active && (
-          <circle cx="19" cy="19" r={R} fill="none" stroke={P.ember} strokeWidth={2.5} strokeLinecap="round"
-            strokeDasharray={C} strokeDashoffset={C * (1 - progress)} />
-        )}
-      </svg>
-      {active ? <span style={{ fontSize: 13, fontWeight: 700 }}>{remaining}</span> : <X size={17} />}
-    </button>
-  );
-};
-
 /* ============================================================
    FocusModeMono — modo "Nuevo" de Entrenar (pantalla "2a" del handoff
    Forja Mobile), la más delicada de las ocho: es la sesión en vivo
@@ -4073,7 +4023,7 @@ const HoldToExitButton = ({ onExit }) => {
    que existe.
 
    Piezas reutilizadas tal cual, sin re-temizar (mismo criterio que
-   SetsEditor en el editor de rutina): HoldToExitButton, UnitToggle,
+   SetsEditor en el editor de rutina): UnitToggle,
    TempoBadge, ExerciseIconTile, ExerciseInfoSheet, Confirm,
    ImageViewer. Todas usan P.* (el tema oscuro/claro global de FORJA,
    no fijo al mono) — se ven consistentes consigo mismas aunque no
@@ -4100,6 +4050,17 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
   const [confirmFinish, setConfirmFinish] = useState(false);
+  const [confirmExit, setConfirmExit] = useState(false);
+  const [histEx, setHistEx] = useState(null); // índice del ejercicio con el historial abierto
+  // Calculadoras (e1RM, peso objetivo, PR, %-del-top-set): herramientas de
+  // referencia rápida, no tocan ninguna serie — nada de esto se guarda,
+  // es una calculadora de bolsillo que no hay que salir de Focus Mode
+  // para usar.
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [c1w, setC1w] = useState(""); const [c1r, setC1r] = useState(""); const [c1rir, setC1rir] = useState("");
+  const [c2e, setC2e] = useState(""); const [c2r, setC2r] = useState(""); const [c2rir, setC2rir] = useState("");
+  const [c3prev, setC3prev] = useState(""); const [c3cur, setC3cur] = useState("");
+  const [c4top, setC4top] = useState(""); const [c4pct, setC4pct] = useState("85"); const [c4round, setC4round] = useState(2.5);
   // Estado propio de esta variante (FocusMode no lo necesita: ahí las
   // casillas de peso/reps/RIR siempren están a la vista). Acá una serie
   // "hecha" se colapsa a una línea de solo lectura para calzar con el
@@ -4126,6 +4087,16 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   }, []);
 
   const exs = active.exs;
+  // Última sesión registrada de un ejercicio (mismo dato que ya usa el
+  // prefill de más abajo, expuesto acá también para la etiqueta "Última:"
+  // de cada casilla — no una fuente nueva, la misma).
+  const lastEntryOf = (exId) => { const arr = history.byEx[exId] || []; return arr.length ? arr[arr.length - 1] : null; };
+  // +/- de las casillas con flechitas: nunca baja de 0, redondea a un
+  // decimal para no acumular error de punto flotante con pasos de .5/2.5.
+  const stepVal = (v, delta) => {
+    const n = parseFloat(String(v).replace(",", ".")) || 0;
+    return kg(Math.max(0, Math.round((n + delta) * 10) / 10));
+  };
 
   const pages = useMemo(() => {
     const out = [];
@@ -4300,6 +4271,11 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
               border: `1px solid ${MONO.line}`, borderRadius: 17, padding: big ? "7px 12px" : "6px 10px" }}>
             <BookOpen size={big ? 16 : 14} /> Ficha
           </button>
+          <button data-keep onClick={() => setHistEx(ei)} aria-label={`Ver historial de ${exx.name}`}
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: MONO.inkDim, fontWeight: 600,
+              border: `1px solid ${MONO.line}`, borderRadius: 17, padding: big ? "7px 12px" : "6px 10px" }}>
+            <History size={big ? 16 : 14} /> Historial
+          </button>
           {exx.video && (
             <a href={exx.video} target="_blank" rel="noopener noreferrer"
               style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: P.blue, fontWeight: 600 }}>
@@ -4340,15 +4316,39 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
     const isActive = !st.done && (openRow[ck] || si === firstPending);
     const grid = { display: "grid", gridTemplateColumns: "48px 1fr 1fr 48px", gap: 10, alignItems: "center" };
     const short = (SET_TYPES[st.type] || SET_TYPES.normal).short;
+    const lastEntry = lastEntryOf(exx.id);
+    const lastSet = lastEntry ? (lastEntry.sets || [])[si] : null;
 
-    const field = (value, unit, onChange) => (
-      <span style={{ display: "flex", alignItems: "baseline", gap: 3, background: MONO.surface,
-        border: `1px solid ${MONO.chipBorder}`, borderRadius: 10, padding: "8px 10px", minWidth: 0 }}>
-        <input value={value} inputMode="decimal" enterKeyHint="done" placeholder="—"
-          onChange={(e) => onChange(e.target.value.replace(/[^0-9.,]/g, ""))}
-          style={{ width: "100%", minWidth: 0, padding: 0, border: "none", background: "transparent",
-            fontSize: 19, fontWeight: 700, color: MONO.ink, borderRadius: 0 }} />
-        <span style={{ fontSize: 11, color: MONO.inkTertiary, flexShrink: 0 }}>{unit}</span>
+    // Casilla con flechitas arriba/abajo, el número al medio, y — cuando
+    // hay una sesión previa para este mismo ejercicio y esta misma serie —
+    // "Última: X" debajo en un gris más claro: no es un valor nuevo, es
+    // el de la vez pasada, para que quede claro de un vistazo que es una
+    // referencia y no algo que ya escribiste hoy.
+    const field = (value, unit, onChange, step, lastVal) => (
+      <span style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+        <span style={{ display: "flex", flexDirection: "column", background: MONO.surface,
+          border: `1px solid ${MONO.chipBorder}`, borderRadius: 10, overflow: "hidden" }}>
+          <button type="button" data-keep onClick={() => onChange(stepVal(value, step))} aria-label="Aumentar"
+            style={{ padding: "3px 0", display: "flex", alignItems: "center", justifyContent: "center",
+              color: MONO.inkTertiary, borderBottom: `1px solid ${MONO.chipBorder}` }}>
+            <ChevronUp size={13} strokeWidth={2.6} />
+          </button>
+          <span style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 3, padding: "6px 4px" }}>
+            <input value={value} inputMode="decimal" enterKeyHint="done" placeholder="—"
+              onChange={(e) => onChange(e.target.value.replace(/[^0-9.,]/g, ""))}
+              style={{ width: "100%", minWidth: 0, padding: 0, border: "none", background: "transparent", textAlign: "center",
+                fontSize: 19, fontWeight: 700, color: MONO.ink, borderRadius: 0 }} />
+            <span style={{ fontSize: 11, color: MONO.inkTertiary, flexShrink: 0 }}>{unit}</span>
+          </span>
+          <button type="button" data-keep onClick={() => onChange(stepVal(value, -step))} aria-label="Disminuir"
+            style={{ padding: "3px 0", display: "flex", alignItems: "center", justifyContent: "center",
+              color: MONO.inkTertiary, borderTop: `1px solid ${MONO.chipBorder}` }}>
+            <ChevronDown size={13} strokeWidth={2.6} />
+          </button>
+        </span>
+        {lastVal != null && lastVal !== "" && (
+          <span style={{ fontSize: 10.5, color: MONO.inkTertiary, textAlign: "center" }}>Última: {lastVal}{unit !== "reps" ? ` ${unit}` : ""}</span>
+        )}
       </span>
     );
 
@@ -4361,13 +4361,13 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
             title={(SET_TYPES[st.type] || {}).label} aria-label={`${short} — tocar para editar esta serie`}
             style={{ fontSize: 11, fontWeight: 700, textAlign: "left", color: st.done ? MONO.inkDim : MONO.ink }}>{short}</button>
 
-          {isActive ? field(st.weight, weightUnit, (v) => setVal(ei, si, "weight", v)) : (
+          {isActive ? field(st.weight, weightUnit, (v) => setVal(ei, si, "weight", v), weightUnit === "kg" ? 2.5 : 5, lastSet && lastSet.weight) : (
             <span style={{ fontSize: 16, fontWeight: 700, color: st.done ? MONO.inkTertiary : MONO.ink }}>
               {st.weight !== "" ? `${st.weight} ${weightUnit}` : "—"}
             </span>
           )}
 
-          {isActive ? field(st.reps, "reps", (v) => setVal(ei, si, "reps", v)) : (
+          {isActive ? field(st.reps, "reps", (v) => setVal(ei, si, "reps", v), 1, lastSet && lastSet.reps) : (
             <span style={{ fontSize: 16, fontWeight: 700, color: st.done ? MONO.inkTertiary : MONO.ink }}>
               {st.reps !== "" ? st.reps : (st.repsT || "—")}
             </span>
@@ -4384,12 +4384,21 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
 
         {isActive && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 2px 10px" }}>
-            <span style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+            <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               <span className="mono" style={{ fontSize: 10.5 }}>RIR</span>
-              <input value={st.rir} inputMode="numeric" placeholder={st.rirT !== "" ? String(st.rirT) : "—"}
-                onChange={(e) => setVal(ei, si, "rir", e.target.value.replace(/[^0-9]/g, ""))}
-                style={{ width: 46, padding: "5px 7px", fontSize: 14, fontWeight: 700, textAlign: "center",
-                  background: MONO.surface, border: `1px solid ${MONO.chipBorder}`, borderRadius: 8, color: MONO.ink }} />
+              <span style={{ display: "flex", alignItems: "center", background: MONO.surface, border: `1px solid ${MONO.chipBorder}`, borderRadius: 8, overflow: "hidden" }}>
+                <button type="button" data-keep onClick={() => setVal(ei, si, "rir", stepVal(st.rir, -1))} aria-label="Bajar RIR"
+                  style={{ width: 24, padding: "5px 0", color: MONO.inkTertiary, fontSize: 14, fontWeight: 700, borderRight: `1px solid ${MONO.chipBorder}` }}>−</button>
+                <input value={st.rir} inputMode="numeric" placeholder={st.rirT !== "" ? String(st.rirT) : "—"}
+                  onChange={(e) => setVal(ei, si, "rir", e.target.value.replace(/[^0-9]/g, ""))}
+                  style={{ width: 32, padding: "5px 2px", fontSize: 14, fontWeight: 700, textAlign: "center",
+                    background: "transparent", border: "none", color: MONO.ink }} />
+                <button type="button" data-keep onClick={() => setVal(ei, si, "rir", stepVal(st.rir, 1))} aria-label="Subir RIR"
+                  style={{ width: 24, padding: "5px 0", color: MONO.inkTertiary, fontSize: 14, fontWeight: 700, borderLeft: `1px solid ${MONO.chipBorder}` }}>+</button>
+              </span>
+              {lastSet && lastSet.rir !== "" && lastSet.rir != null && (
+                <span style={{ fontSize: 10, color: MONO.inkTertiary }}>Última: {lastSet.rir}</span>
+              )}
             </span>
             <div style={{ flex: 1 }} />
             <button onClick={() => clearSet(ei, si)} aria-label="Borrar los datos de la serie" style={{ padding: 6, color: MONO.inkTertiary }}><Trash2 size={16} /></button>
@@ -4421,6 +4430,35 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   // GROUP_KINDS[kind].color: en este sistema el tipo de bloque se
   // distingue por la etiqueta de texto, nunca por color — igual que ya
   // se hizo en Editor de rutina.
+
+  // Salir ya no exige mantener pulsado 5s (poco útil, a pedido explícito):
+  // un toque en la X alcanza para abrir esta pantalla de confirmación, que
+  // reemplaza todo el contenido en vez de flotar encima — nada que fijar
+  // en un scrim ni z-index que pelear. "Continuar" y la propia X vuelven
+  // sin tocar nada; solo "Salir a sesión normal" llama a onExit de verdad.
+  if (confirmExit) {
+    return (
+      <div style={{ position: "fixed", inset: 0, zIndex: 90, background: MONO.bg, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", gap: 20, padding: "32px 28px",
+        paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)", textAlign: "center" }}>
+        <button onClick={() => setConfirmExit(false)} aria-label="Cerrar"
+          style={{ width: 56, height: 56, borderRadius: 28, background: MONO.ink, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <X size={24} strokeWidth={2.4} />
+        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 300 }}>
+          <div style={{ fontSize: 21, fontWeight: 700, color: MONO.ink }}>¿Salir de Focus Mode?</div>
+          <div style={{ fontSize: 15, color: MONO.inkFaint, lineHeight: 1.5 }}>No pierdes nada. La sesión sigue activa y todos los datos escritos ya están guardados.</div>
+        </div>
+        <button onClick={onExit} style={{ width: "100%", maxWidth: 320, padding: 16, borderRadius: 16, background: MONO.ink, color: "#FFFFFF", fontSize: 16, fontWeight: 700 }}>
+          Salir a sesión normal
+        </button>
+        <button onClick={() => setConfirmExit(false)} style={{ fontSize: 15, fontWeight: 700, color: MONO.ink, padding: 8 }}>
+          Continuar en Focus Mode
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       onClickCapture={(e) => {
@@ -4435,7 +4473,11 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
           debajo, y el cronómetro a la derecha. Antes eran ocho controles en
           una sola fila que no entraban y cortaban "Terminar". */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 20px 12px", flexShrink: 0 }}>
-        <HoldToExitButton onExit={onExit} />
+        <button onClick={() => setConfirmExit(true)} aria-label="Salir de Focus Mode"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 38, height: 38, borderRadius: 19, flexShrink: 0,
+            border: `1.5px solid ${MONO.line}`, color: MONO.inkDim }}>
+          <X size={18} strokeWidth={2.4} />
+        </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16.5, fontWeight: 700, color: MONO.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</div>
           <div style={{ fontSize: 12.5, color: MONO.inkTertiary }}>Ejercicio {pageIdx + 1} de {pages.length} · {doneSets}/{totalSets} series</div>
@@ -4460,6 +4502,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
           style={{ padding: 6, color: undoStack.length ? MONO.inkDim : MONO.line }}><Undo2 size={17} /></button>
         <button onClick={redo} disabled={!redoStack.length} aria-label="Rehacer"
           style={{ padding: 6, color: redoStack.length ? MONO.inkDim : MONO.line }}><Redo2 size={17} /></button>
+        <button onClick={() => setCalcOpen(true)} aria-label="Calculadoras" style={{ padding: 6, color: MONO.inkDim }}><Calculator size={17} /></button>
         <div style={{ flex: 1 }} />
         <span title={pendingWrites ? `Guardado en el dispositivo · sincronizando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
           style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0,
@@ -4565,6 +4608,98 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
         okLabel="Terminar y guardar" onOk={() => { setConfirmFinish(false); onFinish(); }} onCancel={() => setConfirmFinish(false)} />
       <ExerciseInfoSheet ex={ficha != null ? exs[ficha] : null} open={ficha != null} onClose={() => setFicha(null)}
         onPatchEx={ficha != null && patchEx ? (p) => patchEx(ficha, p) : null} onOpenImg={setViewImg} onError={onError} history={history} />
+      <Sheet open={histEx != null} onClose={() => setHistEx(null)} title={histEx != null ? `Historial · ${exs[histEx].name}` : "Historial"} tall>
+        <ExHistorySheetInline entries={(histEx != null && history.byEx[exs[histEx].id]) || []} onOpenImg={setViewImg} />
+      </Sheet>
+      <Sheet open={calcOpen} onClose={() => setCalcOpen(false)} title="Calculadoras" tall>
+        {(() => {
+          const e1rmOf = (w, r, rir) => { const ww = num(w), rr = num(r), ri = num(rir) || 0; if (!ww || !rr) return null; return ww * (1 + (rr + ri) / 30); };
+          const calcField = (label, value, onChange, placeholder) => (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, color: MONO.inkFaint, fontWeight: 600, marginBottom: 4 }}>{label}</div>
+              <input value={value} onChange={(e) => onChange(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" placeholder={placeholder || ""}
+                style={{ width: "100%", padding: "10px 11px", borderRadius: 10, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 16, fontWeight: 700 }} />
+            </div>
+          );
+          const calcResult = (label, value) => (
+            <div style={{ padding: "12px 14px", borderRadius: 12, background: value != null ? MONO.ink : MONO.chipBg,
+              color: value != null ? "#FFFFFF" : MONO.inkFaint, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 13.5, opacity: value != null ? 0.7 : 1 }}>{label}</span>
+              <span style={{ fontSize: 17, fontWeight: 700 }}>{value != null ? value : "—"}</span>
+            </div>
+          );
+          const e1 = e1rmOf(c1w, c1r, c1rir);
+          const targetW = (() => { const e = num(c2e), r = num(c2r), ri = num(c2rir) || 0; if (!e || !r) return null; return e / (1 + (r + ri) / 30); })();
+          const prNew = num(c3cur), prOld = num(c3prev);
+          const prResult = (!prNew || !prOld) ? null : prNew > prOld
+            ? `¡Récord! +${kg(prNew - prOld)} kg (+${Math.round(((prNew - prOld) / prOld) * 1000) / 10}%)`
+            : `Aún no — faltan ${kg(prOld - prNew)} kg`;
+          const workW = (() => { const t = num(c4top), p = num(c4pct); if (!t || !p) return null; return Math.round((t * (p / 100)) / c4round) * c4round; })();
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+                <MonoLabel>RIR / RM</MonoLabel>
+                <div style={{ fontSize: 17, fontWeight: 700, color: MONO.ink }}>e1RM estimado</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {calcField("Peso", c1w, setC1w)}
+                  {calcField("Reps", c1r, setC1r)}
+                  {calcField("RIR", c1rir, setC1rir)}
+                </div>
+                {calcResult("e1RM", e1 != null ? `${kg(e1)} kg` : null)}
+              </MonoCard>
+
+              <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+                <MonoLabel>Peso objetivo</MonoLabel>
+                <div style={{ fontSize: 17, fontWeight: 700, color: MONO.ink }}>RM + RIR</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {calcField("e1RM", c2e, setC2e)}
+                  {calcField("Reps", c2r, setC2r)}
+                  {calcField("RIR", c2rir, setC2rir)}
+                </div>
+                {calcResult("Peso sugerido", targetW != null ? `${kg(targetW)} kg` : null)}
+              </MonoCard>
+
+              <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+                <MonoLabel>PR</MonoLabel>
+                <div style={{ fontSize: 17, fontWeight: 700, color: MONO.ink }}>¿Fue récord?</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {calcField("Mejor e1RM previo", c3prev, setC3prev)}
+                  {calcField("e1RM actual", c3cur, setC3cur)}
+                </div>
+                {calcResult("Resultado", prResult)}
+              </MonoCard>
+
+              <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+                <MonoLabel>% del top set</MonoLabel>
+                <div style={{ fontSize: 17, fontWeight: 700, color: MONO.ink }}>Peso de trabajo</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {calcField("Top set", c4top, setC4top)}
+                  {calcField("%", c4pct, setC4pct)}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: MONO.inkFaint, fontWeight: 600, marginBottom: 4 }}>Redondeo</div>
+                    <select value={c4round} onChange={(e) => setC4round(+e.target.value)}
+                      style={{ width: "100%", padding: "10px 8px", borderRadius: 10, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14, fontWeight: 700 }}>
+                      <option value={1}>1 kg</option>
+                      <option value={2.5}>2,5 kg</option>
+                      <option value={5}>5 kg</option>
+                    </select>
+                  </div>
+                </div>
+                {calcResult("Peso de trabajo", workW != null ? `${kg(workW)} kg` : null)}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {["70", "75", "80", "85", "90"].map((p) => (
+                    <button key={p} onClick={() => setC4pct(p)}
+                      style={{ flex: 1, minWidth: 56, padding: "8px 0", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
+                        background: c4pct === p ? MONO.ink : MONO.chipBg, color: c4pct === p ? "#FFFFFF" : MONO.inkDim,
+                        border: `1px solid ${c4pct === p ? MONO.ink : MONO.chipBorder}` }}>{p}%</button>
+                  ))}
+                </div>
+              </MonoCard>
+              <div style={{ fontSize: 12, color: MONO.inkFaint, lineHeight: 1.5 }}>e1RM es una estimación basada en peso, repeticiones y RIR (fórmula de Epley ajustada). No reemplaza un test real.</div>
+            </div>
+          );
+        })()}
+      </Sheet>
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
   );
@@ -5178,7 +5313,11 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const [showInstr, setShowInstr] = useState(false);
   const [exExpanded, setExExpanded] = useState(false);
   const [dayDetail, setDayDetail] = useState(null);   // día de la franja semanal tocado (variante panel)
-  const [statDetail, setStatDetail] = useState(null);  // "adherencia" | "racha" | "peso" | "volumen"
+  const [statDetail, setStatDetail] = useState(null);  // "adherencia" | "racha" | "peso" | "volumen" | "pasos" | "agua" | "sueno"
+  const [checkinOpen, setCheckinOpen] = useState(false);
+  const [checkinEnergy, setCheckinEnergy] = useState("medio");
+  const [checkinNote, setCheckinNote] = useState("");
+  const [checkinSending, setCheckinSending] = useState(false);
   const d = useTodayData(plan, history, allowedRoutines);
   const name = studentName || "";
   const firstName = name.split(" ")[0] || "";
@@ -5187,6 +5326,27 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const macros = macroSolve(n, n.solve || "kcal");
   const hasMacros = (+macros.kcal || 0) > 0 || (+macros.p || 0) > 0;
   const instrCount = (plan.instructions || []).length;
+
+  // El check-in no es un dato nuevo que guardar por separado — es un
+  // mensaje más al mismo chat de siempre (forja-chat:<sid>, el que ya usa
+  // ChatTab), solo que con un formato fijo, para que el coach lo distinga
+  // de un mensaje suelto de un vistazo. Nada nuevo que sincronizar ni
+  // ninguna pantalla nueva del lado del coach: ya lee este chat.
+  const CHECKIN_ENERGY_LABEL = { bajo: "Baja", medio: "Media", alto: "Alta" };
+  const sendCheckin = async () => {
+    if (!sid || checkinSending) return;
+    setCheckinSending(true);
+    const lines = [`Check-in · ${fmtDateFull(todayISO())}`, `Energía: ${CHECKIN_ENERGY_LABEL[checkinEnergy]}`];
+    if (checkinNote.trim()) lines.push(checkinNote.trim());
+    const key = `forja-chat:${sid}`;
+    const current = (await sGet(key)) || [];
+    const next = [...current, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, from: "alumno", kind: "text", text: lines.join("\n"), ts: Date.now() }];
+    await sSet(key, next);
+    setCheckinSending(false);
+    setCheckinOpen(false);
+    setCheckinNote("");
+    setCheckinEnergy("medio");
+  };
 
   // Una sola decisión por pantalla: qué entrenar hoy. Si hay sesión en
   // curso, esa manda; si no, la sugerida.
@@ -5381,7 +5541,8 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
           {[
             { label: "Entrenar ahora", Icon: Play, onClick: () => goTrain(active ? undefined : d.suggested && d.suggested.id) },
-            { label: "Preguntar a IA", Icon: Sparkles, onClick: onOpenAIChat },
+            { label: "Coach IA", Icon: Sparkles, onClick: onOpenAIChat },
+            { label: "Check-in", Icon: Flame, onClick: () => setCheckinOpen(true) },
             { label: "Timer", Icon: Timer, onClick: onOpenTimer },
             { label: "Agenda", Icon: Calendar, onClick: onOpenAgenda },
           ].map(({ label, Icon, onClick }) => (
@@ -5515,6 +5676,24 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Registrar de hoy</Btn>
           </div>
         )}
+      </Sheet>
+
+      <Sheet open={checkinOpen} onClose={() => setCheckinOpen(false)} title="Check-in">
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Un mensaje rápido a tu coach con cómo llegas hoy — llega directo a tu chat de siempre.</div>
+          <div>
+            <div className="mono" style={{ letterSpacing: ".08em", marginBottom: 8 }}>Energía</div>
+            <SectionSwitch items={[{ id: "bajo", label: "Baja" }, { id: "medio", label: "Media" }, { id: "alto", label: "Alta" }]}
+              value={checkinEnergy} onChange={setCheckinEnergy} />
+          </div>
+          <div>
+            <div className="mono" style={{ letterSpacing: ".08em", marginBottom: 8 }}>Nota (opcional)</div>
+            <Txt value={checkinNote} onChange={(e) => setCheckinNote(e.target.value)} placeholder="Cómo dormiste, algo que te molesta, cómo vienes con la dieta…" rows={3} />
+          </div>
+          <Btn kind="ember" onClick={sendCheckin} disabled={checkinSending} style={{ width: "100%" }}>
+            {checkinSending ? "Enviando…" : "Enviar check-in"}
+          </Btn>
+        </div>
       </Sheet>
     </div>
   );
