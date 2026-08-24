@@ -15,7 +15,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v117";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v118";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3968,6 +3968,56 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    El sistema de diseño no tiene negro puro: la tinta es #101012
    y las casillas son blancas con contorno fino.
    ============================================================ */
+
+// Salir del focus mode ya no es un toque: hay que mantener pulsado 5s. Un
+// anillo circular (SVG) muestra el progreso y el número de segundos que
+// faltan, para que quede claro que hace falta sostener, no tocar.
+const HOLD_EXIT_MS = 5000;
+const HoldToExitButton = ({ onExit }) => {
+  const [progress, setProgress] = useState(0); // 0..1
+  const startAt = useRef(null);
+  const raf = useRef(null);
+  const cancel = () => {
+    if (raf.current) cancelAnimationFrame(raf.current);
+    raf.current = null; startAt.current = null;
+    setProgress(0);
+  };
+  const start = () => {
+    startAt.current = Date.now();
+    const tick = () => {
+      if (!startAt.current) return;
+      const p = Math.min(1, (Date.now() - startAt.current) / HOLD_EXIT_MS);
+      setProgress(p);
+      if (p >= 1) { cancel(); onExit(); return; }
+      raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+  };
+  useEffect(() => () => cancel(), []);
+  const active = progress > 0;
+  const remaining = Math.max(1, Math.ceil((1 - progress) * (HOLD_EXIT_MS / 1000)));
+  const R = 16, C = 2 * Math.PI * R;
+  return (
+    <button
+      onPointerDown={(e) => { e.preventDefault(); start(); }}
+      onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={cancel}
+      onContextMenu={(e) => e.preventDefault()}
+      aria-label="Mantén pulsado 5 segundos para salir del focus mode"
+      title="Mantén pulsado 5 segundos para salir"
+      style={{ position: "relative", width: 38, height: 38, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+        color: active ? P.ember2 : P.faint, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12,
+        touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}>
+      <svg width={38} height={38} style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }} aria-hidden="true">
+        <circle cx="19" cy="19" r={R} fill="none" stroke={P.line} strokeWidth={2.5} />
+        {active && (
+          <circle cx="19" cy="19" r={R} fill="none" stroke={P.ember} strokeWidth={2.5} strokeLinecap="round"
+            strokeDasharray={C} strokeDashoffset={C * (1 - progress)} />
+        )}
+      </svg>
+      {active ? <span style={{ fontSize: 13, fontWeight: 700 }}>{remaining}</span> : <X size={17} />}
+    </button>
+  );
+};
 
 /* ============================================================
    FocusModeMono — modo "Nuevo" de Entrenar (pantalla "2a" del handoff
