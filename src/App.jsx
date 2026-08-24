@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v124";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v125";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -12342,12 +12342,19 @@ const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewM
    herramientas de referencia (Temporizador, Guía y, para el alumno, Agenda)
    salen de la barra y viven en la hoja "Más". */
 const TABS = {
+  // "Coach" (antes "Más"/"···"): la mensajería con el coach vuelve a ser
+  // una pestaña propia de la barra inferior, en el mismo lugar donde el
+  // modo coach ya tiene su pestaña "Mensajes" — es el lugar donde la
+  // gente ya busca esto en cualquier app con barra de pestañas, no un
+  // ícono suelto en la esquina superior derecha. "Más" (herramientas,
+  // ajustes) se muda al botón de la cabecera, calcando exactamente lo
+  // que el modo coach ya hace con ese mismo botón.
   alumno: [
     { id: "hoy", label: "Inicio", Icon: Home },
     { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
     { id: "progreso", label: "Progreso", Icon: BarChart3 },
     { id: "nutricion", label: "Nutrición", Icon: Utensils },
-    { id: "mas", label: "Más", Icon: MoreHorizontal },
+    { id: "coach", label: "Coach", Icon: MessageSquare },
   ],
   coach: [
     { id: "dashboard", label: "Panel", Icon: LayoutDashboard, sections: ["dashboard"] },
@@ -12370,8 +12377,8 @@ const UTILITY_SCREENS = {
 
 // Easy Mode deja solo lo imprescindible en la barra inferior. Todo lo
 // demás sigue existiendo: vuelve al toque con el switch de Interfaz.
-const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "mas"] };
-const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
+const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "coach"] };
+const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", coach: "Coach" };
 
 /* ============================================================
    Componentes de sistema (portados de la implementación de
@@ -12799,16 +12806,33 @@ function clampFabPos(p) {
 // y su posición se recuerda en este dispositivo; un toque sin arrastre lo
 // abre. En modo coach abre la pestaña IA de siempre (con todas sus
 // herramientas); en modo alumno abre un chat nuevo, de solo consulta.
+//
+// Ocultarlo/mostrarlo: antes era "tres toques seguidos en cualquier parte
+// de la pantalla", con un listener global de pointerdown — el problema es
+// que CUALQUIER toque de la app sumaba para ese conteo, así que tocar
+// rápido "siguiente"/"anterior" en Focus Mode (o un swipe) se contaba como
+// si fueran los tres toques y el ícono aparecía y desaparecía solo. Ahora
+// el gesto vive en el propio botón, donde no compite con nada más: mantener
+// presionado lo oculta (el ícono cambia a un ojo tachado mientras se
+// sostiene, como aviso de "esto lo va a ocultar"), y en su lugar queda una
+// pestañita angosta pegada al borde — visible pero discreta, como el
+// "chat head" minimizado de Messenger o el indicador de AssistiveTouch en
+// iOS — que con un toque lo trae de vuelta al instante. El ajuste de
+// "Más" sigue existiendo como forma alternativa, no se saca nada.
+const AI_FAB_HOLD_MS = 550;
 const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatSignal, toast }) => {
+  const [visible, setVisible] = useAiFabVisible();
   const [pos, setPos] = useState(() => clampFabPos(loadFabPos() || { right: 16, bottom: 110 }));
   const [dragging, setDragging] = useState(false);
+  const [holding, setHolding] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
-  const dragRef = useRef({ startX: 0, startY: 0, startRight: 0, startBottom: 0, moved: false });
+  const dragRef = useRef({ startX: 0, startY: 0, startRight: 0, startBottom: 0, moved: false, hidden: false });
+  const holdTimer = useRef(null);
 
-  // Señal externa (Acciones rápidas en Hoy → "Preguntar a IA"): abre el
-  // MISMO sheet que ya abre este botón, sin duplicar nada. 0 es "todavía
-  // nadie pidió nada" — solo actúa cuando el número sube.
+  // Señal externa (Acciones rápidas en Hoy → "Coach IA"): abre el MISMO
+  // sheet que ya abre este botón, sin duplicar nada. 0 es "todavía nadie
+  // pidió nada" — solo actúa cuando el número sube.
   const seenSignal = useRef(0);
   useEffect(() => {
     if (mode !== "alumno" || !openChatSignal || openChatSignal === seenSignal.current) return;
@@ -12821,6 +12845,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  useEffect(() => () => clearTimeout(holdTimer.current), []);
 
   // La API key la carga el coach desde la pestaña IA (sGet/sSet con
   // shared=true: vive en Supabase, no en este dispositivo) — el alumno la
@@ -12833,18 +12858,30 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
   }, [mode, chatOpen]);
 
   const onPointerDown = (e) => {
-    dragRef.current = { startX: e.clientX, startY: e.clientY, startRight: pos.right, startBottom: pos.bottom, moved: false };
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startRight: pos.right, startBottom: pos.bottom, moved: false, hidden: false };
     setDragging(true);
+    setHolding(true);
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => {
+      if (dragRef.current.moved) return;
+      dragRef.current.hidden = true;
+      setHolding(false);
+      setVisible(false);
+      toast && toast("Asistente de IA oculto — toca la pestaña del borde para volver a mostrarlo");
+    }, AI_FAB_HOLD_MS);
   };
   const onPointerMove = (e) => {
     if (!dragging) return;
     const dx = e.clientX - dragRef.current.startX, dy = e.clientY - dragRef.current.startY;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragRef.current.moved = true;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) { dragRef.current.moved = true; clearTimeout(holdTimer.current); setHolding(false); }
     if (dragRef.current.moved) setPos(clampFabPos({ right: dragRef.current.startRight - dx, bottom: dragRef.current.startBottom - dy }));
   };
   const onPointerUp = () => {
+    clearTimeout(holdTimer.current);
     setDragging(false);
+    setHolding(false);
+    if (dragRef.current.hidden) return;
     if (dragRef.current.moved) { saveFabPos(pos); return; }
     if (mode === "coach") onOpenCoachTab && onOpenCoachTab();
     else setChatOpen(true);
@@ -12852,20 +12889,29 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
 
   return (
     <>
-      <button
-        onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
-        onContextMenu={(e) => e.preventDefault()}
-        aria-label="Asistente de IA — mantén pulsado y arrastra para moverlo, toca para abrirlo"
-        title="Asistente de IA"
-        style={{ position: "fixed", right: pos.right, bottom: pos.bottom, width: AI_FAB_SIZE, height: AI_FAB_SIZE, borderRadius: AI_FAB_SIZE / 2,
-          zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: dragging ? DRAG_LIFT_SHADOW : "0 6px 20px -12px rgba(0,0,0,.25)",
-          transform: dragging ? "scale(1.06)" : "scale(1)",
-          transition: dragging ? "none" : "transform .15s ease, box-shadow .15s ease",
-          touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", cursor: "grab" }}>
-        <Sparkles size={24} strokeWidth={2.2} />
-      </button>
+      {visible ? (
+        <button
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+          onContextMenu={(e) => e.preventDefault()}
+          aria-label="Asistente de IA — mantén pulsado para ocultarlo, arrastra para moverlo, toca para abrirlo"
+          title="Asistente de IA"
+          style={{ position: "fixed", right: pos.right, bottom: pos.bottom, width: AI_FAB_SIZE, height: AI_FAB_SIZE, borderRadius: AI_FAB_SIZE / 2,
+            zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: dragging ? DRAG_LIFT_SHADOW : "0 6px 20px -12px rgba(0,0,0,.25)",
+            transform: dragging ? "scale(1.06)" : "scale(1)",
+            transition: dragging ? "none" : "transform .15s ease, box-shadow .15s ease",
+            touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", cursor: "grab" }}>
+          {holding ? <EyeOff size={22} strokeWidth={2.2} /> : <Sparkles size={24} strokeWidth={2.2} />}
+        </button>
+      ) : (
+        <button onClick={() => setVisible(true)} aria-label="Mostrar asistente de IA" title="Mostrar asistente de IA"
+          style={{ position: "fixed", right: 0, bottom: pos.bottom, width: 18, height: 48, borderRadius: "14px 0 0 14px",
+            zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 14px -8px rgba(0,0,0,.3)", opacity: 0.9 }}>
+          <Sparkles size={12} strokeWidth={2.4} />
+        </button>
+      )}
       {chatOpen && mode === "alumno" && (
         <div onClick={() => setChatOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 96, background: "rgba(5,3,3,.68)",
           display: "flex", alignItems: "flex-end", justifyContent: "center",
@@ -12984,39 +13030,14 @@ const App = () => {
   const [autoStartDayId, setAutoStartDayId] = useState(null);
   const [homeView, setHomeView] = useHomeView();
   const [routineView, setRoutineView] = useRoutineView();
-  const [aiFabVisible, setAiFabVisible] = useAiFabVisible();
-  // Gesto para ocultar/mostrar el botón de IA sin pasar por "Más": tres
-  // toques seguidos en cualquier parte de la pantalla (no hace falta
-  // acertarle al botón, que es chico y a veces molesta tocarlo aposta). El
-  // ajuste de "Más" sigue siendo la forma normal — esto es un atajo, no un
-  // reemplazo. Se ignoran los toques que caen DENTRO del propio botón: ese
-  // ya tiene su propio gesto (tocar para abrir, mantener para arrastrar) y
-  // no debe competir con este.
-  const tapCountRef = useRef({ n: 0, timer: null });
-  // setAiFabVisible NO acepta un actualizador funcional (guarda el valor
-  // tal cual en una variable de módulo, ver setAiFabVisiblePref más
-  // arriba) — pasarle `(v) => !v` guardaría la función misma, y `!!fn` es
-  // siempre true. Por eso este ref: el listener se registra una sola vez
-  // (no depende de aiFabVisible), así que necesita una forma de leer el
-  // valor MÁS RECIENTE en el momento del toque, no el de cuando se montó.
-  const aiFabVisibleRef = useRef(aiFabVisible);
-  aiFabVisibleRef.current = aiFabVisible;
-  useEffect(() => {
-    const onTap = (e) => {
-      if (e.target.closest && e.target.closest('[aria-label^="Asistente de IA"]')) return;
-      const t = tapCountRef.current;
-      t.n += 1;
-      clearTimeout(t.timer);
-      if (t.n >= 3) {
-        t.n = 0;
-        setAiFabVisible(!aiFabVisibleRef.current);
-      } else {
-        t.timer = setTimeout(() => { t.n = 0; }, 600);
-      }
-    };
-    document.addEventListener("pointerdown", onTap);
-    return () => document.removeEventListener("pointerdown", onTap);
-  }, []);
+  // El gesto para ocultar/mostrar el botón de IA (antes: tres toques
+  // seguidos en cualquier parte de la pantalla) se mudó adentro de AIFab
+  // como mantener presionado el propio botón — un listener global de
+  // "pointerdown" contaba como toque CUALQUIER toque de la app, así que
+  // clics rápidos de siguiente/anterior en Focus Mode (o un swipe) se
+  // acumulaban como si fueran los tres toques y el ícono aparecía y
+  // desaparecía solo. AIFab se monta siempre ahora (ver más abajo) y
+  // decide él mismo si se dibuja completo o minimizado.
   const [confirmDel, setConfirmDel] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -13348,17 +13369,17 @@ const App = () => {
               <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>modo {mode} · cambiar</div>
             </div>
           </button>
-          {/* Para el alumno este botón ya no abre "Más" (eso se mudó al
-              "···" de la barra de pestañas, donde antes estaba Coach): abre
-              directo el chat con su coach, como el ícono de mensajería de
-              cualquier app — es lo que un alumno busca en la esquina
-              superior derecha, no un menú de ajustes. Para el coach sigue
-              abriendo "Más": su barra ya tiene una pestaña Mensajes propia. */}
-          <button onClick={() => (mode === "alumno" ? setTab("coach") : setMoreOpen(true))}
-            aria-label={mode === "alumno" ? "Chat con tu coach" : "Más opciones"}
+          {/* Mismo botón para los dos modos: abre "Más" (herramientas,
+              ajustes). La mensajería del alumno ya no vive acá — tiene su
+              propia pestaña "Coach" en la barra inferior, igual que el
+              coach tiene la suya ("Mensajes"). Antes este botón abría el
+              chat directo para el alumno, en la esquina superior derecha;
+              se sacó de ahí porque no es donde la gente busca mensajería
+              en una app con barra de pestañas. */}
+          <button onClick={() => setMoreOpen(true)} aria-label="Más opciones"
             style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
               background: P.s1, border: `1px solid ${P.line}`, color: P.text, flexShrink: 0 }}>
-            {mode === "alumno" ? <MessageSquare size={18} strokeWidth={2.2} /> : <Layers size={18} strokeWidth={2.2} />}
+            <Layers size={18} strokeWidth={2.2} />
           </button>
         </div>
         <StorageBanner />
@@ -13487,11 +13508,7 @@ const App = () => {
         </div>
       </div>
 
-      {/* "mas" (el "···" que reemplazó a Coach en la barra del alumno) no es
-          una pantalla propia: abre la misma hoja "Más" de siempre en vez de
-          cambiar de pestaña, así que se intercepta acá en vez de tocar
-          TabBar (que sigue sin saber nada de casos especiales). */}
-      <TabBar tabs={tabs} tab={tab} setTab={(id) => (id === "mas" ? setMoreOpen(true) : setTab(id))} />
+      <TabBar tabs={tabs} tab={tab} setTab={setTab} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode}
         canManageTeam={myRoleMeta.manageTeam} viewMode={homeView} onChangeViewMode={setHomeView}
         routineView={routineView} onChangeRoutineView={setRoutineView}
@@ -13524,11 +13541,9 @@ const App = () => {
       <Sheet open={gloss.open} onClose={() => setGloss({ open: false, focus: null })} title="Guía rápida" tall>
         <GlossaryBody focusId={gloss.focus} />
       </Sheet>
-      {aiFabVisible && (
-        <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
-          onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
-          openChatSignal={aiChatOpenSignal} toast={toast} />
-      )}
+      <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
+        onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
+        openChatSignal={aiChatOpenSignal} toast={toast} />
       <Toast msg={toastMsg} />
     </div>
   );
