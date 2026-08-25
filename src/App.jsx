@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v133";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v134";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5500,8 +5500,11 @@ const CheckinRow = ({ Icon, title, detail, status = "pending", onClick }) => (
 // Una escala de recuperación: 10 botones numerados, uno solo seleccionado
 // a la vez. Del 1 al 10 (no del 1 al 5) para que el coach tenga margen
 // real de leer una tendencia entre un día y otro.
+// Cada escala va en su propia tarjeta blanca (MONO.surface, no la placa
+// gris de fondo) — así se lee separada de la siguiente, igual que la
+// referencia, en vez de flotar directo sobre el fondo de la hoja.
 const RecoveryScale = ({ label, tag, lo, hi, value, onChange }) => (
-  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+  <MonoCard style={{ padding: 16, display: "flex", flexDirection: "column", gap: 7 }}>
     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
       <span style={{ fontSize: 14.5, fontWeight: 700, color: MONO.ink }}>{label}</span>
       <span style={{ fontSize: 11.5, color: MONO.inkFaint, flexShrink: 0 }}>{tag}</span>
@@ -5513,11 +5516,11 @@ const RecoveryScale = ({ label, tag, lo, hi, value, onChange }) => (
       {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
         <button key={n} onClick={() => onChange(n)} aria-pressed={value === n} aria-label={`${label}: ${n} de 10`}
           style={{ flex: 1, padding: "9px 0", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
-            background: value === n ? MONO.ink : MONO.chipBg, color: value === n ? "#FFFFFF" : MONO.inkDim,
-            border: `1px solid ${value === n ? MONO.ink : MONO.chipBorder}` }}>{n}</button>
+            background: value === n ? PLATE_GRAD : MONO.chipBg, color: value === n ? PLATE_FG : MONO.inkDim,
+            border: `1px solid ${value === n ? PLATE_GRAD : MONO.chipBorder}` }}>{n}</button>
       ))}
     </div>
-  </div>
+  </MonoCard>
 );
 
 // Casillero cuadrado para una foto de posing (frontal/lateral/posterior):
@@ -5548,17 +5551,36 @@ const PosingPhotoSlot = ({ label, attachId, onChange, onError }) => {
     } catch (err) { onError && onError(err.message); }
     finally { setBusy(false); }
   };
+  // Ficha grande, no un cuadrito chico: la etiqueta ("Frontal") y el estado
+  // ("Agregar" / la foto de fondo si ya hay una) viven DENTRO de la propia
+  // ficha, abajo, en vez de como texto suelto debajo — igual que la
+  // referencia.
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-      <button onClick={() => ref.current && ref.current.click()} disabled={busy} aria-label={`Subir foto ${label}`}
-        style={{ width: "100%", aspectRatio: "3/4", borderRadius: 14, overflow: "hidden", position: "relative",
-          background: MONO.chipBg, border: `1px solid ${MONO.line}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {m ? <img src={m.dataUrl} alt={label} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          : busy ? <span style={{ fontSize: 11, color: MONO.inkDim }}>…</span> : <Camera size={22} color={MONO.inkFaint} />}
-      </button>
+    <button onClick={() => ref.current && ref.current.click()} disabled={busy} aria-label={`Subir foto ${label}`}
+      style={{ flex: 1, minWidth: 0, aspectRatio: "3/4.3", borderRadius: 18, overflow: "hidden", position: "relative",
+        background: MONO.chipBg, border: `1px solid ${MONO.line}`,
+        display: "flex", flexDirection: "column", alignItems: m ? "flex-start" : "center", justifyContent: m ? "flex-end" : "center" }}>
+      {m ? (
+        <>
+          <img src={m.dataUrl} alt={label} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+          <div style={{ position: "relative", width: "100%", padding: "22px 10px 10px",
+            background: "linear-gradient(transparent, rgba(0,0,0,.6))" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF" }}>{label}</span>
+          </div>
+        </>
+      ) : busy ? (
+        <span style={{ fontSize: 12, color: MONO.inkDim }}>…</span>
+      ) : (
+        <>
+          <Camera size={26} color={MONO.inkFaint} style={{ marginBottom: 12 }} />
+          <div style={{ paddingBottom: 14 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: MONO.ink }}>{label}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: MONO.inkFaint }}> · Agregar</span>
+          </div>
+        </>
+      )}
       <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={onFile} />
-      <span style={{ fontSize: 12, fontWeight: 600, color: MONO.inkDim }}>{label}</span>
-    </div>
+    </button>
   );
 };
 
@@ -6276,7 +6298,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
                 value={rec[f.key]} onChange={(n) => setRec((o) => ({ ...o, [f.key]: n }))} />
             </React.Fragment>
           ))}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <MonoCard style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
             <MonoLabel>Comentario de recuperación</MonoLabel>
             <Txt value={recComment} onChange={(e) => setRecComment(e.target.value)} placeholder="Añade algo que las escalas no reflejen…" rows={3}
               style={{ borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
@@ -6284,7 +6306,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
               <AttachButton mode="both" label="Adjuntar foto o archivo" onAttached={(id) => setRecAttachIds((a) => [...a, id])} onError={setCiError} />
               {recAttachIds.length > 0 && <span style={{ fontSize: 12.5, color: MONO.inkDim }}>{recAttachIds.length} adjunto{recAttachIds.length !== 1 ? "s" : ""}</span>}
             </div>
-          </div>
+          </MonoCard>
           {ciError && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4 }}>{ciError}</div>}
           <Btn kind="ember" onClick={saveRecovery} disabled={recSaving} style={{ width: "100%" }}>
             {recSaving ? "Guardando…" : "Guardar recuperación"}
@@ -6298,10 +6320,13 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             Sube tus fotos frontal, lateral y posterior, y los videos de posing que quieras (los que planeas usar en tu competencia, por ejemplo) para que tu coach los revise y te corrija.
           </div>
           {poseToday.length > 0 && <div style={{ fontSize: 12.5, color: MONO.inkDim }}>Ya mandaste {poseToday.length} foto{poseToday.length !== 1 ? "s" : ""}/video{poseToday.length !== 1 ? "s" : ""} hoy.</div>}
-          <div style={{ display: "flex", gap: 10 }}>
-            <PosingPhotoSlot label="Frontal" attachId={poseFrontal} onChange={setPoseFrontal} onError={setCiError} />
-            <PosingPhotoSlot label="Lateral" attachId={poseLateral} onChange={setPoseLateral} onError={setCiError} />
-            <PosingPhotoSlot label="Posterior" attachId={posePosterior} onChange={setPosePosterior} onError={setCiError} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <MonoLabel>Fotos de progreso</MonoLabel>
+            <div style={{ display: "flex", gap: 10 }}>
+              <PosingPhotoSlot label="Frontal" attachId={poseFrontal} onChange={setPoseFrontal} onError={setCiError} />
+              <PosingPhotoSlot label="Lateral" attachId={poseLateral} onChange={setPoseLateral} onError={setCiError} />
+              <PosingPhotoSlot label="Posterior" attachId={posePosterior} onChange={setPosePosterior} onError={setCiError} />
+            </div>
           </div>
           <PosingCategoryBlock />
           <AttachButton mode="video" label={`Agregar video${poseVideos.length ? ` (${poseVideos.length})` : ""}`}
