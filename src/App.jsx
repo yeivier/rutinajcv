@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v130";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v131";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -12338,10 +12338,14 @@ const Toast = ({ msg }) => !msg ? null : (
     width: "calc(100% - 32px)", maxWidth: 488 }}>
     {/* Fondo sólido y opaco (antes rgba(30,10,13,.92) con blur detrás: un
         tinte rojizo heredado de la paleta previa a v53, translúcido) y borde
-        blanco opaco (antes verde con alpha) — nada de blur ni canal alpha
-        en el acento. */}
+        en tinta — nada de blur ni canal alpha en el acento. El texto era
+        "#FFFFFF" fijo desde que esto solo existía en el tema oscuro (donde
+        P.s2 también era oscuro); con el tema Claro agregado después, P.s2
+        pasó a blanco pero el texto se quedó blanco fijo — mensaje invisible
+        sobre fondo blanco, solo se veía el borde. color: P.text sí sigue al
+        tema, como el resto de este cuadro. */}
     <div className="sheetIn" style={{ background: P.s2,
-      border: `1px solid ${P.ember}`, color: "#FFFFFF",
+      border: `1px solid ${P.ember}`, color: P.text,
       borderRadius: 14, padding: "12px 15px", fontSize: 15.5, lineHeight: 1.4,
       boxShadow: "0 12px 30px rgba(0,0,0,.55)" }}>{msg}</div>
   </div>
