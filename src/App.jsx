@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v142";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v143";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4561,10 +4561,14 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
     const lastSet = lastEntry ? (lastEntry.sets || [])[si] : null;
     const noteOpen = instr && instr.ei === ei;
 
+    // flex:1 + columna: el ícono row queda fijo arriba-izquierda (donde
+    // tiene que estar) y las casillas PESO/REPS/RIR se centran en el
+    // espacio que sobra — así la tarjeta crece de verdad en vez de
+    // quedar chica con aire vacío alrededor.
     return (
-      <div>
-        <div style={{ background: PLATE_GRAD, borderRadius: 22, padding: "20px 18px 24px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ background: PLATE_GRAD, borderRadius: 22, padding: "20px 18px 24px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {plateIconBtn(() => setHistEx(ei), "Historial", History)}
               {plateIconBtn(() => (noteOpen ? hideInstr() : showInstr(ei, false)), "Indicación del coach", Users, noteOpen, !exx.notes)}
@@ -4573,13 +4577,15 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
             </div>
             <span title={(SET_TYPES[st.type] || {}).label} style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, flexShrink: 0 }}>{short}</span>
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            {fieldDark("PESO", st.weight, (v) => setVal(ei, si, "weight", v), weightUnit === "kg" ? 2.5 : 5, false,
-              lastSet && lastSet.weight !== "" && lastSet.weight != null ? `Última: ${lastSet.weight} ${weightUnit}` : null)}
-            {fieldDark("REPS", st.reps, (v) => setVal(ei, si, "reps", v), 1, true,
-              st.repsT ? `${st.repsT} reps` : null)}
-            {fieldDark("RIR", st.rir, (v) => setVal(ei, si, "rir", v), 1, true,
-              st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null)}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 0 }}>
+            <div style={{ display: "flex", gap: 12 }}>
+              {fieldDark("PESO", st.weight, (v) => setVal(ei, si, "weight", v), weightUnit === "kg" ? 2.5 : 5, false,
+                lastSet && lastSet.weight !== "" && lastSet.weight != null ? `Última: ${lastSet.weight} ${weightUnit}` : null)}
+              {fieldDark("REPS", st.reps, (v) => setVal(ei, si, "reps", v), 1, true,
+                st.repsT ? `${st.repsT} reps` : null)}
+              {fieldDark("RIR", st.rir, (v) => setVal(ei, si, "rir", v), 1, true,
+                st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null)}
+            </div>
           </div>
         </div>
         {renderCommentBlock(ei, si)}
@@ -4838,8 +4844,8 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
         )}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", position: "relative", padding: "0 18px 16px",
-          display: "flex", flexDirection: "column", justifyContent: "center" }}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", position: "relative", padding: "0 14px 16px",
+          display: "flex", flexDirection: "column" }}
         onClick={tapNav}
         onTouchStart={(e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY }; }}
         onTouchEnd={(e) => {
@@ -4853,10 +4859,16 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
         <div onClick={() => go(-1)} aria-hidden style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 24, zIndex: 3 }} />
         <div onClick={() => go(1)} aria-hidden style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 24, zIndex: 3 }} />
 
-        <div style={{ position: "relative", zIndex: 2 }}>
+        {/* flex:1 en vez de centrar con relleno arriba/abajo: la tarjeta
+            (o la ronda de superserie) CRECE para ocupar el espacio que
+            antes quedaba vacío, en vez de quedar chica y flotando en
+            medio de la pantalla — "que ocupe más espacio", a pedido
+            explícito. Padding lateral bajó de 18 a 14 por el mismo
+            motivo: que la tarjeta llegue más cerca de los bordes. */}
+        <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
           {page.group ? (
-            <MonoCard style={{ padding: "16px 18px", marginTop: 4 }}>
-              <div style={{ marginBottom: 4, padding: "9px 11px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.line}` }}>
+            <MonoCard style={{ padding: "16px 18px", marginTop: 4, flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 0 }}>
+              <div style={{ marginBottom: 4, padding: "9px 11px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.line}`, flexShrink: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13.5, fontWeight: 800, color: MONO.ink, letterSpacing: ".04em", textTransform: "uppercase" }}>
                     {GROUP_KINDS[page.kind].label}
@@ -4873,7 +4885,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
                 const s = exs[mi].sets[page.roundIdx];
                 if (!s) return null;
                 return (
-                  <div key={mi} data-keep style={{ borderLeft: `3px solid ${MONO.ink}`, paddingLeft: 10, marginBottom: 6 }}>
+                  <div key={mi} data-keep style={{ borderLeft: `3px solid ${MONO.ink}`, paddingLeft: 10, marginBottom: 6, flexShrink: 0 }}>
                     {renderExHeaderMono(mi, { big: false, posLabel: exGroupInfo(exs, mi).posLabel, color: MONO.ink })}
                     {renderSetRowMono(mi, page.roundIdx)}
                   </div>
@@ -4881,12 +4893,12 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
               })}
             </MonoCard>
           ) : (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: 10, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
               {renderActiveSetHero(page.ei, page.si)}
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          <div style={{ display: "flex", gap: 10, marginTop: 16, flexShrink: 0 }}>
             {page.group ? (
               <>
                 <button onClick={() => go(-1)} disabled={pageIdx === 0} style={{ flex: 1, padding: "15px 14px", borderRadius: 15,
