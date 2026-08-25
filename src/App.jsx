@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v152";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v153";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -140,11 +140,18 @@ let PLATE_FG = LIGHT_THEME.plateFg;
 let PLATE_DIM = LIGHT_THEME.plateDim;
 let PLATE_BORDER = LIGHT_THEME.plateBorder;
 
+// THEME_MODE es la PREFERENCIA ("light" | "dark" | "auto"); la paleta que
+// de verdad se aplica ("light" | "dark") se resuelve aparte cuando la
+// preferencia es "auto", siguiendo prefers-color-scheme del sistema. Antes
+// solo existían "light"/"dark" — S4 del handoff pide un tercer valor real.
 let THEME_MODE = "light";
 try { THEME_MODE = window.localStorage.getItem("forja-theme") || "light"; } catch {}
 const themeListeners = new Set();
+const systemPrefersDark = () => { try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { return false; } };
+function resolveTheme(mode) { return mode === "auto" ? (systemPrefersDark() ? "dark" : "light") : mode; }
 function applyTheme(mode) {
-  const t = mode === "light" ? LIGHT_THEME : DARK_THEME;
+  const resolved = resolveTheme(mode);
+  const t = resolved === "light" ? LIGHT_THEME : DARK_THEME;
   Object.assign(P, t.P);
   PLATE_GRAD = t.plateGrad; PLATE_FG = t.plateFg; PLATE_DIM = t.plateDim; PLATE_BORDER = t.plateBorder;
   THEME_MODE = mode;
@@ -157,6 +164,11 @@ function applyTheme(mode) {
   themeListeners.forEach((fn) => fn(mode));
 }
 applyTheme(THEME_MODE); // aplica la preferencia guardada ANTES del primer render — sin parpadeo
+try {
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (THEME_MODE === "auto") applyTheme("auto");
+  });
+} catch {}
 function useTheme() {
   const [, force] = useState(0);
   useEffect(() => {
@@ -1506,6 +1518,30 @@ function useWeightUnit() {
   return [u, setWeightUnit];
 }
 
+// Unidad de medidas corporales (cm/in): mismo patrón exacto que
+// WEIGHT_UNIT arriba — preferencia de este dispositivo, pub-sub mínimo,
+// se guarda siempre en cm (BodyMeasureFormSheet/history.measurements no
+// cambian) y solo se convierte para mostrar.
+const CM_PER_IN = 2.54;
+const cmToIn = (cmVal) => cmVal / CM_PER_IN;
+const inToCm = (inVal) => inVal * CM_PER_IN;
+let MEASURE_UNIT = "cm";
+try { MEASURE_UNIT = window.localStorage.getItem("forja-measure-unit") || "cm"; } catch {}
+const measureUnitListeners = new Set();
+function setMeasureUnit(u) {
+  MEASURE_UNIT = u;
+  try { window.localStorage.setItem("forja-measure-unit", u); } catch {}
+  measureUnitListeners.forEach((fn) => fn(u));
+}
+function useMeasureUnit() {
+  const [u, setU] = useState(MEASURE_UNIT);
+  useEffect(() => {
+    measureUnitListeners.add(setU);
+    return () => measureUnitListeners.delete(setU);
+  }, []);
+  return [u, setMeasureUnit];
+}
+
 /* ---------------- "Visto" del chat (para el contador de no leídos) ---------------- */
 // No existe un cursor de lectura compartido en el dato del chat (los
 // mensajes no tienen "leído: sí/no") — agregar uno ahí implicaría tocar el
@@ -2434,38 +2470,31 @@ const GlobalStyle = () => {
     .fj .pulse { animation: fjPulse 1.6s ease-in-out infinite; }
     @keyframes fjUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
     .fj .sheetIn { animation: fjUp .22s ease; }
-    /* Splash de arranque: el fondo entra con un fundido, un doble anillo de
-       impacto se expande, el ícono "golpea" hacia su tamaño final con
-       rebote y un destello radial, el nombre FORJA aparece letra por letra,
-       y mientras se termina de cargar todo queda "vivo" (glow que respira +
-       barra de carga indeterminada) en vez de congelarse. La salida
-       (fundido a 0 + zoom leve) la controla React vía la prop "exiting" con
-       una transición inline, no un keyframe. */
+    /* Cambio de pestaña (6 · Movimiento): "sin deslizamiento, opacidad
+       0→1 en 200ms" — antes usaba la misma sheetIn (con traslado) que
+       las hojas de verdad. Las hojas siguen con sheetIn/fjUp sin tocar;
+       esto es solo para el contenido de la pestaña activa. */
+    @keyframes fjTabFade { from { opacity: 0; } to { opacity: 1; } }
+    .fj .tabIn { animation: fjTabFade ${DUR_ROW}ms ${EASE_STD}; }
+    /* Splash de arranque (6 · Movimiento del handoff, "Splash → app" =
+       1.200 ms en tres tiempos): 0-260ms la marca aparece (opacidad 0→1,
+       escala .94→1); 260-700ms el nombre entra letra por letra con 40ms
+       de retraso entre cada una; 700-1.200ms la marca escala a 1,02 y se
+       va (fundido de salida, controlado desde React vía la prop
+       "exiting" — mismo timing, ahí sí con transición inline porque
+       depende de cuándo terminó de cargar el resto). Si la carga real
+       tarda más que esos 1.200ms (red lenta), splashBar aparece recién
+       ahí — nunca antes, para no competir visualmente con la entrada. */
     @keyframes splashFadeIn { from { opacity: 0; } to { opacity: 1; } }
-    .fj .splashFadeIn { animation: splashFadeIn .9s ease both; }
-    @keyframes splashGlowBreathe { 0%, 100% { opacity: .45; transform: scale(1); } 50% { opacity: .85; transform: scale(1.12); } }
-    .fj .splashGlow { animation: splashGlowBreathe 3.2s ease-in-out infinite; }
-    @keyframes splashFlash { 0% { opacity: 0; transform: scale(.3); } 35% { opacity: .6; } 100% { opacity: 0; transform: scale(2.4); } }
-    .fj .splashFlash { animation: splashFlash .6s ease-out .5s both; }
-    @keyframes splashIcon { 0% { transform: scale(0) rotate(-16deg); opacity: 0; }
-      50% { transform: scale(1.22) rotate(5deg); opacity: 1; }
-      68% { transform: scale(.92) rotate(-2deg); } 84% { transform: scale(1.05) rotate(1deg); }
-      100% { transform: scale(1) rotate(0deg); opacity: 1; } }
-    .fj .splashIcon { animation: splashIcon 1.3s cubic-bezier(.2,.9,.3,1.25) both; }
-    @keyframes splashPulseLoop { 0%, 100% { opacity: .55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.07); } }
-    .fj .splashPulseLoop { animation: splashPulseLoop 1.9s ease-in-out 2.3s infinite; }
-    @keyframes splashRing { 0% { transform: scale(.4); opacity: .9; } 100% { transform: scale(2.8); opacity: 0; } }
-    .fj .splashRing { animation: splashRing 1.1s ease-out .5s both; }
-    .fj .splashRing2 { animation: splashRing 1.3s ease-out .78s both; }
-    @keyframes splashLetter { 0% { opacity: 0; transform: translateY(16px) scale(.7); filter: blur(5px); }
-      100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } }
-    .fj .splashLetter { display: inline-block; animation: splashLetter .6s cubic-bezier(.2,.8,.3,1) both; }
-    @keyframes splashTag { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-    .fj .splashTag { animation: splashTag .6s ease 1.95s both; }
+    .fj .splashFadeIn { animation: splashFadeIn .3s ease both; }
+    @keyframes splashIcon { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: scale(1); } }
+    .fj .splashIcon { animation: splashIcon .26s cubic-bezier(.16,1,.3,1) both; }
+    @keyframes splashLetter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .fj .splashLetter { display: inline-block; animation: splashLetter .32s cubic-bezier(.16,1,.3,1) both; }
+    @keyframes splashTag { from { opacity: 0; } to { opacity: 1; } }
+    .fj .splashTag { animation: splashTag .3s ease .6s both; }
     @keyframes splashBarIn { from { opacity: 0; } to { opacity: 1; } }
-    .fj .splashBar { animation: splashBarIn .5s ease 2.15s both; }
-    @keyframes splashBarSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(240%); } }
-    .fj .splashBarSweep { animation: splashBarSweep 1.3s ease-in-out 2.3s infinite; }
+    .fj .splashBar { animation: splashBarIn .3s ease 1.2s both; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
     /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
        inferior fija (TabBar) queda "transparente" al puntero: si no, al
@@ -2897,24 +2926,21 @@ const Logo = ({ size = 26 }) => (
   </div>
 );
 
-// Splash de arranque: el fondo entra con un fundido, un doble anillo de
-// impacto se expande junto a un destello radial cuando el ícono "golpea"
-// hacia su tamaño final, el nombre FORJA aparece letra por letra, y una vez
-// terminada la entrada (~2.3s) el ícono queda respirando suavemente con una
-// barra de carga indeterminada debajo — así los ~4.6s mínimos en pantalla
-// se sienten vivos, no una espera vacía. La salida (cuando `exiting` se
-// activa desde App) es un fundido + leve zoom hacia adelante de .7s — nunca
-// un corte abrupto. Respeta prefers-reduced-motion (regla global).
-/* Splash del sistema: la placa con la mancuerna, el nombre letra por letra
-   y el spinner. Nada más. Los anillos de impacto, el halo que respiraba y
-   el destello radial eran efectos pensados sobre negro — sobre el gris de
-   sistema se veían como manchas grises, que es justo lo que el diseño
-   evita. La referencia tampoco los tiene. */
+// Splash de arranque (S0/README "Splash → app", 1.200 ms en tres tiempos):
+// 0-260ms la marca aparece (opacidad+escala), 260-700ms "FORJA" entra
+// letra por letra (40ms de retraso entre cada una), 700-1.200ms la marca
+// se asienta y la salida empieza — fundido + leve zoom hacia adelante,
+// controlado desde App vía la prop `exiting` una vez que el resto ya
+// cargó. Fondo #F2F2F7 (P.bg) desde el primer frame, nunca pantalla en
+// blanco. Si la carga real tarda más que la entrada (red lenta), recién
+// ahí aparece una barra de progreso indeterminada — no antes, para no
+// competir con la animación de entrada. Respeta prefers-reduced-motion
+// (la regla global en GlobalStyle corta toda animación a solo opacidad).
 const SplashScreen = ({ exiting }) => (
-  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad,
+  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bg,
     display: "flex", alignItems: "center", justifyContent: "center",
     opacity: exiting ? 0 : 1, transform: exiting ? "scale(1.02)" : "scale(1)",
-    transition: "opacity .45s ease, transform .45s ease" }}>
+    transition: `opacity ${DUR_ROW * 2.5}ms ${EASE_STD}, transform ${DUR_ROW * 2.5}ms ${EASE_STD}` }}>
     <GlobalStyle />
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
       <div className="splashIcon" style={{ width: 78, height: 78, borderRadius: 20,
@@ -2930,7 +2956,7 @@ const SplashScreen = ({ exiting }) => (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
         <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: ".18em", color: P.text, paddingLeft: ".18em" }}>
           {BRAND.name.split("").map((ch, i) => (
-            <span key={i} className="splashLetter" style={{ animationDelay: `${0.25 + i * 0.06}s` }}>{ch}</span>
+            <span key={i} className="splashLetter" style={{ animationDelay: `${.26 + i * .04}s` }}>{ch}</span>
           ))}
         </div>
         <div className="splashTag" style={{ fontSize: 12, color: P.faint, fontWeight: 600,
@@ -5828,10 +5854,23 @@ const PosingCategoryBlock = () => {
 // despliega ahí mismo el punto exacto de esa medida (mismo texto que ya
 // usa la guía de Progreso → Cuerpo), sin abrir una hoja encima de esta.
 const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
+  // vals siempre guarda cm (o % para el campo que corresponda) — igual que
+  // WeightInput con kg, la conversión es solo de despliegue.
   const [vals, setVals] = useState({});
   const [howOpen, setHowOpen] = useState(null);
+  const [unit, setUnit] = useMeasureUnit();
   useEffect(() => { if (open) { setVals({}); setHowOpen(null); } }, [open]);
-  const setF = (k, v) => setVals((o) => ({ ...o, [k]: v }));
+  const setF = (k, isPct, raw) => {
+    const n = parseFloat(String(raw).replace(",", "."));
+    if (raw === "") { setVals((o) => ({ ...o, [k]: "" })); return; }
+    if (isNaN(n)) return;
+    setVals((o) => ({ ...o, [k]: isPct || unit === "cm" ? n : inToCm(n) }));
+  };
+  const displayVal = (k, isPct) => {
+    const v = vals[k];
+    if (v === "" || v == null) return "";
+    return isPct || unit === "cm" ? String(v) : fmtUnit(cmToIn(v)).replace(",", ".");
+  };
   const filledCount = BODY_MEASURE_FIELDS.filter((f) => num(vals[f.key]) > 0).length;
   const save = () => {
     const values = {};
@@ -5841,24 +5880,37 @@ const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
   };
   return (
     <Sheet open={open} onClose={onClose} title="Métricas corporales" tall>
-      <div style={{ fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.5, marginBottom: 16 }}>
-        Completa las que puedas medir hoy — no hace falta llenarlas todas. Toca el <Info size={11} style={{ verticalAlign: -1 }} /> de cada una para ver el punto exacto donde medir.
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 16 }}>
+        <div style={{ fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.5, flex: 1 }}>
+          Completa las que puedas medir hoy. Toca el <Info size={11} style={{ verticalAlign: -1 }} /> de cada una para ver el punto exacto donde medir.
+        </div>
+        <button onClick={() => setUnit(unit === "cm" ? "in" : "cm")}
+          title="Cambiar unidad de medidas" aria-label={`Unidad de medidas: ${unit}. Toca para cambiar a ${unit === "cm" ? "pulgadas" : "centímetros"}`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 800, letterSpacing: ".03em",
+            padding: "4px 8px", borderRadius: 8, border: `1px solid ${MONO.line}`, color: MONO.inkDim, flexShrink: 0 }}>
+          <span style={{ color: unit === "cm" ? P.ember2 : MONO.inkFaint }}>CM</span>
+          <span style={{ color: MONO.inkFaint }}>/</span>
+          <span style={{ color: unit === "in" ? P.ember2 : MONO.inkFaint }}>IN</span>
+        </button>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {BODY_MEASURE_FIELDS.map((f) => (
-          <div key={f.key}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <button onClick={() => setHowOpen(howOpen === f.key ? null : f.key)}
-                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, fontSize: 14.5, fontWeight: 600, color: MONO.ink, textAlign: "left" }}>
-                {f.label} <Info size={12} color={MONO.inkFaint} style={{ flexShrink: 0 }} />
-              </button>
-              <input type="number" inputMode="decimal" step="any" placeholder={f.unit === "%" ? "%" : "cm"} value={vals[f.key] || ""}
-                onChange={(e) => setF(f.key, e.target.value)}
-                style={{ width: 78, padding: "9px 10px", borderRadius: 10, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5, textAlign: "right", flexShrink: 0 }} />
+        {BODY_MEASURE_FIELDS.map((f) => {
+          const isPct = f.unit === "%";
+          return (
+            <div key={f.key}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button onClick={() => setHowOpen(howOpen === f.key ? null : f.key)}
+                  style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, fontSize: 14.5, fontWeight: 600, color: MONO.ink, textAlign: "left" }}>
+                  {f.label} <Info size={12} color={MONO.inkFaint} style={{ flexShrink: 0 }} />
+                </button>
+                <input type="number" inputMode="decimal" step="any" placeholder={isPct ? "%" : unit} value={displayVal(f.key, isPct)}
+                  onChange={(e) => setF(f.key, isPct, e.target.value)}
+                  style={{ width: 78, padding: "9px 10px", borderRadius: 10, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5, textAlign: "right", flexShrink: 0 }} />
+              </div>
+              {howOpen === f.key && <div style={{ fontSize: 12.5, color: MONO.inkFaint, lineHeight: 1.45, marginTop: 5 }}>{f.how}</div>}
             </div>
-            {howOpen === f.key && <div style={{ fontSize: 12.5, color: MONO.inkFaint, lineHeight: 1.45, marginTop: 5 }}>{f.how}</div>}
-          </div>
-        ))}
+          );
+        })}
       </div>
       <Btn kind="ember" onClick={save} disabled={!filledCount} style={{ width: "100%", marginTop: 20 }}>
         Guardar métricas{filledCount ? ` (${filledCount})` : ""}
@@ -8990,6 +9042,11 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
   const [editEx, setEditEx] = useState(null); // { ex }
   const [openExId, setOpenExId] = useState(null);
   const [del, setDel] = useState(null); // { exId, name }
+  // Vista previa del alumno (C3 del handoff): ya existía en el modo
+  // Clásico (fichaEx/ExerciseInfoSheet) pero no acá — mismo patrón,
+  // solo faltaba conectarlo en este editor.
+  const [fichaEx, setFichaEx] = useState(null);
+  const [viewImg, setViewImg] = useState(null);
   const day = plan.days[dayIndex];
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
 
@@ -9047,6 +9104,7 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
                     <div style={{ fontSize: 15, fontWeight: 600, color: MONO.ink, overflowWrap: "break-word" }}>{e.name || "Ejercicio sin nombre"}</div>
                     {!isOpen && <div style={{ fontSize: 12.5, color: MONO.inkFaint, marginTop: 2 }}>{summary}</div>}
                   </button>
+                  <button onClick={() => setFichaEx(e)} title="Ver ficha técnica (vista previa del alumno)" aria-label={`Ver ficha técnica de ${e.name}`} style={{ padding: 5, color: MONO.inkFaint }}><Info size={15} /></button>
                   {/* PencilLine (no Info): en el resto de la app el ícono de Info
                       significa "ficha técnica de solo lectura" (fichaEx en
                       Clásico), no editar — usarlo acá para abrir el editor
@@ -9103,6 +9161,8 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
         body={del ? `¿Eliminar «${del.name}» de este día? El historial del alumno no se borra.` : ""} okLabel="Eliminar"
         onCancel={() => setDel(null)}
         onOk={() => { mut((p) => { const dd = p.days[dayIndex]; dd.exs = dd.exs.filter((x) => x.id !== del.exId); }); setDel(null); }} />
+      <ExerciseInfoSheet ex={fichaEx} open={!!fichaEx} onClose={() => setFichaEx(null)} onOpenImg={setViewImg} />
+      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
   );
 };
@@ -13148,6 +13208,8 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
   const [theme, setTheme] = useTheme();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
+  const [weightUnit, setWeightUnitPref] = useWeightUnit();
+  const [measureUnit, setMeasureUnitPref] = useMeasureUnit();
   return (
     <Sheet open={open} onClose={onClose} title="Más" tall>
       {/* Cabecera de perfil: es lo primero que se ve al abrir "Más" desde
@@ -13181,9 +13243,13 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
       )}
 
       <SettingGroup label="Ajustes">
-        <SettingRow Icon={theme === "light" ? Sun : Moon} label="Apariencia"
-          hint={theme === "light" ? "Claro" : "Modo gimnasio — gris oscuro, sin negro puro"}
-          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Gimnasio" }]} value={theme} onChange={setTheme} />} />
+        <SettingRow Icon={theme === "dark" ? Moon : Sun} label="Apariencia"
+          hint={theme === "light" ? "Claro" : theme === "dark" ? "Modo gimnasio — gris oscuro, sin negro puro" : "Auto — sigue el sistema"}
+          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Gimnasio" }, { id: "auto", label: "Auto" }]} value={theme} onChange={setTheme} />} />
+        <SettingRow Icon={Ruler} label="Unidad de peso" hint={weightUnit === "kg" ? "Kilogramos" : "Libras"}
+          control={<SectionSwitch items={[{ id: "kg", label: "kg" }, { id: "lb", label: "lb" }]} value={weightUnit} onChange={setWeightUnitPref} />} />
+        <SettingRow Icon={Ruler} label="Unidad de medidas" hint={measureUnit === "cm" ? "Centímetros" : "Pulgadas"}
+          control={<SectionSwitch items={[{ id: "cm", label: "cm" }, { id: "in", label: "in" }]} value={measureUnit} onChange={setMeasureUnitPref} />} />
         {mode === "coach" && (
           <SettingRow Icon={ClipboardList} label="Editor de rutina"
             hint={routineView === "compacto" ? "Una fila por ejercicio, se despliega al tocar" : "Todas las funciones: crear, arrastrar, copiar y pegar"}
@@ -14112,22 +14178,24 @@ const App = () => {
   useTheme();
   const [easyMode] = useEasyMode();
   const [loading, setLoading] = useState(true);
-  // El splash se ve al menos 4.6s (2s más que antes, a pedido: un arranque
-  // más "épico" necesita más tiempo en pantalla) aunque los datos ya hayan
-  // llegado antes. La coreografía de entrada dura ~2.3s y el resto del
-  // mínimo el ícono queda "vivo" (glow que respira + barra indeterminada),
-  // así la espera extra se siente intencional, no una pantalla congelada.
-  // Al cumplirse el mínimo y ya no estar cargando, entra en "exiting"
-  // (fundido de salida de .7s vía la prop `exiting`) y solo después de ese
-  // fundido se desmonta de verdad — nunca un corte abrupto a la app real.
+  // Splash de 1.200ms (6 · Movimiento del handoff): la coreografía de
+  // entrada (marca + letras) dura ese tiempo fijo, mínimo en pantalla
+  // aunque los datos ya hayan llegado antes — igual que antes, pero
+  // ajustado al tiempo real que pide el diseño en vez de uno "épico"
+  // inventado. Si `loading` sigue en true a esa altura (red lenta),
+  // splashBar (con su propio retraso de 1.2s en CSS) ya está visible y
+  // el splash se queda hasta que los datos lleguen. Al cumplirse el
+  // mínimo y ya no estar cargando, entra en "exiting" (fundido de salida
+  // de 500ms vía la prop `exiting`) y solo después de ese fundido se
+  // desmonta de verdad — nunca un corte abrupto a la app real.
   const [splashMinDone, setSplashMinDone] = useState(false);
   const [splashExiting, setSplashExiting] = useState(false);
   const [splashGone, setSplashGone] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setSplashMinDone(true), 4600); return () => clearTimeout(t); }, []);
+  useEffect(() => { const t = setTimeout(() => setSplashMinDone(true), 1200); return () => clearTimeout(t); }, []);
   useEffect(() => {
     if (loading || !splashMinDone || splashGone) return;
     setSplashExiting(true);
-    const t = setTimeout(() => setSplashGone(true), 700);
+    const t = setTimeout(() => setSplashGone(true), 500);
     return () => clearTimeout(t);
   }, [loading, splashMinDone, splashGone]);
   const [ready, setReady] = useState(false);
@@ -14594,7 +14662,7 @@ const App = () => {
           </div>
         )}
 
-        <div key={`${tab}-${sub || ""}`} className="sheetIn" style={{ display: utility ? "none" : undefined }}>
+        <div key={`${tab}-${sub || ""}`} className="tabIn" style={{ display: utility ? "none" : undefined }}>
         {mode === "alumno" && tab === "hoy" && (
           <TodayTabMono plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory} toast={toast}
             goTrain={(dayId) => { if (dayId) setAutoStartDayId(dayId); setTab("entrenar"); }}
