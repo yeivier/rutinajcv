@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v146";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v147";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1486,6 +1486,40 @@ function useWeightUnit() {
   return [u, setWeightUnit];
 }
 
+/* ---------------- "Visto" del chat (para el contador de no leídos) ---------------- */
+// No existe un cursor de lectura compartido en el dato del chat (los
+// mensajes no tienen "leído: sí/no") — agregar uno ahí implicaría tocar el
+// modelo de datos, que el encargo pide no tocar. En cambio, cada
+// dispositivo recuerda LOCALMENTE hasta qué instante ya vio el chat de
+// cada alumno (mismo patrón que WEIGHT_UNIT arriba: localStorage directo,
+// sin sincronizar). `role` distingue alumno de coach porque ambos pueden
+// abrir el mismo chat desde dispositivos distintos.
+const getChatSeenAt = (role, sid) => {
+  try { return +(window.localStorage.getItem(`forja-chat-seen:${role}:${sid}`) || 0); } catch { return 0; }
+};
+const setChatSeenAt = (role, sid, ts) => {
+  try { window.localStorage.setItem(`forja-chat-seen:${role}:${sid}`, String(ts)); } catch {}
+};
+const countUnread = (msgs, role, seenAt) => (msgs || []).filter((m) => m.from !== role && m.ts > seenAt).length;
+// Contador de no leídos para la ficha "Mensajes" (Inicio y Más): mismo
+// polling liviano que ya usa ChatTab, pero solo para el número — no monta
+// la conversación entera.
+function useUnreadChatCount(sid, role) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!sid) { setCount(0); return; }
+    let alive = true;
+    const check = async () => {
+      const msgs = await sGet(`forja-chat:${sid}`);
+      if (alive && Array.isArray(msgs)) setCount(countUnread(msgs, role, getChatSeenAt(role, sid)));
+    };
+    check();
+    const iv = setInterval(check, CHAT_POLL_MS);
+    return () => { alive = false; clearInterval(iv); };
+  }, [sid, role]);
+  return count;
+}
+
 // Chip pequeño para alternar kg/lb — mismo componente en focus mode y en
 // la sesión normal. Cambia la unidad de TODOS los campos de peso a la vez
 // (no es por casilla): al tocarlo, cualquier <WeightInput> montado en ese
@@ -2545,7 +2579,7 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
     transition: `opacity ${DUR_ROW}ms ease` }}>
     {badge != null && (
       <span style={{ position: "absolute", top: 10, right: 10, minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9,
-        background: P.ember, color: "#FFFFFF", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{badge}</span>
+        background: PLATE_GRAD, color: PLATE_FG, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{badge}</span>
     )}
     <Icon size={19} color={P.text} strokeWidth={2} />
     <div>
@@ -3164,7 +3198,11 @@ const ChatTab = ({ sid, role, studentName }) => {
       const fresh = await sGetFresh(key);
       if (alive && Array.isArray(fresh)) setMsgs(fresh);
     }, CHAT_POLL_MS);
-    return () => { alive = false; clearInterval(iv); };
+    // Abrir el chat cuenta como "visto": marca ahora al entrar y de nuevo
+    // al salir, para que lo que llegó mientras la pantalla estaba abierta
+    // también cuente como leído.
+    setChatSeenAt(role, sid, Date.now());
+    return () => { alive = false; clearInterval(iv); setChatSeenAt(role, sid, Date.now()); };
   }, [key]);
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [msgs]);
@@ -6143,6 +6181,15 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const lastRecovery = (history.recovery || [])[(history.recovery || []).length - 1];
   const recoveryToday = lastRecovery && (lastRecovery.date || "").slice(0, 10) === todayKey ? lastRecovery : null;
   const poseToday = (history.bodyPhotos || []).filter((p) => (p.date || "").slice(0, 10) === todayKey);
+  // Ficha "Check-in" de la grilla 2×2: cuántas de las 4 secciones ya
+  // tienen algo registrado hoy — mismo criterio que las filas de abajo.
+  const ciDoneCount = [!!bwToday, !!measureToday, !!recoveryToday, poseToday.length > 0].filter(Boolean).length;
+  // Ficha "Comidas": mismo dato que ya calcula NutritionView, leído acá
+  // desde el mismo history.mealChecks (nada nuevo, solo se muestra en dos
+  // lugares).
+  const mealsTotal = (n.meals || []).length;
+  const mealsDoneCount = (n.meals || []).filter((m) => (history.mealChecks && history.mealChecks[todayKey] && history.mealChecks[todayKey][m.id])).length;
+  const unread = useUnreadChatCount(sid, "alumno");
 
   const pushChat = async (msg) => {
     if (!sid) return;
@@ -6291,51 +6338,37 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         </Card>
       ) : emptyCard}
 
-      {/* Resumen: las 4 fichas de siempre (entrenamiento) + pasos/agua/sueño
-          (bienestar general) bajo un mismo encabezado, todas tocables. No
-          hay una ficha "Peso" separada de "Peso corporal": son el mismo
-          dato — duplicarla solo para llegar a ocho se leería como un bug,
-          no como más información. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div className="mono" style={{ letterSpacing: ".16em" }}>Resumen</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-          <StatTile label="Adherencia" value={d.adherence == null ? "—" : d.adherence} unit={d.adherence == null ? null : "%"}
-            bar={d.adherence == null ? null : d.adherence} note="sin horario armado" onClick={() => setStatDetail("adherencia")} />
-          <StatTile label="Racha" value={d.streak} unit={` semana${d.streak !== 1 ? "s" : ""}`} note="entrenando sin cortar" onClick={() => setStatDetail("racha")} />
-          <StatTile label="Peso corporal" value={d.lastBw ? d.lastBw.kg : "—"} unit={d.lastBw ? " kg" : null}
-            note={d.lastBw && d.prevBw ? `${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} kg desde el anterior` : "sin registros todavía"}
-            onClick={() => setStatDetail("peso")} />
-          <StatTile label="Volumen sem." value={Math.round((d.weekVol / 1000) * 10) / 10} unit=" t"
-            note={`${d.weekSessions.length} ${d.weekSessions.length === 1 ? "sesión" : "sesiones"} esta semana`} onClick={() => setStatDetail("volumen")} />
-          <StatTile label="Pasos" value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
-            note="meta: 12.000" onClick={() => setStatDetail("pasos")} />
-          <StatTile label="Agua" value={d.lastWater ? kg(d.lastWater.liters) : "—"} unit={d.lastWater ? " L" : null}
-            note="meta: 5 L" onClick={() => setStatDetail("agua")} />
-          <StatTile label="Sueño" value={d.lastSleep ? kg(d.lastSleep.hours) : "—"} unit={d.lastSleep ? " h" : null}
-            note={d.lastSleep ? sleepQuality(d.lastSleep.hours) : "sin registros todavía"} onClick={() => setStatDetail("sueno")} />
-        </div>
+      {/* Grilla 2×2: los cuatro atajos del día a día, uno por toque — no
+          "Timer"/"Agenda" (eso vive en Más y en la propia Agenda; acá solo
+          lo que se revisa TODOS los días). El dato de cada ficha es un
+          valor corto (regla de mínimo texto: dato, no frase). */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+        <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
+          value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} />
+        <Tile Icon={Utensils} label="Comidas" onClick={onOpenNutrition}
+          value={mealsTotal ? `${mealsDoneCount} / ${mealsTotal}` : null} />
+        <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} />
+        <Tile Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} />
       </div>
 
-      {/* Acciones rápidas: los cuatro atajos que más se repiten, uno por
-          toque. "Entrenar ahora" duplica el CTA de la tarjeta de arriba a
-          propósito — después de bajar hasta acá, volver a subir por uno
-          solo sería peor UX que tenerlo también aquí. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div className="mono" style={{ letterSpacing: ".16em" }}>Acciones rápidas</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-          {[
-            { label: "Entrenar ahora", Icon: Play, onClick: () => goTrain(active ? undefined : d.suggested && d.suggested.id) },
-            { label: "Coach IA", Icon: Sparkles, onClick: onOpenAIChat },
-            { label: "Check-in", Icon: Flame, onClick: () => setCheckinOpen(true) },
-            { label: "Timer", Icon: Timer, onClick: onOpenTimer },
-            { label: "Agenda", Icon: Calendar, onClick: onOpenAgenda },
-          ].map(({ label, Icon, onClick }) => (
-            <Card key={label} onClick={onClick} style={{ padding: "16px 15px", display: "flex", flexDirection: "column", gap: 22, cursor: onClick ? "pointer" : undefined }}>
-              <Icon size={20} color={P.text} strokeWidth={2} />
-              <span style={{ fontSize: 14.5, fontWeight: 700 }}>{label}</span>
-            </Card>
-          ))}
-        </div>
+      {/* Esta semana: solo lo que no tiene otro lugar natural — Racha y
+          Peso corporal. Adherencia/Volumen/Pasos/Agua/Sueño no desaparecen:
+          se reagrupan dentro de Progreso (Fuerza/Cuerpo/Volumen), que es
+          donde ya vive el resto del seguimiento de cuerpo y volumen. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Esta semana</div>
+        <Card style={{ overflow: "hidden" }}>
+          <button onClick={() => setStatDetail("racha")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
+            <span style={{ flex: 1, fontSize: 16 }}>Racha</span>
+            <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} día{d.streak !== 1 ? "s" : ""}</span>
+            <ChevronRight size={16} color={P.chevron} />
+          </button>
+          <button onClick={() => setStatDetail("peso")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+            <span style={{ flex: 1, fontSize: 16 }}>Peso</span>
+            <span style={{ fontSize: 15, color: P.faint2 }}>{d.lastBw ? `${kg(d.lastBw.kg)} kg` : "—"}</span>
+            <ChevronRight size={16} color={P.chevron} />
+          </button>
+        </Card>
       </div>
 
       {hasMacros && (
@@ -6997,7 +7030,17 @@ const ExHistorySheetInline = ({ entries, onOpenImg }) => (
 /* ============================================================
    Nutrición (vista alumno)
    ============================================================ */
-const NutritionView = ({ plan, n }) => {
+// Las tres filas de abajo (Agua, Suplementos, Compras) no existían en
+// Nutrición — Agua vivía solo en Progreso·Cuerpo (se enlaza al mismo
+// history.water, no se duplica el dato) y Suplementos/Compras son
+// listas nuevas y chicas, sin tocar el modelo de rutina/plan:
+//   - history.mealChecks: { "<fecha>": { "<mealId>": true } } — qué
+//     comidas ya se comieron hoy.
+//   - plan.nutrition.supplements: [{id,name}] (lo carga el coach en el
+//     editor) + history.supplementChecks con la misma forma que mealChecks.
+//   - history.shoppingList: [{id,text,done}] — lista propia del alumno,
+//     no depende del coach.
+const NutritionView = ({ plan, n, history, saveHistory }) => {
   // Ciclado de carbohidratos (opcional, ver NutritionEditor): si está
   // activado, se muestran los macros de "hoy" según si hay rutina
   // programada (scheduledDayIdFor ya resuelve semana concreta/tipo y el
@@ -7009,61 +7052,175 @@ const NutritionView = ({ plan, n }) => {
     ? ((+active.p || 0) > 0 || (+active.c || 0) > 0 || (+active.f || 0) > 0)
     : ((+active.kcal || 0) > 0 || (+active.p || 0) > 0 || (+active.c || 0) > 0 || (+active.f || 0) > 0);
   const v = macroSolve(active, active.solve || "kcal");
+  const todayKey = todayISO().slice(0, 10);
+  const [shopOpen, setShopOpen] = useState(false);
+  const [shopText, setShopText] = useState("");
+
+  const mealChecks = (history && history.mealChecks && history.mealChecks[todayKey]) || {};
+  const mealsDone = n.meals.filter((m) => mealChecks[m.id]).length;
+  const toggleMeal = (mealId) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.mealChecks = h.mealChecks || {};
+    h.mealChecks[todayKey] = { ...(h.mealChecks[todayKey] || {}) };
+    if (h.mealChecks[todayKey][mealId]) delete h.mealChecks[todayKey][mealId];
+    else h.mealChecks[todayKey][mealId] = true;
+    saveHistory(h);
+  };
+
+  const supplements = n.supplements || [];
+  const suppChecks = (history && history.supplementChecks && history.supplementChecks[todayKey]) || {};
+  const suppDone = supplements.filter((s) => suppChecks[s.id]).length;
+  const toggleSupp = (id) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.supplementChecks = h.supplementChecks || {};
+    h.supplementChecks[todayKey] = { ...(h.supplementChecks[todayKey] || {}) };
+    if (h.supplementChecks[todayKey][id]) delete h.supplementChecks[todayKey][id];
+    else h.supplementChecks[todayKey][id] = true;
+    saveHistory(h);
+  };
+
+  const water = (history && history.water) || [];
+  const lastWater = water.length ? water[water.length - 1] : null;
+  const addWater = (liters) => {
+    if (!saveHistory || !liters) return;
+    const h = structuredClone(history);
+    h.water = [...(h.water || []), { date: todayISO(), liters }];
+    saveHistory(h);
+  };
+
+  const shopping = (history && history.shoppingList) || [];
+  const shopPending = shopping.filter((it) => !it.done).length;
+  const addShopItem = () => {
+    const t = shopText.trim();
+    if (!t || !saveHistory) return;
+    const h = structuredClone(history);
+    h.shoppingList = [...(h.shoppingList || []), { id: uid(), text: t, done: false }];
+    saveHistory(h);
+    setShopText("");
+  };
+  const toggleShopItem = (id) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.shoppingList = (h.shoppingList || []).map((it) => it.id === id ? { ...it, done: !it.done } : it);
+    saveHistory(h);
+  };
+
   return (
-    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 12px" }}>Nutrición</h1>
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
+      <ScreenTitle title="Nutrición" />
       {cyc && (
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: isTrainDay ? P.ember2 : P.blue,
-          background: P.s1, border: `1px solid ${P.line}`, borderRadius: 20, padding: "6px 12px", marginBottom: 12 }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: P.text,
+          background: P.s1, border: `1px solid ${P.line}`, borderRadius: 20, padding: "6px 12px", alignSelf: "flex-start" }}>
           {isTrainDay ? <Dumbbell size={13} /> : <Moon size={13} />} Hoy: día de {isTrainDay ? "entreno" : "descanso"}
         </div>
       )}
       {hasMacros && (
-        <>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 10 }}>
-          {/* Los cuatro macros se distinguen por la etiqueta, no por color:
-              todos en tinta. La proporción se lee en la barra de abajo, que
-              usa tres tonos del mismo neutro. */}
-          {[["kcal", v.kcal || "—", P.text], ["Proteína", v.p ? `${v.p} g` : "—", P.text], ["Carbos", v.c ? `${v.c} g` : "—", P.text], ["Grasas", v.f ? `${v.f} g` : "—", P.text]].map(([l, val, c]) => (
-            <Card key={l} style={{ padding: "11px 6px", textAlign: "center" }}>
-              <div className="disp" style={{ fontSize: 18, fontWeight: 700, color: c }}>{val}</div>
-              <div style={{ fontSize: 11.5, color: P.dim, marginTop: 2 }}>{l}</div>
-            </Card>
-          ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontSize: 30, fontWeight: 600, letterSpacing: "-.01em", lineHeight: 1.1 }}>{v.kcal || "—"}</span>
+            <span style={{ fontSize: 14, color: P.faint2 }}>kcal / día</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            {[["Proteína", v.p ? `${v.p} g` : "—"], ["Carbos", v.c ? `${v.c} g` : "—"], ["Grasas", v.f ? `${v.f} g` : "—"]].map(([l, val]) => (
+              <Card key={l} style={{ padding: "11px 6px", textAlign: "center" }}>
+                <div style={{ fontSize: 19, fontWeight: 600 }}>{val}</div>
+                <div style={{ fontSize: 11.5, color: P.faint2, marginTop: 2 }}>{l}</div>
+              </Card>
+            ))}
+          </div>
         </div>
-        {v.tot > 0 && (
-          <div style={{ padding: "10px 12px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, marginBottom: 14 }}>
-            <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", marginBottom: 8, background: P.s3 }}>
-              <div style={{ width: `${v.pctP}%`, background: P.text }} />
-              <div style={{ width: `${v.pctC}%`, background: P.faint }} />
-              <div style={{ width: `${v.pctF}%`, background: P.line }} />
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 12px", fontSize: 12.5, color: P.dim }}>
-              <span><b style={{ color: P.green }}>Proteína</b> {v.pk} kcal ({v.pctP}%)</span>
-              <span><b style={{ color: P.blue }}>Carbos</b> {v.ck} kcal ({v.pctC}%)</span>
-              <span><b style={{ color: P.text }}>Grasa</b> {v.fk} kcal ({v.pctF}%)</span>
-            </div>
-          </div>
-        )}
-        </>
       )}
-      {n.notes && <div style={{ fontSize: 14.5, color: P.dim, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: "11px 14px", lineHeight: 1.5, marginBottom: 14 }}>{n.notes}</div>}
-      {n.meals.length === 0 ? (
-        <Empty icon={Utensils} title="Sin plan de comidas" body="Tu coach aún no carga las comidas del plan." />
-      ) : n.meals.map((m) => (
-        <Card key={m.id} style={{ padding: "13px 15px", marginBottom: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7 }}>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>{m.name}</div>
-            {m.time && <div style={{ fontSize: 13, color: P.faint }}>{m.time}</div>}
+      {n.notes && <div style={{ fontSize: 14.5, color: P.dim, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: "11px 14px", lineHeight: 1.5 }}>{n.notes}</div>}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Comidas</div>
+        {n.meals.length === 0 ? (
+          <Card style={{ padding: 20 }}><Empty icon={Utensils} title="Sin plan de comidas" body="Tu coach aún no carga las comidas del plan." /></Card>
+        ) : (
+          <Card style={{ overflow: "hidden" }}>
+            {n.meals.map((m, i) => {
+              const done = !!mealChecks[m.id];
+              return (
+                <button key={m.id} onClick={() => toggleMeal(m.id)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+                  padding: "13px 16px", borderBottom: i < n.meals.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                  <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
+                    {done && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
+                  </span>
+                  <span style={{ flex: 1, fontSize: 16, color: P.text }}>{m.name}</span>
+                  {m.time && <span style={{ fontSize: 15, color: P.faint2 }}>{m.time}</span>}
+                </button>
+              );
+            })}
+          </Card>
+        )}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Hoy</div>
+        <Card style={{ overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
+            <span style={{ flex: 1, fontSize: 16 }}>Agua</span>
+            <button onClick={() => addWater(Math.round(((lastWater ? lastWater.liters : 0) + .25) * 100) / 100)}
+              style={{ fontSize: 15, color: P.faint2, fontWeight: 600 }}>{lastWater ? `${kg(lastWater.liters)} L` : "Agregar"}</button>
           </div>
-          {m.items.map((it) => (
-            <div key={it.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 15, padding: "4px 0", borderBottom: `1px dashed ${P.line}` }}>
-              <span>{it.food}</span><span style={{ color: P.dim, fontWeight: 600 }}>{it.qty}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: supplements.length > 0 ? `1px solid ${P.line}` : "none" }}>
+            <span style={{ flex: 1, fontSize: 16 }}>Suplementos</span>
+            <span style={{ fontSize: 15, color: P.faint2 }}>{supplements.length ? `${suppDone} de ${supplements.length}` : "Sin cargar"}</span>
+          </div>
+          {supplements.length > 0 && (
+            <div style={{ padding: "0 16px 10px" }}>
+              {supplements.map((s) => {
+                const done = !!suppChecks[s.id];
+                return (
+                  <button key={s.id} onClick={() => toggleSupp(s.id)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }}>
+                    <span style={{ width: 18, height: 18, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                      background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
+                      {done && <Check size={11} color={PLATE_FG} strokeWidth={3} />}
+                    </span>
+                    <span style={{ fontSize: 14, color: P.dim }}>{s.name}</span>
+                  </button>
+                );
+              })}
             </div>
-          ))}
-          {m.notes && <div style={{ fontSize: 13.5, color: P.ember2, marginTop: 7 }}>{m.notes}</div>}
+          )}
         </Card>
-      ))}
+        <Card style={{ overflow: "hidden" }}>
+          <button onClick={() => setShopOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+            <span style={{ flex: 1, fontSize: 16 }}>Lista de compras</span>
+            <span style={{ fontSize: 15, color: P.faint2 }}>{shopping.length ? `${shopPending} pendiente${shopPending !== 1 ? "s" : ""}` : "Vacía"}</span>
+            <ChevronRight size={16} color={P.chevron} />
+          </button>
+        </Card>
+      </div>
+
+      <Sheet open={shopOpen} onClose={() => setShopOpen(false)} title="Lista de compras">
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={shopText} onChange={(e) => setShopText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addShopItem()}
+              placeholder="Agregar artículo…" style={{ flex: 1, padding: "10px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, fontSize: 14.5 }} />
+            <button onClick={addShopItem} style={{ padding: "10px 15px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Agregar</button>
+          </div>
+          {shopping.length === 0 ? (
+            <div style={{ textAlign: "center", color: P.faint2, fontSize: 14, padding: "20px 0" }}>Sin artículos todavía.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {shopping.map((it, i) => (
+                <button key={it.id} onClick={() => toggleShopItem(it.id)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+                  padding: "11px 2px", borderBottom: i < shopping.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                  <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: it.done ? PLATE_GRAD : "transparent", border: it.done ? "none" : `1.5px solid ${P.chevron}` }}>
+                    {it.done && <Check size={13} color={PLATE_FG} strokeWidth={3} />}
+                  </span>
+                  <span style={{ fontSize: 15, color: it.done ? P.faint2 : P.text, textDecoration: it.done ? "line-through" : "none" }}>{it.text}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </Sheet>
     </div>
   );
 };
@@ -13087,58 +13244,69 @@ const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutri
    mismas secciones del boceto original. Los ajustes finos (tema, vista,
    editor de rutina…) no se duplican acá: "Configuración" abre la misma
    hoja que ya abre el avatar de la cabecera. */
-const MasTab = ({ toast, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat }) => {
+// A8 del handoff: grilla de 3 columnas, ficha = icono + nombre (sin
+// frase descriptiva). `kw` es texto SOLO para el buscador — nunca se
+// pinta, es lo único que sobrevive del antiguo `hint`. Atlas y
+// Competition Prep siguen en "muy pronto" acá: sus hojas (S3/S2) todavía
+// no existen — se conectan cuando se construyan, sin volver a tocar esta
+// grilla.
+const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat }) => {
   const [q, setQ] = useState("");
+  const unread = useUnreadChatCount(sid, "alumno");
   const soon = (label) => () => toast(`Muy pronto: ${label}`);
   const groups = [
     { label: "Comunicación", rows: [
-      { key: "mensajes", Icon: MessageSquare, label: "Mensajes", hint: "Habla con tu coach", onClick: () => onOpenUtility("chat") },
+      { key: "mensajes", Icon: MessageSquare, label: "Mensajes", kw: "habla coach chat", onClick: () => onOpenUtility("chat"), badge: unread > 0 ? unread : null },
     ] },
     { label: "Culturismo", rows: [
-      { key: "checkin", Icon: Camera, label: "Check-in", hint: "Peso, recuperación, fotos y video", onClick: onOpenCheckin },
-      { key: "posing", Icon: PersonStanding, label: "Posing", hint: "Categoría y poses obligatorias", onClick: onOpenPosing },
-      { key: "prep", Icon: Trophy, label: "Competition Prep", hint: "Muy pronto", onClick: soon("Competition Prep") },
+      { key: "checkin", Icon: Camera, label: "Check-in", kw: "peso recuperación fotos video", onClick: onOpenCheckin },
+      { key: "posing", Icon: PersonStanding, label: "Posing", kw: "categoría poses", onClick: onOpenPosing },
+      { key: "prep", Icon: Trophy, label: "Competition Prep", kw: "fase categoría peak week", onClick: soon("Competition Prep") },
     ] },
     { label: "Herramientas", rows: [
-      { key: "timer", Icon: Timer, label: "Temporizador", hint: "Intervalos, cuenta regresiva y cronómetro", onClick: () => onOpenUtility("timer") },
-      { key: "guia", Icon: BookOpen, label: "Guía de términos", hint: "Qué significa cada etiqueta de la rutina", onClick: () => onOpenUtility("guia") },
-      { key: "atlas", Icon: BarChart3, label: "Atlas", hint: "Muy pronto", onClick: soon("Atlas") },
-      { key: "ia", Icon: Sparkles, label: "Coach IA", hint: "Tu asistente de entrenamiento", onClick: onOpenAIChat },
-      { key: "dispositivos", Icon: Watch, label: "Dispositivos", hint: "Relojes, básculas y apps de salud", onClick: onOpenDevices },
+      { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva cronómetro", onClick: () => onOpenUtility("timer") },
+      { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "qué significa etiqueta rutina", onClick: () => onOpenUtility("guia") },
+      { key: "atlas", Icon: BarChart3, label: "Atlas", kw: "ejercicios buscar", onClick: soon("Atlas") },
+      { key: "ia", Icon: Sparkles, label: "Coach IA", kw: "asistente entrenamiento", onClick: onOpenAIChat },
+      { key: "dispositivos", Icon: Watch, label: "Dispositivos", kw: "relojes básculas salud", onClick: onOpenDevices },
+      { key: "agenda", Icon: Calendar, label: "Agenda", kw: "turnos reservas", onClick: () => onOpenUtility("agenda") },
     ] },
     { label: "Cuenta", rows: [
-      { key: "config", Icon: Sun, label: "Configuración", hint: "Apariencia, vista e interfaz", onClick: onOpenSettings },
-      { key: "cambiar", Icon: Users, label: "Cambiar a Coach", hint: "Entrar en modo coach", onClick: () => onSwitchMode("coach") },
+      { key: "config", Icon: Sun, label: "Configuración", kw: "apariencia vista interfaz tema", onClick: onOpenSettings },
+      { key: "cambiar", Icon: Users, label: "Cambiar a Coach", kw: "entrar modo coach", onClick: () => onSwitchMode("coach") },
     ] },
   ];
   const query = q.trim().toLowerCase();
   const filtered = query
     ? groups
-        .map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.hint.toLowerCase().includes(query)) }))
+        .map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.kw.includes(query)) }))
         .filter((g) => g.rows.length > 0)
     : groups;
   return (
-    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
-      <div style={{ position: "relative", marginBottom: 18 }}>
-        <Search size={16} color={P.faint} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
+      <ScreenTitle title="Más" />
+      <div style={{ position: "relative" }}>
+        <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
         <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar en FORJA"
-          aria-label="Buscar en FORJA" style={{ width: "100%", padding: "10px 12px 10px 34px", fontSize: 15 }} />
+          aria-label="Buscar en FORJA" style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15,
+            background: P.s4, borderRadius: R_TILE, border: "none" }} />
         {q && (
           <button onClick={() => setQ("")} aria-label="Borrar búsqueda"
-            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: P.faint, padding: 4 }}>
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: P.faint2, padding: 4 }}>
             <X size={15} />
           </button>
         )}
       </div>
       {filtered.length === 0 && (
-        <div style={{ textAlign: "center", color: P.faint, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
+        <div style={{ textAlign: "center", color: P.faint2, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
       )}
       {filtered.map((g) => (
-        <SettingGroup key={g.label} label={g.label}>
-          {g.rows.map((r, i) => (
-            <SettingRow key={r.key} Icon={r.Icon} label={r.label} hint={r.hint} onClick={r.onClick} last={i === g.rows.length - 1} />
-          ))}
-        </SettingGroup>
+        <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
+            {g.rows.map((r) => <Tile key={r.key} Icon={r.Icon} label={r.label} onClick={r.onClick} badge={r.badge} />)}
+          </div>
+        </div>
       ))}
     </div>
   );
@@ -13192,7 +13360,7 @@ const ScreenTitle = ({ eyebrow, title, right, sub }) => (
   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "6px 0 2px" }}>
     <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
       {eyebrow && <div className="mono" style={{ letterSpacing: ".16em" }}>{eyebrow}</div>}
-      <h1 style={{ margin: 0, fontSize: 34, fontWeight: 700, letterSpacing: "-.022em", lineHeight: 1.05 }}>{title}</h1>
+      <h1 style={{ margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: "-.025em", lineHeight: 1.05 }}>{title}</h1>
       {sub && <div style={{ fontSize: 13.5, color: P.faint }}>{sub}</div>}
     </div>
     {right}
@@ -14194,9 +14362,9 @@ const App = () => {
           <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
             jumpSub={progressJumpSub} onJumpConsumed={() => setProgressJumpSub(null)} />
         )}
-        {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} />}
+        {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} history={history} saveHistory={saveHistory} />}
         {mode === "alumno" && tab === "mas" && (
-          <MasTab toast={toast} onOpenUtility={(id) => setUtility(id)} onOpenDevices={() => setDevicesOpen(true)}
+          <MasTab toast={toast} sid={sid} onOpenUtility={(id) => setUtility(id)} onOpenDevices={() => setDevicesOpen(true)}
             onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             onOpenPosing={() => { setTab("hoy"); setAutoOpenPosing(true); }}
