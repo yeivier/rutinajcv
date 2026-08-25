@@ -7,7 +7,7 @@ import {
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
-  Ruler, HeartPulse
+  Ruler, HeartPulse, Watch, Bluetooth, Smartphone
 } from "lucide-react";
 
 /* ============================================================
@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v124";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v127";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5022,58 +5022,101 @@ function computeWeekStrip(plan, history, weekOffset) {
   });
 }
 
-// Franja semanal con arrastre horizontal para cambiar de semana — a
-// diferencia de un carrusel con botones, este responde al dedo en tiempo
-// real (la franja sigue el toque mientras se arrastra) y solo "compromete"
-// el cambio de semana si el arrastre pasa un umbral; si no, vuelve a su
-// lugar. Cada celda es un botón real: toca cualquier día (pasado, futuro,
-// de descanso) para ver qué le tocaba.
+// Franja semanal con arrastre horizontal para cambiar de semana. Tres
+// carriles montados a la vez (anterior/actual/próxima, cada uno 100% del
+// ancho) en vez de uno solo: al pasar el umbral de arrastre, la franja
+// TERMINA de salir de pantalla en la misma dirección que traía el dedo —
+// no vuelve de golpe a su lugar para recién ahí cambiar el contenido, que
+// es lo que se veía brusco. Recién cuando esa animación de salida termina
+// cambia la semana de verdad y el riel "teletransporta" a su posición de
+// reposo sin transición — invisible, porque ahí ya queda exactamente el
+// mismo contenido que se acababa de ver. Mismo criterio que un swipe de
+// calendario semanal de cualquier app (Calendar de iOS, Google Calendar,
+// etc.). Cada celda sigue siendo un botón real: toca cualquier día
+// (pasado, futuro, de descanso) para ver qué le tocaba.
 const WeekStrip = ({ plan, history, weekNum, weekTotal, onSelectDay }) => {
   const [offset, setOffset] = useState(0);
-  const [drag, setDrag] = useState(0);       // desplazamiento en vivo mientras se arrastra
+  const [drag, setDrag] = useState(0);        // desplazamiento en vivo mientras se arrastra
   const [dragging, setDragging] = useState(false);
+  const [settling, setSettling] = useState(0); // 0 quieto · 1 terminando de avanzar · -1 terminando de retroceder
+  const [instant, setInstant] = useState(false); // sin transición, solo en el instante del salto tras cambiar de semana
   const dragRef = useRef({ startX: 0, active: false });
-  const week = computeWeekStrip(plan, history, offset);
+  const wrapRef = useRef(null);
+  const widthRef = useRef(340);
+
+  const displayOffset = settling ? offset + settling : offset;
+  const prevWeek = computeWeekStrip(plan, history, displayOffset - 1);
+  const curWeek = computeWeekStrip(plan, history, displayOffset);
+  const nextWeek = computeWeekStrip(plan, history, displayOffset + 1);
 
   const onPointerDown = (e) => {
+    if (settling) return; // no interrumpir una transición ya en curso
+    if (wrapRef.current) widthRef.current = wrapRef.current.clientWidth || widthRef.current;
     dragRef.current = { startX: e.clientX, active: true };
     setDragging(true);
   };
   const onPointerMove = (e) => {
     if (!dragRef.current.active) return;
-    setDrag(e.clientX - dragRef.current.startX);
+    const w = widthRef.current;
+    setDrag(Math.max(-w, Math.min(w, e.clientX - dragRef.current.startX)));
   };
   const commit = () => {
     if (!dragRef.current.active) return;
     dragRef.current.active = false;
-    const THRESHOLD = 46;
     setDragging(false);
-    if (drag <= -THRESHOLD) setOffset((o) => o + 1);
-    else if (drag >= THRESHOLD) setOffset((o) => o - 1);
-    setDrag(0);
+    const THRESHOLD = 46;
+    if (drag <= -THRESHOLD) setSettling(1);
+    else if (drag >= THRESHOLD) setSettling(-1);
+    else setDrag(0);
   };
+  useEffect(() => {
+    if (!settling) return;
+    const t = setTimeout(() => {
+      setOffset((o) => o + settling);
+      setSettling(0);
+      setDrag(0);
+      setInstant(true);
+    }, 320);
+    return () => clearTimeout(t);
+  }, [settling]);
+  useEffect(() => {
+    if (!instant) return;
+    const raf = requestAnimationFrame(() => requestAnimationFrame(() => setInstant(false)));
+    return () => cancelAnimationFrame(raf);
+  }, [instant]);
+
+  const w = widthRef.current;
+  const x = dragging ? drag : settling === 1 ? -w : settling === -1 ? w : 0;
+  const transition = dragging || instant ? "none" : "transform .32s cubic-bezier(.22,.85,.32,1.06)";
+
+  const grid = (arr, slot) => (
+    <div key={slot} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, flex: "0 0 100%", minWidth: 0 }}>
+      {arr.map((wd) => (
+        <button key={wd.dateIso} onClick={() => { if (!settling && Math.abs(drag) < 6) onSelectDay(wd); }}
+          style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "9px 0", borderRadius: 13,
+            background: wd.isToday ? P.ember : wd.day ? P.s1 : P.s3, border: `1px solid ${wd.isToday ? P.ember : P.line}` }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: wd.isToday ? PLATE_FG : P.faint }}>{wd.letter}</span>
+          {wd.day
+            ? <span style={{ width: 7, height: 7, borderRadius: 4, background: wd.isToday ? PLATE_FG : wd.done ? P.text : P.line }} />
+            : <span style={{ fontSize: 9, fontWeight: 700, color: wd.isToday ? PLATE_FG : P.faint, lineHeight: "7px" }}>off</span>}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
-    <div style={{ overflow: "hidden", touchAction: "pan-y" }}
+    <div ref={wrapRef} style={{ overflow: "hidden", touchAction: "pan-y" }}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove}
       onPointerUp={commit} onPointerCancel={commit} onPointerLeave={commit}>
       {weekNum && (
         <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", color: P.faint, marginBottom: 6, textAlign: "center" }}>
-          {offset === 0 ? `Semana ${weekNum} de ${weekTotal}` : offset < 0 ? `${-offset} semana${offset < -1 ? "s" : ""} atrás` : `${offset} semana${offset > 1 ? "s" : ""} adelante`}
+          {displayOffset === 0 ? `Semana ${weekNum} de ${weekTotal}` : displayOffset < 0 ? `${-displayOffset} semana${displayOffset < -1 ? "s" : ""} atrás` : `${displayOffset} semana${displayOffset > 1 ? "s" : ""} adelante`}
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6,
-        transform: `translateX(${drag}px)`, transition: dragging ? "none" : "transform .3s cubic-bezier(.2,.8,.3,1)" }}>
-        {week.map((w) => (
-          <button key={w.dateIso} onClick={() => { if (Math.abs(drag) < 6) onSelectDay(w); }}
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "9px 0", borderRadius: 13,
-              background: w.isToday ? P.ember : w.day ? P.s1 : P.s3, border: `1px solid ${w.isToday ? P.ember : P.line}` }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: w.isToday ? PLATE_FG : P.faint }}>{w.letter}</span>
-            {w.day
-              ? <span style={{ width: 7, height: 7, borderRadius: 4, background: w.isToday ? PLATE_FG : w.done ? P.text : P.line }} />
-              : <span style={{ fontSize: 9, fontWeight: 700, color: w.isToday ? PLATE_FG : P.faint, lineHeight: "7px" }}>off</span>}
-          </button>
-        ))}
+      <div style={{ display: "flex", width: "100%", transform: `translateX(calc(-100% + ${x}px))`, transition }}>
+        {grid(prevWeek, "prev")}
+        {grid(curWeek, "cur")}
+        {grid(nextWeek, "next")}
       </div>
     </div>
   );
@@ -5509,13 +5552,10 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
 
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
-      <ScreenTitle title="Hoy" right={
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {d.weekNum && <span style={{ fontSize: 12.5, color: P.faint, fontWeight: 600 }}>Semana {d.weekNum}/{d.weekTotal}</span>}
-          <div style={{ width: 36, height: 36, borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG,
-            display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>{initials}</div>
-        </div>
-      } />
+      {/* Sin avatar acá: ya está en la cabecera de la app (arriba de todo),
+          repetirlo en cada pestaña era ruido sin función — no abría nada. */}
+      <ScreenTitle title="Hoy"
+        right={d.weekNum ? <span style={{ fontSize: 12.5, color: P.faint, fontWeight: 600 }}>Semana {d.weekNum}/{d.weekTotal}</span> : null} />
       <EventReminderBanner events={plan.events} />
       <NextBookingBanner bookings={bookings} sid={sid} />
       <WeekStrip plan={plan} history={history} weekNum={d.weekNum} weekTotal={d.weekTotal} onSelectDay={setDayDetail} />
@@ -12065,19 +12105,137 @@ const ReadOnlyLock = ({ active, toast, children }) => (
   </div>
 );
 
+/* ============================================================
+   Dispositivos conectados: la ESTRUCTURA para conectar relojes,
+   básculas y apps de salud — a propósito sin la integración real
+   (nada de OAuth, nada de Bluetooth de verdad todavía). El botón
+   "Conectar" de cada ficha muestra un toast honesto en vez de fingir
+   una conexión que no existe — la app no puede prometer que ya te
+   está trayendo datos de un Garmin cuando no hay nada del otro lado.
+   Cuando se conecte la parte real (API de cada marca / Web Bluetooth),
+   solo hace falta reemplazar ese onClick: toda la navegación, las
+   fichas por marca y el detalle de qué trae cada una ya quedan listos.
+   ============================================================ */
+const DEVICE_CATALOG = [
+  { id: "garmin", name: "Garmin", group: "Relojes y pulseras", Icon: Watch,
+    blurb: "Cualquier reloj Garmin — Fénix, Forerunner, Vívoactive, Instinct o el resto de la línea Garmin Connect.",
+    syncs: ["Pasos", "Frecuencia cardíaca", "Sueño", "Calorías", "Entrenamientos registrados en el reloj"] },
+  { id: "whoop", name: "WHOOP", group: "Relojes y pulseras", Icon: Watch,
+    blurb: "Banda WHOOP — recuperación, tensión (strain) y sueño.",
+    syncs: ["Recuperación", "Tensión (strain)", "Sueño", "Frecuencia cardíaca"] },
+  { id: "applewatch", name: "Apple Watch", group: "Relojes y pulseras", Icon: Watch,
+    blurb: "Se conecta a través de la app Salud del iPhone — no hace falta configurarlo aparte del de abajo.",
+    syncs: ["Pasos", "Frecuencia cardíaca", "Sueño", "Entrenamientos"] },
+  { id: "applehealth", name: "Salud (iPhone)", group: "Apps de salud", Icon: Smartphone,
+    blurb: "La app Salud de Apple junta en un solo lugar los datos de tu iPhone, tu Apple Watch y otras apps compatibles.",
+    syncs: ["Pasos", "Peso", "Sueño", "Frecuencia cardíaca"] },
+  { id: "scale", name: "Báscula inteligente", group: "Básculas", Icon: Scale,
+    blurb: "Cualquier báscula con Bluetooth — el peso (y el % de grasa, si la báscula lo mide) se registra solo, sin escribirlo a mano.",
+    syncs: ["Peso", "% de grasa corporal (si la báscula lo mide)"] },
+  { id: "other", name: "Otro dispositivo Bluetooth", group: "Otros", Icon: Bluetooth,
+    blurb: "Cualquier otra marca con Bluetooth que no esté en la lista — pulsómetros, básculas, bandas y más.",
+    syncs: ["Depende del dispositivo"] },
+];
+const DevicesSheet = ({ open, onClose, toast }) => {
+  const [detail, setDetail] = useState(null);
+  const groups = useMemo(() => {
+    const m = new Map();
+    DEVICE_CATALOG.forEach((d) => { if (!m.has(d.group)) m.set(d.group, []); m.get(d.group).push(d); });
+    return [...m.entries()];
+  }, []);
+  const dev = DEVICE_CATALOG.find((d) => d.id === detail);
+  return (
+    <>
+      <Sheet open={open} onClose={onClose} title="Dispositivos conectados" tall>
+        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5, marginBottom: 18 }}>
+          Conecta tus relojes, básculas y apps de salud para que pasos, sueño, frecuencia cardíaca y peso lleguen solos a FORJA, sin escribirlos a mano.
+        </div>
+        {groups.map(([label, items]) => (
+          <div key={label} style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>{label}</div>
+            <Card style={{ padding: "2px 14px" }}>
+              {items.map((d, i) => (
+                <React.Fragment key={d.id}>
+                  <button onClick={() => setDetail(d.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "14px 0", textAlign: "left" }}>
+                    <span style={{ width: 38, height: 38, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: P.dim }}>
+                      <d.Icon size={18} />
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600 }}>{d.name}</div>
+                      <div style={{ fontSize: 12.5, color: P.faint }}>No conectado</div>
+                    </span>
+                    <ChevronRight size={17} color={P.faint} style={{ flexShrink: 0 }} />
+                  </button>
+                  {i < items.length - 1 && <div style={{ height: 1, background: P.line }} />}
+                </React.Fragment>
+              ))}
+            </Card>
+          </div>
+        ))}
+      </Sheet>
+      <Sheet open={!!dev} onClose={() => setDetail(null)} title={dev ? dev.name : ""}>
+        {dev && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <span style={{ width: 52, height: 52, borderRadius: 15, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", color: P.dim, flexShrink: 0 }}>
+                <dev.Icon size={24} />
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 17, fontWeight: 700 }}>{dev.name}</div>
+                <div style={{ fontSize: 13, color: P.faint }}>No conectado</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>{dev.blurb}</div>
+            <div>
+              <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Qué va a traer</div>
+              <Card style={{ padding: "12px 14px" }}>
+                {dev.syncs.map((s, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 14.5, lineHeight: 1.5, marginBottom: i < dev.syncs.length - 1 ? 8 : 0 }}>
+                    <span style={{ color: P.ember2, flexShrink: 0 }}>•</span><span>{s}</span>
+                  </div>
+                ))}
+              </Card>
+            </div>
+            <Btn kind="ember" onClick={() => toast && toast(`La conexión con ${dev.name} llega pronto — te avisamos apenas esté disponible.`)} style={{ width: "100%" }}>
+              <Bluetooth size={15} /> Conectar {dev.name}
+            </Btn>
+          </div>
+        )}
+      </Sheet>
+    </>
+  );
+};
+
 /* Hoja "Más": lo que salió de la barra de pestañas. Herramientas de
    referencia, gestión (alumnos/equipo) y los ajustes de apariencia —
    agrupados en filas de sistema, como los Ajustes de iOS. */
-const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewMode, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, viewMode, onChangeViewMode, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices }) => {
   const [theme, setTheme] = useTheme();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
   return (
     <Sheet open={open} onClose={onClose} title="Más" tall>
+      {/* Cabecera de perfil: es lo primero que se ve al abrir "Más" desde
+          el avatar de la cabecera — así esa hoja funciona de verdad como
+          el "perfil" que un alumno espera al tocar su ícono, no solo un
+          menú de ajustes sin nombre ni cara. */}
+      <button onClick={onSwitchIdentity}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "6px 4px 18px", textAlign: "left" }}>
+        <div style={{ width: 52, height: 52, borderRadius: 16, background: PLATE_GRAD, color: PLATE_FG,
+          display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 19, flexShrink: 0 }}>
+          {(studentName || "?").slice(0, 1).toUpperCase()}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 17, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{studentName || "—"}</div>
+          <div style={{ fontSize: 13, color: P.faint }}>modo {mode} · cambiar de cuenta</div>
+        </div>
+        <ChevronRight size={17} color={P.faint} style={{ flexShrink: 0 }} />
+      </button>
       <SettingGroup label="Herramientas">
         <SettingRow Icon={Timer} label="Temporizador" hint="Intervalos, cuenta regresiva y cronómetro" onClick={() => onOpenUtility("timer")} />
         <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} last={mode === "coach"} />
-        {mode === "alumno" && <SettingRow Icon={Calendar} label="Agenda" hint="Tu semana y tus turnos reservados" onClick={() => onOpenUtility("agenda")} last />}
+        {mode === "alumno" && <SettingRow Icon={Calendar} label="Agenda" hint="Tu semana y tus turnos reservados" onClick={() => onOpenUtility("agenda")} />}
+        {mode === "alumno" && <SettingRow Icon={Watch} label="Dispositivos" hint="Relojes, básculas y apps de salud" onClick={onOpenDevices} last />}
       </SettingGroup>
 
       {mode === "coach" && (
@@ -12125,12 +12283,19 @@ const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewM
    herramientas de referencia (Temporizador, Guía y, para el alumno, Agenda)
    salen de la barra y viven en la hoja "Más". */
 const TABS = {
+  // "Coach" (antes "Más"/"···"): la mensajería con el coach vuelve a ser
+  // una pestaña propia de la barra inferior, en el mismo lugar donde el
+  // modo coach ya tiene su pestaña "Mensajes" — es el lugar donde la
+  // gente ya busca esto en cualquier app con barra de pestañas, no un
+  // ícono suelto en la esquina superior derecha. "Más" (herramientas,
+  // ajustes) se muda al botón de la cabecera, calcando exactamente lo
+  // que el modo coach ya hace con ese mismo botón.
   alumno: [
     { id: "hoy", label: "Inicio", Icon: Home },
     { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
     { id: "progreso", label: "Progreso", Icon: BarChart3 },
     { id: "nutricion", label: "Nutrición", Icon: Utensils },
-    { id: "mas", label: "Más", Icon: MoreHorizontal },
+    { id: "coach", label: "Coach", Icon: MessageSquare },
   ],
   coach: [
     { id: "dashboard", label: "Panel", Icon: LayoutDashboard, sections: ["dashboard"] },
@@ -12153,8 +12318,8 @@ const UTILITY_SCREENS = {
 
 // Easy Mode deja solo lo imprescindible en la barra inferior. Todo lo
 // demás sigue existiendo: vuelve al toque con el switch de Interfaz.
-const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "mas"] };
-const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
+const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "coach"] };
+const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", coach: "Coach" };
 
 /* ============================================================
    Componentes de sistema (portados de la implementación de
@@ -12582,16 +12747,33 @@ function clampFabPos(p) {
 // y su posición se recuerda en este dispositivo; un toque sin arrastre lo
 // abre. En modo coach abre la pestaña IA de siempre (con todas sus
 // herramientas); en modo alumno abre un chat nuevo, de solo consulta.
+//
+// Ocultarlo/mostrarlo: antes era "tres toques seguidos en cualquier parte
+// de la pantalla", con un listener global de pointerdown — el problema es
+// que CUALQUIER toque de la app sumaba para ese conteo, así que tocar
+// rápido "siguiente"/"anterior" en Focus Mode (o un swipe) se contaba como
+// si fueran los tres toques y el ícono aparecía y desaparecía solo. Ahora
+// el gesto vive en el propio botón, donde no compite con nada más: mantener
+// presionado lo oculta (el ícono cambia a un ojo tachado mientras se
+// sostiene, como aviso de "esto lo va a ocultar"), y en su lugar queda una
+// pestañita angosta pegada al borde — visible pero discreta, como el
+// "chat head" minimizado de Messenger o el indicador de AssistiveTouch en
+// iOS — que con un toque lo trae de vuelta al instante. El ajuste de
+// "Más" sigue existiendo como forma alternativa, no se saca nada.
+const AI_FAB_HOLD_MS = 550;
 const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatSignal, toast }) => {
+  const [visible, setVisible] = useAiFabVisible();
   const [pos, setPos] = useState(() => clampFabPos(loadFabPos() || { right: 16, bottom: 110 }));
   const [dragging, setDragging] = useState(false);
+  const [holding, setHolding] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
-  const dragRef = useRef({ startX: 0, startY: 0, startRight: 0, startBottom: 0, moved: false });
+  const dragRef = useRef({ startX: 0, startY: 0, startRight: 0, startBottom: 0, moved: false, hidden: false });
+  const holdTimer = useRef(null);
 
-  // Señal externa (Acciones rápidas en Hoy → "Preguntar a IA"): abre el
-  // MISMO sheet que ya abre este botón, sin duplicar nada. 0 es "todavía
-  // nadie pidió nada" — solo actúa cuando el número sube.
+  // Señal externa (Acciones rápidas en Hoy → "Coach IA"): abre el MISMO
+  // sheet que ya abre este botón, sin duplicar nada. 0 es "todavía nadie
+  // pidió nada" — solo actúa cuando el número sube.
   const seenSignal = useRef(0);
   useEffect(() => {
     if (mode !== "alumno" || !openChatSignal || openChatSignal === seenSignal.current) return;
@@ -12604,6 +12786,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  useEffect(() => () => clearTimeout(holdTimer.current), []);
 
   // La API key la carga el coach desde la pestaña IA (sGet/sSet con
   // shared=true: vive en Supabase, no en este dispositivo) — el alumno la
@@ -12616,18 +12799,30 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
   }, [mode, chatOpen]);
 
   const onPointerDown = (e) => {
-    dragRef.current = { startX: e.clientX, startY: e.clientY, startRight: pos.right, startBottom: pos.bottom, moved: false };
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startRight: pos.right, startBottom: pos.bottom, moved: false, hidden: false };
     setDragging(true);
+    setHolding(true);
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => {
+      if (dragRef.current.moved) return;
+      dragRef.current.hidden = true;
+      setHolding(false);
+      setVisible(false);
+      toast && toast("Asistente de IA oculto — toca la pestaña del borde para volver a mostrarlo");
+    }, AI_FAB_HOLD_MS);
   };
   const onPointerMove = (e) => {
     if (!dragging) return;
     const dx = e.clientX - dragRef.current.startX, dy = e.clientY - dragRef.current.startY;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragRef.current.moved = true;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) { dragRef.current.moved = true; clearTimeout(holdTimer.current); setHolding(false); }
     if (dragRef.current.moved) setPos(clampFabPos({ right: dragRef.current.startRight - dx, bottom: dragRef.current.startBottom - dy }));
   };
   const onPointerUp = () => {
+    clearTimeout(holdTimer.current);
     setDragging(false);
+    setHolding(false);
+    if (dragRef.current.hidden) return;
     if (dragRef.current.moved) { saveFabPos(pos); return; }
     if (mode === "coach") onOpenCoachTab && onOpenCoachTab();
     else setChatOpen(true);
@@ -12635,20 +12830,29 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
 
   return (
     <>
-      <button
-        onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
-        onContextMenu={(e) => e.preventDefault()}
-        aria-label="Asistente de IA — mantén pulsado y arrastra para moverlo, toca para abrirlo"
-        title="Asistente de IA"
-        style={{ position: "fixed", right: pos.right, bottom: pos.bottom, width: AI_FAB_SIZE, height: AI_FAB_SIZE, borderRadius: AI_FAB_SIZE / 2,
-          zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: dragging ? DRAG_LIFT_SHADOW : "0 6px 20px -12px rgba(0,0,0,.25)",
-          transform: dragging ? "scale(1.06)" : "scale(1)",
-          transition: dragging ? "none" : "transform .15s ease, box-shadow .15s ease",
-          touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", cursor: "grab" }}>
-        <Sparkles size={24} strokeWidth={2.2} />
-      </button>
+      {visible ? (
+        <button
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+          onContextMenu={(e) => e.preventDefault()}
+          aria-label="Asistente de IA — mantén pulsado para ocultarlo, arrastra para moverlo, toca para abrirlo"
+          title="Asistente de IA"
+          style={{ position: "fixed", right: pos.right, bottom: pos.bottom, width: AI_FAB_SIZE, height: AI_FAB_SIZE, borderRadius: AI_FAB_SIZE / 2,
+            zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: dragging ? DRAG_LIFT_SHADOW : "0 6px 20px -12px rgba(0,0,0,.25)",
+            transform: dragging ? "scale(1.06)" : "scale(1)",
+            transition: dragging ? "none" : "transform .15s ease, box-shadow .15s ease",
+            touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", cursor: "grab" }}>
+          {holding ? <EyeOff size={22} strokeWidth={2.2} /> : <Sparkles size={24} strokeWidth={2.2} />}
+        </button>
+      ) : (
+        <button onClick={() => setVisible(true)} aria-label="Mostrar asistente de IA" title="Mostrar asistente de IA"
+          style={{ position: "fixed", right: 0, bottom: pos.bottom, width: 18, height: 48, borderRadius: "14px 0 0 14px",
+            zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 14px -8px rgba(0,0,0,.3)", opacity: 0.9 }}>
+          <Sparkles size={12} strokeWidth={2.4} />
+        </button>
+      )}
       {chatOpen && mode === "alumno" && (
         <div onClick={() => setChatOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 96, background: "rgba(5,3,3,.68)",
           display: "flex", alignItems: "flex-end", justifyContent: "center",
@@ -12754,6 +12958,7 @@ const App = () => {
   // pestaña para que volver a ella recuerde dónde estabas.
   const [section, setSection] = useState({});
   const [moreOpen, setMoreOpen] = useState(false);
+  const [devicesOpen, setDevicesOpen] = useState(false);
   // Pantalla de utilidad abierta desde "Más" (temporizador, guía, agenda
   // del alumno). Se muestra por encima de la pestaña actual con una
   // cabecera de "volver", en vez de ocupar un lugar en la barra.
@@ -12767,39 +12972,14 @@ const App = () => {
   const [autoStartDayId, setAutoStartDayId] = useState(null);
   const [homeView, setHomeView] = useHomeView();
   const [routineView, setRoutineView] = useRoutineView();
-  const [aiFabVisible, setAiFabVisible] = useAiFabVisible();
-  // Gesto para ocultar/mostrar el botón de IA sin pasar por "Más": tres
-  // toques seguidos en cualquier parte de la pantalla (no hace falta
-  // acertarle al botón, que es chico y a veces molesta tocarlo aposta). El
-  // ajuste de "Más" sigue siendo la forma normal — esto es un atajo, no un
-  // reemplazo. Se ignoran los toques que caen DENTRO del propio botón: ese
-  // ya tiene su propio gesto (tocar para abrir, mantener para arrastrar) y
-  // no debe competir con este.
-  const tapCountRef = useRef({ n: 0, timer: null });
-  // setAiFabVisible NO acepta un actualizador funcional (guarda el valor
-  // tal cual en una variable de módulo, ver setAiFabVisiblePref más
-  // arriba) — pasarle `(v) => !v` guardaría la función misma, y `!!fn` es
-  // siempre true. Por eso este ref: el listener se registra una sola vez
-  // (no depende de aiFabVisible), así que necesita una forma de leer el
-  // valor MÁS RECIENTE en el momento del toque, no el de cuando se montó.
-  const aiFabVisibleRef = useRef(aiFabVisible);
-  aiFabVisibleRef.current = aiFabVisible;
-  useEffect(() => {
-    const onTap = (e) => {
-      if (e.target.closest && e.target.closest('[aria-label^="Asistente de IA"]')) return;
-      const t = tapCountRef.current;
-      t.n += 1;
-      clearTimeout(t.timer);
-      if (t.n >= 3) {
-        t.n = 0;
-        setAiFabVisible(!aiFabVisibleRef.current);
-      } else {
-        t.timer = setTimeout(() => { t.n = 0; }, 600);
-      }
-    };
-    document.addEventListener("pointerdown", onTap);
-    return () => document.removeEventListener("pointerdown", onTap);
-  }, []);
+  // El gesto para ocultar/mostrar el botón de IA (antes: tres toques
+  // seguidos en cualquier parte de la pantalla) se mudó adentro de AIFab
+  // como mantener presionado el propio botón — un listener global de
+  // "pointerdown" contaba como toque CUALQUIER toque de la app, así que
+  // clics rápidos de siguiente/anterior en Focus Mode (o un swipe) se
+  // acumulaban como si fueran los tres toques y el ícono aparecía y
+  // desaparecía solo. AIFab se monta siempre ahora (ver más abajo) y
+  // decide él mismo si se dibuja completo o minimizado.
   const [confirmDel, setConfirmDel] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -13117,31 +13297,22 @@ const App = () => {
       <GlobalStyle />
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
         paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
-        {/* Cabecera: solo identidad y un botón "Más". El tema, el Easy Mode,
-            el cambio alumno/coach, Alumnos y Equipo se mudaron a la hoja
-            "Más" — una barra superior con seis controles es justo lo que el
-            sistema del diseño evita. */}
+        {/* Cabecera: identidad como texto a la izquierda (toque rápido:
+            cambiar de alumno/coach) y el avatar a la derecha — es el lugar
+            donde la gente ya busca su propio ícono de cuenta. Tocarlo abre
+            "Más", que ahora arranca con una cabecera de perfil propia (foto,
+            nombre, cambiar de cuenta) antes de sus grupos de herramientas y
+            ajustes — así sí funciona como el perfil que se espera al tocar
+            el avatar, no solo un menú suelto. */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "calc(8px + env(safe-area-inset-top)) 16px 4px" }}>
-          <button onClick={() => setReady(false)} style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 11, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: PLATE_FG, fontSize: 14, flexShrink: 0 }}>
-              {(currentStudent?.name || "?").slice(0, 1).toUpperCase()}
-            </div>
-            <div style={{ minWidth: 0, textAlign: "left" }}>
-              <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190 }}>{currentStudent?.name || "—"}</div>
-              <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>modo {mode} · cambiar</div>
-            </div>
+          <button onClick={() => setReady(false)} style={{ textAlign: "left", minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{currentStudent?.name || "—"}</div>
+            <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>modo {mode} · cambiar</div>
           </button>
-          {/* Para el alumno este botón ya no abre "Más" (eso se mudó al
-              "···" de la barra de pestañas, donde antes estaba Coach): abre
-              directo el chat con su coach, como el ícono de mensajería de
-              cualquier app — es lo que un alumno busca en la esquina
-              superior derecha, no un menú de ajustes. Para el coach sigue
-              abriendo "Más": su barra ya tiene una pestaña Mensajes propia. */}
-          <button onClick={() => (mode === "alumno" ? setTab("coach") : setMoreOpen(true))}
-            aria-label={mode === "alumno" ? "Chat con tu coach" : "Más opciones"}
+          <button onClick={() => setMoreOpen(true)} aria-label="Perfil y más opciones"
             style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
-              background: P.s1, border: `1px solid ${P.line}`, color: P.text, flexShrink: 0 }}>
-            {mode === "alumno" ? <MessageSquare size={18} strokeWidth={2.2} /> : <Layers size={18} strokeWidth={2.2} />}
+              background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+            {(currentStudent?.name || "?").slice(0, 1).toUpperCase()}
           </button>
         </div>
         <StorageBanner />
@@ -13270,18 +13441,17 @@ const App = () => {
         </div>
       </div>
 
-      {/* "mas" (el "···" que reemplazó a Coach en la barra del alumno) no es
-          una pantalla propia: abre la misma hoja "Más" de siempre en vez de
-          cambiar de pestaña, así que se intercepta acá en vez de tocar
-          TabBar (que sigue sin saber nada de casos especiales). */}
-      <TabBar tabs={tabs} tab={tab} setTab={(id) => (id === "mas" ? setMoreOpen(true) : setTab(id))} />
+      <TabBar tabs={tabs} tab={tab} setTab={setTab} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode}
+        studentName={currentStudent?.name} onSwitchIdentity={() => { setMoreOpen(false); setReady(false); }}
         canManageTeam={myRoleMeta.manageTeam} viewMode={homeView} onChangeViewMode={setHomeView}
         routineView={routineView} onChangeRoutineView={setRoutineView}
         onOpenUtility={(id) => { setMoreOpen(false); setUtility(id); }}
         onOpenRoster={() => { setMoreOpen(false); setRosterOpen(true); }}
         onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
+        onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
         onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }} />
+      <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast} />
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
         onEnter={(m, id) => { setRosterOpen(false); openIdentity(m, id, roster, myTeamId); }}
         onAdd={() => addStudent(false)} onRename={renameStudent} onRemove={(s) => setConfirmDel(s)} />
@@ -13307,11 +13477,9 @@ const App = () => {
       <Sheet open={gloss.open} onClose={() => setGloss({ open: false, focus: null })} title="Guía rápida" tall>
         <GlossaryBody focusId={gloss.focus} />
       </Sheet>
-      {aiFabVisible && (
-        <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
-          onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
-          openChatSignal={aiChatOpenSignal} toast={toast} />
-      )}
+      <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
+        onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
+        openChatSignal={aiChatOpenSignal} toast={toast} />
       <Toast msg={toastMsg} />
     </div>
   );
