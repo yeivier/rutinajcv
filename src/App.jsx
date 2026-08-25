@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v131";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v132";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -924,17 +924,20 @@ const BODY_MEASURE_FIELDS = [
 // 1 a 5 — con solo 5 niveles dos días bien distintos caen en el mismo
 // número, y el coach pierde la resolución que necesita para decidir).
 // Cada una se responde con un toque, sin escribir nada.
+// `section` agrupa las escalas bajo un encabezado (o ninguno, para las
+// primeras 4 — "estado general", implícito) tal como en la referencia:
+// sin agrupar / "Apetito y digestión" / "Apariencia y rendimiento".
 const RECOVERY_FIELDS = [
-  { key: "energia", label: "Energía general", tag: "Estado físico", lo: "Sin energía", hi: "Excelente" },
-  { key: "sueno", label: "Calidad del sueño", tag: "Recuperación", lo: "Muy mala", hi: "Excelente" },
-  { key: "dolor", label: "Dolor muscular", tag: "DOMS", lo: "Nada", hi: "Extremo" },
-  { key: "estres", label: "Estrés", tag: "Sistema nervioso", lo: "Nulo", hi: "Muy alto" },
-  { key: "hambre", label: "Nivel de hambre", tag: "Apetito", lo: "Sin hambre", hi: "Hambre extrema" },
-  { key: "saturacion", label: "Saturación digestiva", tag: "Plenitud", lo: "Vacío / cómodo", hi: "Saturado" },
-  { key: "digestion", label: "Calidad digestiva", tag: "Confort GI", lo: "Muy mala", hi: "Perfecta" },
-  { key: "plenitudMuscular", label: "Depleción / plenitud muscular", tag: "Look", lo: "Muy depletado", hi: "Muy lleno" },
-  { key: "pump", label: "Calidad del pump", tag: "Entrenamiento", lo: "Muy malo", hi: "Excelente" },
-  { key: "motivacion", label: "Motivación para entrenar", tag: "Readiness", lo: "Muy baja", hi: "Máxima" },
+  { key: "energia", label: "Energía general", tag: "Estado físico", lo: "Sin energía", hi: "Excelente", section: null },
+  { key: "sueno", label: "Calidad del sueño", tag: "Recuperación", lo: "Muy mala", hi: "Excelente", section: null },
+  { key: "dolor", label: "Dolor muscular", tag: "DOMS", lo: "Nada", hi: "Extremo", section: null },
+  { key: "estres", label: "Estrés", tag: "Sistema nervioso", lo: "Nulo", hi: "Muy alto", section: null },
+  { key: "hambre", label: "Nivel de hambre", tag: "Apetito", lo: "Sin hambre", hi: "Hambre extrema", section: "Apetito y digestión" },
+  { key: "saturacion", label: "Saturación digestiva", tag: "Plenitud", lo: "Vacío / cómodo", hi: "Saturado", section: "Apetito y digestión" },
+  { key: "digestion", label: "Calidad digestiva", tag: "Confort GI", lo: "Muy mala", hi: "Perfecta", section: "Apetito y digestión" },
+  { key: "plenitudMuscular", label: "Depleción / plenitud muscular", tag: "Look", lo: "Muy depletado", hi: "Muy lleno", section: "Apariencia y rendimiento" },
+  { key: "pump", label: "Calidad del pump", tag: "Entrenamiento", lo: "Muy malo", hi: "Excelente", section: "Apariencia y rendimiento" },
+  { key: "motivacion", label: "Motivación para entrenar", tag: "Readiness", lo: "Muy baja", hi: "Máxima", section: "Apariencia y rendimiento" },
 ];
 const MEASURE_GENERAL_RULES = [
   "Usa una cinta métrica flexible (de costura), no elástica — una cinta elástica se estira distinto cada vez, y la medida cambia aunque el cuerpo no haya cambiado.",
@@ -5481,6 +5484,97 @@ const PosingPhotoSlot = ({ label, attachId, onChange, onError }) => {
   );
 };
 
+// Categorías de competencia y sus poses obligatorias — estándar
+// IFBB/NPC, la referencia más reconocida en preparación física para
+// escenario. Cada federación local puede ajustar el detalle exacto, así
+// que la lista se acompaña siempre de un aviso a confirmar con el
+// reglamento propio de la categoría. Sirve como guía de qué grabar en
+// el video de posing, no como un dato que se guarda en history — como
+// la guía de "Fondo y encuadre" que ya existe para las fotos de
+// progreso, que tampoco escribe nada.
+const POSING_CATEGORIES = [
+  { id: "bodybuilding", name: "Bodybuilding", poses: [
+    "Doble bíceps de frente", "Lat spread de frente", "Perfil de pecho",
+    "Doble bíceps de espalda", "Lat spread de espalda", "Tríceps de perfil",
+    "Abdomen y piernas",
+  ] },
+  { id: "classic_physique", name: "Classic Physique", poses: [
+    "Doble bíceps de frente", "Perfil de pecho", "Doble bíceps de espalda",
+    "Abdomen y piernas", "Pose clásica a elección",
+  ] },
+  { id: "mens_physique", name: "Men's Physique", poses: [
+    "Cuarto de vuelta — frente", "Cuarto de vuelta — perfil derecho",
+    "Cuarto de vuelta — espalda", "Cuarto de vuelta — perfil izquierdo",
+  ] },
+  { id: "womens_physique", name: "Women's Physique", poses: [
+    "Doble bíceps de frente", "Perfil de pecho", "Doble bíceps de espalda", "Abdomen y piernas",
+  ] },
+  { id: "figure", name: "Figure", poses: [
+    "Cuarto de vuelta — frente", "Cuarto de vuelta — perfil derecho",
+    "Cuarto de vuelta — espalda", "Cuarto de vuelta — perfil izquierdo",
+  ] },
+  { id: "wellness", name: "Wellness", poses: [
+    "Cuarto de vuelta — frente", "Cuarto de vuelta — perfil derecho",
+    "Cuarto de vuelta — espalda (glúteos y piernas)", "Cuarto de vuelta — perfil izquierdo",
+  ] },
+  { id: "bikini", name: "Bikini", poses: [
+    "Cuarto de vuelta — frente", "Cuarto de vuelta — perfil derecho",
+    "Cuarto de vuelta — espalda", "Cuarto de vuelta — perfil izquierdo", "Pose bikini (a pedido del juez)",
+  ] },
+];
+const PosingCategoryBlock = () => {
+  const [catId, setCatId] = useState(POSING_CATEGORIES[1].id); // Classic Physique por defecto
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [checked, setChecked] = useState(() => new Set(POSING_CATEGORIES[1].poses));
+  const cat = POSING_CATEGORIES.find((c) => c.id === catId) || POSING_CATEGORIES[0];
+  const pickCategory = (id) => {
+    setCatId(id);
+    setChecked(new Set((POSING_CATEGORIES.find((c) => c.id === id) || {}).poses || []));
+    setPickerOpen(false);
+  };
+  const toggle = (pose) => setChecked((s) => { const n = new Set(s); if (n.has(pose)) n.delete(pose); else n.add(pose); return n; });
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 15.5, fontWeight: 700, color: MONO.ink }}>Video</div>
+      <button onClick={() => setPickerOpen(true)}
+        style={{ textAlign: "left", padding: 16, borderRadius: 16, background: MONO.ink }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#9A9AA2", marginBottom: 4 }}>Categoría</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: "#FFFFFF", marginBottom: 4 }}>{cat.name}</div>
+        <div style={{ fontSize: 13, color: "#B8B8C0" }}>Toca para cambiar de categoría</div>
+      </button>
+      <MonoCard style={{ padding: "2px 14px" }}>
+        {cat.poses.map((pose, i) => (
+          <React.Fragment key={pose}>
+            <button onClick={() => toggle(pose)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 0", textAlign: "left" }}>
+              <span style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                background: checked.has(pose) ? MONO.ink : "transparent", border: `1.5px solid ${checked.has(pose) ? MONO.ink : MONO.chipBorder}` }}>
+                {checked.has(pose) && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
+              </span>
+              <span style={{ fontSize: 14.5, color: MONO.ink, fontWeight: 600 }}>{pose}</span>
+            </button>
+            {i < cat.poses.length - 1 && <div style={{ height: 1, background: MONO.line }} />}
+          </React.Fragment>
+        ))}
+      </MonoCard>
+      <Sheet open={pickerOpen} onClose={() => setPickerOpen(false)} title="Categoría de competencia">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {POSING_CATEGORIES.map((c) => (
+            <button key={c.id} onClick={() => pickCategory(c.id)}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 15px", borderRadius: 13,
+                background: c.id === catId ? MONO.ink : MONO.chipBg, color: c.id === catId ? "#FFFFFF" : MONO.ink, fontWeight: 600, fontSize: 15 }}>
+              {c.name}
+              {c.id === catId && <Check size={16} />}
+            </button>
+          ))}
+          <div style={{ fontSize: 12, color: MONO.inkFaint, lineHeight: 1.5, marginTop: 8 }}>
+            Poses estándar IFBB/NPC — confirma siempre el reglamento de tu federación y categoría, puede variar.
+          </div>
+        </div>
+      </Sheet>
+    </div>
+  );
+};
+
 // Formulario de las 14 medidas corporales. Ninguna es obligatoria — se
 // guarda lo que el alumno haya llenado, y "guardar" queda deshabilitado
 // hasta que al menos una tenga un número real. El "?" de cada campo
@@ -6095,9 +6189,14 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           {recoveryToday && (
             <div style={{ fontSize: 12.5, color: MONO.inkDim }}>Ya mandaste una recuperación hoy — puedes enviar otra si algo cambió.</div>
           )}
-          {RECOVERY_FIELDS.map((f) => (
-            <RecoveryScale key={f.key} label={f.label} tag={f.tag} lo={f.lo} hi={f.hi}
-              value={rec[f.key]} onChange={(n) => setRec((o) => ({ ...o, [f.key]: n }))} />
+          {RECOVERY_FIELDS.map((f, i) => (
+            <React.Fragment key={f.key}>
+              {f.section && f.section !== RECOVERY_FIELDS[i - 1]?.section && (
+                <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.015em", color: MONO.ink, marginTop: 6 }}>{f.section}</div>
+              )}
+              <RecoveryScale label={f.label} tag={f.tag} lo={f.lo} hi={f.hi}
+                value={rec[f.key]} onChange={(n) => setRec((o) => ({ ...o, [f.key]: n }))} />
+            </React.Fragment>
           ))}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <MonoLabel>Comentario de recuperación</MonoLabel>
@@ -6126,7 +6225,8 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             <PosingPhotoSlot label="Lateral" attachId={poseLateral} onChange={setPoseLateral} onError={setCiError} />
             <PosingPhotoSlot label="Posterior" attachId={posePosterior} onChange={setPosePosterior} onError={setCiError} />
           </div>
-          <AttachButton mode="video" label={`Agregar video de posing${poseVideos.length ? ` (${poseVideos.length})` : ""}`}
+          <PosingCategoryBlock />
+          <AttachButton mode="video" label={`Agregar video${poseVideos.length ? ` (${poseVideos.length})` : ""}`}
             onAttached={(id) => setPoseVideos((v) => [...v, id])} onError={setCiError} />
           {ciError && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4 }}>{ciError}</div>}
           <Btn kind="ember" onClick={savePosing} disabled={poseSaving} style={{ width: "100%" }}>
