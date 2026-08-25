@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v139";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v140";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4227,11 +4227,18 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
       {caption && <span style={{ fontSize: 11, color: PLATE_DIM, textAlign: "center" }}>{caption}</span>}
     </div>
   );
+  // Círculo BLANCO con el ícono en negro (par PLATE_FG/PLATE_GRAD, que se
+  // invierte solo según el tema) — calcando la referencia al pixel, en
+  // vez del ícono suelto tintado directo sobre la placa que había antes.
+  // `on` marca el estado activo (p. ej. "Indicación del coach" abierta)
+  // con un aro alrededor del círculo — nada de color: acá todo sigue en
+  // blanco y negro, como el resto de la app.
   const plateIconBtn = (onClick, label, Icon, on, disabled) => (
     <button onClick={onClick} disabled={disabled} aria-label={label} title={label}
       style={{ width: 34, height: 34, borderRadius: 17, display: "flex", alignItems: "center", justifyContent: "center",
-        color: on ? PLATE_FG : PLATE_DIM, opacity: disabled ? 0.4 : 1, flexShrink: 0 }}>
-      <Icon size={17} />
+        background: PLATE_FG, color: PLATE_GRAD, opacity: disabled ? 0.4 : 1, flexShrink: 0,
+        boxShadow: on ? `0 0 0 2px ${PLATE_DIM}` : "none" }}>
+      <Icon size={16} />
     </button>
   );
 
@@ -4497,13 +4504,13 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
       <div key={st.id}>
         <div style={{ background: PLATE_GRAD, borderRadius: 20, padding: "14px 14px 16px", marginBottom: 9 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <span title={(SET_TYPES[st.type] || {}).label} style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, flexShrink: 0 }}>{short}</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {plateIconBtn(() => setHistEx(ei), "Historial", History)}
               {plateIconBtn(() => (noteOpen ? hideInstr() : showInstr(ei, false)), "Indicación del coach", Users, noteOpen, !exx.notes)}
               {plateIconBtn(() => setCalcOpen(true), "Calculadoras", Calculator)}
               {plateIconBtn(() => setExMoreFor({ ei, si }), "Más", MoreHorizontal)}
             </div>
+            <span title={(SET_TYPES[st.type] || {}).label} style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, flexShrink: 0 }}>{short}</span>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             {fieldDark("PESO", st.weight, (v) => setVal(ei, si, "weight", v), weightUnit === "kg" ? 2.5 : 5, false,
@@ -4516,9 +4523,9 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
             <button onClick={() => onToggleDone(ei, si)}
               aria-label={st.done ? "Desmarcar serie" : "Marcar serie hecha"}
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 0",
-                borderRadius: 14, background: MONO.surface, border: `1.5px solid ${PLATE_BORDER}`, color: MONO.ink, fontSize: 15, fontWeight: 700 }}>
-              <Check size={18} strokeWidth={3} /> {st.done ? "Completada" : "Marcar hecha"}
+              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "12px 0",
+                borderRadius: 14, background: st.done ? MONO.surface : PLATE_FG, border: `1.5px solid ${PLATE_BORDER}`, color: PLATE_GRAD }}>
+              <Check size={20} strokeWidth={3} />
             </button>
           </div>
         </div>
@@ -4547,13 +4554,13 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
       <div>
         <div style={{ background: PLATE_GRAD, borderRadius: 22, padding: "20px 18px 24px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-            <span title={(SET_TYPES[st.type] || {}).label} style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, flexShrink: 0 }}>{short}</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {plateIconBtn(() => setHistEx(ei), "Historial", History)}
               {plateIconBtn(() => (noteOpen ? hideInstr() : showInstr(ei, false)), "Indicación del coach", Users, noteOpen, !exx.notes)}
               {plateIconBtn(() => setCalcOpen(true), "Calculadoras", Calculator)}
               {plateIconBtn(() => setExMoreFor({ ei, si }), "Más", MoreHorizontal)}
             </div>
+            <span title={(SET_TYPES[st.type] || {}).label} style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, flexShrink: 0 }}>{short}</span>
           </div>
           <div style={{ display: "flex", gap: 12 }}>
             {fieldDark("PESO", st.weight, (v) => setVal(ei, si, "weight", v), weightUnit === "kg" ? 2.5 : 5, false,
@@ -4888,12 +4895,12 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
                 </button>
                 <button onClick={() => onToggleDone(page.ei, page.si)}
                   aria-label={exs[page.ei].sets[page.si].done ? "Desmarcar serie" : "Marcar serie hecha"}
-                  style={{ flex: 1.9, padding: "17px 6px", borderRadius: 16,
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap",
+                  style={{ flex: 1.3, padding: "17px 6px", borderRadius: 16,
+                  display: "flex", alignItems: "center", justifyContent: "center",
                   background: exs[page.ei].sets[page.si].done ? MONO.chipBg : PLATE_GRAD,
                   border: exs[page.ei].sets[page.si].done ? `1px solid ${MONO.line}` : "none",
-                  color: exs[page.ei].sets[page.si].done ? MONO.ink : PLATE_FG, fontSize: 13.5, fontWeight: 700, transition: "background .15s ease" }}>
-                  <Check size={15} strokeWidth={3} /> {exs[page.ei].sets[page.si].done ? "Completada" : "Completar serie"}
+                  color: exs[page.ei].sets[page.si].done ? MONO.ink : PLATE_FG, transition: "background .15s ease" }}>
+                  <Check size={22} strokeWidth={3} />
                 </button>
                 <button onClick={() => go(1)} disabled={pageIdx >= pages.length - 1} style={{ flex: 1, padding: "17px 10px", borderRadius: 16,
                   background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.inkDim, fontSize: 14.5, fontWeight: 700, opacity: pageIdx >= pages.length - 1 ? 0.45 : 1, transition: "opacity .15s ease" }}>
