@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v127";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v128";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -12740,10 +12740,23 @@ const LandingPage = ({ onStart }) => {
   );
 };
 
+// Selector de perfil, rediseñado como grilla de fichas (mismo patrón que
+// "¿quién está viendo?" de cualquier app con varios perfiles en un
+// dispositivo) en vez de una lista de tarjetas apiladas con una oración
+// explicando cada una. Nombre + avatar ya dicen todo lo que hace falta —
+// no necesita una frase debajo de cada ficha para explicarse.
+const GateTile = ({ onClick, avatar, label }) => (
+  <button onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 9 }}>
+    {avatar}
+    <div style={{ fontSize: 13, fontWeight: 600, color: P.text, textAlign: "center", maxWidth: 92, lineHeight: 1.25,
+      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{label}</div>
+  </button>
+);
+const GATE_TILE = 72, GATE_TILE_R = 20;
 const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
-  // Si ya hay equipo armado (más de un coach/staff), "Soy el coach" no
-  // entra directo: primero pregunta quién de todos es. Sin equipo (el
-  // caso de siempre, un solo coach) sigue entrando directo, sin fricción.
+  // Si ya hay equipo armado (más de un coach/staff), "Coach" no entra
+  // directo: primero pregunta quién de todos es. Sin equipo (el caso de
+  // siempre, un solo coach) sigue entrando directo, sin fricción.
   const hasTeam = team && team.members && team.members.length > 0;
   const [pickingTeam, setPickingTeam] = useState(false);
   if (pickingTeam) {
@@ -12751,30 +12764,18 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
       <div className="fj" style={{ minHeight: "100vh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
         <GlobalStyle />
         <div style={{ width: "100%", maxWidth: 420 }}>
-          <button onClick={() => setPickingTeam(false)} style={{ display: "flex", alignItems: "center", gap: 6, color: P.faint, fontSize: 13.5, marginBottom: 14 }}>
+          <button onClick={() => setPickingTeam(false)} style={{ display: "flex", alignItems: "center", gap: 6, color: P.faint, fontSize: 13.5, marginBottom: 20 }}>
             <ChevronLeft size={16} /> Volver
           </button>
-          <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "0 0 4px" }}>¿Quién eres?</h1>
-          <div style={{ color: P.dim, fontSize: 14, marginBottom: 16, lineHeight: 1.4 }}>Elige tu nombre del equipo — así ves solo lo que corresponde a tu rol.</div>
-          <Card onClick={() => onEnterTeam(null)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer", borderColor: `${P.dim}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: PLATE_FG }}>★</div>
-              <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 15.5 }}>Tú (Head Coach)</div><div style={{ fontSize: 12.5, color: P.dim }}>El dueño de este dispositivo</div></div>
-              <ChevronRight size={17} color={P.faint} />
-            </div>
-          </Card>
-          {team.members.map((m) => (
-            <Card key={m.id} onClick={() => onEnterTeam(m.id)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                <div className="disp" style={{ width: 36, height: 36, borderRadius: 10, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2 }}>{m.name.slice(0, 1).toUpperCase()}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15.5 }}>{m.name}</div>
-                  <div style={{ fontSize: 12.5, color: P.faint }}>{(ROLE_META[m.role] || {}).label || m.role}</div>
-                </div>
-                <ChevronRight size={17} color={P.faint} />
-              </div>
-            </Card>
-          ))}
+          <h1 style={{ fontSize: 27, letterSpacing: "-.022em", textAlign: "center", margin: "0 0 24px" }}>¿Quién eres?</h1>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, justifyItems: "center" }}>
+            <GateTile onClick={() => onEnterTeam(null)} label="Tú"
+              avatar={<div style={{ width: GATE_TILE, height: GATE_TILE, borderRadius: GATE_TILE_R, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 24, color: PLATE_FG }}>★</div>} />
+            {team.members.map((m) => (
+              <GateTile key={m.id} onClick={() => onEnterTeam(m.id)} label={m.name}
+                avatar={<div style={{ width: GATE_TILE, height: GATE_TILE, borderRadius: GATE_TILE_R, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 24, color: P.ember2 }}>{m.name.slice(0, 1).toUpperCase()}</div>} />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -12783,29 +12784,18 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd }) => {
   <div className="fj" style={{ minHeight: "100vh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
     <GlobalStyle />
     <div style={{ width: "100%", maxWidth: 420 }}>
-      <div style={{ textAlign: "center", marginBottom: 22 }}><Logo size={34} /></div>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", textAlign: "center", margin: "0 0 4px" }}>¿Quién entra?</h1>
-      <div style={{ color: P.dim, fontSize: 14.5, textAlign: "center", marginBottom: 20, lineHeight: 1.45 }}>
-        Este dispositivo recordará tu elección. Podrás cambiarla cuando quieras desde el encabezado.
+      <div style={{ textAlign: "center", marginBottom: 18 }}><Logo size={34} /></div>
+      <h1 style={{ fontSize: 27, letterSpacing: "-.022em", textAlign: "center", margin: "0 0 28px" }}>¿Quién entra?</h1>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20, justifyItems: "center" }}>
+        <GateTile onClick={() => hasTeam ? setPickingTeam(true) : onEnter("coach", roster.students[0]?.id)} label="Coach"
+          avatar={<div style={{ width: GATE_TILE, height: GATE_TILE, borderRadius: GATE_TILE_R, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}><ClipboardList size={28} color={PLATE_FG} /></div>} />
+        {roster.students.map((s) => (
+          <GateTile key={s.id} onClick={() => onEnter("alumno", s.id)} label={s.name}
+            avatar={<div style={{ width: GATE_TILE, height: GATE_TILE, borderRadius: GATE_TILE_R, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 25, color: PLATE_FG }}>{s.name.slice(0, 1).toUpperCase()}</div>} />
+        ))}
+        <GateTile onClick={onAdd} label="Agregar"
+          avatar={<div style={{ width: GATE_TILE, height: GATE_TILE, borderRadius: GATE_TILE_R, border: `1.5px dashed ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={24} color={P.faint} /></div>} />
       </div>
-      <Card onClick={() => hasTeam ? setPickingTeam(true) : onEnter("coach", roster.students[0]?.id)} style={{ padding: "15px 16px", marginBottom: 16, borderColor: P.frame, cursor: "pointer",
-        background: P.s1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 12, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}><ClipboardList size={20} color={PLATE_FG} /></div>
-          <div><div style={{ fontWeight: 700, fontSize: 16 }}>Soy el coach</div><div style={{ fontSize: 13.5, color: P.dim }}>{hasTeam ? "Elige quién del equipo eres" : "Crear y editar rutinas, ver la actividad de todos"}</div></div>
-        </div>
-      </Card>
-      <div style={{ fontSize: 12, color: P.faint, textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 700, margin: "4px 2px 8px" }}>Entrar como alumno</div>
-      {roster.students.map((s) => (
-        <Card key={s.id} onClick={() => onEnter("alumno", s.id)} style={{ padding: "13px 15px", marginBottom: 9, cursor: "pointer" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-            <div className="disp" style={{ width: 36, height: 36, borderRadius: 10, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: PLATE_FG }}>{s.name.slice(0, 1).toUpperCase()}</div>
-            <div style={{ flex: 1, fontWeight: 600, fontSize: 16 }}>{s.name}</div>
-            <ChevronRight size={17} color={P.faint} />
-          </div>
-        </Card>
-      ))}
-      <Btn kind="line" onClick={onAdd} style={{ width: "100%", marginTop: 6 }}><Plus size={15} /> Agregar alumno</Btn>
     </div>
   </div>
   );
