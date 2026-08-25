@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v148";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v149";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4237,41 +4237,38 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    ============================================================ */
 
 /* ============================================================
-   FocusModeMono — modo "Nuevo" de Entrenar (pantalla "2a" del handoff
-   Forja Mobile), la más delicada de las ocho: es la sesión en vivo
-   real, la más usada de la app y la única que escribe series de
-   verdad mientras el alumno está entrenando. Se confirmó explícitamente
-   "reconstrucción completa" (mismo comportamiento, look nuevo) — así
-   que este componente es, a propósito, casi una COPIA LITERAL de
-   la pantalla vieja: mismos hooks, mismos efectos, mismos handlers
-   (go, tapNav, undo/redo, rest timer, prefill, hold-to-exit, pantalla
-   completa, gestos de deslizar/tocar tercios), sin reescribir ni una
-   sola pieza de esa lógica. Lo único que cambió fue el JSX: la tabla
-   de series del handoff en vez del tema oscuro fijo. Ahora que la
-   versión negra se borró, ésta es la única pantalla de sesión en vivo
-   que existe.
+   FocusModeMono — Focus Mode (A3/A4 del handoff "Forja MVP"): la
+   sesión en vivo real, la pantalla más usada de la app y la única que
+   escribe series mientras el alumno entrena. Reescrita para la regla
+   central de A3: "la serie activa está abierta dentro de la lista,
+   entre la hecha y la pendiente" — nada de pantalla-por-serie ni de
+   deslizar/tocar tercios para navegar. Los bloques (un ejercicio suelto,
+   o una superserie/triserie/gigante) siguen siendo "una pantalla a la
+   vez" (el texto "Ejercicio N de M" + la barra segmentada), pero DENTRO
+   de un bloque ya no hay páginas: hay una sola tarjeta con todas sus
+   series como filas, y `activeRowIdx` (la primera fila sin marcar) se
+   deriva del propio dato en cada render — no hay estado de "página"
+   que mantener sincronizado, así que terminar un descanso simplemente
+   deja ver la fila que ya corresponde, sola.
 
-   Piezas reutilizadas tal cual, sin re-temizar (mismo criterio que
-   SetsEditor en el editor de rutina): UnitToggle,
-   TempoBadge, ExerciseIconTile, ExerciseInfoSheet, Confirm,
-   ImageViewer. Todas usan P.* (el tema oscuro/claro global de FORJA,
-   no fijo al mono) — se ven consistentes consigo mismas aunque no
-   calcen 100% con el mono de alrededor; es la misma isla que ya se
-   documentó en Editor de rutina.
-
-   Diferencia de comportamiento CERO a propósito: en el mockup las
-   series "hecha/activa/siguiente" se ven con tres estilos distintos,
-   pero TODAS siguen editables en cualquier momento (igual que en
-   FocusMode) — es una señal visual, no un candado de orden. Ninguna
-   serie queda bloqueada por no haber completado la anterior.
+   Se mantiene sin tocar (mismos hooks, mismo dueño del estado): el
+   temporizador de descanso (`timer`/`onAdjustRest`/`onDismissRest`,
+   propiedad de TrainTab, no de acá), `patch`/`patchSet`/`patchEx`,
+   deshacer/rehacer, el comentario por serie, las hojas de Ficha/
+   Historial/Calculadoras, pantalla completa al entrar, y la
+   confirmación de salida. Lo que se fue: el carrusel de páginas
+   (`pageIdx`/`go`/`tapNav`/gestos de deslizar), la vista previa de la
+   barra al mantener pulsado, y los cuatro íconos dentro de la tarjeta
+   (Historial/Nota/Calculadora/Más) — sus funciones se reparten ahora
+   entre los 4 chips de abajo (Técnica/Historial/Discos/Coach IA) y un
+   "···" chico en la fila activa (deshacer/rehacer/borrar/comentario/
+   unidad), calcando A3 al pixel.
    ============================================================ */
-const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onExit, onFinish, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone }) => {
+const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onExit, onFinish, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
   const [weightUnit] = useWeightUnit();
   const pendingWrites = usePendingWrites();
-  const [pageIdx, setPageIdx] = useState(0);
+  const [blockIdx, setBlockIdx] = useState(0);
   const [now, setNow] = useState(Date.now());
-  const [peek, setPeek] = useState(null);
-  const [instr, setInstr] = useState(null);
   const [ficha, setFicha] = useState(null);
   const [viewImg, setViewImg] = useState(null);
   const [cmtKey, setCmtKey] = useState(null);
@@ -4279,41 +4276,23 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   const [redoStack, setRedoStack] = useState([]);
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
-  const [histEx, setHistEx] = useState(null); // índice del ejercicio con el historial abierto
-  // "Más" del ícono ••• de la tarjeta activa: junta lo que antes vivía
-  // suelto en la cabecera de cada ejercicio (Ficha, ver técnica en video)
-  // y en la fila de controles (deshacer/rehacer, cambiar unidad, borrar la
-  // serie, comentario) — se usan bastante menos seguido que Historial/
-  // Calculadoras, que sí quedan como ícono directo. Guarda {ei, si} (no un
-  // booleano): la tarjeta activa puede ser la de cualquier ejercicio/serie
-  // de la página.
-  const [exMoreFor, setExMoreFor] = useState(null);
-  // Calculadoras (e1RM, peso objetivo, PR, %-del-top-set): herramientas de
-  // referencia rápida, no tocan ninguna serie — nada de esto se guarda,
-  // es una calculadora de bolsillo que no hay que salir de Focus Mode
-  // para usar.
+  const [histEx, setHistEx] = useState(null);
+  // "···" de la fila activa: deshacer/rehacer, borrar la serie, comentario
+  // y unidad — todo lo que en el diseño anterior vivía como 4 íconos
+  // sueltos en la tarjeta y ahora se junta en una sola hoja chica.
+  const [rowMoreFor, setRowMoreFor] = useState(null);
   const [calcOpen, setCalcOpen] = useState(false);
   const [c1w, setC1w] = useState(""); const [c1r, setC1r] = useState(""); const [c1rir, setC1rir] = useState("");
   const [c2e, setC2e] = useState(""); const [c2r, setC2r] = useState(""); const [c2rir, setC2rir] = useState("");
   const [c3prev, setC3prev] = useState(""); const [c3cur, setC3cur] = useState("");
   const [c4top, setC4top] = useState(""); const [c4pct, setC4pct] = useState("85"); const [c4round, setC4round] = useState(2.5);
-  const peekTimer = useRef(null);
-  const instrTimer = useRef(null);
   const cmtTimer = useRef(null);
-  const holdTimer = useRef(null);
-  const heldRef = useRef(false);
-  const touchRef = useRef(null);
   const cmtRef = useRef(null);
   const didPrefill = useRef(false);
-  // Suena/vibra una sola vez cuando el descanso llega a 0 — mismo `beep()`
-  // que ya usa el cronómetro de la vista clásica (InlineRest), para que
-  // Focus Mode y la vista normal se sientan igual. `timer` es compartido
-  // con TrainTab (mismo estado, no uno propio) así que el descanso sigue
-  // corriendo si se sale y se vuelve a entrar a Focus Mode.
   const restFiredRef = useRef(false);
 
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
-  useEffect(() => () => { [peekTimer, instrTimer, cmtTimer, holdTimer].forEach((t) => clearTimeout(t.current)); }, []);
+  useEffect(() => () => clearTimeout(cmtTimer.current), []);
   useEffect(() => {
     const el = document.documentElement;
     try { el.requestFullscreen && el.requestFullscreen().catch(() => {}); } catch {}
@@ -4326,118 +4305,50 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   }, [timer, now]);
 
   const exs = active.exs;
-  // Última sesión registrada de un ejercicio (mismo dato que ya usa el
-  // prefill de más abajo, expuesto acá también para la etiqueta "Última:"
-  // de cada casilla — no una fuente nueva, la misma).
   const lastEntryOf = (exId) => { const arr = history.byEx[exId] || []; return arr.length ? arr[arr.length - 1] : null; };
-  // +/- de las casillas con flechitas: nunca baja de 0, redondea a un
-  // decimal para no acumular error de punto flotante con pasos de .5/2.5.
-  const stepVal = (v, delta) => {
-    const n = parseFloat(String(v).replace(",", ".")) || 0;
-    return kg(Math.max(0, Math.round((n + delta) * 10) / 10));
-  };
 
-  // Casilla clara sobre la placa oscura (mismo par PLATE_GRAD/MONO.surface
-  // que ya usan los avatares para invertirse solos según el tema): flechas
-  // arriba/abajo, el número al medio, y debajo — según el campo — el
-  // valor de la última sesión (peso) o el rango prescrito por la rutina
-  // (reps/RIR), en un tono más claro que el valor en sí. Vive a nivel del
-  // componente (no adentro de una función de fila) porque ahora la usan
-  // dos lugares: la tarjeta activa de un ejercicio suelto y la de cada
-  // integrante de una superserie.
-  // Dos capas de borde, las dos en MONO.ink (contrasta contra la propia
-  // casilla, no contra la placa — PLATE_BORDER es el MISMO valor que el
-  // fondo de la placa, a propósito, para que avatares/botones se
-  // fundan con ella; acá el trazo tiene que notarse, es lo contrario):
-  // un marco por fuera que encierra las tres piezas juntas, y CADA
-  // pieza (flecha arriba, dígito, flecha abajo) con su propio contorno
-  // completo — no una línea compartida — separadas por un hueco que
-  // deja ver la placa negra detrás, como pide la referencia.
-  const fieldDark = (label, value, onChange, step, numericOnly, caption) => (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0, flex: 1 }}>
-      <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".06em", color: PLATE_DIM, textAlign: "center" }}>{label}</span>
-      <span style={{ display: "flex", flexDirection: "column", gap: 4, padding: 5, border: `2.5px solid ${MONO.ink}`, borderRadius: 18 }}>
-        <button type="button" data-keep onClick={() => onChange(stepVal(value, step))} aria-label={`Aumentar ${label.toLowerCase()}`}
-          style={{ padding: "9px 0", display: "flex", alignItems: "center", justifyContent: "center", color: MONO.ink,
-            background: MONO.surface, border: `2px solid ${MONO.ink}`, borderRadius: 11, transition: "opacity .12s ease" }}>
-          <ChevronUp size={16} strokeWidth={2.8} />
-        </button>
-        <input value={value} inputMode={numericOnly ? "numeric" : "decimal"} enterKeyHint="done" placeholder="—"
-          onChange={(e) => onChange(e.target.value.replace(numericOnly ? /[^0-9]/g : /[^0-9.,]/g, ""))}
-          style={{ width: "100%", padding: "6px 2px", textAlign: "center",
-            background: MONO.surface, border: `2px solid ${MONO.ink}`, borderRadius: 11,
-            fontSize: 28, fontWeight: 800, color: MONO.ink }} />
-        <button type="button" data-keep onClick={() => onChange(stepVal(value, -step))} aria-label={`Disminuir ${label.toLowerCase()}`}
-          style={{ padding: "9px 0", display: "flex", alignItems: "center", justifyContent: "center", color: MONO.ink,
-            background: MONO.surface, border: `2px solid ${MONO.ink}`, borderRadius: 11, transition: "opacity .12s ease" }}>
-          <ChevronDown size={16} strokeWidth={2.8} />
-        </button>
-      </span>
-      {caption && <span style={{ fontSize: 11, color: PLATE_DIM, textAlign: "center" }}>{caption}</span>}
-    </div>
-  );
-  // Círculo BLANCO con el ícono en negro (par PLATE_FG/PLATE_GRAD, que se
-  // invierte solo según el tema) — calcando la referencia al pixel, en
-  // vez del ícono suelto tintado directo sobre la placa que había antes.
-  // `on` marca el estado activo (p. ej. "Indicación del coach" abierta)
-  // con un aro alrededor del círculo — nada de color: acá todo sigue en
-  // blanco y negro, como el resto de la app.
-  const plateIconBtn = (onClick, label, Icon, on, disabled) => (
-    <button onClick={onClick} disabled={disabled} aria-label={label} title={label}
-      style={{ width: 34, height: 34, borderRadius: 17, display: "flex", alignItems: "center", justifyContent: "center",
-        background: PLATE_FG, color: PLATE_GRAD, opacity: disabled ? 0.4 : 1, flexShrink: 0,
-        boxShadow: on ? `0 0 0 2px ${PLATE_DIM}` : "none" }}>
-      <Icon size={16} />
-    </button>
-  );
-
-  // Un page por SERIE (no por ejercicio) para un ejercicio suelto — así
-  // Focus Mode muestra una sola serie a la vez, como pide la referencia,
-  // en vez de toda la tabla de series del ejercicio junta. Las superseries
-  // siguen paginando por RONDA (ya mostraban una sola ronda a la vez).
-  // `block` numera los BLOQUES de ejercicio (no los pages) para el pill
-  // "E{n}/{total}": un ejercicio suelto de 4 series es un solo bloque con
-  // 4 pages adentro, no 4 bloques.
-  const pages = useMemo(() => {
+  // Bloques: uno por ejercicio suelto, uno por superserie/triserie/
+  // gigante — igual agrupamiento que antes tenía `pages`, pero acá cada
+  // bloque trae la lista COMPLETA de sus filas (`rows`), no una página
+  // por serie. Para un ejercicio suelto, una fila por serie; para un
+  // bloque encadenado, una fila por (ronda, integrante), en el orden en
+  // que se hacen — así "hecha/activa/pendiente" cae naturalmente sobre
+  // la fila que corresponde, sea de quien sea.
+  const blocks = useMemo(() => {
     const out = [];
-    let block = 0;
     let i = 0;
     while (i < exs.length) {
       const g = exs[i].group;
       if (g) {
-        const members = [];
-        let j = i;
+        const members = []; let j = i;
         while (j < exs.length && exs[j].group === g) { members.push(j); j++; }
         if (members.length >= 2) {
           const info = exGroupInfo(exs, i);
           const rounds = Math.max(1, ...members.map((m) => exs[m].sets.length));
-          for (let r = 0; r < rounds; r++) out.push({ group: true, kind: info.kind, members, roundIdx: r, rounds, block });
-          block++;
+          const rows = [];
+          for (let r = 0; r < rounds; r++) members.forEach((m) => { if (exs[m].sets[r]) rows.push({ ei: m, si: r, round: r }); });
+          out.push({ group: true, kind: info.kind, members, rounds, rows });
           i = j; continue;
         }
       }
-      const setCount = Math.max(1, exs[i].sets.length);
-      for (let si = 0; si < setCount; si++) out.push({ group: false, ei: i, si, block });
-      block++;
+      out.push({ group: false, ei: i, rows: exs[i].sets.map((_, si) => ({ ei: i, si })) });
       i++;
     }
-    return out.length ? out : [{ group: false, ei: 0, si: 0, block: 0 }];
+    return out.length ? out : [{ group: false, ei: 0, rows: [{ ei: 0, si: 0 }] }];
   }, [exs]);
 
-  const page = pages[Math.min(pageIdx, pages.length - 1)];
-  const totalBlocks = pages.length ? pages[pages.length - 1].block + 1 : 1;
+  const block = blocks[Math.min(blockIdx, blocks.length - 1)];
+  const totalBlocks = blocks.length;
   const totalSets = exs.reduce((a, e) => a + e.sets.length, 0);
   const doneSets = exs.reduce((a, e) => a + e.sets.filter((s) => s.done).length, 0);
-  const pct = totalSets ? (doneSets / totalSets) * 100 : 0;
   const elapsed = Math.max(0, Math.floor((now - new Date(active.startedAt).getTime()) / 1000));
-
-  const pageName = (pg) => {
-    if (!pg) return null;
-    if (pg.group) return `${GROUP_KINDS[pg.kind].label}: ${pg.members.map((m) => exs[m].name).join(" + ")}`;
-    return exs[pg.ei].name;
-  };
-  const nextPage = pages[pageIdx + 1] || null;
-  const nextNotes = nextPage && !nextPage.group ? exs[nextPage.ei].notes : "";
+  // La fila activa se DERIVA del dato (primera sin marcar), no se
+  // guarda como estado: así, apenas `onToggleDone` marca una serie, la
+  // siguiente se abre sola en el próximo render — nada que sincronizar
+  // al salir del descanso.
+  const activeRowIdx = block.rows.findIndex((r) => !exs[r.ei].sets[r.si].done);
+  const blockDone = activeRowIdx === -1;
+  const blockTitle = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
 
   useEffect(() => {
     if (didPrefill.current) return;
@@ -4458,33 +4369,11 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
     if (any) patch(() => clone);
   }, []);
 
-  const go = (dir) => {
-    const next = pageIdx + dir;
-    if (next < 0 || next >= pages.length) return;
-    setCmtKey(null); setInstr(null); setPeek(null);
-    setPageIdx(next);
-  };
-
-  const showInstr = (ei, pinned) => {
-    clearTimeout(instrTimer.current);
-    setInstr({ ei, pinned });
-    if (!pinned) instrTimer.current = setTimeout(() => setInstr(null), 6000);
-  };
-  const hideInstr = () => { clearTimeout(instrTimer.current); setInstr(null); };
-
-  const showPeek = (mode, ms) => {
-    clearTimeout(peekTimer.current);
-    setPeek({ mode });
-    peekTimer.current = setTimeout(() => setPeek(null), ms);
-  };
-  const barDown = () => {
-    heldRef.current = false;
-    holdTimer.current = setTimeout(() => { heldRef.current = true; showPeek("full", 12000); }, 380);
-  };
-  const barUp = () => {
-    clearTimeout(holdTimer.current);
-    if (heldRef.current) { showPeek("full", 6000); return; }
-    showPeek("name", 4000);
+  const goBlock = (dir) => {
+    const next = blockIdx + dir;
+    if (next < 0 || next >= blocks.length) return;
+    setCmtKey(null);
+    setBlockIdx(next);
   };
 
   const openCmt = (ck) => {
@@ -4501,12 +4390,6 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   const record = (ei, si, before, after) => {
     setUndoStack((s) => [...s.slice(-40), { ei, si, before, after }]);
     setRedoStack([]);
-  };
-  const clearField = (ei, si, field) => {
-    const s = exs[ei].sets[si];
-    if (s[field] === "") return;
-    record(ei, si, { [field]: s[field] }, { [field]: "" });
-    patchSet(ei, si, { [field]: "" });
   };
   const clearSet = (ei, si) => {
     const s = exs[ei].sets[si];
@@ -4529,86 +4412,12 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
     setUndoStack((s) => [...s, a]);
   };
 
-  // Identificador de fila usado por el comentario de la serie (cmtKey) —
-  // el cronómetro de descanso de verdad ahora es el `timer` compartido
-  // con TrainTab, no un estado propio de esta pantalla.
   const restKey = (ei, si) => `${ei}-${si}`;
-
   const setVal = (ei, si, field, v) => patchSet(ei, si, { [field]: v });
 
-  const tapNav = (e) => {
-    if (e.target.closest && e.target.closest("input, textarea, button, a, [data-keep]")) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    if (x > r.width * 0.66) go(1);
-    else if (x < r.width * 0.34) go(-1);
-  };
-
-  const renderExHeaderMono = (ei, { big, posLabel, color }) => {
-    const exx = exs[ei];
-    const noteOpen = instr && instr.ei === ei;
-    return (
-      <div style={{ padding: big ? "2px 0 4px" : "8px 0 2px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
-          <ExerciseIconTile iconAttachId={exx.iconAttachId} size={big ? 40 : 34} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11, color: color || MONO.inkFaint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em" }}>
-              {posLabel ? <span style={{ color }}>{posLabel} · </span> : null}{exx.muscle}
-            </div>
-            <div style={{ fontSize: big ? 23 : 18.5, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.15, margin: "3px 0 6px", color: MONO.ink }}>{exx.name}</div>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button
-            onPointerDown={() => { heldRef.current = false; holdTimer.current = setTimeout(() => { heldRef.current = true; showInstr(ei, true); }, 380); }}
-            onPointerUp={() => { clearTimeout(holdTimer.current); if (!heldRef.current) (noteOpen ? hideInstr() : showInstr(ei, false)); }}
-            onPointerLeave={() => clearTimeout(holdTimer.current)}
-            disabled={!exx.notes}
-            aria-label="Indicación del coach: toca para verla 6 segundos, mantén pulsado para dejarla fija"
-            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: big ? 34 : 30, height: big ? 34 : 30, borderRadius: 17,
-              border: `1.5px solid ${exx.notes ? MONO.ink : MONO.line}`, color: exx.notes ? MONO.ink : MONO.line,
-              background: noteOpen ? MONO.chipBg : "transparent", touchAction: "manipulation", transition: "color .15s ease, border-color .15s ease" }}>
-            <Info size={big ? 19 : 17} />
-          </button>
-          <button data-keep onClick={() => setFicha(ei)} aria-label="Ver ficha técnica completa del ejercicio"
-            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: MONO.inkDim, fontWeight: 600,
-              border: `1px solid ${MONO.line}`, borderRadius: 17, padding: big ? "7px 12px" : "6px 10px" }}>
-            <BookOpen size={big ? 16 : 14} /> Ficha
-          </button>
-          <button data-keep onClick={() => setHistEx(ei)} aria-label={`Ver historial de ${exx.name}`}
-            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: MONO.inkDim, fontWeight: 600,
-              border: `1px solid ${MONO.line}`, borderRadius: 17, padding: big ? "7px 12px" : "6px 10px" }}>
-            <History size={big ? 16 : 14} /> Historial
-          </button>
-          {exx.video && (
-            <a href={exx.video} target="_blank" rel="noopener noreferrer"
-              style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, color: P.blue, fontWeight: 600 }}>
-              <Video size={15} /> Técnica
-            </a>
-          )}
-        </div>
-        {parseTempo(exx.notes) && (
-          <div style={{ marginTop: 8 }}>
-            <TempoBadge tempo={parseTempo(exx.notes)} exerciseName={exx.name} muscle={exx.muscle} big={big} />
-          </div>
-        )}
-        <div style={{ maxHeight: noteOpen ? 200 : 0, opacity: noteOpen ? 1 : 0, overflow: "hidden",
-          transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
-          {noteOpen && (
-            <div data-keep onClick={hideInstr} style={{ background: MONO.chipBg, border: `1px solid ${MONO.line}`, borderRadius: 11,
-              padding: "9px 11px", margin: "6px 0 2px", fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.45, maxHeight: 180, overflowY: "auto" }}>
-              {exx.notes}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // Caja de comentario de una serie: textarea + burbuja de vista previa.
-  // Compartida entre la tarjeta activa de un ejercicio suelto y la de
-  // cada integrante de una superserie — antes vivía duplicada adentro de
-  // cada rama de renderSetRowMono.
+  // Caja de comentario de una serie: textarea + burbuja de vista previa
+  // — sin cambios de comportamiento, solo se sigue usando para la fila
+  // activa (antes también vivía igual, una sola a la vez).
   const renderCommentBlock = (ei, si) => {
     const exx = exs[ei];
     const st = exx.sets[si];
@@ -4617,459 +4426,246 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
     return (
       <>
         <div data-cmt style={{ maxHeight: cmtKey === ck ? 130 : 0, opacity: cmtKey === ck ? 1 : 0, overflow: "hidden",
-          transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
+          transition: `max-height ${DUR_ROW}ms ${EASE_STD}, opacity .16s ease` }}>
           <textarea ref={cmtKey === ck ? cmtRef : null} rows={2} value={st.comment || ""} placeholder="Comentario de la serie"
             onChange={(e) => { setVal(ei, si, "comment", e.target.value); touchCmt(); }}
             onFocus={touchCmt} onKeyDown={touchCmt}
-            style={{ width: "100%", marginTop: 10, marginBottom: 8, padding: "8px 10px", fontSize: 16, lineHeight: 1.4, resize: "none", borderRadius: 10,
-              background: MONO.surface, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink,
+            style={{ width: "100%", marginTop: 10, marginBottom: 4, padding: "8px 10px", fontSize: 15, lineHeight: 1.4, resize: "none", borderRadius: 10,
+              background: P.s1, border: `1px solid ${P.separatorStrong}`, color: P.text,
               visibility: cmtKey === ck ? "visible" : "hidden", pointerEvents: cmtKey === ck ? "auto" : "none" }} />
         </div>
         {st.comment && cmtKey !== ck && (
-          <div data-keep onClick={() => openCmt(ck)} style={{ marginTop: 9, fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.4,
-            background: MONO.chipBg, border: `1px solid ${MONO.line}`, borderRadius: 9, padding: "6px 9px" }}>{st.comment}</div>
+          <div data-keep onClick={() => openCmt(ck)} style={{ marginTop: 8, fontSize: 13, color: P.dim, lineHeight: 1.4,
+            background: P.s2, border: `1px solid ${P.line}`, borderRadius: 9, padding: "6px 9px" }}>{st.comment}</div>
         )}
       </>
     );
   };
 
-  // Fila de serie de una superserie/triserie/gigante: cada integrante
-  // muestra su serie de la ronda actual, siempre "activa" (una sola
-  // ronda por página, así que no hay tabla de series que colapsar acá).
-  // El ejercicio suelto ya no pasa por acá — tiene su propia tarjeta
-  // (renderActiveSetHero) porque ahora es una serie por página, no una
-  // tabla con todas las series del ejercicio juntas.
-  const renderSetRowMono = (ei, si) => {
-    const exx = exs[ei];
-    const st = exx.sets[si];
-    if (!st) return null;
-    const ck = restKey(ei, si);
-    const short = (SET_TYPES[st.type] || SET_TYPES.normal).short;
-    const lastEntry = lastEntryOf(exx.id);
-    const lastSet = lastEntry ? (lastEntry.sets || [])[si] : null;
-    const noteOpen = instr && instr.ei === ei;
-
-    return (
-      <div key={st.id}>
-        <div style={{ background: PLATE_GRAD, borderRadius: 20, padding: "14px 14px 16px", marginBottom: 9 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {plateIconBtn(() => setHistEx(ei), "Historial", History)}
-              {plateIconBtn(() => (noteOpen ? hideInstr() : showInstr(ei, false)), "Indicación del coach", Users, noteOpen, !exx.notes)}
-              {plateIconBtn(() => setCalcOpen(true), "Calculadoras", Calculator)}
-              {plateIconBtn(() => setExMoreFor({ ei, si }), "Más", MoreHorizontal)}
-            </div>
-            <span title={(SET_TYPES[st.type] || {}).label} style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, flexShrink: 0 }}>{short}</span>
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            {fieldDark("PESO", st.weight, (v) => setVal(ei, si, "weight", v), weightUnit === "kg" ? 2.5 : 5, false,
-              lastSet && lastSet.weight !== "" && lastSet.weight != null ? `Última: ${lastSet.weight} ${weightUnit}` : null)}
-            {fieldDark("REPS", st.reps, (v) => setVal(ei, si, "reps", v), 1, true,
-              st.repsT ? `${st.repsT} reps` : null)}
-            {fieldDark("RIR", st.rir, (v) => setVal(ei, si, "rir", v), 1, true,
-              st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null)}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
-            <button onClick={() => onToggleDone(ei, si)}
-              aria-label={st.done ? "Desmarcar serie" : "Marcar serie hecha"}
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "12px 0",
-                borderRadius: 14, background: st.done ? MONO.surface : PLATE_FG, border: `1.5px solid ${PLATE_BORDER}`, color: PLATE_GRAD }}>
-              <Check size={20} strokeWidth={3} />
-            </button>
-          </div>
-        </div>
-        {renderCommentBlock(ei, si)}
-      </div>
-    );
-  };
-
-  // Tarjeta activa de un ejercicio SUELTO: la misma placa que
-  // renderSetRowMono (ícono row + PESO/REPS/RIR), pero SIN el botón de
-  // completar adentro — acá "Completar serie" vive afuera, en la fila de
-  // tres botones (Atrás / Completar serie / Siguiente) junto a Atrás y
-  // Siguiente, calcando la referencia. Cada serie es su propia página
-  // ahora (ver `pages`), así que esta tarjeta muestra UNA sola serie,
-  // nunca la tabla completa del ejercicio.
-  const renderActiveSetHero = (ei, si) => {
-    const exx = exs[ei];
-    const st = exx.sets[si];
-    if (!st) return null;
-    const short = (SET_TYPES[st.type] || SET_TYPES.normal).short;
-    const lastEntry = lastEntryOf(exx.id);
-    const lastSet = lastEntry ? (lastEntry.sets || [])[si] : null;
-    const noteOpen = instr && instr.ei === ei;
-
-    // flex:1 + columna: el ícono row queda fijo arriba-izquierda (donde
-    // tiene que estar) y las casillas PESO/REPS/RIR se centran en el
-    // espacio que sobra — así la tarjeta crece de verdad en vez de
-    // quedar chica con aire vacío alrededor.
-    return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div style={{ background: PLATE_GRAD, borderRadius: 22, padding: "20px 18px 24px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {plateIconBtn(() => setHistEx(ei), "Historial", History)}
-              {plateIconBtn(() => (noteOpen ? hideInstr() : showInstr(ei, false)), "Indicación del coach", Users, noteOpen, !exx.notes)}
-              {plateIconBtn(() => setCalcOpen(true), "Calculadoras", Calculator)}
-              {plateIconBtn(() => setExMoreFor({ ei, si }), "Más", MoreHorizontal)}
-            </div>
-            <span title={(SET_TYPES[st.type] || {}).label} style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, flexShrink: 0 }}>{short}</span>
-          </div>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 0 }}>
-            <div style={{ display: "flex", gap: 12 }}>
-              {fieldDark("PESO", st.weight, (v) => setVal(ei, si, "weight", v), weightUnit === "kg" ? 2.5 : 5, false,
-                lastSet && lastSet.weight !== "" && lastSet.weight != null ? `Última: ${lastSet.weight} ${weightUnit}` : null)}
-              {fieldDark("REPS", st.reps, (v) => setVal(ei, si, "reps", v), 1, true,
-                st.repsT ? `${st.repsT} reps` : null)}
-              {fieldDark("RIR", st.rir, (v) => setVal(ei, si, "rir", v), 1, true,
-                st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null)}
-            </div>
-          </div>
-        </div>
-        {renderCommentBlock(ei, si)}
-      </div>
-    );
-  };
-
-  // La insignia de superserie/triserie/gigante usa MONO.ink liso y no
-  // GROUP_KINDS[kind].color: en este sistema el tipo de bloque se
-  // distingue por la etiqueta de texto, nunca por color — igual que ya
-  // se hizo en Editor de rutina.
-
-  // Salir ya no exige mantener pulsado 5s (poco útil, a pedido explícito):
-  // un toque en la X alcanza para abrir esta pantalla de confirmación, que
-  // reemplaza todo el contenido en vez de flotar encima — nada que fijar
-  // en un scrim ni z-index que pelear. "Continuar" y la propia X vuelven
-  // sin tocar nada; solo "Salir a sesión normal" llama a onExit de verdad.
   if (confirmExit) {
     return (
-      <div style={{ position: "fixed", inset: 0, zIndex: 90, background: MONO.bg, display: "flex", flexDirection: "column",
+      <div style={{ position: "fixed", inset: 0, zIndex: 90, background: P.bg, display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center", gap: 20, padding: "32px 28px",
         paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)", textAlign: "center" }}>
         <button onClick={() => setConfirmExit(false)} aria-label="Cerrar"
-          style={{ width: 56, height: 56, borderRadius: 28, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          style={{ width: 56, height: 56, borderRadius: 28, background: P.s4, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <X size={24} strokeWidth={2.4} />
         </button>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 300 }}>
-          <div style={{ fontSize: 21, fontWeight: 700, color: MONO.ink }}>¿Salir de Focus Mode?</div>
-          <div style={{ fontSize: 15, color: MONO.inkFaint, lineHeight: 1.5 }}>No pierdes nada. La sesión sigue activa y todos los datos escritos ya están guardados.</div>
+          <div style={{ fontSize: 21, fontWeight: 700, color: P.text }}>¿Salir de Focus Mode?</div>
+          <div style={{ fontSize: 15, color: P.faint2, lineHeight: 1.5 }}>No pierdes nada. La sesión sigue activa y todos los datos escritos ya están guardados.</div>
         </div>
-        <button onClick={onExit} style={{ width: "100%", maxWidth: 320, padding: 16, borderRadius: 16, background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 700 }}>
+        <button onClick={onExit} style={{ width: "100%", maxWidth: 320, padding: 16, borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 700 }}>
           Salir a sesión normal
         </button>
-        <button onClick={() => setConfirmExit(false)} style={{ fontSize: 15, fontWeight: 700, color: MONO.ink, padding: 8 }}>
+        <button onClick={() => setConfirmExit(false)} style={{ fontSize: 15, fontWeight: 700, color: P.text, padding: 8 }}>
           Continuar en Focus Mode
         </button>
       </div>
     );
   }
 
-  // Pantalla de descanso: reemplaza toda la pantalla mientras `timer` (el
-  // MISMO cronómetro que ya usa la vista clásica, compartido vía props —
-  // no uno propio) está corriendo. Aparece sola apenas se completa una
-  // serie con descanso configurado; "Ir a la siguiente serie" y "Omitir"
-  // hacen lo mismo (cerrar el descanso y avanzar) — dos entradas al mismo
-  // resultado, como en la referencia.
+  // Pantalla de Descanso (A4): reemplaza toda la pantalla mientras
+  // `timer` (el mismo cronómetro que usa la vista clásica, compartido
+  // vía props) está corriendo. `timer.exIdx`/`timer.setIdx` identifican
+  // la serie que se acaba de completar — "Acabas de registrar" la
+  // muestra con un link para editarla sin salir del descanso.
   if (timer) {
     const left = Math.max(0, Math.ceil((timer.endsAt - now) / 1000));
-    // En una superserie el descanso puede caer a mitad de ronda (recién
-    // terminó UN integrante, no la ronda entera) — ahí "terminar el
-    // descanso" solo vuelve a la ronda actual, nunca la salta, porque
-    // puede faltar el otro integrante. Un ejercicio suelto sí avanza:
-    // cada serie es su propia página.
+    const donePct = timer.total ? Math.max(0, Math.min(100, ((timer.total - left) / timer.total) * 100)) : 0;
+    const justEx = exs[timer.exIdx];
+    const justSet = justEx ? justEx.sets[timer.setIdx] : null;
+    // Qué sigue: se lee directo de activeRowIdx/blockDone — ya reflejan
+    // el estado post-serie-completada, no hay página que recalcular.
+    const nextInBlock = !blockDone ? block.rows[activeRowIdx] : null;
+    const nextBlock = blockDone && blockIdx < blocks.length - 1 ? blocks[blockIdx + 1] : null;
+    const ctaLabel = nextInBlock ? `Empezar serie ${activeRowIdx + 1}` : nextBlock ? "Siguiente ejercicio" : "Terminar sesión";
     const finishRest = () => {
       onDismissRest();
-      if (page.group) return;
-      if (nextPage) go(1); else setConfirmFinish(true);
+      if (blockDone) { if (blockIdx < blocks.length - 1) setBlockIdx(blockIdx + 1); else setConfirmFinish(true); }
     };
-    // Si la próxima página es de OTRO ejercicio (se acaban de terminar
-    // todas las series del actual, o se venía de una superserie), el
-    // nombre del ejercicio va primero — no solo el tipo/reps de la
-    // serie, que por sí solo no dice a qué ejercicio saltar. Cuando es
-    // la siguiente serie del MISMO ejercicio, el nombre ya se sabe (está
-    // en pantalla hace un momento) y no hace falta repetirlo.
-    let nextLabel = null;
-    if (nextPage) {
-      if (nextPage.group) {
-        const names = nextPage.members.map((mi) => exs[mi].name).join(" + ");
-        nextLabel = `${GROUP_KINDS[nextPage.kind].label} · ${names}`;
-      } else {
-        const nx = exs[nextPage.ei];
-        const ns = nx.sets[nextPage.si];
-        const t = SET_TYPES[ns.type] || SET_TYPES.normal;
-        const parts = [t.short];
-        if (ns.repsT) parts.push(`${ns.repsT} reps`);
-        if (PCT_TYPES.includes(ns.type) && ns.pct != null && ns.pct !== "") parts.push(`−${ns.pct}%`);
-        const sameExercise = !page.group && page.ei === nextPage.ei;
-        nextLabel = sameExercise ? parts.join(" · ") : `${nx.name} · ${parts.join(" · ")}`;
-      }
-    }
     return (
-      <div style={{ position: "fixed", inset: 0, zIndex: 90, background: MONO.bg, display: "flex", flexDirection: "column",
+      <div style={{ position: "fixed", inset: 0, zIndex: 90, background: P.bg, display: "flex", flexDirection: "column",
         paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div style={{ padding: "10px 20px 0", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 20px 0", flexShrink: 0 }}>
           <button onClick={() => setConfirmExit(true)} aria-label="Salir de Focus Mode"
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 38, height: 38, borderRadius: 19, flexShrink: 0,
-              border: `1.5px solid ${MONO.line}`, color: MONO.inkDim }}>
-            <X size={18} strokeWidth={2.4} />
+            style={{ width: 32, height: 32, borderRadius: 16, background: P.s4, color: P.dim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <X size={17} strokeWidth={2.4} />
           </button>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 20px 4px", flexShrink: 0 }}>
-          <button onClick={onDismissRest} aria-label="Volver a la serie"
-            style={{ width: 34, height: 34, borderRadius: 17, border: `1.5px solid ${MONO.line}`, color: MONO.inkDim,
-              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <ChevronLeft size={18} />
-          </button>
-          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 16, fontWeight: 700, color: MONO.ink }}>
-            <Timer size={15} color={MONO.inkTertiary} />{bigTime(elapsed)}
-          </span>
-          <span className="mono" style={{ fontSize: 11, color: MONO.inkFaint }}>Descanso</span>
           <div style={{ flex: 1 }} />
-          <button onClick={() => setHistEx(page.group ? page.members[0] : page.ei)} aria-label="Historial"
-            style={{ width: 34, height: 34, borderRadius: 17, border: `1.5px solid ${MONO.line}`, color: MONO.inkDim,
-              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <History size={16} />
-          </button>
-          <button onClick={() => setCalcOpen(true)} aria-label="Calculadoras"
-            style={{ width: 34, height: 34, borderRadius: 17, border: `1.5px solid ${MONO.line}`, color: MONO.inkDim,
-              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Calculator size={16} />
-          </button>
+          <button onClick={() => setConfirmFinish(true)} style={{ fontSize: 16, fontWeight: 600, color: P.text }}>Terminar</button>
         </div>
-        <div style={{ display: "flex", gap: 4, padding: "0 20px 10px", flexShrink: 0 }}>
-          {pages.map((_, i) => (
-            <i key={i} style={{ flex: 1, height: 5, borderRadius: 2.5, background: i <= pageIdx ? MONO.ink : MONO.chipBorder }} />
-          ))}
-        </div>
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "0 18px 16px",
-          display: "flex", flexDirection: "column", justifyContent: "center" }}>
-          <div style={{ background: PLATE_GRAD, borderRadius: 24, padding: "40px 22px 30px",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-            <span className="mono" style={{ fontSize: 12.5, letterSpacing: ".08em", color: PLATE_DIM }}>DESCANSO</span>
-            <span className="disp" style={{ fontSize: 64, fontWeight: 700, color: PLATE_FG, letterSpacing: "-.02em", lineHeight: 1 }}>{fmtClock(left)}</span>
-            {nextLabel && <span style={{ fontSize: 15, color: PLATE_DIM, textAlign: "center" }}>Próxima: {nextLabel}</span>}
-            <div style={{ display: "flex", gap: 10, width: "100%", marginTop: 18 }}>
-              <button onClick={() => onAdjustRest(-15)} style={{ flex: 1, padding: "13px 0", borderRadius: 13,
-                background: MONO.surface, border: `1px solid ${PLATE_BORDER}`, color: MONO.ink, fontSize: 14.5, fontWeight: 700, transition: "opacity .15s ease" }}>−15 s</button>
-              <button onClick={() => onAdjustRest(15)} style={{ flex: 1, padding: "13px 0", borderRadius: 13,
-                background: MONO.surface, border: `1px solid ${PLATE_BORDER}`, color: MONO.ink, fontSize: 14.5, fontWeight: 700, transition: "opacity .15s ease" }}>+15 s</button>
-              <button onClick={finishRest} style={{ flex: 1, padding: "13px 0", borderRadius: 13,
-                background: MONO.surface, border: `1px solid ${PLATE_BORDER}`, color: MONO.ink, fontSize: 14.5, fontWeight: 700, transition: "opacity .15s ease" }}>Omitir</button>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 20px 16px", display: "flex", flexDirection: "column" }}>
+          <div style={{ fontSize: 13.5, color: P.faint2, textAlign: "center", marginTop: 18 }}>{justEx ? justEx.name : ""}</div>
+          <div className="disp" style={{ fontSize: 32, fontWeight: 700, textAlign: "center", marginTop: 2 }}>Descanso</div>
+          <div className="num" style={{ fontSize: 72, fontWeight: 600, textAlign: "center", letterSpacing: "-.03em", lineHeight: 1, marginTop: 20, fontVariantNumeric: "tabular-nums" }}>{fmtClock(left)}</div>
+          <div style={{ height: 4, borderRadius: 2, background: P.s3, overflow: "hidden", margin: "20px 4px 0" }}>
+            <div style={{ height: "100%", width: `${donePct}%`, background: P.ember, transition: "width 1s linear" }} />
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+            <button onClick={() => onAdjustRest(-15)} style={{ flex: 1, padding: "13px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 14.5, fontWeight: 700 }}>−15 s</button>
+            <button onClick={() => onAdjustRest(15)} style={{ flex: 1, padding: "13px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 14.5, fontWeight: 700 }}>+15 s</button>
+          </div>
+
+          {justSet && (
+            <Card style={{ marginTop: 22, padding: "13px 15px", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Check size={14} color={PLATE_FG} strokeWidth={3} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: P.faint2 }}>Acabas de registrar</div>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>{justSet.weight || "—"} {weightUnit} × {justSet.reps || "—"}</div>
+              </div>
+              <button onClick={onDismissRest} style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>Editar</button>
+            </Card>
+          )}
+
+          {(nextInBlock || nextBlock) && (
+            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, padding: "13px 4px" }}>
+              <span style={{ fontSize: 15, color: P.faint2 }}>Sigue</span>
+              <span style={{ flex: 1, fontSize: 15, fontWeight: 600, textAlign: "right" }}>
+                {nextInBlock ? `Serie ${activeRowIdx + 1}` : blocks[blockIdx + 1].group
+                  ? blocks[blockIdx + 1].members.map((m) => exs[m].name).join(" + ")
+                  : exs[blocks[blockIdx + 1].ei].name}
+              </span>
             </div>
-          </div>
-          <button onClick={finishRest} style={{ width: "100%", marginTop: 14, padding: 18, borderRadius: 17,
-            background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 700, transition: "opacity .15s ease" }}>
-            {page.group ? "Volver a la ronda" : (nextPage ? "Ir a la siguiente serie" : "Terminar sesión")}
+          )}
+
+          <div style={{ flex: 1 }} />
+          <button onClick={finishRest} style={{ width: "100%", marginTop: 14, padding: 17, borderRadius: R_TILE,
+            background: PLATE_GRAD, color: PLATE_FG, fontSize: 17, fontWeight: 600 }}>
+            {ctaLabel}
           </button>
-          <div style={{ marginTop: 14, padding: "13px 15px", borderRadius: 14, background: MONO.surface, border: `1px solid ${MONO.line}`,
-            textAlign: "center", fontSize: 13, color: MONO.inkDim }}>
-            El temporizador puede sonar y vibrar al terminar.
-          </div>
         </div>
       </div>
     );
   }
 
-  // Ejercicio suelto: cada page ya trae su propio si (la serie activa),
-  // no hace falta calcularlo buscando la primera pendiente.
-  const exxHead = !page.group ? exs[page.ei] : null;
-  const activeSi = !page.group ? page.si : null;
-  const exHeadLastEntry = exxHead ? lastEntryOf(exxHead.id) : null;
-  const exHeadLastSet = exHeadLastEntry ? (exHeadLastEntry.sets || [])[activeSi] : null;
+  // Fila de la tarjeta: colapsada (hecha o pendiente) o abierta (activa,
+  // la que gobierna activeRowIdx). El check de una fila HECHA sigue
+  // tocable — desmarcarla la vuelve a abrir como activa, que es cómo se
+  // corrige una serie ya registrada sin tener que usar Deshacer.
+  const renderRow = (r, idx) => {
+    const exx = exs[r.ei];
+    const st = exx.sets[r.si];
+    const isActive = idx === activeRowIdx;
+    const isDone = !!st.done;
+    const label = block.group ? exx.name : `Serie ${r.si + 1}`;
+    const typeShort = (SET_TYPES[st.type] || SET_TYPES.normal).short;
+    const showType = st.type !== "normal";
+
+    if (!isActive) {
+      return (
+        <button key={`${r.ei}-${r.si}`} onClick={() => onToggleDone(r.ei, r.si)}
+          aria-label={isDone ? "Desmarcar serie" : "Marcar serie hecha"}
+          style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 4px",
+            borderBottom: idx < block.rows.length - 1 ? `1px solid ${P.line}` : "none" }}>
+          <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            background: isDone ? PLATE_GRAD : "transparent", border: isDone ? "none" : `1.5px solid ${P.chevron}` }}>
+            {isDone && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
+          </span>
+          <span style={{ flex: 1, fontSize: 13, color: isDone ? P.text : P.faint2 }}>{label}</span>
+          <span style={{ fontSize: 13, color: P.faint2 }}>
+            {isDone ? `${st.weight || "—"} ${weightUnit} × ${st.reps || "—"}` : `${showType ? typeShort + " · " : ""}${st.repsT ? `${st.repsT} reps` : ""}`}
+          </span>
+        </button>
+      );
+    }
+
+    const lastEntry = lastEntryOf(exx.id);
+    const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
+    const isLastRow = idx === block.rows.length - 1;
+    const targetBits = [];
+    if (showType) targetBits.push(typeShort);
+    if (st.repsT) targetBits.push(`${st.repsT}`);
+    if (st.rirT !== "" && st.rirT != null) targetBits.push(`RIR ${st.rirT}`);
+    if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") targetBits.push(`${st.pct}%`);
+
+    return (
+      <div key={`${r.ei}-${r.si}`} style={{ background: P.s3, borderRadius: R_TILE, padding: "14px 14px 16px", margin: idx === 0 ? "0 0 9px" : "9px 0" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 19, fontWeight: 600, color: P.text }}>
+            {block.group ? label : `Serie ${r.si + 1} de ${exx.sets.length}`}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            {targetBits.length > 0 && <span style={{ fontSize: 12.5, color: P.faint2 }}>{targetBits.join(" · ")}</span>}
+            <button onClick={() => setRowMoreFor({ ei: r.ei, si: r.si })} aria-label="Más opciones de esta serie"
+              style={{ width: 26, height: 26, borderRadius: 13, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint2 }}>
+              <MoreHorizontal size={16} />
+            </button>
+          </div>
+        </div>
+        <Stepper label="Peso" value={st.weight === "" ? 0 : +st.weight} onChange={(v) => setVal(r.ei, r.si, "weight", String(v))}
+          step={weightUnit === "kg" ? 2.5 : 5} decimals={1} caption={lastSet && lastSet.weight !== "" && lastSet.weight != null ? `Antes ${lastSet.weight} ${weightUnit}` : null} />
+        <Stepper label="Reps" value={st.reps === "" ? 0 : +st.reps} onChange={(v) => setVal(r.ei, r.si, "reps", String(v))} step={1} decimals={0} />
+        <Stepper label="RIR" value={st.rir === "" ? 0 : +st.rir} onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0} />
+        <button onClick={() => onToggleDone(r.ei, r.si)} aria-label="Marcar serie hecha"
+          style={{ width: "100%", marginTop: 14, padding: "14px 0", borderRadius: R_ROW, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+          {isLastRow ? "Siguiente ejercicio" : "Serie hecha"}
+        </button>
+        {renderCommentBlock(r.ei, r.si)}
+      </div>
+    );
+  };
 
   return (
-    <div
-      onClickCapture={(e) => {
-        if (cmtKey === null) return;
-        if (e.target.closest && e.target.closest("[data-cmt]")) return;
-        setCmtKey(null);
-      }}
-      style={{ position: "fixed", inset: 0, zIndex: 90, background: MONO.bg, display: "flex", flexDirection: "column",
-        paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)", overscrollBehavior: "contain" }}>
-
-      {/* Cabecera: volver arriba, y debajo el pill "E{n}/{total} · S{n}/{total}"
-          + cronómetro, según la referencia — reemplaza el nombre del día y
-          "Ejercicio N de M" en texto simple que había antes. */}
-      <div style={{ padding: "10px 20px 0", flexShrink: 0 }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 90, background: P.bg, display: "flex", flexDirection: "column",
+      paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 20px 0", flexShrink: 0 }}>
         <button onClick={() => setConfirmExit(true)} aria-label="Salir de Focus Mode"
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 38, height: 38, borderRadius: 19, flexShrink: 0,
-            border: `1.5px solid ${MONO.line}`, color: MONO.inkDim }}>
-          <X size={18} strokeWidth={2.4} />
+          style={{ width: 32, height: 32, borderRadius: 16, background: P.s4, color: P.dim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <X size={17} strokeWidth={2.4} />
         </button>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "14px 20px 4px", flexShrink: 0 }}>
-        <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: MONO.inkDim, background: MONO.chipBg,
-          border: `1px solid ${MONO.line}`, borderRadius: 999, padding: "8px 14px" }}>
-          E{page.block + 1}/{totalBlocks}{exxHead ? ` · S${activeSi + 1}/${exxHead.sets.length}` : ""}
-        </span>
-        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 16, fontWeight: 700, color: MONO.ink,
-          background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 999, padding: "9px 16px", flexShrink: 0 }}>
-          <Timer size={15} color={MONO.inkTertiary} />{bigTime(elapsed)}
-        </span>
-      </div>
-
-      {/* Título grande del ejercicio + tempo, solo para el ejercicio suelto
-          (en superserie, el título de cada miembro sigue viviendo en su
-          propia fila dentro de la ronda, como siempre). */}
-      {exxHead && (
-        <div style={{ padding: "10px 20px 0", flexShrink: 0 }}>
-          <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12, color: MONO.ink, marginBottom: 14 }}>{exxHead.name}</div>
-          {parseTempo(exxHead.notes) && (
-            <div style={{ marginBottom: 8 }}>
-              <TempoBadge tempo={parseTempo(exxHead.notes)} exerciseName={exxHead.name} muscle={exxHead.muscle} big />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Progreso segmentado: un tramo por ejercicio, como el 2a */}
-      <div onPointerDown={barDown} onPointerUp={barUp} onPointerLeave={() => clearTimeout(holdTimer.current)}
-        role="button" aria-label="Progreso de la sesión: toca para ver lo que sigue, mantén pulsado para ver también su indicación"
-        style={{ display: "flex", gap: 4, padding: "0 20px 10px", flexShrink: 0, cursor: "pointer", touchAction: "manipulation" }}>
-        {pages.map((_, i) => (
-          <i key={i} style={{ flex: 1, height: 5, borderRadius: 2.5, background: i <= pageIdx ? MONO.ink : MONO.chipBorder }} />
-        ))}
-      </div>
-
-      {/* Última sesión de este ejercicio (misma fuente que "Última: X" de
-          los campos) y, si el alumno tocó la indicación del coach, su nota
-          — antes vivían en la cabecera vieja de cada ejercicio. */}
-      {exxHead && exHeadLastSet && exHeadLastSet.weight !== "" && (
-        <div style={{ padding: "0 20px 4px", flexShrink: 0 }}>
-          <div style={{ fontSize: 14.5, color: MONO.inkDim }}>
-            {fmtDate(exHeadLastEntry.date)} · {exHeadLastSet.weight} {weightUnit} × {exHeadLastSet.reps}{exHeadLastSet.rir !== "" && exHeadLastSet.rir != null ? ` · RIR ${exHeadLastSet.rir}` : ""}
-          </div>
-        </div>
-      )}
-      {exxHead && instr && instr.ei === page.ei && (
-        <div data-keep onClick={hideInstr} style={{ margin: "0 20px 8px", padding: "9px 11px", borderRadius: 11,
-          background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.inkDim, fontSize: 13.5, lineHeight: 1.45,
-          maxHeight: 130, overflowY: "auto", flexShrink: 0 }}>
-          {exxHead.notes}
-        </div>
-      )}
-
-      {/* Deshacer/rehacer, cambiar unidad y la calculadora se mudaron a los
-          íconos de la tarjeta negra (Calculadoras) y al "Más" (el resto) —
-          acá solo queda el estado de guardado y "Terminar". */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 20px 10px", flexShrink: 0 }}>
         <div style={{ flex: 1 }} />
-        <span title={pendingWrites ? `Guardado en el dispositivo · sincronizando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
-          style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0,
-            background: pendingWrites ? MONO.line : (storageOK ? MONO.ink : "transparent"),
-            border: !pendingWrites && !storageOK ? `1.5px solid ${MONO.ink}` : "none" }} />
-        <button onClick={() => setConfirmFinish(true)} style={{ fontSize: 13.5, fontWeight: 700, color: PLATE_FG, background: PLATE_GRAD, borderRadius: 11, padding: "8px 13px", flexShrink: 0 }}>
-          Terminar
-        </button>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 600, color: P.text }}>
+          <Timer size={14} color={P.faint2} />{bigTime(elapsed)}
+        </span>
+        <span title={pendingWrites ? `Guardando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
+          style={{ width: 6, height: 6, borderRadius: 3, flexShrink: 0,
+            background: pendingWrites ? P.line : (storageOK ? P.ember : "transparent"), border: !pendingWrites && !storageOK ? `1.5px solid ${P.text}` : "none" }} />
+        <button onClick={() => setConfirmFinish(true)} style={{ fontSize: 16, fontWeight: 600, color: P.text }}>Terminar</button>
       </div>
 
-      <div style={{ flexShrink: 0, padding: "0 12px",
-        maxHeight: peek ? 190 : 0, opacity: peek ? 1 : 0, overflow: "hidden",
-        transition: "max-height .18s cubic-bezier(.32,.72,0,1), opacity .16s ease" }}>
-        {peek && (
-          <div style={{ background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "9px 11px", marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", color: MONO.inkFaint, textTransform: "uppercase", marginBottom: 3 }}>
-              {nextPage ? "Siguiente" : "Último"}
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: MONO.ink, lineHeight: 1.3 }}>
-              {nextPage ? pageName(nextPage) : "Este es el final de la sesión"}
-            </div>
-            {peek.mode === "full" && nextNotes && (
-              <div style={{ fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.45, marginTop: 5,
-                maxHeight: 108, overflowY: "auto" }}>{nextNotes}</div>
-            )}
-          </div>
+      <div style={{ padding: "16px 20px 0", flexShrink: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Ejercicio {blockIdx + 1} de {totalBlocks}</div>
+        <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12, color: P.text, marginTop: 2 }}>{blockTitle}</div>
+        {!block.group && parseTempo(exs[block.ei].notes) && (
+          <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
         )}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", position: "relative", padding: "0 14px 16px",
-          display: "flex", flexDirection: "column" }}
-        onClick={tapNav}
-        onTouchStart={(e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY }; }}
-        onTouchEnd={(e) => {
-          const st = touchRef.current; if (!st) return;
-          const t = e.changedTouches[0];
-          const dx = t.clientX - st.x, dy = t.clientY - st.y;
-          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
-          touchRef.current = null;
-        }}>
+      <div style={{ display: "flex", gap: 4, padding: "12px 20px 0", flexShrink: 0 }}>
+        {blocks.map((_, i) => <i key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= blockIdx ? P.ember : P.s3 }} />)}
+      </div>
 
-        <div onClick={() => go(-1)} aria-hidden style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 24, zIndex: 3 }} />
-        <div onClick={() => go(1)} aria-hidden style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 24, zIndex: 3 }} />
-
-        {/* flex:1 en vez de centrar con relleno arriba/abajo: la tarjeta
-            (o la ronda de superserie) CRECE para ocupar el espacio que
-            antes quedaba vacío, en vez de quedar chica y flotando en
-            medio de la pantalla — "que ocupe más espacio", a pedido
-            explícito. Padding lateral bajó de 18 a 14 por el mismo
-            motivo: que la tarjeta llegue más cerca de los bordes. */}
-        <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-          {page.group ? (
-            <MonoCard style={{ padding: "16px 18px", marginTop: 4, flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 0 }}>
-              <div style={{ marginBottom: 4, padding: "9px 11px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.line}`, flexShrink: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 800, color: MONO.ink, letterSpacing: ".04em", textTransform: "uppercase" }}>
-                    {GROUP_KINDS[page.kind].label}
-                  </span>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink }}>Ronda {page.roundIdx + 1}/{page.rounds}</span>
-                </div>
-                <div style={{ fontSize: 12.5, color: MONO.inkDim, marginTop: 4, lineHeight: 1.4 }}>
-                  Haz {page.members.map((mi) => exGroupInfo(exs, mi).posLabel).join(" → ")} seguidos, sin descanso entre ellos.
-                  Descansa solo al terminar la ronda y desliza a la derecha para la siguiente.
-                </div>
-              </div>
-
-              {page.members.map((mi) => {
-                const s = exs[mi].sets[page.roundIdx];
-                if (!s) return null;
-                return (
-                  <div key={mi} data-keep style={{ borderLeft: `3px solid ${MONO.ink}`, paddingLeft: 10, marginBottom: 6, flexShrink: 0 }}>
-                    {renderExHeaderMono(mi, { big: false, posLabel: exGroupInfo(exs, mi).posLabel, color: MONO.ink })}
-                    {renderSetRowMono(mi, page.roundIdx)}
-                  </div>
-                );
-              })}
-            </MonoCard>
-          ) : (
-            <div style={{ marginTop: 10, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-              {renderActiveSetHero(page.ei, page.si)}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 20px", display: "flex", flexDirection: "column" }}>
+        <Card style={{ padding: "6px 14px" }}>
+          {block.group && (
+            <div style={{ padding: "10px 4px", fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>
+              {GROUP_KINDS[block.kind].label} · {block.rounds} {block.rounds === 1 ? "ronda" : "rondas"}
             </div>
           )}
+          {block.rows.map((r, idx) => renderRow(r, idx))}
+        </Card>
 
-          <div style={{ display: "flex", gap: 10, marginTop: 16, flexShrink: 0 }}>
-            {page.group ? (
-              <>
-                <button onClick={() => go(-1)} disabled={pageIdx === 0} style={{ flex: 1, padding: "15px 14px", borderRadius: 15,
-                  background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.inkDim, fontSize: 15, fontWeight: 700, opacity: pageIdx === 0 ? 0.45 : 1 }}>
-                  <ChevronLeft size={17} style={{ verticalAlign: -3 }} /> Anterior
-                </button>
-                <button onClick={() => go(1)} disabled={pageIdx >= pages.length - 1} style={{ flex: 2, padding: "15px 14px", borderRadius: 15,
-                  background: PLATE_GRAD, border: "none", color: PLATE_FG, fontSize: 16, fontWeight: 700, opacity: pageIdx >= pages.length - 1 ? 0.45 : 1 }}>
-                  Siguiente ejercicio <ChevronRight size={17} style={{ verticalAlign: -3 }} />
-                </button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => go(-1)} disabled={pageIdx === 0} style={{ flex: 1, padding: "17px 10px", borderRadius: 16,
-                  background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.inkDim, fontSize: 14.5, fontWeight: 700, opacity: pageIdx === 0 ? 0.45 : 1, transition: "opacity .15s ease" }}>
-                  <ChevronLeft size={16} style={{ verticalAlign: -3 }} /> Atrás
-                </button>
-                <button onClick={() => onToggleDone(page.ei, page.si)}
-                  aria-label={exs[page.ei].sets[page.si].done ? "Desmarcar serie" : "Marcar serie hecha"}
-                  style={{ flex: 1.3, padding: "17px 6px", borderRadius: 16,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  background: exs[page.ei].sets[page.si].done ? MONO.chipBg : PLATE_GRAD,
-                  border: exs[page.ei].sets[page.si].done ? `1px solid ${MONO.line}` : "none",
-                  color: exs[page.ei].sets[page.si].done ? MONO.ink : PLATE_FG, transition: "background .15s ease" }}>
-                  <Check size={22} strokeWidth={3} />
-                </button>
-                <button onClick={() => go(1)} disabled={pageIdx >= pages.length - 1} style={{ flex: 1, padding: "17px 10px", borderRadius: 16,
-                  background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.inkDim, fontSize: 14.5, fontWeight: 700, opacity: pageIdx >= pages.length - 1 ? 0.45 : 1, transition: "opacity .15s ease" }}>
-                  Siguiente <ChevronRight size={16} style={{ verticalAlign: -3 }} />
-                </button>
-              </>
-            )}
-          </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 16 }}>
+          {[
+            ["Técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei)],
+            ["Historial", History, () => setHistEx(block.group ? block.members[0] : block.ei)],
+            ["Discos", Calculator, () => setCalcOpen(true)],
+            ["Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat()],
+          ].map(([label, Icon, onClick]) => (
+            <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px",
+              background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE }}>
+              <Icon size={17} color={P.text} />
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: P.text }}>{label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "16px 4px 4px", marginTop: "auto" }}>
+          <button onClick={() => goBlock(-1)} disabled={blockIdx === 0} style={{ fontSize: 15, fontWeight: 600, color: P.textQuaternary, opacity: blockIdx === 0 ? .5 : 1 }}>Anterior</button>
+          <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} style={{ fontSize: 15, fontWeight: 600, color: P.text, opacity: blockIdx >= blocks.length - 1 ? .5 : 1 }}>Saltar ejercicio</button>
         </div>
       </div>
 
@@ -5081,48 +4677,32 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
       <Sheet open={histEx != null} onClose={() => setHistEx(null)} title={histEx != null ? `Historial · ${exs[histEx].name}` : "Historial"} tall>
         <ExHistorySheetInline entries={(histEx != null && history.byEx[exs[histEx].id]) || []} onOpenImg={setViewImg} />
       </Sheet>
-      <Sheet open={!!exMoreFor} onClose={() => setExMoreFor(null)} title="Más">
+      <Sheet open={!!rowMoreFor} onClose={() => setRowMoreFor(null)} title="Más">
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button data-keep onClick={() => { setFicha(exMoreFor.ei); setExMoreFor(null); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: 13,
-              background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.ink, fontSize: 15, fontWeight: 600 }}>
-            <BookOpen size={18} /> Ficha técnica completa
-          </button>
-          {exMoreFor && exs[exMoreFor.ei].video && (
-            <a href={exs[exMoreFor.ei].video} target="_blank" rel="noopener noreferrer"
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: 13,
-                background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: P.blue, fontSize: 15, fontWeight: 600 }}>
-              <Video size={18} /> Ver técnica en video
-            </a>
-          )}
-          {/* Borrar y comentario dependen de qué serie estaba activa cuando
-              se abrió "Más" (exMoreFor.si) — antes vivían como íconos
-              sueltos en la tarjeta; se mudaron acá para que el ícono row
-              de la tarjeta calce con la referencia (4 íconos, no 6). */}
-          <button data-keep onClick={() => { clearSet(exMoreFor.ei, exMoreFor.si); setExMoreFor(null); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: 13,
-              background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.ink, fontSize: 15, fontWeight: 600 }}>
+          <button data-keep onClick={() => { clearSet(rowMoreFor.ei, rowMoreFor.si); setRowMoreFor(null); }}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
+              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
             <Trash2 size={18} /> Borrar los datos de esta serie
           </button>
-          <button data-keep onClick={() => { openCmt(restKey(exMoreFor.ei, exMoreFor.si)); setExMoreFor(null); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: 13,
-              background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.ink, fontSize: 15, fontWeight: 600 }}>
+          <button data-keep onClick={() => { openCmt(restKey(rowMoreFor.ei, rowMoreFor.si)); setRowMoreFor(null); }}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
+              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
             <MessageSquare size={18} /> Comentario de esta serie
           </button>
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={undo} disabled={!undoStack.length}
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 14px", borderRadius: 13,
-                background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: undoStack.length ? MONO.ink : MONO.inkFaint, fontSize: 15, fontWeight: 600 }}>
+              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 14px", borderRadius: R_TILE,
+                background: P.s3, border: `1px solid ${P.line}`, color: undoStack.length ? P.text : P.faint2, fontSize: 15, fontWeight: 600 }}>
               <Undo2 size={17} /> Deshacer
             </button>
             <button onClick={redo} disabled={!redoStack.length}
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 14px", borderRadius: 13,
-                background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: redoStack.length ? MONO.ink : MONO.inkFaint, fontSize: 15, fontWeight: 600 }}>
+              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 14px", borderRadius: R_TILE,
+                background: P.s3, border: `1px solid ${P.line}`, color: redoStack.length ? P.text : P.faint2, fontSize: 15, fontWeight: 600 }}>
               <Redo2 size={17} /> Rehacer
             </button>
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 2px" }}>
-            <span style={{ fontSize: 14.5, color: MONO.inkDim, fontWeight: 600 }}>Unidad de peso</span>
+            <span style={{ fontSize: 14.5, color: P.dim, fontWeight: 600 }}>Unidad de peso</span>
             <UnitToggle />
           </div>
         </div>
@@ -5132,14 +4712,14 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
           const e1rmOf = (w, r, rir) => { const ww = num(w), rr = num(r), ri = num(rir) || 0; if (!ww || !rr) return null; return ww * (1 + (rr + ri) / 30); };
           const calcField = (label, value, onChange, placeholder) => (
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, color: MONO.inkFaint, fontWeight: 600, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 12, color: P.faint2, fontWeight: 600, marginBottom: 4 }}>{label}</div>
               <input value={value} onChange={(e) => onChange(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" placeholder={placeholder || ""}
-                style={{ width: "100%", padding: "10px 11px", borderRadius: 10, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 16, fontWeight: 700 }} />
+                style={{ width: "100%", padding: "10px 11px", borderRadius: 10, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 16, fontWeight: 700 }} />
             </div>
           );
           const calcResult = (label, value) => (
-            <div style={{ padding: "12px 14px", borderRadius: 12, background: value != null ? PLATE_GRAD : MONO.chipBg,
-              color: value != null ? PLATE_FG : MONO.inkFaint, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ padding: "12px 14px", borderRadius: 12, background: value != null ? PLATE_GRAD : P.s3,
+              color: value != null ? PLATE_FG : P.faint2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: 13.5, opacity: value != null ? 0.7 : 1 }}>{label}</span>
               <span style={{ fontSize: 17, fontWeight: 700 }}>{value != null ? value : "—"}</span>
             </div>
@@ -5153,48 +4733,48 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
           const workW = (() => { const t = num(c4top), p = num(c4pct); if (!t || !p) return null; return Math.round((t * (p / 100)) / c4round) * c4round; })();
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <MonoLabel>RIR / RM</MonoLabel>
-                <div style={{ fontSize: 17, fontWeight: 700, color: MONO.ink }}>e1RM estimado</div>
+              <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>RIR / RM</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>e1RM estimado</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("Peso", c1w, setC1w)}
                   {calcField("Reps", c1r, setC1r)}
                   {calcField("RIR", c1rir, setC1rir)}
                 </div>
                 {calcResult("e1RM", e1 != null ? `${kg(e1)} kg` : null)}
-              </MonoCard>
+              </Card>
 
-              <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <MonoLabel>Peso objetivo</MonoLabel>
-                <div style={{ fontSize: 17, fontWeight: 700, color: MONO.ink }}>RM + RIR</div>
+              <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Peso objetivo</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>RM + RIR</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("e1RM", c2e, setC2e)}
                   {calcField("Reps", c2r, setC2r)}
                   {calcField("RIR", c2rir, setC2rir)}
                 </div>
                 {calcResult("Peso sugerido", targetW != null ? `${kg(targetW)} kg` : null)}
-              </MonoCard>
+              </Card>
 
-              <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <MonoLabel>PR</MonoLabel>
-                <div style={{ fontSize: 17, fontWeight: 700, color: MONO.ink }}>¿Fue récord?</div>
+              <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>PR</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>¿Fue récord?</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("Mejor e1RM previo", c3prev, setC3prev)}
                   {calcField("e1RM actual", c3cur, setC3cur)}
                 </div>
                 {calcResult("Resultado", prResult)}
-              </MonoCard>
+              </Card>
 
-              <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <MonoLabel>% del top set</MonoLabel>
-                <div style={{ fontSize: 17, fontWeight: 700, color: MONO.ink }}>Peso de trabajo</div>
+              <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Discos · % del top set</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>Peso de trabajo</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("Top set", c4top, setC4top)}
                   {calcField("%", c4pct, setC4pct)}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, color: MONO.inkFaint, fontWeight: 600, marginBottom: 4 }}>Redondeo</div>
+                    <div style={{ fontSize: 12, color: P.faint2, fontWeight: 600, marginBottom: 4 }}>Redondeo</div>
                     <select value={c4round} onChange={(e) => setC4round(+e.target.value)}
-                      style={{ width: "100%", padding: "10px 8px", borderRadius: 10, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14, fontWeight: 700 }}>
+                      style={{ width: "100%", padding: "10px 8px", borderRadius: 10, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14, fontWeight: 700 }}>
                       <option value={1}>1 kg</option>
                       <option value={2.5}>2,5 kg</option>
                       <option value={5}>5 kg</option>
@@ -5206,12 +4786,12 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
                   {["70", "75", "80", "85", "90"].map((p) => (
                     <button key={p} onClick={() => setC4pct(p)}
                       style={{ flex: 1, minWidth: 56, padding: "8px 0", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
-                        background: c4pct === p ? PLATE_GRAD : MONO.chipBg, color: c4pct === p ? PLATE_FG : MONO.inkDim,
-                        border: `1px solid ${c4pct === p ? PLATE_GRAD : MONO.chipBorder}` }}>{p}%</button>
+                        background: c4pct === p ? PLATE_GRAD : P.s3, color: c4pct === p ? PLATE_FG : P.dim,
+                        border: `1px solid ${c4pct === p ? PLATE_GRAD : P.separatorStrong}` }}>{p}%</button>
                   ))}
                 </div>
-              </MonoCard>
-              <div style={{ fontSize: 12, color: MONO.inkFaint, lineHeight: 1.5 }}>e1RM es una estimación basada en peso, repeticiones y RIR (fórmula de Epley ajustada). No reemplaza un test real.</div>
+              </Card>
+              <div style={{ fontSize: 12, color: P.faint2, lineHeight: 1.5 }}>e1RM es una estimación basada en peso, repeticiones y RIR (fórmula de Epley ajustada). No reemplaza un test real. La ficha de discos por barra llega más adelante — por ahora usa el % del top set.</div>
             </div>
           );
         })()}
@@ -5221,7 +4801,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, autoStartDayId, onAutoStartConsumed }) => {
+const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, autoStartDayId, onAutoStartConsumed, onOpenAIChat }) => {
   const pendingWrites = usePendingWrites();
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -5503,7 +5083,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
       <>
         <FocusComp active={active} history={history} patch={patch} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
           timer={timer} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
-          onExit={() => setFocus(false)} onFinish={doFinish} />
+          onExit={() => setFocus(false)} onFinish={doFinish} onOpenAIChat={onOpenAIChat} />
         {summarySheet}
       </>
     );
@@ -14367,7 +13947,8 @@ const App = () => {
           <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive}
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
-            autoStartDayId={autoStartDayId} onAutoStartConsumed={() => setAutoStartDayId(null)} />
+            autoStartDayId={autoStartDayId} onAutoStartConsumed={() => setAutoStartDayId(null)}
+            onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)} />
         )}
         {mode === "alumno" && tab === "progreso" && (
           <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
