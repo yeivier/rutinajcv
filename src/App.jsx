@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v147";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v148";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2516,6 +2516,26 @@ const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
 const Card = ({ children, style, onClick, ...rest }) => (
   <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_CARD, ...style }}>{children}</div>
 );
+
+// Anillo cónico (logros de A6, cuenta atrás de Competition Prep): SVG en
+// vez de conic-gradient para que el barrido se pueda animar con
+// stroke-dashoffset como el resto de los gráficos, y no depende de que el
+// navegador soporte conic-gradient.
+const RingProgress = ({ pct, size = 56, stroke = 5, children }) => {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(100, pct || 0));
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={P.s3} strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={P.ember} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={c} strokeDashoffset={c - (clamped / 100) * c} style={{ transition: `stroke-dashoffset 700ms ${EASE_STD}` }} />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>{children}</div>
+    </div>
+  );
+};
 
 // Stepper horizontal − valor +: no había ningún componente compartido para
 // esto (el único precedente en toda la app era el par de chevrons apilados
@@ -6719,17 +6739,16 @@ const AchievementGrid = ({ history }) => {
   const list = computeAchievements(history);
   const earnedCount = list.filter((a) => a.earned).length;
   const groups = [...new Set(list.map((a) => a.group))];
+  const pct = list.length ? Math.round((earnedCount / list.length) * 100) : 0;
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px",
-        background: P.s1, border: `1px solid ${P.frame}`, borderRadius: 14, boxShadow: CARD_LIFT }}>
-        <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-          background: PLATE_GRAD,
-          boxShadow: "none" }}>
-          <Trophy size={20} color={PLATE_FG} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16, padding: "16px 18px",
+        background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_CARD }}>
+        <div>
+          <div style={{ fontSize: 30, fontWeight: 600, letterSpacing: "-.01em", lineHeight: 1.1 }}>{earnedCount} de {list.length}</div>
+          <div style={{ fontSize: 13, color: P.faint2, marginTop: 2 }}>Logros</div>
         </div>
-        <div><div style={{ fontWeight: 700, fontSize: 17 }}>{earnedCount} de {list.length} logros</div>
-          <div style={{ fontSize: 12.5, color: P.faint }}>Sigue entrenando para desbloquear el resto</div></div>
+        <RingProgress pct={pct}><span style={{ fontSize: 13, fontWeight: 700 }}>{pct}%</span></RingProgress>
       </div>
       {groups.map((g) => (
         <div key={g} style={{ marginBottom: 18 }}>
@@ -6794,6 +6813,8 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }
   const [stepsInput, setStepsInput] = useState("");
   const [waterInput, setWaterInput] = useState("");
   const [sleepInput, setSleepInput] = useState("");
+  const [measureOpen, setMeasureOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   // Permite abrir esta pestaña directo en una sub-sección (p.ej. desde las
   // fichas de Hoy: tocar "Peso corporal" cae en "Cuerpo", "Volumen sem."
   // cae en "Volumen"), igual que ya hace AITab con jumpSub/onJumpConsumed.
@@ -6812,19 +6833,10 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }
   useEffect(() => { if (!exId && allEx.length) setExId(allEx[0][0]); }, [allEx, exId]);
 
   const entries = history.byEx[exId] || [];
-  const withBest = entries.map((en) => {
-    const done = (en.sets || []).filter((s) => s.done && s.weight !== "");
-    const best = done.length ? Math.max(...done.map((s) => +s.weight)) : null;
-    return { date: en.date, best };
-  }).filter((x) => x.best != null);
-  const chartPoints = withBest.map((x) => ({ v: x.best }));
-  const rangeDelta = withBest.length >= 2 ? withBest[withBest.length - 1].best - withBest[0].best : null;
-  const rangeDeltaPct = rangeDelta != null && withBest[0].best ? Math.round((rangeDelta / withBest[0].best) * 1000) / 10 : null;
-  const lastBest = withBest.length ? withBest[withBest.length - 1].best : null;
 
   // PRs recientes: se guardan como texto libre "Nombre: XX kg" en cada
   // sesión (finishSession) — se parte por ": " para mostrarlos como lista,
-  // más recientes primero, igual que en el mockup.
+  // más recientes primero.
   const recentPRs = [...history.sessions].reverse().flatMap((s) => (s.prs || []).map((p) => {
     const idx = p.lastIndexOf(":");
     return { name: idx > 0 ? p.slice(0, idx) : p, value: idx > 0 ? p.slice(idx + 1).trim() : "", date: s.date };
@@ -6832,7 +6844,10 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }
 
   const bwEntries = history.bodyweight || [];
   const bwPoints = bwEntries.map((b) => ({ v: b.kg }));
-  const lastPhoto = (history.bodyPhotos || [])[history.bodyPhotos.length - 1];
+  const measurements = history.measurements || [];
+  const lastMeasure = measurements[measurements.length - 1];
+  const photos = history.bodyPhotos || [];
+  const adherence = adherencePct(plan, history, monthKeyOf(todayISO()));
 
   // El input y el botón "Registrar" existían en la pantalla desde el
   // rediseño, pero nunca llegaron a guardar nada — history.bodyweight no
@@ -6861,142 +6876,138 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }
   const addSteps = () => addDailyMetric("steps", "count", stepsInput, setStepsInput);
   const addWater = () => addDailyMetric("water", "liters", waterInput, setWaterInput);
   const addSleep = () => addDailyMetric("sleep", "hours", sleepInput, setSleepInput);
+  const saveMeasurements = (values) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.measurements = [...(h.measurements || []), { date: todayISO(), values }];
+    saveHistory(h);
+    setMeasureOpen(false);
+  };
 
   const stepsEntries = history.steps || [];
   const waterEntries = history.water || [];
   const sleepEntries = history.sleep || [];
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.022em", color: MONO.ink }}>Progreso</div>
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
+      <ScreenTitle title="Progreso" />
 
       <SectionSwitch value={sub} onChange={setSub}
-        items={[{ id: "fuerza", label: "Fuerza" }, { id: "cuerpo", label: "Cuerpo" }, { id: "volumen", label: "Volumen" }]} />
+        items={[{ id: "fuerza", label: "Fuerza" }, { id: "cuerpo", label: "Cuerpo" }, { id: "volumen", label: "Volumen" }, { id: "logros", label: "Logros" }]} />
 
       {sub === "fuerza" && (
         <>
           {allEx.length === 0 ? (
-            <MonoCard style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: MONO.inkDim }}>Todavía no hay ejercicios registrados.</div></MonoCard>
+            <Card style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: P.faint2 }}>Todavía no hay ejercicios registrados.</div></Card>
           ) : (
-            <>
-              <select value={exId} onChange={(e) => setExId(e.target.value)}
-                style={{ width: "100%", padding: "11px 12px", borderRadius: 12, background: MONO.surface, border: `1px solid ${MONO.line}`, color: MONO.ink, fontSize: 14.5 }}>
-                {allEx.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-              </select>
-
-              {withBest.length === 0 ? (
-                <MonoCard style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: MONO.inkDim }}>Sin registros de este ejercicio todavía.</div></MonoCard>
-              ) : (
-                <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      <MonoLabel>Mejor peso por sesión</MonoLabel>
-                      <div style={{ fontSize: 30, fontWeight: 700, color: MONO.ink, lineHeight: 1.1 }}>{kg(lastBest)} <span style={{ fontSize: 16 }}>kg</span></div>
-                    </div>
-                    {rangeDeltaPct != null && (
-                      <span style={{ fontSize: 13, fontWeight: 700, color: MONO.ink, background: MONO.lineFaint, borderRadius: 9, padding: "6px 10px" }}>{rangeDeltaPct >= 0 ? "+" : ""}{rangeDeltaPct}%</span>
-                    )}
-                  </div>
-                  <MiniLineChart points={chartPoints} />
-                </MonoCard>
-              )}
-            </>
+            <select value={exId} onChange={(e) => setExId(e.target.value)}
+              style={{ width: "100%", padding: "12px 14px", borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, color: P.text, fontSize: 15 }}>
+              {allEx.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
           )}
-
+          <ExerciseProgress entries={entries} />
           {recentPRs.length > 0 && (
-            <Collapsible mono title="Récords recientes" summary={`${recentPRs.length}`}>
+            <Collapsible title="Récords recientes" summary={`${recentPRs.length}`}>
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                 {recentPRs.map((pr, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 13, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "14px 15px" }}>
-                    <span style={{ width: 32, height: 32, borderRadius: 10, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: MONO.ink, flexShrink: 0 }}>PR</span>
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 13, background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE, padding: "14px 15px" }}>
+                    <span style={{ width: 32, height: 32, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: P.text, flexShrink: 0 }}>PR</span>
                     <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.name}</span>
-                      <span style={{ fontSize: 12.5, color: MONO.inkDim }}>{daysAgoLabel(pr.date)}</span>
+                      <span style={{ fontSize: 14.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.name}</span>
+                      <span style={{ fontSize: 12.5, color: P.faint2 }}>{daysAgoLabel(pr.date)}</span>
                     </div>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: MONO.ink, flexShrink: 0 }}>{pr.value}</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: P.text, flexShrink: 0 }}>{pr.value}</span>
                   </div>
                 ))}
               </div>
             </Collapsible>
           )}
-
-          <div style={{ display: "flex", alignItems: "center", gap: 16, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 14, padding: "16px 17px" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-              <MonoLabel>Fotos de progreso</MonoLabel>
-              <span style={{ fontSize: 13.5, color: MONO.inkDim }}>{lastPhoto ? `Última: ${daysAgoLabel(lastPhoto.date)}` : "Sin fotos todavía"}</span>
-            </div>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: PLATE_FG, background: PLATE_GRAD, borderRadius: 11, padding: "10px 14px" }}>Ver</span>
-          </div>
         </>
       )}
 
       {sub === "cuerpo" && (
         <>
-          <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <MonoLabel>Peso corporal</MonoLabel>
+          <Card style={{ overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+              <span style={{ flex: 1, fontSize: 16 }}>Adherencia</span>
+              <span style={{ fontSize: 15, color: P.faint2 }}>{adherence == null ? "—" : `${Math.round(adherence)}%`}</span>
+            </div>
+          </Card>
+
+          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Peso corporal</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input type="number" inputMode="decimal" step="any" placeholder="kg de hoy" value={bw} onChange={(e) => setBw(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-              <button onClick={addBW} style={{ padding: "11px 16px", borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
+                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
+              <button onClick={addBW} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
             </div>
             {bwEntries.length >= 2 ? <MiniLineChart points={bwPoints} /> : bwEntries.length === 1 ? (
-              <div style={{ fontSize: 13.5, color: MONO.inkDim }}>Último registro: {kg(bwEntries[0].kg)} kg. Con dos o más verás la curva.</div>
+              <div style={{ fontSize: 13.5, color: P.faint2 }}>Último registro: {kg(bwEntries[0].kg)} kg. Con dos o más verás la curva.</div>
             ) : (
-              <div style={{ fontSize: 13.5, color: MONO.inkDim }}>Sin registros todavía.</div>
+              <div style={{ fontSize: 13.5, color: P.faint2 }}>Sin registros todavía.</div>
             )}
-          </MonoCard>
+          </Card>
 
-          <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <MonoLabel>Pasos</MonoLabel>
+          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Pasos</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input type="number" inputMode="numeric" placeholder="pasos de hoy" value={stepsInput} onChange={(e) => setStepsInput(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-              <button onClick={addSteps} style={{ padding: "11px 16px", borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
+                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
+              <button onClick={addSteps} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
             </div>
-            <div style={{ fontSize: 13.5, color: MONO.inkDim }}>
+            <div style={{ fontSize: 13.5, color: P.faint2 }}>
               {stepsEntries.length ? `Último registro: ${stepsEntries[stepsEntries.length - 1].count.toLocaleString("es-CL")} pasos.` : "Sin registros todavía."}
             </div>
-          </MonoCard>
+          </Card>
 
-          <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <MonoLabel>Agua</MonoLabel>
+          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Agua</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input type="number" inputMode="decimal" step="any" placeholder="litros de hoy" value={waterInput} onChange={(e) => setWaterInput(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-              <button onClick={addWater} style={{ padding: "11px 16px", borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
+                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
+              <button onClick={addWater} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
             </div>
-            <div style={{ fontSize: 13.5, color: MONO.inkDim }}>
+            <div style={{ fontSize: 13.5, color: P.faint2 }}>
               {waterEntries.length ? `Último registro: ${kg(waterEntries[waterEntries.length - 1].liters)} L.` : "Sin registros todavía."}
             </div>
-          </MonoCard>
+          </Card>
 
-          <MonoCard style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <MonoLabel>Sueño</MonoLabel>
+          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Sueño</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input type="number" inputMode="decimal" step="any" placeholder="horas dormidas" value={sleepInput} onChange={(e) => setSleepInput(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-              <button onClick={addSleep} style={{ padding: "11px 16px", borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
+                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
+              <button onClick={addSleep} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
             </div>
-            <div style={{ fontSize: 13.5, color: MONO.inkDim }}>
+            <div style={{ fontSize: 13.5, color: P.faint2 }}>
               {sleepEntries.length ? `Último registro: ${kg(sleepEntries[sleepEntries.length - 1].hours)} h.` : "Sin registros todavía."}
             </div>
-          </MonoCard>
+          </Card>
 
-          <div style={{ fontSize: 12.5, color: MONO.inkFaint, lineHeight: 1.5 }}>Medidas corporales y comparador de fotos: usa el modo Clásico por ahora — no vienen en este mockup.</div>
+          <Card style={{ overflow: "hidden" }}>
+            <button onClick={() => setMeasureOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
+              <span style={{ flex: 1, fontSize: 16 }}>Medidas</span>
+              <span style={{ fontSize: 15, color: P.faint2 }}>{lastMeasure ? daysAgoLabel(lastMeasure.date) : "—"}</span>
+              <ChevronRight size={16} color={P.chevron} />
+            </button>
+            <button onClick={() => setCompareOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+              <span style={{ flex: 1, fontSize: 16 }}>Fotos</span>
+              <span style={{ fontSize: 15, color: P.faint2 }}>{photos.length ? `${photos.length}` : "—"}</span>
+              <ChevronRight size={16} color={P.chevron} />
+            </button>
+          </Card>
         </>
       )}
 
-      {sub === "volumen" && (
-        <MonoCard style={{ padding: 22, textAlign: "center" }}>
-          <div style={{ fontSize: 14, color: MONO.inkDim, lineHeight: 1.5 }}>El detalle de volumen por músculo no viene dibujado en este mockup — usa el modo Clásico para verlo con el semáforo de colores completo.</div>
-        </MonoCard>
-      )}
+      {sub === "volumen" && <VolumePanel plan={plan} />}
+
+      {sub === "logros" && <AchievementGrid history={history} />}
+
+      <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} />
+      <PhotoCompareSheet open={compareOpen} onClose={() => setCompareOpen(false)} photos={photos} />
     </div>
   );
 };
-// A diferencia de Hoy, este mockup no propone dos variantes — un solo
-// diseño nuevo (Fuerza/Cuerpo/Volumen) — así que el selector acá es
-// binario: Clásico o Nuevo.
 const ProgressTabRouter = (props) => <ProgressTabMono {...props} />;
 
 // Versión inline (no sheet) del historial por ejercicio, reutilizada en Progreso y Actividad
