@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v144";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v145";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -222,26 +222,10 @@ const EasyModeSwitch = () => {
 // tapada. Esto ya se rompió más de una vez al ir agregando pestañas
 // nuevas; de acá en más TODA pantalla de pestaña debe usar esta constante
 // en vez de un número inventado, para que no vuelva a pasar.
-// Vista de la pantalla Hoy (Enfoque / Panel). Es una preferencia de la
-// app, no un control dentro de la pantalla: vive en la hoja "Más", junto
-// al tema y al Easy Mode.
-let HOME_VIEW = "enfoque";
-try { HOME_VIEW = window.localStorage.getItem("forja-home-view") || "enfoque"; } catch {}
-const homeViewListeners = new Set();
-function setHomeViewPref(v) {
-  HOME_VIEW = v;
-  try { window.localStorage.setItem("forja-home-view", v); } catch {}
-  homeViewListeners.forEach((fn) => fn(v));
-}
-function useHomeView() {
-  const [, force] = useState(0);
-  useEffect(() => {
-    const fn = () => force((x) => x + 1);
-    homeViewListeners.add(fn);
-    return () => homeViewListeners.delete(fn);
-  }, []);
-  return [HOME_VIEW, setHomeViewPref];
-}
+// La pantalla Hoy (y el Panel del coach) tenían dos vistas: "Enfoque"
+// —una sola decisión dominante— y "Panel" —todo de un vistazo—, elegibles
+// desde "Más". Se eliminó Enfoque: queda solo Panel, que es la vista
+// completa. Ya no hay preferencia que guardar ni selector que mostrar.
 
 // Editor de rutina: "completo" (todas las funciones: crear días y rutinas,
 // arrastrar para reordenar, copiar/pegar) o "compacto" (la pantalla 2f del
@@ -5994,9 +5978,8 @@ const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
   );
 };
 
-const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat, autoOpenCheckin, onAutoOpenCheckinConsumed, autoOpenPosing, onAutoOpenPosingConsumed, saveHistory, toast }) => {
+const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat, autoOpenCheckin, onAutoOpenCheckinConsumed, autoOpenPosing, onAutoOpenPosingConsumed, saveHistory, toast }) => {
   const [showInstr, setShowInstr] = useState(false);
-  const [exExpanded, setExExpanded] = useState(false);
   const [dayDetail, setDayDetail] = useState(null);   // día de la franja semanal tocado (variante panel)
   const [statDetail, setStatDetail] = useState(null);  // "adherencia" | "racha" | "peso" | "volumen" | "pasos" | "agua" | "sueno"
   const [checkinOpen, setCheckinOpen] = useState(false);
@@ -6040,9 +6023,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const [finalComment, setFinalComment] = useState("");
   const [ciSending, setCiSending] = useState(false);
   const d = useTodayData(plan, history, allowedRoutines);
-  const name = studentName || "";
-  const firstName = name.split(" ")[0] || "";
-  const initials = (name || "?").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
   const n = plan.nutrition || {};
   const macros = macroSolve(n, n.solve || "kcal");
   const hasMacros = (+macros.kcal || 0) > 0 || (+macros.p || 0) > 0;
@@ -6168,36 +6148,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           exs: d.suggested.exs, sets: d.setsOf(d.suggested), cta: "Entrenar ahora" }
       : null;
 
-  const avatar = (
-    <div style={{ width: 44, height: 44, borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG,
-      display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>{initials}</div>
-  );
 
-  const secondary = (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div className="mono" style={{ letterSpacing: ".16em" }}>También hoy</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {hasMacros && (
-          <TodayRow Icon={Utensils} title="Comidas"
-            detail={`${macros.kcal || "—"} kcal · P ${macros.p || 0} / C ${macros.c || 0} / G ${macros.f || 0}`}
-            actionLabel="Ver" onClick={onOpenNutrition} />
-        )}
-        {instrCount > 0 && (
-          <TodayRow Icon={MessageSquare} title="Nota del coach"
-            detail={plan.instructions[0].title || `${instrCount} indicaciones del plan`}
-            dot onClick={() => setShowInstr(true)} />
-        )}
-        <TodayRow Icon={Calendar} title="Agenda"
-          detail={d.streak > 0 ? `${d.streak} semana${d.streak !== 1 ? "s" : ""} seguida${d.streak !== 1 ? "s" : ""} entrenando` : "Tu semana y tus turnos"}
-          actionLabel="Abrir" onClick={onOpenAgenda} />
-        {d.suggested2 && (
-          <TodayRow Icon={Dumbbell} title={`Segunda sesión · ${d.suggested2.name}`}
-            detail={`${d.suggested2.exs.length} ejercicios · ${d.setsOf(d.suggested2)} series${d.suggested2Done ? " · ya la hiciste" : ""}`}
-            actionLabel={d.suggested2Done ? "Ver" : "Entrenar"} onClick={() => goTrain(d.suggested2Done ? undefined : d.suggested2.id)} />
-        )}
-      </div>
-    </div>
-  );
 
   const instrSheet = (
     <Sheet open={showInstr} onClose={() => setShowInstr(false)} title="Indicaciones del coach">
@@ -6216,80 +6167,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         body={role === "coach" ? "Entra a la pestaña Rutinas para armar el plan." : "Tu coach aún no carga la rutina."} />
     </Card>
   );
-
-  if (variant !== "panel") {
-    return (
-      <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
-        <ScreenTitle eyebrow={fmtDateFull(todayISO())} title={firstName ? `Hola, ${firstName}` : "Hoy"}
-          sub={d.weekNum ? `Semana ${d.weekNum} de ${d.weekTotal}${d.mesoName ? ` · ${d.mesoName}` : ""}` : null}
-          right={avatar} />
-        <EventReminderBanner events={plan.events} />
-        <NextBookingBanner bookings={bookings} sid={sid} />
-        {workout ? (
-          <Card style={{ padding: 22, display: "flex", flexDirection: "column", gap: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 4, background: P.ember }} />
-              <span className="mono" style={{ letterSpacing: ".16em", color: P.ember2 }}>{workout.eyebrow}</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-.03em", lineHeight: 1.05 }}>{workout.title}</div>
-              {workout.sub && <div style={{ fontSize: 14.5, color: P.faint }}>{workout.sub}</div>}
-            </div>
-            {workout.exs && (
-              <>
-                <div style={{ display: "flex", gap: 22, padding: "14px 0", borderTop: `1px solid ${P.line}`, borderBottom: `1px solid ${P.line}` }}>
-                  {[[workout.exs.length, "ejercicios"], [workout.sets, "series"], [`${estimateSessionMin(workout.sets)}`, "min estimado"]].map(([v, l]) => (
-                    <div key={l} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      <div style={{ fontSize: 22, fontWeight: 700 }}>{v}</div>
-                      <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".06em" }}>{l}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {workout.exs.slice(0, 2).map((e, i) => (
-                    <div key={e.id || i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ width: 26, height: 26, borderRadius: 8, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: P.faint, flexShrink: 0 }}>{i + 1}</span>
-                      <span style={{ fontSize: 14.5, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
-                      <span style={{ marginLeft: "auto", fontSize: 13, color: P.faint, flexShrink: 0 }}>{e.sets.length}×{(e.sets[0] && e.sets[0].repsT) || "—"}</span>
-                    </div>
-                  ))}
-                  {/* El resto se revela en el lugar, no navega a ningún lado
-                      — un vistazo rápido a lo que viene sin salir de Hoy.
-                      grid-template-rows 0fr→1fr anima el alto sin medir el
-                      contenido a mano: mismo timing que el resto de la app. */}
-                  {workout.exs.length > 2 && (
-                    <div style={{ display: "grid", gridTemplateRows: exExpanded ? "1fr" : "0fr", transition: "grid-template-rows .35s ease" }}>
-                      <div style={{ overflow: "hidden", display: "flex", flexDirection: "column", gap: 10, paddingTop: 10 }}>
-                        {workout.exs.slice(2).map((e, i) => (
-                          <div key={e.id || i + 2} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ width: 26, height: 26, borderRadius: 8, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: P.faint, flexShrink: 0 }}>{i + 3}</span>
-                            <span style={{ fontSize: 14.5, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
-                            <span style={{ marginLeft: "auto", fontSize: 13, color: P.faint, flexShrink: 0 }}>{e.sets.length}×{(e.sets[0] && e.sets[0].repsT) || "—"}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {workout.exs.length > 2 && (
-                    <button onClick={() => setExExpanded((v) => !v)}
-                      style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 700, color: P.ember2, paddingLeft: 36 }}>
-                      {exExpanded ? "Ver menos" : `+ ${workout.exs.length - 2} ejercicios más`}
-                      <ChevronDown size={14} style={{ transform: exExpanded ? "rotate(180deg)" : "none", transition: "transform .25s ease" }} />
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-            <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} style={{ width: "100%", padding: "17px", borderRadius: R_CARD, fontSize: 17 }}>
-              <Play size={17} /> {workout.cta}
-            </Btn>
-          </Card>
-        ) : emptyCard}
-        {secondary}
-        {instrSheet}
-      </div>
-    );
-  }
 
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
@@ -6639,7 +6516,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
 // La pantalla Hoy ya no lleva su propio selector: la vista (Enfoque /
 // Panel) es una preferencia de la app y se cambia desde "Más". El diseño
 // no pone controles de configuración dentro del contenido.
-const TodayTabRouter = ({ view, ...props }) => <TodayTabMono {...props} variant={view === "panel" ? "panel" : "enfoque"} />;
 
 /* ============================================================
    Progreso: sesiones, por ejercicio, cuerpo
@@ -6777,7 +6653,7 @@ const daysAgoLabel = (dateStr) => {
   if (days < 14) return `hace ${days} días`;
   return `hace ${Math.round(days / 7)} semanas`;
 };
-const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed, saveHistory }) => {
+const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }) => {
   const [sub, setSub] = useState("fuerza");
   const [exId, setExId] = useState("");
   const [bw, setBw] = useState("");
@@ -10033,7 +9909,7 @@ const DashboardTab = ({ roster, toast }) => {
    mismo propósito (avisar qué conversación necesita atención).
    ============================================================ */
 
-const DashboardTabMono = ({ roster, toast, variant }) => {
+const DashboardTabMono = ({ roster, toast }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, sessions, chat, pay }
 
@@ -10104,16 +9980,6 @@ const DashboardTabMono = ({ roster, toast, variant }) => {
     if (st.key === "vencido" || st.key === "por_vencer") activity.push({ id: `${r.id}-pay`, name: r.name, kind: "pago", text: st.label });
   });
 
-  // Qué es "lo único que importa ahora" para el coach, en orden de urgencia:
-  // mensajes sin responder > atletas parados > el pulso de la semana.
-  const focusCard = pendCount > 0
-    ? { eyebrow: "Lo primero de hoy", title: pendCount === 1 ? "1 alumno espera respuesta" : `${pendCount} alumnos esperan respuesta`,
-        detail: "Escribieron por el chat y todavía no les contestaste.", big: String(pendCount) }
-    : stale.length > 0
-      ? { eyebrow: "Lo primero de hoy", title: stale.length === 1 ? "1 atleta sin entrenar" : `${stale.length} atletas sin entrenar`,
-          detail: stale.slice(0, 3).map((x) => x.name).join(", ") + (stale.length > 3 ? "…" : "") + " · 5+ días parados", big: String(stale.length) }
-      : { eyebrow: "Todo al día", title: "Sin pendientes", detail: `${withCheckin} de ${activeCount} atletas entrenaron esta semana.`, big: `${checkinPct}%` };
-
   const initialsOf = (name) => (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
   const todayLabel = new Date().toLocaleDateString("es-CL", { weekday: "long", day: "numeric" });
 
@@ -10129,34 +9995,9 @@ const DashboardTabMono = ({ roster, toast, variant }) => {
         </span>
       </div>
 
-      {/* Enfoque: una sola decisión dominante, igual que el Hoy del alumno.
-          Lo que manda es lo que hoy pide acción — responder mensajes o
-          reactivar atletas parados; si no hay nada urgente, el check-in
-          de la semana. Las tres métricas quedan para el modo Panel. */}
-      {variant === "enfoque" ? (
-        <>
-          <MonoCard style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
-            <MonoLabel>{focusCard.eyebrow}</MonoLabel>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-.025em", lineHeight: 1.15, color: MONO.ink }}>{focusCard.title}</div>
-                <div style={{ fontSize: 13.5, color: MONO.inkFaint, marginTop: 4 }}>{focusCard.detail}</div>
-              </div>
-              {focusCard.big && <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.03em", color: MONO.ink, lineHeight: 1 }}>{focusCard.big}</div>}
-            </div>
-          </MonoCard>
-
-          <MonoLabel>También hoy</MonoLabel>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {[["Atletas activos", String(activeCount)], ["Check-in de la semana", `${checkinPct}%`], ["Mensajes por responder", String(pendCount)]].map(([l, v]) => (
-              <MonoCard key={l} style={{ padding: "13px 15px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                <span style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink }}>{l}</span>
-                <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink }}>{v}</span>
-              </MonoCard>
-            ))}
-          </div>
-        </>
-      ) : (
+      {/* Las tres métricas de cabecera: activos, check-in y mensajes por
+          responder. Antes convivían con una vista "Enfoque" que mostraba
+          una sola tarjeta dominante; esa vista se eliminó. */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
         <MonoCard style={{ padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
           <MonoLabel>Activos</MonoLabel>
@@ -10171,9 +10012,8 @@ const DashboardTabMono = ({ roster, toast, variant }) => {
           <div style={{ fontSize: 24, fontWeight: 700, color: MONO.ink }}>{pendCount}</div>
         </MonoCard>
       </div>
-      )}
 
-      {variant !== "enfoque" && stale.length > 0 && (
+      {stale.length > 0 && (
         <MonoCard style={{ padding: "16px 17px", display: "flex", alignItems: "center", gap: 14, border: `1.5px solid ${MONO.ink}` }}>
           <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <AlertTriangle size={16} color={MONO.ink} />
@@ -10187,8 +10027,8 @@ const DashboardTabMono = ({ roster, toast, variant }) => {
         </MonoCard>
       )}
 
-      {variant !== "enfoque" && <MonoLabel>Actividad de hoy</MonoLabel>}
-      {variant === "enfoque" ? null : activity.length === 0 ? (
+      <MonoLabel>Actividad de hoy</MonoLabel>
+      {activity.length === 0 ? (
         <MonoCard style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: MONO.inkDim }}>Nada todavía hoy.</div></MonoCard>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -10209,8 +10049,6 @@ const DashboardTabMono = ({ roster, toast, variant }) => {
     </div>
   );
 };
-
-const DashboardTabRouter = ({ view, ...props }) => <DashboardTabMono {...props} variant={view === "panel" ? "panel" : "enfoque"} />;
 
 const CobrosTab = ({ roster, toast }) => {
   const [loading, setLoading] = useState(true);
@@ -13034,7 +12872,7 @@ const DevicesSheet = ({ open, onClose, toast }) => {
 /* Hoja "Más": lo que salió de la barra de pestañas. Herramientas de
    referencia, gestión (alumnos/equipo) y los ajustes de apariencia —
    agrupados en filas de sistema, como los Ajustes de iOS. */
-const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, viewMode, onChangeViewMode, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices }) => {
   const [theme, setTheme] = useTheme();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
@@ -13071,9 +12909,6 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
       )}
 
       <SettingGroup label="Ajustes">
-        <SettingRow Icon={Home} label={mode === "coach" ? "Vista del Panel" : "Vista de Hoy"}
-          hint={viewMode === "panel" ? "Todo de un vistazo" : "Una sola decisión"}
-          control={<SectionSwitch items={[{ id: "enfoque", label: "Enfoque" }, { id: "panel", label: "Panel" }]} value={viewMode} onChange={onChangeViewMode} />} />
         <SettingRow Icon={theme === "light" ? Sun : Moon} label="Apariencia"
           hint={theme === "light" ? "Claro" : "Modo gimnasio — gris oscuro, sin negro puro"}
           control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Gimnasio" }]} value={theme} onChange={setTheme} />} />
@@ -13854,7 +13689,6 @@ const App = () => {
   // vuelva a null (si no, reabrir la pestaña Entrenar más tarde
   // arrancaría la sesión de nuevo sin que nadie lo pidiera).
   const [autoStartDayId, setAutoStartDayId] = useState(null);
-  const [homeView, setHomeView] = useHomeView();
   const [routineView, setRoutineView] = useRoutineView();
   // El gesto para ocultar/mostrar el botón de IA (antes: tres toques
   // seguidos en cualquier parte de la pantalla) se mudó adentro de AIFab
@@ -14238,10 +14072,10 @@ const App = () => {
 
         <div key={`${tab}-${sub || ""}`} className="sheetIn" style={{ display: utility ? "none" : undefined }}>
         {mode === "alumno" && tab === "hoy" && (
-          <TodayTabRouter view={homeView} plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory} toast={toast}
+          <TodayTabMono plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory} toast={toast}
             goTrain={(dayId) => { if (dayId) setAutoStartDayId(dayId); setTab("entrenar"); }}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
-            bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""}
+            bookings={bookings.slots} sid={sid}
             onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => setTab("nutricion")} onOpenCoach={() => setUtility("chat")}
             onOpenProgress={(jumpSub) => { if (jumpSub) setProgressJumpSub(jumpSub); setTab("progreso"); }}
             onOpenTimer={() => setUtility("timer")}
@@ -14313,7 +14147,7 @@ const App = () => {
             <InstructionsEditor plan={plan} savePlan={savePlan} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "dashboard" && <DashboardTabRouter view={homeView} roster={roster} toast={toast} />}
+        {mode === "coach" && sub === "dashboard" && <DashboardTabMono roster={roster} toast={toast} />}
         {mode === "coach" && sub === "actividad" && <ActivityTab plan={plan} history={history} />}
         {mode === "coach" && sub === "rankings" && (
           <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
@@ -14337,7 +14171,7 @@ const App = () => {
       <TabBar tabs={tabs} tab={tab} setTab={setTab} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode}
         studentName={currentStudent?.name} onSwitchIdentity={() => { setMoreOpen(false); setReady(false); }}
-        canManageTeam={myRoleMeta.manageTeam} viewMode={homeView} onChangeViewMode={setHomeView}
+        canManageTeam={myRoleMeta.manageTeam}
         routineView={routineView} onChangeRoutineView={setRoutineView}
         onOpenUtility={(id) => { setMoreOpen(false); setUtility(id); }}
         onOpenRoster={() => { setMoreOpen(false); setRosterOpen(true); }}
