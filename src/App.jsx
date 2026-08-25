@@ -7,7 +7,8 @@ import {
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
-  Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText
+  Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText,
+  UserPlus, DollarSign
 } from "lucide-react";
 
 /* ============================================================
@@ -16,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v149";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v150";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3194,6 +3195,82 @@ function fmtChatDay(ts) {
   if (d.toDateString() === yest.toDateString()) return "Ayer";
   return d.toLocaleDateString("es-CL", { day: "2-digit", month: "short" });
 }
+
+/* ============================================================
+   MODO COACH — Mensajes · Chat (C4 del handoff): lista de TODAS las
+   conversaciones del roster (nombre, hora del último mensaje, globo de
+   no leídos), en vez de abrir directo el chat de un solo alumno. Cada
+   fila reusa ChatTab tal cual, sin tocar su lógica ni el modelo de
+   datos (forja-chat:<id>) — la lista solo agrega dónde elegir CON
+   QUIÉN, algo que antes obligaba a salir a "Alumnos" y volver a entrar
+   como ese alumno.
+   ============================================================ */
+const AtletasMensajesTab = ({ roster, toast }) => {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]); // { id, name, lastTs, lastText, unread }
+  const [q, setQ] = useState("");
+  const [openStudent, setOpenStudent] = useState(null); // { id, name }
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const out = [];
+      for (const s of roster.students) {
+        const msgs = await sGet(`forja-chat:${s.id}`);
+        const list = Array.isArray(msgs) ? msgs : [];
+        const last = list[list.length - 1];
+        out.push({
+          id: s.id, name: s.name,
+          lastTs: last ? last.ts : 0,
+          lastText: last ? (last.kind === "media" ? "Foto/video" : last.text) : "Sin mensajes",
+          unread: countUnread(list, "coach", getChatSeenAt("coach", s.id)),
+        });
+      }
+      out.sort((a, b) => b.lastTs - a.lastTs);
+      if (!cancelled) { setRows(out); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [roster]);
+
+  const filtered = rows.filter((r) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
+
+  if (loading) return <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}><LoadingBlock label="Cargando conversaciones…" /></div>;
+
+  return (
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
+      <div style={{ position: "relative", marginBottom: 12 }}>
+        <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar" aria-label="Buscar conversación"
+          style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, border: "none" }} />
+      </div>
+      {filtered.length === 0 ? (
+        <Empty icon={MessageSquare} title="Sin resultados" body="Prueba con otro nombre." />
+      ) : (
+        <Card style={{ overflow: "hidden" }}>
+          {filtered.map((r, i) => (
+            <button key={r.id} onClick={() => setOpenStudent({ id: r.id, name: r.name })} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+              padding: "13px 14px", borderBottom: i === filtered.length - 1 ? "none" : `1px solid ${P.line}` }}>
+              <span className="disp" style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Users size={15} color={P.faint2} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text }}>{r.name}</div>
+              </div>
+              <div style={{ fontSize: 13.5, color: P.faint, flexShrink: 0 }}>{r.lastTs ? fmtChatDay(r.lastTs) : ""}</div>
+              {r.unread > 0
+                ? <span style={{ minWidth: 20, height: 20, padding: "0 5px", borderRadius: 999, background: PLATE_GRAD, color: PLATE_FG, fontSize: 11.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{r.unread}</span>
+                : <ChevronRight size={16} color={P.faint} />}
+            </button>
+          ))}
+        </Card>
+      )}
+      <Sheet open={!!openStudent} onClose={() => setOpenStudent(null)} title={openStudent ? openStudent.name : "Chat"} tall>
+        {openStudent && <ChatTab sid={openStudent.id} role="coach" studentName={openStudent.name} />}
+      </Sheet>
+    </div>
+  );
+};
 
 const ChatTab = ({ sid, role, studentName }) => {
   const [msgs, setMsgs] = useState([]);
@@ -9226,6 +9303,82 @@ const InstructionsEditor = ({ plan, savePlan }) => {
 };
 
 /* ============================================================
+   MODO COACH — Atletas · Actividad (C2 del handoff): antes esta sección
+   ERA el ActivityTab de más abajo, alcanzable solo para el alumno que
+   el coach tuviera "en gestión" (sid). El mockup la vuelve una lista
+   de TODO el roster (mismo patrón que Rankings/Cobros/Leads, que ya
+   eran roster-wide) con la última actividad y el % de cumplimiento de
+   cada uno. No se pierde nada: tocar una fila abre, en una hoja, el
+   ActivityTab de siempre —sesión por sesión, por ejercicio, fotos y
+   comentarios— para ese alumno puntual, cargado al vuelo.
+   ============================================================ */
+const AtletasActividadTab = ({ roster, toast }) => {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]); // { id, name, lastDays, pct }
+  const [q, setQ] = useState("");
+  const [openStudent, setOpenStudent] = useState(null); // { id, name, plan, history }
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const out = [];
+      for (const s of roster.students) {
+        const [p, h] = await Promise.all([sGet(`forja-plan:${s.id}`), sGet(`forja-history:${s.id}`)]);
+        const plan = p || emptyPlan();
+        const hist = h || emptyHistory();
+        const sessions = hist.sessions || [];
+        const last = sessions[sessions.length - 1];
+        const lastDays = last ? Math.max(0, Math.round((Date.now() - new Date(last.date).getTime()) / 86400000)) : null;
+        out.push({ id: s.id, name: s.name, lastDays, pct: adherencePct(plan, hist, monthKeyOf(todayISO())) });
+      }
+      if (!cancelled) { setRows(out); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [roster]);
+
+  const filtered = rows.filter((r) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
+  const lastLabel = (days) => (days == null ? "Sin sesiones" : days === 0 ? "Hoy" : days === 1 ? "Ayer" : `${days} días`);
+
+  const openDetail = async (r) => {
+    const [p, h] = await Promise.all([sGet(`forja-plan:${r.id}`), sGet(`forja-history:${r.id}`)]);
+    setOpenStudent({ id: r.id, name: r.name, plan: p || emptyPlan(), history: h || emptyHistory() });
+  };
+
+  if (loading) return <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}><LoadingBlock label="Cargando actividad de todos los alumnos…" /></div>;
+
+  return (
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
+      <div style={{ position: "relative", marginBottom: 12 }}>
+        <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar atleta" aria-label="Buscar atleta"
+          style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, border: "none" }} />
+      </div>
+      {filtered.length === 0 ? (
+        <Empty icon={Users} title="Sin resultados" body="Prueba con otro nombre." />
+      ) : (
+        <Card style={{ overflow: "hidden" }}>
+          {filtered.map((r, i) => (
+            <button key={r.id} onClick={() => openDetail(r)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+              padding: "13px 14px", borderBottom: i === filtered.length - 1 ? "none" : `1px solid ${P.line}` }}>
+              <span className="disp" style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Users size={15} color={P.faint2} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, color: P.text }}>{r.name}</div>
+              <div style={{ fontSize: 14, color: P.faint, flexShrink: 0 }}>{lastLabel(r.lastDays)}{r.pct != null ? ` · ${r.pct}%` : ""}</div>
+              <ChevronRight size={16} color={P.faint} />
+            </button>
+          ))}
+        </Card>
+      )}
+      <Sheet open={!!openStudent} onClose={() => setOpenStudent(null)} title={openStudent ? openStudent.name : "Actividad"} tall>
+        {openStudent && <ActivityTab plan={openStudent.plan} history={openStudent.history} />}
+      </Sheet>
+    </div>
+  );
+};
+
+/* ============================================================
    MODO COACH — actividad del alumno
    ============================================================ */
 const ActivityTab = ({ plan, history }) => {
@@ -9758,9 +9911,10 @@ const DashboardTab = ({ roster, toast }) => {
    mismo propósito (avisar qué conversación necesita atención).
    ============================================================ */
 
-const DashboardTabMono = ({ roster, toast }) => {
+const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent, onOpenCobros }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, sessions, chat, pay }
+  const [staleOpen, setStaleOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -9830,71 +9984,96 @@ const DashboardTabMono = ({ roster, toast }) => {
   });
 
   const initialsOf = (name) => (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
-  const todayLabel = new Date().toLocaleDateString("es-CL", { weekday: "long", day: "numeric" });
+  const dueCount = rows.filter((r) => { const st = paymentStatus(r.pay.nextDue); return st.key === "vencido" || st.key === "por_vencer"; }).length;
+
+  if (loading) {
+    return (
+      <div style={{ padding: "18px 20px 32px" }}>
+        <LoadingBlock label="Cargando el panel de todo el equipo…" />
+      </div>
+    );
+  }
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 15 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <MonoLabel>{todayLabel}</MonoLabel>
-          <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Tus atletas</div>
-        </div>
-        <span style={{ width: 36, height: 36, borderRadius: 12, background: MONO.ink, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <LayoutDashboard size={16} />
+    <div style={{ padding: "10px 20px 32px" }}>
+      <ScreenTitle title="Panel" right={
+        <span className="disp" style={{ width: 40, height: 40, borderRadius: "50%", background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
+          {initialsOf(coachName || "Tú")}
         </span>
-      </div>
+      } />
 
-      {/* Las tres métricas de cabecera: activos, check-in y mensajes por
-          responder. Antes convivían con una vista "Enfoque" que mostraba
-          una sola tarjeta dominante; esa vista se eliminó. */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
-        <MonoCard style={{ padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
-          <MonoLabel>Activos</MonoLabel>
-          <div style={{ fontSize: 24, fontWeight: 700, color: MONO.ink }}>{activeCount}</div>
-        </MonoCard>
-        <MonoCard style={{ padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
-          <MonoLabel>Check-in</MonoLabel>
-          <div style={{ fontSize: 24, fontWeight: 700, color: MONO.ink }}>{checkinPct}<span style={{ fontSize: 14 }}>%</span></div>
-        </MonoCard>
-        <MonoCard style={{ padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
-          <MonoLabel>Por responder</MonoLabel>
-          <div style={{ fontSize: 24, fontWeight: 700, color: MONO.ink }}>{pendCount}</div>
-        </MonoCard>
+      {/* Cuatro cifras en grilla 2×2: activos, check-in, sin leer, por
+          cobrar. Antes eran 3 en fila; "Por cobrar" reusa exactamente el
+          mismo cálculo de estado de pago que ya usa Cobros. */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
+        <Card style={{ padding: "16px 16px" }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{activeCount}</div>
+          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Atletas</div>
+        </Card>
+        <Card style={{ padding: "16px 16px" }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{checkinPct}%</div>
+          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Check-in</div>
+        </Card>
+        <Card style={{ padding: "16px 16px" }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{pendCount}</div>
+          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Sin leer</div>
+        </Card>
+        <Card style={{ padding: "16px 16px" }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{dueCount}</div>
+          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Por cobrar</div>
+        </Card>
       </div>
 
       {stale.length > 0 && (
-        <MonoCard style={{ padding: "16px 17px", display: "flex", alignItems: "center", gap: 14, border: `1.5px solid ${MONO.ink}` }}>
-          <span style={{ width: 34, height: 34, borderRadius: 11, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <AlertTriangle size={16} color={MONO.ink} />
-          </span>
+        <button onClick={() => setStaleOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+          marginTop: 14, padding: "14px 15px", borderRadius: R_TILE, background: P.s1, border: `1.5px solid ${P.text}` }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink }}>{stale.length} atleta{stale.length !== 1 ? "s" : ""} sin entrenar hace 5+ días</div>
-            <div style={{ fontSize: 12.5, color: MONO.inkFaint, marginTop: 1, overflowWrap: "break-word" }}>
-              {stale.slice(0, 5).map((s) => (s.lastDays == null ? `${s.name} (sin sesiones)` : `${s.name} (${s.lastDays}d)`)).join(", ")}{stale.length > 5 ? "…" : ""}
+            <div style={{ fontSize: 16, fontWeight: 700, color: P.text }}>{stale.length} sin entrenar</div>
+            <div style={{ fontSize: 13.5, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {stale.slice(0, 4).map((s) => s.name).join(" · ")}{stale.length > 4 ? "…" : ""}
             </div>
           </div>
-        </MonoCard>
+          <ChevronRight size={17} color={P.faint} />
+        </button>
       )}
 
-      <MonoLabel>Actividad de hoy</MonoLabel>
+      <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "20px 2px 8px" }}>Hoy</div>
       {activity.length === 0 ? (
-        <MonoCard style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: MONO.inkDim }}>Nada todavía hoy.</div></MonoCard>
+        <Card style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: P.dim }}>Nada todavía hoy.</div></Card>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {activity.map((a) => (
-            <MonoCard key={a.id} style={{ padding: "13px 15px", display: "flex", alignItems: "center", gap: 13 }}>
-              <span style={{ width: 38, height: 38, borderRadius: 12, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: MONO.inkDim, flexShrink: 0 }}>{initialsOf(a.name)}</span>
-              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
-                <div style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink }}>{a.name}</div>
-                <div style={{ fontSize: 12.5, color: MONO.inkFaint }}>{a.text}</div>
+        <Card style={{ overflow: "hidden" }}>
+          {activity.map((a, i) => (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 13, padding: "13px 14px", borderBottom: i === activity.length - 1 ? "none" : `1px solid ${P.line}` }}>
+              <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: P.text }}>
+                {a.kind === "pr" ? <Award size={16} /> : a.kind === "chat" ? <MessageSquare size={16} /> : a.kind === "pago" ? <DollarSign size={16} /> : <Check size={16} />}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{a.name}</div>
               </div>
-              {a.kind === "pr" && <span style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, background: PLATE_GRAD, borderRadius: 7, padding: "4px 7px", flexShrink: 0 }}>PR</span>}
-              {a.kind === "chat" && <span style={{ width: 9, height: 9, borderRadius: 999, background: MONO.ink, flexShrink: 0 }} />}
-              {a.kind === "pago" && <span style={{ fontSize: 12.5, fontWeight: 700, color: MONO.inkFaint, flexShrink: 0 }}>$</span>}
-            </MonoCard>
+              <div style={{ fontSize: 13.5, color: P.faint, flexShrink: 0, maxWidth: 140, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.text}</div>
+            </div>
           ))}
-        </div>
+        </Card>
       )}
+
+      <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "20px 2px 8px" }}>Accesos</div>
+      <SettingGroup>
+        <SettingRow Icon={ClipboardList} label="Nueva rutina" onClick={onNewRoutine} />
+        <SettingRow Icon={UserPlus} label="Agregar atleta" onClick={onAddStudent} />
+        <SettingRow Icon={DollarSign} label="Cobrar cuota" onClick={onOpenCobros} last />
+      </SettingGroup>
+
+      <Sheet open={staleOpen} onClose={() => setStaleOpen(false)} title="Sin entrenar" tall>
+        {stale.map((s) => (
+          <Card key={s.id} style={{ padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 11 }}>
+            <span className="disp" style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.faint2, flexShrink: 0 }}>{initialsOf(s.name)}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>{s.name}</div>
+              <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>{s.lastDays == null ? "Sin sesiones registradas" : `Entrenó hace ${s.lastDays} días`}</div>
+            </div>
+          </Card>
+        ))}
+      </Sheet>
     </div>
   );
 };
@@ -12112,14 +12291,19 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
 /* Agenda en modo coach: mismo calendario que ve el alumno, más la
    configuración de la semana tipo. Tocar cualquier día abre el detalle y
    permite agregar o editar un evento con fecha, color y aviso previo. */
-const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBookings }) => {
+const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBookings, availability, onSaveAvailability }) => {
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const [view, setView] = useState("month");
-  const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [view, setView] = useState("week");
+  const [cursor, setCursor] = useState(startOfWeek(today));
   const [selected, setSelected] = useState(isoDate(today));
   const [eventSheet, setEventSheet] = useState(null); // { id?, date, title, note, color, remind }
   const [bookingSheet, setBookingSheet] = useState(null); // { id?, date, studentId, time, durationMin, note }
+  // El calendario completo (mes, eventos, franjas de color) sigue existiendo
+  // tal cual — la ficha nueva de A5/C5 (7 días grandes) es ahora lo primero
+  // que se ve, y "Calendario completo" lo revela sin perder nada.
+  const [showFullCalendar, setShowFullCalendar] = useState(false);
+  const [availSheet, setAvailSheet] = useState(null); // "window" | "duration"
   // Días donde se dejó visible el selector de segunda sesión (AM/PM) aunque
   // todavía no se haya elegido nada — solo UI, no se guarda en el plan.
   const [expandWeekType2, setExpandWeekType2] = useState([]);
@@ -12200,7 +12384,7 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
   };
   const deleteEvent = (id) => { mut((p) => { p.events = p.events.filter((x) => x.id !== id); }); setEventSheet(null); };
 
-  const openNewBooking = (date) => setBookingSheet({ date: date || selected, studentId: (roster && roster.students[0] && roster.students[0].id) || "", time: "09:00", durationMin: 60, note: "" });
+  const openNewBooking = (date) => setBookingSheet({ date: date || selected, studentId: (roster && roster.students[0] && roster.students[0].id) || "", time: "09:00", durationMin: (availability && availability.durationMin) || 60, note: "" });
   const saveBooking = () => {
     if (!bookingSheet.studentId || !bookingSheet.time) return;
     const next = bookingSheet.id
@@ -12212,14 +12396,38 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
   const cancelBooking = (id) => { onSaveBookings && onSaveBookings(slots.map((s) => (s.id === id ? { ...s, status: "cancelada" } : s))); setBookingSheet(null); };
 
   return (
-    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Agenda</h1>
-      <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Toca cualquier día del calendario para ver qué entrena tu alumno, reservar sesiones y agregar recordatorios. Abajo configuras qué rutina toca cada día de la semana.</div>
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
+      <ScreenTitle title="Agenda" />
 
       <EventReminderBanner events={plan.events} />
 
-      <CalendarGrid plan={plan} cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
-        dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} bookingsFor={bookingsForDay} />
+      {/* Semana en 7 fichas grandes (C5 del handoff): reemplaza a la grilla
+          compacta como lo primero que se ve. La grilla completa (mes,
+          eventos, sesiones ya hechas) sigue entera más abajo, plegada
+          detrás de "Calendario completo" — no se pierde nada. */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {weekDaysOf(selDate).map((d) => {
+          const iso = isoDate(d);
+          const isSel = iso === selected;
+          const isToday = iso === isoDate(today);
+          const hasBooking = bookingsForDay(iso).length > 0;
+          return (
+            <button key={iso} onClick={() => setSelected(iso)} style={{ flex: 1, minWidth: 0, padding: "10px 2px", borderRadius: R_TILE,
+              background: isSel ? P.text : P.s1, border: `1px solid ${isSel ? P.text : P.line}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: isSel ? PLATE_FG : P.faint, textTransform: "uppercase" }}>{DOW_LETTERS[DOW_KEYS[d.getDay()]]}</span>
+              <span style={{ fontSize: 17, fontWeight: 700, color: isSel ? PLATE_FG : isToday ? P.ember : P.text }}>{d.getDate()}</span>
+              {hasBooking && <span style={{ width: 4, height: 4, borderRadius: 999, background: isSel ? PLATE_FG : P.ember2 }} />}
+            </button>
+          );
+        })}
+      </div>
+      <button onClick={() => setShowFullCalendar((s) => !s)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13.5, fontWeight: 600, color: P.faint, marginBottom: 12 }}>
+        {showFullCalendar ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Calendario completo
+      </button>
+      {showFullCalendar && (
+        <CalendarGrid plan={plan} cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
+          dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} bookingsFor={bookingsForDay} />
+      )}
 
       <Card style={{ padding: "13px 15px", marginBottom: 14 }}>
         <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 3 }}>
@@ -12471,6 +12679,40 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
           )}
         </Sheet>
       )}
+
+      {/* Ajustes de disponibilidad (C5 del handoff): función nueva —
+          antes los turnos eran entradas manuales sueltas, sin ventana
+          horaria configurable. No mueve ningún turno existente, solo
+          guarda la preferencia para cuando se reserva uno nuevo. */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "20px 2px 8px" }}>Ajustes</div>
+      <SettingGroup>
+        <SettingRow Icon={Calendar} label="Disponibilidad" onClick={() => setAvailSheet("window")}
+          right={<span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 14.5, color: P.faint }}>{availability.days} {availability.start}–{availability.end}</span><ChevronRight size={17} color={P.faint} strokeWidth={2.4} /></span>} />
+        <SettingRow Icon={Timer} label="Duración por turno" onClick={() => setAvailSheet("duration")}
+          right={<span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 14.5, color: P.faint }}>{availability.durationMin} min</span><ChevronRight size={17} color={P.faint} strokeWidth={2.4} /></span>} />
+        <SettingRow Icon={Check} label="Reservas automáticas" last
+          control={<Toggle on={!!availability.autoConfirm} onChange={(v) => onSaveAvailability({ autoConfirm: v })} label="Reservas automáticas" />} />
+      </SettingGroup>
+
+      <Sheet open={availSheet === "window"} onClose={() => setAvailSheet(null)} title="Disponibilidad">
+        <Field label="Días">
+          <select value={availability.days} onChange={(e) => onSaveAvailability({ days: e.target.value })} style={{ width: "100%", padding: "9px 8px", fontSize: 14.5 }}>
+            {["L-V", "L-S", "L-D", "S-D"].map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </Field>
+        <Field label="Desde"><Inp type="time" value={availability.start} onChange={(e) => onSaveAvailability({ start: e.target.value })} /></Field>
+        <Field label="Hasta"><Inp type="time" value={availability.end} onChange={(e) => onSaveAvailability({ end: e.target.value })} /></Field>
+        <Btn kind="ember" onClick={() => setAvailSheet(null)} style={{ width: "100%", marginTop: 8 }}>Listo</Btn>
+      </Sheet>
+      <Sheet open={availSheet === "duration"} onClose={() => setAvailSheet(null)} title="Duración por turno">
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[30, 45, 60, 75, 90].map((m) => (
+            <button key={m} onClick={() => onSaveAvailability({ durationMin: m })} style={{ flex: 1, minWidth: 70, padding: "12px 0", borderRadius: R_TILE, fontSize: 15, fontWeight: 700,
+              background: availability.durationMin === m ? PLATE_GRAD : P.s3, color: availability.durationMin === m ? PLATE_FG : P.text,
+              border: `1px solid ${availability.durationMin === m ? PLATE_GRAD : P.line}` }}>{m} min</button>
+          ))}
+        </div>
+      </Sheet>
     </div>
   );
 };
@@ -13500,6 +13742,13 @@ const App = () => {
     setBookings({ slots });
     sSet("forja-bookings", { slots });
   }, []);
+  // Disponibilidad del coach para reservar turnos: es configuración del
+  // coach (uno solo, como forja-bookings), no algo por alumno. No existía
+  // antes de la Fase 4 — los turnos eran entradas manuales sueltas.
+  const [availability, setAvailability] = useState({ days: "L-V", start: "08:00", end: "20:00", durationMin: 60, autoConfirm: false });
+  const saveAvailability = useCallback((patch) => {
+    setAvailability((a) => { const next = { ...a, ...patch }; sSet("forja-availability", next); return next; });
+  }, []);
   const [myTeamId, setMyTeamId] = useState(null);
   const [equipoOpen, setEquipoOpen] = useState(false);
   const myRole = (() => {
@@ -13641,6 +13890,8 @@ const App = () => {
       if (lib && Array.isArray(lib.exercises)) setLibrary(lib.exercises);
       const bk = await sGet("forja-bookings");
       if (bk && Array.isArray(bk.slots)) setBookings({ slots: bk.slots });
+      const av = await sGet("forja-availability");
+      if (av) setAvailability((a) => ({ ...a, ...av }));
       const dev = await sGet("forja-device", false);
       const known = dev && dev.sid && r.students.some((s) => s.id === dev.sid);
       if (dev && dev.mode && known) await openIdentity(dev.mode, dev.sid, r, dev.teamId);
@@ -13988,7 +14239,8 @@ const App = () => {
         )}
         {mode === "coach" && sub === "agenda" && (
           <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
-            <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings} />
+            <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings}
+              availability={availability} onSaveAvailability={saveAvailability} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && sub === "nutricion" && (
@@ -14008,8 +14260,13 @@ const App = () => {
             <InstructionsEditor plan={plan} savePlan={savePlan} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "dashboard" && <DashboardTabMono roster={roster} toast={toast} />}
-        {mode === "coach" && sub === "actividad" && <ActivityTab plan={plan} history={history} />}
+        {mode === "coach" && sub === "dashboard" && (
+          <DashboardTabMono roster={roster} toast={toast} coachName={myTeamId ? (team.members.find((m) => m.id === myTeamId) || {}).name : "Tú"}
+            onNewRoutine={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "rutina" })); }}
+            onAddStudent={() => addStudent(false)}
+            onOpenCobros={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "cobros" })); }} />
+        )}
+        {mode === "coach" && sub === "actividad" && <AtletasActividadTab roster={roster} toast={toast} />}
         {mode === "coach" && sub === "rankings" && (
           <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
             <RankingsTab roster={roster} toast={toast} />
@@ -14025,7 +14282,7 @@ const App = () => {
             <LeadsTab onCreateStudent={createStudentNamed} onManageStudent={manageStudent} toast={toast} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "chat" && <ChatTab sid={sid} role="coach" studentName={currentStudent ? currentStudent.name : ""} />}
+        {mode === "coach" && sub === "chat" && <AtletasMensajesTab roster={roster} toast={toast} />}
         </div>
       </div>
 
