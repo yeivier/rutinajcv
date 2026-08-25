@@ -7,7 +7,7 @@ import {
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
-  Ruler, HeartPulse, Watch, Bluetooth, Smartphone
+  Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText
 } from "lucide-react";
 
 /* ============================================================
@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v129";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v130";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5551,6 +5551,10 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const [poseSaving, setPoseSaving] = useState(false);
   // Dispositivos (mismo panel que Más → Herramientas → Dispositivos)
   const [devicesOpen, setDevicesOpen] = useState(false);
+  // Comentario final + envío general del check-in
+  const [finalCommentOpen, setFinalCommentOpen] = useState(false);
+  const [finalComment, setFinalComment] = useState("");
+  const [ciSending, setCiSending] = useState(false);
   const d = useTodayData(plan, history, allowedRoutines);
   const name = studentName || "";
   const firstName = name.split(" ")[0] || "";
@@ -5646,6 +5650,27 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     setPoseFrontal(null); setPoseLateral(null); setPosePosterior(null); setPoseVideos([]);
     setPoseSaving(false);
     setPosingOpen(false);
+  };
+
+  // Botón "Enviar check-in" del final de la hoja: no reemplaza los envíos
+  // por sección (cada uno ya avisó a su coach en cuanto se guardó) — es el
+  // cierre de la visita, con el comentario final y un repaso de qué quedó
+  // hecho hoy, para que el coach no tenga que sumar los mensajes sueltos.
+  const sendCheckinSummary = async () => {
+    if (ciSending) return;
+    setCiSending(true);
+    const parts = [];
+    if (bwToday) parts.push(`Peso ${kg(bwToday.kg)} kg`);
+    if (measureToday) parts.push("Medidas registradas");
+    if (recoveryToday) parts.push("Recuperación enviada");
+    if (poseToday.length > 0) parts.push(`${poseToday.length} foto${poseToday.length !== 1 ? "s" : ""}/video${poseToday.length !== 1 ? "s" : ""}`);
+    const lines = [`Check-in · ${fmtDateFull(todayISO())} · cerrado`];
+    if (parts.length) lines.push(parts.join(" · "));
+    if (finalComment.trim()) lines.push(finalComment.trim());
+    if (parts.length || finalComment.trim()) await sendChatText(lines.join("\n"));
+    setFinalComment("");
+    setCiSending(false);
+    setCheckinOpen(false);
   };
 
   // Una sola decisión por pantalla: qué entrenar hoy. Si hay sesión en
@@ -5985,7 +6010,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <MonoLabel>1 · Estado físico</MonoLabel>
             <MonoCard style={{ padding: "2px 14px" }}>
-              <CheckinRow Icon={Scale} title="Peso en ayunas"
+              <CheckinRow Icon={PersonStanding} title="Peso en ayunas"
                 detail={bwToday ? `${kg(bwToday.kg)} kg · registrado hoy` : "Tu peso corporal, en ayunas y por la mañana"}
                 status={bwToday ? "done" : "pending"} onClick={() => setWeighInOpen((v) => !v)} />
               {weighInOpen && (
@@ -5996,7 +6021,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
                 </div>
               )}
               <div style={{ height: 1, background: MONO.line }} />
-              <CheckinRow Icon={Ruler} title="Medidas corporales"
+              <CheckinRow Icon={PersonStanding} title="Medidas corporales"
                 detail={measureToday ? "Registradas hoy" : lastMeasure ? `Última: ${daysAgoLabel(lastMeasure.date)}` : "Circunferencias, anchos y % de grasa"}
                 status={measureToday ? "done" : "pending"} onClick={() => setMeasureOpen(true)} />
             </MonoCard>
@@ -6006,7 +6031,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <MonoLabel>2 · Recuperación y estado</MonoLabel>
             <MonoCard style={{ padding: "2px 14px" }}>
-              <CheckinRow Icon={HeartPulse} title="Cuestionario 1–10"
+              <CheckinRow Icon={Heart} title="Cuestionario 1–10"
                 detail={recoveryToday ? "Enviado hoy" : "Energía, sueño, dolor, estrés, hambre, digestión y depleción"}
                 status={recoveryToday ? "done" : "pending"} onClick={() => setRecoveryOpen(true)} />
             </MonoCard>
@@ -6025,11 +6050,34 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <MonoLabel>4 · Fotos y posing</MonoLabel>
             <MonoCard style={{ padding: "2px 14px" }}>
-              <CheckinRow Icon={Camera} title="Fotos y videos"
-                detail={poseToday.length > 0 ? `${poseToday.length} enviado${poseToday.length !== 1 ? "s" : ""} hoy` : "Frontal, lateral, posterior y video de posing"}
+              <CheckinRow Icon={Camera} title="Fotos + videos"
+                detail={poseToday.length > 0 ? `${poseToday.length} enviado${poseToday.length !== 1 ? "s" : ""} hoy` : "Seguimiento físico y poses requeridas"}
                 status={poseToday.length > 0 ? "done" : "pending"} onClick={() => setPosingOpen(true)} />
             </MonoCard>
           </div>
+
+          {/* 5 · Comentario final */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <MonoLabel>5 · Comentario final</MonoLabel>
+            <MonoCard style={{ padding: "2px 14px" }}>
+              <CheckinRow Icon={FileText} title="¿Hay algo que tu coach debería saber?"
+                detail={finalComment.trim() ? finalComment.trim() : "Comentarios relevantes, sensaciones o contexto adicional"}
+                status="none" onClick={() => setFinalCommentOpen(true)} />
+            </MonoCard>
+          </div>
+
+          <Btn kind="ember" onClick={sendCheckinSummary} disabled={ciSending} style={{ width: "100%" }}>
+            {ciSending ? "Enviando…" : "Enviar check-in"}
+          </Btn>
+        </div>
+      </Sheet>
+
+      <Sheet open={finalCommentOpen} onClose={() => setFinalCommentOpen(false)} title="Comentario final">
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.5 }}>Cualquier cosa que las secciones de arriba no reflejen — se manda junto con el resto al tocar «Enviar check-in».</div>
+          <Txt value={finalComment} onChange={(e) => setFinalComment(e.target.value)} placeholder="Comentarios relevantes, sensaciones o contexto adicional…" rows={5}
+            style={{ borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+          <Btn kind="ember" onClick={() => setFinalCommentOpen(false)} style={{ width: "100%" }}>Listo</Btn>
         </div>
       </Sheet>
 
