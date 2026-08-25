@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import {
   Flame, Dumbbell, TrendingUp, BarChart3, BookOpen, Utensils, ClipboardList, MessageSquare,
-  Camera, Check, Plus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
+  Camera, Check, Plus, Minus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v145";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v146";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -98,6 +98,15 @@ const LIGHT_THEME = {
     // Fondo plano: sin degradado. Un degradado en el fondo es justo lo que
     // hace que una app se vea "de plantilla" y no de sistema.
     bgGrad: "#F2F2F7",
+    // Tokens del handoff de rediseño (MVP): s3 ya cubre "fill-secondary"
+    // del spec (botón secundario, − +, chip) y s4 ya cubre
+    // "fill-quaternary" (pista del segmentado) — estos cuatro son los
+    // que faltaban y no tenían dónde vivir en la paleta existente.
+    fillTertiary: "#EDEDF2",   // separador dentro de tarjeta, pista de barra, placeholder de video
+    separatorStrong: "#D9D9DE", // borde de campo, segmento de progreso vacío
+    textQuaternary: "#A0A0AA",  // pestaña inactiva, acción deshabilitada, placeholder
+    chevron: "#C4C4CB",         // chevron de fila
+    dotInactive: "#DEDEE4",     // punto de día futuro
   },
   // Las "placas" (botón primario, pestaña activa, chip de estado) son tinta
   // plena con texto blanco.
@@ -113,6 +122,10 @@ const DARK_THEME = {
     ember: "#FFFFFF", ember2: "#FFFFFF", glow: "#FFFFFF",
     green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
     frame: "#35353C", bgGrad: "#0F0F11",
+    // Mismos 5 tokens nuevos, invertidos para el tema oscuro siguiendo el
+    // mismo criterio que el resto de la paleta (s3/s4/line de arriba).
+    fillTertiary: "#2C2C31", separatorStrong: "#48484F",
+    textQuaternary: "#7A7A83", chevron: "#5A5A63", dotInactive: "#3A3A41",
   },
   plateGrad: "#FFFFFF",
   plateFg: "#101012",
@@ -2440,6 +2453,17 @@ const CARD_LIFT = "none";
 const R_CARD = 16;
 const R_TILE = 14;
 const R_ROW = 12;
+// Curvas y duraciones del handoff de rediseño (MVP), sección "6 ·
+// Movimiento": tres curvas con un uso cada una — nunca linear/ease/
+// ease-in-out — y una escala de duración por tipo de elemento. Se
+// declaran una sola vez acá para no repetir el string en cada sitio.
+const EASE_STD = "cubic-bezier(.32,.72,0,1)";  // toda navegación (ya era el estándar de facto de los colapsables)
+const EASE_IN = "cubic-bezier(.16,1,.3,1)";    // algo que aparece
+const EASE_OUT = "cubic-bezier(.4,0,1,1)";     // algo que se va
+const DUR_MICRO = 140; // check, interruptor
+const DUR_ROW = 200;   // fila, tarjeta, chip — también el cross-fade de pestaña
+const DUR_PUSH = 320;  // push de pantalla (fila → detalle)
+const DUR_SHEET = 420; // hoja modal
 // Efecto "3D" de la ficha que se está arrastrando: se agranda, se levanta
 // (translateY negativo) y una sombra profunda + anillo verde neón la separan
 // del resto, como si se despegara de la pantalla hacia el usuario. El marco
@@ -2457,6 +2481,78 @@ const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
 // que las placas blanco pastel que suele contener.
 const Card = ({ children, style, onClick, ...rest }) => (
   <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_CARD, ...style }}>{children}</div>
+);
+
+// Stepper horizontal − valor +: no había ningún componente compartido para
+// esto (el único precedente en toda la app era el par de chevrons apilados
+// arriba/abajo, inline dentro de Focus Mode). Botones circulares de 44px
+// (el mínimo de toque del handoff), valor tabular al centro. `onChange`
+// recibe el valor ya redondeado/clampeado — misma lógica que stepVal()
+// tenía adentro de Focus Mode, generalizada acá.
+const stepClamp = (n, delta, min = 0, decimals = 1) => {
+  const f = 10 ** decimals;
+  return Math.max(min, Math.round((n + delta) * f) / f);
+};
+const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals = 1, format }) => {
+  const fmt = format || ((v) => (decimals === 0 ? String(v) : String(v).replace(".", ",")));
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 0" }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 17, fontWeight: 400, color: P.text }}>{label}</div>
+        {caption && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 2 }}>{caption}</div>}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+        <button onClick={() => onChange(stepClamp(value, -step, min, decimals))} aria-label={`Bajar ${label}`}
+          style={{ width: 44, height: 44, borderRadius: "50%", background: P.s3, color: P.text,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: `opacity ${DUR_MICRO}ms ease` }}>
+          <Minus size={18} strokeWidth={2.6} />
+        </button>
+        <span className="num" style={{ fontSize: 26, fontWeight: 600, minWidth: 52, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>{fmt(value)}</span>
+        <button onClick={() => onChange(stepClamp(value, step, min, decimals))} aria-label={`Subir ${label}`}
+          style={{ width: 44, height: 44, borderRadius: "50%", background: P.s3, color: P.text,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: `opacity ${DUR_MICRO}ms ease` }}>
+          <Plus size={18} strokeWidth={2.6} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Interruptor iOS: pista 44×27 radio 14, apagado en separator-strong,
+// encendido en tinta plena; perno blanco de 22px que se desliza. Tampoco
+// existía — todo booleano de ajustes usaba el segmentado de 2 opciones.
+const Toggle = ({ on, onChange, disabled, label }) => (
+  <button role="switch" aria-checked={on} aria-label={label} disabled={disabled}
+    onClick={() => onChange(!on)}
+    style={{ width: 44, height: 27, borderRadius: 14, padding: 2.5, flexShrink: 0,
+      background: on ? P.ember : P.separatorStrong, opacity: disabled ? .5 : 1,
+      transition: `background ${DUR_MICRO}ms ${EASE_STD}`, display: "flex", alignItems: "center" }}>
+    <span style={{ width: 22, height: 22, borderRadius: "50%", background: "#FFFFFF",
+      boxShadow: "0 1px 3px rgba(0,0,0,.25)", transform: on ? "translateX(17px)" : "translateX(0)",
+      transition: `transform ${DUR_MICRO}ms ${EASE_STD}` }} />
+  </button>
+);
+
+// Ficha cuadrada: la unidad visual de "Más" (grilla de 3) y de los accesos
+// rápidos de Inicio (grilla de 2). Icono arriba, nombre abajo, y como mucho
+// UN dato corto debajo del nombre (la regla es "sin frase descriptiva", no
+// "sin dato": "Pendiente" o "2 / 4" son un dato, no un hint). `badge` es un
+// contador chico arriba a la derecha (p. ej. mensajes sin leer).
+const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
+  <button onClick={onClick} disabled={disabled} style={{ position: "relative", width: "100%", textAlign: "left",
+    background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_TILE, padding: "14px 12px",
+    display: "flex", flexDirection: "column", gap: 8, opacity: disabled ? .5 : 1,
+    transition: `opacity ${DUR_ROW}ms ease` }}>
+    {badge != null && (
+      <span style={{ position: "absolute", top: 10, right: 10, minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9,
+        background: P.ember, color: "#FFFFFF", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{badge}</span>
+    )}
+    <Icon size={19} color={P.text} strokeWidth={2} />
+    <div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25 }}>{label}</div>
+      {value != null && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 1 }}>{value}</div>}
+    </div>
+  </button>
 );
 
 // Sección que arranca RESUMIDA y se abre al tocarla, en vez de mostrar
@@ -5485,6 +5581,11 @@ const MONO = {
   get lineFaint() { return P.line; },
   get chipBg() { return P.s3; },
   get chipBorder() { return P.line; },
+  get fillTertiary() { return P.fillTertiary; },
+  get separatorStrong() { return P.separatorStrong; },
+  get inkQuaternary() { return P.textQuaternary; },
+  get chevron() { return P.chevron; },
+  get dotInactive() { return P.dotInactive; },
   mono: "ui-monospace,SFMono-Regular,'SF Mono',Menlo,monospace",
   // Tipografía de sistema de Apple (San Francisco), tal cual la declara el
   // archivo de diseño en su <style> raíz. Ya no hace falta forzarla acá: el
