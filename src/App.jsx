@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v125";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v126";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5239,58 +5239,101 @@ function computeWeekStrip(plan, history, weekOffset) {
   });
 }
 
-// Franja semanal con arrastre horizontal para cambiar de semana — a
-// diferencia de un carrusel con botones, este responde al dedo en tiempo
-// real (la franja sigue el toque mientras se arrastra) y solo "compromete"
-// el cambio de semana si el arrastre pasa un umbral; si no, vuelve a su
-// lugar. Cada celda es un botón real: toca cualquier día (pasado, futuro,
-// de descanso) para ver qué le tocaba.
+// Franja semanal con arrastre horizontal para cambiar de semana. Tres
+// carriles montados a la vez (anterior/actual/próxima, cada uno 100% del
+// ancho) en vez de uno solo: al pasar el umbral de arrastre, la franja
+// TERMINA de salir de pantalla en la misma dirección que traía el dedo —
+// no vuelve de golpe a su lugar para recién ahí cambiar el contenido, que
+// es lo que se veía brusco. Recién cuando esa animación de salida termina
+// cambia la semana de verdad y el riel "teletransporta" a su posición de
+// reposo sin transición — invisible, porque ahí ya queda exactamente el
+// mismo contenido que se acababa de ver. Mismo criterio que un swipe de
+// calendario semanal de cualquier app (Calendar de iOS, Google Calendar,
+// etc.). Cada celda sigue siendo un botón real: toca cualquier día
+// (pasado, futuro, de descanso) para ver qué le tocaba.
 const WeekStrip = ({ plan, history, weekNum, weekTotal, onSelectDay }) => {
   const [offset, setOffset] = useState(0);
-  const [drag, setDrag] = useState(0);       // desplazamiento en vivo mientras se arrastra
+  const [drag, setDrag] = useState(0);        // desplazamiento en vivo mientras se arrastra
   const [dragging, setDragging] = useState(false);
+  const [settling, setSettling] = useState(0); // 0 quieto · 1 terminando de avanzar · -1 terminando de retroceder
+  const [instant, setInstant] = useState(false); // sin transición, solo en el instante del salto tras cambiar de semana
   const dragRef = useRef({ startX: 0, active: false });
-  const week = computeWeekStrip(plan, history, offset);
+  const wrapRef = useRef(null);
+  const widthRef = useRef(340);
+
+  const displayOffset = settling ? offset + settling : offset;
+  const prevWeek = computeWeekStrip(plan, history, displayOffset - 1);
+  const curWeek = computeWeekStrip(plan, history, displayOffset);
+  const nextWeek = computeWeekStrip(plan, history, displayOffset + 1);
 
   const onPointerDown = (e) => {
+    if (settling) return; // no interrumpir una transición ya en curso
+    if (wrapRef.current) widthRef.current = wrapRef.current.clientWidth || widthRef.current;
     dragRef.current = { startX: e.clientX, active: true };
     setDragging(true);
   };
   const onPointerMove = (e) => {
     if (!dragRef.current.active) return;
-    setDrag(e.clientX - dragRef.current.startX);
+    const w = widthRef.current;
+    setDrag(Math.max(-w, Math.min(w, e.clientX - dragRef.current.startX)));
   };
   const commit = () => {
     if (!dragRef.current.active) return;
     dragRef.current.active = false;
-    const THRESHOLD = 46;
     setDragging(false);
-    if (drag <= -THRESHOLD) setOffset((o) => o + 1);
-    else if (drag >= THRESHOLD) setOffset((o) => o - 1);
-    setDrag(0);
+    const THRESHOLD = 46;
+    if (drag <= -THRESHOLD) setSettling(1);
+    else if (drag >= THRESHOLD) setSettling(-1);
+    else setDrag(0);
   };
+  useEffect(() => {
+    if (!settling) return;
+    const t = setTimeout(() => {
+      setOffset((o) => o + settling);
+      setSettling(0);
+      setDrag(0);
+      setInstant(true);
+    }, 320);
+    return () => clearTimeout(t);
+  }, [settling]);
+  useEffect(() => {
+    if (!instant) return;
+    const raf = requestAnimationFrame(() => requestAnimationFrame(() => setInstant(false)));
+    return () => cancelAnimationFrame(raf);
+  }, [instant]);
+
+  const w = widthRef.current;
+  const x = dragging ? drag : settling === 1 ? -w : settling === -1 ? w : 0;
+  const transition = dragging || instant ? "none" : "transform .32s cubic-bezier(.22,.85,.32,1.06)";
+
+  const grid = (arr, slot) => (
+    <div key={slot} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, flex: "0 0 100%", minWidth: 0 }}>
+      {arr.map((wd) => (
+        <button key={wd.dateIso} onClick={() => { if (!settling && Math.abs(drag) < 6) onSelectDay(wd); }}
+          style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "9px 0", borderRadius: 13,
+            background: wd.isToday ? P.ember : wd.day ? P.s1 : P.s3, border: `1px solid ${wd.isToday ? P.ember : P.line}` }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: wd.isToday ? PLATE_FG : P.faint }}>{wd.letter}</span>
+          {wd.day
+            ? <span style={{ width: 7, height: 7, borderRadius: 4, background: wd.isToday ? PLATE_FG : wd.done ? P.text : P.line }} />
+            : <span style={{ fontSize: 9, fontWeight: 700, color: wd.isToday ? PLATE_FG : P.faint, lineHeight: "7px" }}>off</span>}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
-    <div style={{ overflow: "hidden", touchAction: "pan-y" }}
+    <div ref={wrapRef} style={{ overflow: "hidden", touchAction: "pan-y" }}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove}
       onPointerUp={commit} onPointerCancel={commit} onPointerLeave={commit}>
       {weekNum && (
         <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", color: P.faint, marginBottom: 6, textAlign: "center" }}>
-          {offset === 0 ? `Semana ${weekNum} de ${weekTotal}` : offset < 0 ? `${-offset} semana${offset < -1 ? "s" : ""} atrás` : `${offset} semana${offset > 1 ? "s" : ""} adelante`}
+          {displayOffset === 0 ? `Semana ${weekNum} de ${weekTotal}` : displayOffset < 0 ? `${-displayOffset} semana${displayOffset < -1 ? "s" : ""} atrás` : `${displayOffset} semana${displayOffset > 1 ? "s" : ""} adelante`}
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6,
-        transform: `translateX(${drag}px)`, transition: dragging ? "none" : "transform .3s cubic-bezier(.2,.8,.3,1)" }}>
-        {week.map((w) => (
-          <button key={w.dateIso} onClick={() => { if (Math.abs(drag) < 6) onSelectDay(w); }}
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "9px 0", borderRadius: 13,
-              background: w.isToday ? P.ember : w.day ? P.s1 : P.s3, border: `1px solid ${w.isToday ? P.ember : P.line}` }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: w.isToday ? PLATE_FG : P.faint }}>{w.letter}</span>
-            {w.day
-              ? <span style={{ width: 7, height: 7, borderRadius: 4, background: w.isToday ? PLATE_FG : w.done ? P.text : P.line }} />
-              : <span style={{ fontSize: 9, fontWeight: 700, color: w.isToday ? PLATE_FG : P.faint, lineHeight: "7px" }}>off</span>}
-          </button>
-        ))}
+      <div style={{ display: "flex", width: "100%", transform: `translateX(calc(-100% + ${x}px))`, transition }}>
+        {grid(prevWeek, "prev")}
+        {grid(curWeek, "cur")}
+        {grid(nextWeek, "next")}
       </div>
     </div>
   );
@@ -5726,13 +5769,10 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
 
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
-      <ScreenTitle title="Hoy" right={
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {d.weekNum && <span style={{ fontSize: 12.5, color: P.faint, fontWeight: 600 }}>Semana {d.weekNum}/{d.weekTotal}</span>}
-          <div style={{ width: 36, height: 36, borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG,
-            display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>{initials}</div>
-        </div>
-      } />
+      {/* Sin avatar acá: ya está en la cabecera de la app (arriba de todo),
+          repetirlo en cada pestaña era ruido sin función — no abría nada. */}
+      <ScreenTitle title="Hoy"
+        right={d.weekNum ? <span style={{ fontSize: 12.5, color: P.faint, fontWeight: 600 }}>Semana {d.weekNum}/{d.weekTotal}</span> : null} />
       <EventReminderBanner events={plan.events} />
       <NextBookingBanner bookings={bookings} sid={sid} />
       <WeekStrip plan={plan} history={history} weekNum={d.weekNum} weekTotal={d.weekTotal} onSelectDay={setDayDetail} />
@@ -12285,12 +12325,28 @@ const ReadOnlyLock = ({ active, toast, children }) => (
 /* Hoja "Más": lo que salió de la barra de pestañas. Herramientas de
    referencia, gestión (alumnos/equipo) y los ajustes de apariencia —
    agrupados en filas de sistema, como los Ajustes de iOS. */
-const MoreSheet = ({ open, onClose, mode, canManageTeam, viewMode, onChangeViewMode, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, viewMode, onChangeViewMode, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode }) => {
   const [theme, setTheme] = useTheme();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
   return (
     <Sheet open={open} onClose={onClose} title="Más" tall>
+      {/* Cabecera de perfil: es lo primero que se ve al abrir "Más" desde
+          el avatar de la cabecera — así esa hoja funciona de verdad como
+          el "perfil" que un alumno espera al tocar su ícono, no solo un
+          menú de ajustes sin nombre ni cara. */}
+      <button onClick={onSwitchIdentity}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "6px 4px 18px", textAlign: "left" }}>
+        <div style={{ width: 52, height: 52, borderRadius: 16, background: PLATE_GRAD, color: PLATE_FG,
+          display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 19, flexShrink: 0 }}>
+          {(studentName || "?").slice(0, 1).toUpperCase()}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 17, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{studentName || "—"}</div>
+          <div style={{ fontSize: 13, color: P.faint }}>modo {mode} · cambiar de cuenta</div>
+        </div>
+        <ChevronRight size={17} color={P.faint} style={{ flexShrink: 0 }} />
+      </button>
       <SettingGroup label="Herramientas">
         <SettingRow Icon={Timer} label="Temporizador" hint="Intervalos, cuenta regresiva y cronómetro" onClick={() => onOpenUtility("timer")} />
         <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} last={mode === "coach"} />
@@ -13355,31 +13411,22 @@ const App = () => {
       <GlobalStyle />
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
         paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
-        {/* Cabecera: solo identidad y un botón "Más". El tema, el Easy Mode,
-            el cambio alumno/coach, Alumnos y Equipo se mudaron a la hoja
-            "Más" — una barra superior con seis controles es justo lo que el
-            sistema del diseño evita. */}
+        {/* Cabecera: identidad como texto a la izquierda (toque rápido:
+            cambiar de alumno/coach) y el avatar a la derecha — es el lugar
+            donde la gente ya busca su propio ícono de cuenta. Tocarlo abre
+            "Más", que ahora arranca con una cabecera de perfil propia (foto,
+            nombre, cambiar de cuenta) antes de sus grupos de herramientas y
+            ajustes — así sí funciona como el perfil que se espera al tocar
+            el avatar, no solo un menú suelto. */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "calc(8px + env(safe-area-inset-top)) 16px 4px" }}>
-          <button onClick={() => setReady(false)} style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 11, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: PLATE_FG, fontSize: 14, flexShrink: 0 }}>
-              {(currentStudent?.name || "?").slice(0, 1).toUpperCase()}
-            </div>
-            <div style={{ minWidth: 0, textAlign: "left" }}>
-              <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190 }}>{currentStudent?.name || "—"}</div>
-              <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>modo {mode} · cambiar</div>
-            </div>
+          <button onClick={() => setReady(false)} style={{ textAlign: "left", minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{currentStudent?.name || "—"}</div>
+            <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>modo {mode} · cambiar</div>
           </button>
-          {/* Mismo botón para los dos modos: abre "Más" (herramientas,
-              ajustes). La mensajería del alumno ya no vive acá — tiene su
-              propia pestaña "Coach" en la barra inferior, igual que el
-              coach tiene la suya ("Mensajes"). Antes este botón abría el
-              chat directo para el alumno, en la esquina superior derecha;
-              se sacó de ahí porque no es donde la gente busca mensajería
-              en una app con barra de pestañas. */}
-          <button onClick={() => setMoreOpen(true)} aria-label="Más opciones"
+          <button onClick={() => setMoreOpen(true)} aria-label="Perfil y más opciones"
             style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
-              background: P.s1, border: `1px solid ${P.line}`, color: P.text, flexShrink: 0 }}>
-            <Layers size={18} strokeWidth={2.2} />
+              background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+            {(currentStudent?.name || "?").slice(0, 1).toUpperCase()}
           </button>
         </div>
         <StorageBanner />
@@ -13510,6 +13557,7 @@ const App = () => {
 
       <TabBar tabs={tabs} tab={tab} setTab={setTab} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode}
+        studentName={currentStudent?.name} onSwitchIdentity={() => { setMoreOpen(false); setReady(false); }}
         canManageTeam={myRoleMeta.manageTeam} viewMode={homeView} onChangeViewMode={setHomeView}
         routineView={routineView} onChangeRoutineView={setRoutineView}
         onOpenUtility={(id) => { setMoreOpen(false); setUtility(id); }}
