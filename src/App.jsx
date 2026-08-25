@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v140";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v141";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4207,20 +4207,31 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   // componente (no adentro de una función de fila) porque ahora la usan
   // dos lugares: la tarjeta activa de un ejercicio suelto y la de cada
   // integrante de una superserie.
+  // El borde de esta casilla tiene que leerse como borde de verdad, no
+  // solo el canto blanco-sobre-negro de la placa: PLATE_BORDER es el
+  // MISMO valor que el fondo de la placa (par que se invierte junto,
+  // a propósito, para avatares y botones que SÍ deben fundirse con la
+  // placa) — acá, en cambio, el trazo tiene que CONTRASTAR contra la
+  // propia casilla, así que usa MONO.ink (negro sobre blanco en claro,
+  // blanco sobre gris oscuro en oscuro), bien grueso, más las líneas
+  // divisorias entre flecha-arriba/número/flecha-abajo que ya trae la
+  // referencia — antes esta casilla era un bloque liso sin costuras.
   const fieldDark = (label, value, onChange, step, numericOnly, caption) => (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0, flex: 1 }}>
       <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".06em", color: PLATE_DIM, textAlign: "center" }}>{label}</span>
-      <span style={{ display: "flex", flexDirection: "column", background: MONO.surface, border: `1.5px solid ${PLATE_BORDER}`, borderRadius: 16, overflow: "hidden" }}>
+      <span style={{ display: "flex", flexDirection: "column", background: MONO.surface, border: `2.5px solid ${MONO.ink}`, borderRadius: 16, overflow: "hidden" }}>
         <button type="button" data-keep onClick={() => onChange(stepVal(value, step))} aria-label={`Aumentar ${label.toLowerCase()}`}
-          style={{ padding: "11px 0", display: "flex", alignItems: "center", justifyContent: "center", color: MONO.ink, transition: "opacity .12s ease" }}>
+          style={{ padding: "11px 0", display: "flex", alignItems: "center", justifyContent: "center", color: MONO.ink,
+            borderBottom: `1.5px solid ${MONO.ink}`, transition: "opacity .12s ease" }}>
           <ChevronUp size={17} strokeWidth={2.8} />
         </button>
         <input value={value} inputMode={numericOnly ? "numeric" : "decimal"} enterKeyHint="done" placeholder="—"
           onChange={(e) => onChange(e.target.value.replace(numericOnly ? /[^0-9]/g : /[^0-9.,]/g, ""))}
           style={{ width: "100%", padding: "8px 2px", border: "none", background: "transparent", textAlign: "center",
-            fontSize: 32, fontWeight: 700, color: MONO.ink }} />
+            fontSize: 32, fontWeight: 800, color: MONO.ink }} />
         <button type="button" data-keep onClick={() => onChange(stepVal(value, -step))} aria-label={`Disminuir ${label.toLowerCase()}`}
-          style={{ padding: "11px 0", display: "flex", alignItems: "center", justifyContent: "center", color: MONO.ink, transition: "opacity .12s ease" }}>
+          style={{ padding: "11px 0", display: "flex", alignItems: "center", justifyContent: "center", color: MONO.ink,
+            borderTop: `1.5px solid ${MONO.ink}`, transition: "opacity .12s ease" }}>
           <ChevronDown size={17} strokeWidth={2.8} />
         </button>
       </span>
