@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v135";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v136";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2799,6 +2799,7 @@ const GlossaryBody = ({ focusId, showTopButton }) => {
    Adjuntos
    ============================================================ */
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // 50 MB por video (límite del bucket)
+const MAX_FILE_BYTES = 25 * 1024 * 1024;  // 25 MB por archivo (PDF, planilla, etc.)
 const SB_PROJECT = "https://vzenlmcbftopyjzcltxa.supabase.co";
 const SB_BUCKET = "forja-media";
 
@@ -2857,13 +2858,24 @@ const AttachThumb = ({ id, onOpen, onRemove, size = 64 }) => {
   const [m, setM] = useState(null);
   useEffect(() => { let on = true; sGet(`attach:${id}`).then((v) => on && setM(v || null)); return () => { on = false; }; }, [id]);
   const isVideo = m && m.kind === "video";
-  const thumb = m ? (isVideo ? m.poster : m.dataUrl) : null;
+  const isFile = m && m.kind === "file";
+  const thumb = m ? (isVideo ? m.poster : isFile ? null : m.dataUrl) : null;
+  // Un documento no tiene miniatura ni se abre en el visor de fotos/videos:
+  // se abre tal cual en una pestaña nueva, como cualquier descarga.
+  const openFile = () => { if (m && m.dataUrl) window.open(m.dataUrl, "_blank", "noopener"); };
   return (
     <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
-      <button onClick={() => m && onOpen && onOpen(m)} style={{ width: size, height: size, borderRadius: 10, overflow: "hidden",
-        background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+      <button onClick={() => (isFile ? openFile() : m && onOpen && onOpen(m))} title={isFile ? m.name : undefined}
+        style={{ width: size, height: size, borderRadius: 10, overflow: "hidden",
+        background: P.s3, border: `1px solid ${P.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", padding: isFile ? 3 : 0 }}>
         {thumb ? <img src={thumb} alt="Adjunto" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+               : isFile ? <FileText size={18} color={P.dim} />
                : (isVideo ? <Video size={18} color={P.ember2} /> : <Camera size={18} color={P.faint} />)}
+        {isFile && (
+          <span style={{ fontSize: 8.5, color: P.faint, marginTop: 2, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "0 2px" }}>
+            {(m.name || "Archivo").replace(/\.[a-zA-Z0-9]+$/, "")}
+          </span>
+        )}
         {isVideo && (
           <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.28)" }}>
             <span style={{ width: Math.round(size * 0.36), height: Math.round(size * 0.36), borderRadius: 999, background: "rgba(0,0,0,.6)", border: "1px solid rgba(255,255,255,.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2896,15 +2908,20 @@ const ImageViewer = ({ src, onClose }) => {
   );
 };
 
-// mode: "photo" | "video" | "both"
+// mode: "photo" | "video" | "both" | "file"
 // capture: true = abre la cámara del celular directo (grabar); false = elegir de galería
+// "file": cualquier documento (PDF, planilla, Word…) — no fotos ni videos,
+// esos ya tienen su propio botón. La rama de guardado igual decide por el
+// tipo real del archivo elegido, no por `mode`: así, si alguien igual
+// elige una foto desde el selector "Archivo" del sistema, se guarda como
+// foto de verdad (comprimida) y no como blob binario.
 const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", capture, iconOnly, disabled }) => {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const cb = onAttached || onAdd;
-  const accept = mode === "video" ? "video/*" : mode === "both" ? "image/*,video/*" : "image/*";
-  const Icon = mode === "video" ? Video : Camera;
-  const text = label || (mode === "video" ? "Video" : mode === "both" ? "Foto/video" : "Foto");
+  const accept = mode === "video" ? "video/*" : mode === "both" ? "image/*,video/*" : mode === "file" ? "*/*" : "image/*";
+  const Icon = mode === "video" ? Video : mode === "file" ? Paperclip : Camera;
+  const text = label || (mode === "video" ? "Video" : mode === "both" ? "Foto/video" : mode === "file" ? "Archivo" : "Foto");
   return (
     <>
       <input ref={ref} type="file" accept={accept} {...(capture ? { capture: mode === "video" ? "user" : "environment" } : {})} style={{ display: "none" }}
@@ -2934,10 +2951,28 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", captu
               URL.revokeObjectURL(objUrl);
               const ok = await sSet(`attach:${id}`, { dataUrl: src, poster, kind: "video", date: todayISO() });
               if (!ok) throw new Error("No se pudo guardar el video. Revisa la conexión.");
-            } else {
+            } else if (f.type && f.type.startsWith("image")) {
               const dataUrl = await compressImage(f);
               const ok = await sSet(`attach:${id}`, { dataUrl, kind: "image", date: todayISO() });
               if (!ok) throw new Error("No se pudo guardar la foto. Revisa la conexión.");
+            } else {
+              // Documento genérico (PDF, Word, Excel, CSV…): no hay cómo
+              // comprimirlo ni sacarle un póster, así que se sube tal cual
+              // y se guarda el nombre para poder mostrarlo después.
+              if (f.size > MAX_FILE_BYTES) {
+                throw new Error(`El archivo pesa ${(f.size / 1048576).toFixed(1)} MB. Máximo 25 MB.`);
+              }
+              let src = null;
+              try {
+                src = await uploadToBucket(f);
+              } catch (upErr) {
+                if (f.size > 3.5 * 1024 * 1024) {
+                  throw new Error("No se pudo subir el archivo al almacenamiento. Revisa la conexión e inténtalo de nuevo.");
+                }
+                src = await readFileDataUrl(f);
+              }
+              const ok = await sSet(`attach:${id}`, { dataUrl: src, kind: "file", name: f.name || "Archivo", mime: f.type || "", date: todayISO() });
+              if (!ok) throw new Error("No se pudo guardar el archivo. Revisa la conexión.");
             }
             cb && cb(id);
           } catch (err) { onError && onError(err.message); }
@@ -11216,22 +11251,27 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
 
   // Arma el contenido de un mensaje para la API de Claude: si tiene fotos
   // adjuntas, van primero como bloques de imagen (Claude las analiza), el
-  // texto va al final. Los videos no se pueden mandar a la API de visión:
-  // quedan adjuntos para que el coach los vea, pero se avisa en el texto.
+  // texto va al final. Los videos y los documentos (PDF, planillas…) no se
+  // pueden mandar a la API de visión: quedan adjuntos para que el coach
+  // los vea, pero se avisa en el texto.
   const contentForAPI = async (m) => {
     if (!m.attachIds || !m.attachIds.length) return m.content;
     const blocks = [];
-    let videoCount = 0;
+    let videoCount = 0, fileCount = 0;
     for (const id of m.attachIds) {
       const media = await sGet(`attach:${id}`);
       if (!media) continue;
       if (media.kind === "video") { videoCount++; continue; }
+      if (media.kind === "file") { fileCount++; continue; }
       const comma = media.dataUrl.indexOf(",");
       const meta = media.dataUrl.slice(5, media.dataUrl.indexOf(";"));
       blocks.push({ type: "image", source: { type: "base64", media_type: meta || "image/jpeg", data: media.dataUrl.slice(comma + 1) } });
     }
-    const note = videoCount ? `\n\n(${videoCount} video${videoCount !== 1 ? "s" : ""} adjunto${videoCount !== 1 ? "s" : ""}, no se envía a la IA para análisis)` : "";
-    blocks.push({ type: "text", text: (m.content || "(foto adjunta)") + note });
+    const notes = [];
+    if (videoCount) notes.push(`${videoCount} video${videoCount !== 1 ? "s" : ""} adjunto${videoCount !== 1 ? "s" : ""}`);
+    if (fileCount) notes.push(`${fileCount} archivo${fileCount !== 1 ? "s" : ""} adjunto${fileCount !== 1 ? "s" : ""}`);
+    const note = notes.length ? `\n\n(${notes.join(" y ")}, no se envía a la IA para análisis)` : "";
+    blocks.push({ type: "text", text: (m.content || "(adjunto)") + note });
     return blocks;
   };
 
@@ -11442,6 +11482,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
       <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <AttachButton mode="both" iconOnly disabled={busy} onError={setErr} onAttached={(id) => setPendingAttach((a) => [...a, id])} />
+          <AttachButton mode="file" iconOnly disabled={busy} onError={setErr} onAttached={(id) => setPendingAttach((a) => [...a, id])} />
           <VoiceDictateButton disabled={busy} onError={setErr} onResult={(text) => setInput((v) => (v ? `${v} ${text}` : text))} />
         </div>
         <textarea rows={2} placeholder={apiKey ? `Pregunta de ${spec.label.toLowerCase()}…` : "Configura la API key primero"} disabled={busy}
@@ -11456,7 +11497,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
       {messages.length > 0 && (
         <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
           <Btn kind="line" small onClick={clearChat}><Trash2 size={12} /> Reiniciar conversación</Btn>
-          <div style={{ fontSize: 12.5, color: P.faint, alignSelf: "center" }}>La conversación se guarda por alumno. Las fotos se analizan con IA; los videos quedan adjuntos pero no se analizan.</div>
+          <div style={{ fontSize: 12.5, color: P.faint, alignSelf: "center" }}>La conversación se guarda por alumno. Las fotos se analizan con IA; los videos y archivos quedan adjuntos pero no se analizan.</div>
         </div>
       )}
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
