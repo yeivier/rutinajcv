@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v134";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v135";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5720,12 +5720,23 @@ const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
   );
 };
 
-const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat, saveHistory, toast }) => {
+const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat, autoOpenCheckin, onAutoOpenCheckinConsumed, autoOpenPosing, onAutoOpenPosingConsumed, saveHistory, toast }) => {
   const [showInstr, setShowInstr] = useState(false);
   const [exExpanded, setExExpanded] = useState(false);
   const [dayDetail, setDayDetail] = useState(null);   // día de la franja semanal tocado (variante panel)
   const [statDetail, setStatDetail] = useState(null);  // "adherencia" | "racha" | "peso" | "volumen" | "pasos" | "agua" | "sueno"
   const [checkinOpen, setCheckinOpen] = useState(false);
+  // "Check-in" desde la pestaña "Más": esta pantalla vive adentro de
+  // "Hoy" y se desmonta al salir de esa pestaña, así que "Más" primero
+  // vuelve a "Hoy" y deja marcado "ábrete al montar" — se consume una
+  // sola vez y se avisa al padre para que no se reabra sola la próxima
+  // vez que se entre a "Hoy" por las buenas (mismo patrón que ya usa
+  // "Entrenar ahora" con `autoStartDayId`).
+  useEffect(() => {
+    if (!autoOpenCheckin) return;
+    setCheckinOpen(true);
+    onAutoOpenCheckinConsumed && onAutoOpenCheckinConsumed();
+  }, [autoOpenCheckin]);
   // Estado físico
   const [ciWeight, setCiWeight] = useState("");
   const [weighInOpen, setWeighInOpen] = useState(false);
@@ -5738,6 +5749,11 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const [recSaving, setRecSaving] = useState(false);
   // Fotos y posing
   const [posingOpen, setPosingOpen] = useState(false);
+  useEffect(() => {
+    if (!autoOpenPosing) return;
+    setPosingOpen(true);
+    onAutoOpenPosingConsumed && onAutoOpenPosingConsumed();
+  }, [autoOpenPosing]);
   const [poseFrontal, setPoseFrontal] = useState(null);
   const [poseLateral, setPoseLateral] = useState(null);
   const [posePosterior, setPosePosterior] = useState(null);
@@ -12805,19 +12821,18 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
    herramientas de referencia (Temporizador, Guía y, para el alumno, Agenda)
    salen de la barra y viven en la hoja "Más". */
 const TABS = {
-  // "Coach" (antes "Más"/"···"): la mensajería con el coach vuelve a ser
-  // una pestaña propia de la barra inferior, en el mismo lugar donde el
-  // modo coach ya tiene su pestaña "Mensajes" — es el lugar donde la
-  // gente ya busca esto en cualquier app con barra de pestañas, no un
-  // ícono suelto en la esquina superior derecha. "Más" (herramientas,
-  // ajustes) se muda al botón de la cabecera, calcando exactamente lo
-  // que el modo coach ya hace con ese mismo botón.
+  // "···" (Más): vuelve a ser la última pestaña de la barra, calcando el
+  // boceto original. La mensajería con el coach deja de tener pestaña
+  // propia y pasa a ser una ficha más adentro de "Más" (junto a Check-in,
+  // Posing, etc.) — el resto de "Más" (herramientas, ajustes) sigue
+  // viviendo también en el botón de la cabecera, sin que se pierda ese
+  // acceso rápido.
   alumno: [
     { id: "hoy", label: "Inicio", Icon: Home },
     { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
     { id: "progreso", label: "Progreso", Icon: BarChart3 },
     { id: "nutricion", label: "Nutrición", Icon: Utensils },
-    { id: "coach", label: "Coach", Icon: MessageSquare },
+    { id: "mas", label: "Más", Icon: MoreHorizontal },
   ],
   coach: [
     { id: "dashboard", label: "Panel", Icon: LayoutDashboard, sections: ["dashboard"] },
@@ -12836,12 +12851,75 @@ const UTILITY_SCREENS = {
   timer: { label: "Temporizador", Icon: Timer },
   guia:  { label: "Guía de términos", Icon: BookOpen },
   agenda: { label: "Agenda", Icon: Calendar },
+  chat:  { label: "Mensajes", Icon: MessageSquare },
 };
 
 // Easy Mode deja solo lo imprescindible en la barra inferior. Todo lo
 // demás sigue existiendo: vuelve al toque con el switch de Interfaz.
-const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "coach"] };
-const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", coach: "Coach" };
+const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "mas"] };
+const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
+
+/* Pestaña "Más" (···): agrupa lo que antes vivía repartido — mensajería,
+   Check-in/Posing (Culturismo) y las herramientas de referencia — en las
+   mismas secciones del boceto original. Los ajustes finos (tema, vista,
+   editor de rutina…) no se duplican acá: "Configuración" abre la misma
+   hoja que ya abre el avatar de la cabecera. */
+const MasTab = ({ toast, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat }) => {
+  const [q, setQ] = useState("");
+  const soon = (label) => () => toast(`Muy pronto: ${label}`);
+  const groups = [
+    { label: "Comunicación", rows: [
+      { key: "mensajes", Icon: MessageSquare, label: "Mensajes", hint: "Habla con tu coach", onClick: () => onOpenUtility("chat") },
+    ] },
+    { label: "Culturismo", rows: [
+      { key: "checkin", Icon: Camera, label: "Check-in", hint: "Peso, recuperación, fotos y video", onClick: onOpenCheckin },
+      { key: "posing", Icon: PersonStanding, label: "Posing", hint: "Categoría y poses obligatorias", onClick: onOpenPosing },
+      { key: "prep", Icon: Trophy, label: "Competition Prep", hint: "Muy pronto", onClick: soon("Competition Prep") },
+    ] },
+    { label: "Herramientas", rows: [
+      { key: "timer", Icon: Timer, label: "Temporizador", hint: "Intervalos, cuenta regresiva y cronómetro", onClick: () => onOpenUtility("timer") },
+      { key: "guia", Icon: BookOpen, label: "Guía de términos", hint: "Qué significa cada etiqueta de la rutina", onClick: () => onOpenUtility("guia") },
+      { key: "atlas", Icon: BarChart3, label: "Atlas", hint: "Muy pronto", onClick: soon("Atlas") },
+      { key: "ia", Icon: Sparkles, label: "Coach IA", hint: "Tu asistente de entrenamiento", onClick: onOpenAIChat },
+      { key: "dispositivos", Icon: Watch, label: "Dispositivos", hint: "Relojes, básculas y apps de salud", onClick: onOpenDevices },
+    ] },
+    { label: "Cuenta", rows: [
+      { key: "config", Icon: Sun, label: "Configuración", hint: "Apariencia, vista e interfaz", onClick: onOpenSettings },
+      { key: "cambiar", Icon: Users, label: "Cambiar a Coach", hint: "Entrar en modo coach", onClick: () => onSwitchMode("coach") },
+    ] },
+  ];
+  const query = q.trim().toLowerCase();
+  const filtered = query
+    ? groups
+        .map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.hint.toLowerCase().includes(query)) }))
+        .filter((g) => g.rows.length > 0)
+    : groups;
+  return (
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
+      <div style={{ position: "relative", marginBottom: 18 }}>
+        <Search size={16} color={P.faint} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
+        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar en FORJA"
+          aria-label="Buscar en FORJA" style={{ width: "100%", padding: "10px 12px 10px 34px", fontSize: 15 }} />
+        {q && (
+          <button onClick={() => setQ("")} aria-label="Borrar búsqueda"
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: P.faint, padding: 4 }}>
+            <X size={15} />
+          </button>
+        )}
+      </div>
+      {filtered.length === 0 && (
+        <div style={{ textAlign: "center", color: P.faint, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
+      )}
+      {filtered.map((g) => (
+        <SettingGroup key={g.label} label={g.label}>
+          {g.rows.map((r, i) => (
+            <SettingRow key={r.key} Icon={r.Icon} label={r.label} hint={r.hint} onClick={r.onClick} last={i === g.rows.length - 1} />
+          ))}
+        </SettingGroup>
+      ))}
+    </div>
+  );
+};
 
 /* ============================================================
    Componentes de sistema (portados de la implementación de
@@ -13462,6 +13540,13 @@ const App = () => {
   // funciona), se le manda una señal que solo crece: AIFab la mira y abre
   // su sheet cuando cambia, sin que a ella le importe de dónde vino.
   const [aiChatOpenSignal, setAiChatOpenSignal] = useState(0);
+  // "Check-in" y "Posing" desde la pestaña "Más": mismo patrón que
+  // `autoStartDayId` (abajo) — una bandera que se consume una sola vez
+  // apenas "Hoy" vuelve a montarse, y no un contador tipo señal (esas
+  // hojas se desmontan al salir de "Hoy", así que un número seguiría
+  // "sin consumir" para el próximo montaje normal de la pestaña).
+  const [autoOpenCheckin, setAutoOpenCheckin] = useState(false);
+  const [autoOpenPosing, setAutoOpenPosing] = useState(false);
   const [savedAt, setSavedAt] = useState("");
   const [gloss, setGloss] = useState({ open: false, focus: null });
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -13851,6 +13936,7 @@ const App = () => {
               <CalendarTab plan={plan} history={history} onGoTrain={() => { setUtility(null); setTab("entrenar"); }}
                 bookings={bookings.slots} sid={sid} onCancelBooking={(id) => saveBookings(bookings.slots.map((x) => (x.id === id ? { ...x, status: "cancelada" } : x)))} />
             )}
+            {utility === "chat" && <ChatTab sid={sid} role="alumno" />}
           </div>
         )}
 
@@ -13869,10 +13955,12 @@ const App = () => {
             goTrain={(dayId) => { if (dayId) setAutoStartDayId(dayId); setTab("entrenar"); }}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""}
-            onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => setTab("nutricion")} onOpenCoach={() => setTab("coach")}
+            onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => setTab("nutricion")} onOpenCoach={() => setUtility("chat")}
             onOpenProgress={(jumpSub) => { if (jumpSub) setProgressJumpSub(jumpSub); setTab("progreso"); }}
             onOpenTimer={() => setUtility("timer")}
-            onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)} />
+            onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
+            autoOpenCheckin={autoOpenCheckin} onAutoOpenCheckinConsumed={() => setAutoOpenCheckin(false)}
+            autoOpenPosing={autoOpenPosing} onAutoOpenPosingConsumed={() => setAutoOpenPosing(false)} />
         )}
         {mode === "alumno" && tab === "entrenar" && (
           <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive}
@@ -13885,7 +13973,13 @@ const App = () => {
             jumpSub={progressJumpSub} onJumpConsumed={() => setProgressJumpSub(null)} />
         )}
         {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} />}
-        {mode === "alumno" && tab === "coach" && <ChatTab sid={sid} role="alumno" />}
+        {mode === "alumno" && tab === "mas" && (
+          <MasTab toast={toast} onOpenUtility={(id) => setUtility(id)} onOpenDevices={() => setDevicesOpen(true)}
+            onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
+            onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
+            onOpenPosing={() => { setTab("hoy"); setAutoOpenPosing(true); }}
+            onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)} />
+        )}
         {/* Jerarquía: deshacer/rehacer son acciones corrientes (gris de
             sistema) y "Vaciar" es la destructiva, así que va en contorno,
             no en placa negra. Antes las tres eran placa: la acción más
