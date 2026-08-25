@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v128";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v129";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5387,21 +5387,30 @@ const MacroBar = ({ v }) => (
    son la misma acción, sin pantalla nueva del lado del coach.
    ============================================================ */
 
-// Fila navegable de una sección del check-in: mientras no hay nada
-// registrado hoy, muestra "Pendiente" + flecha; en cuanto se guarda algo,
-// cambia a un check en tinta — mismo lenguaje visual que la referencia.
-const CheckinRow = ({ Icon, title, detail, done, onClick }) => (
+// Fila navegable de una sección del check-in. Tres estados:
+// "done" (ya se registró algo hoy) → check en tinta, sin flecha ni
+// píldora; "pending" (todavía nada hoy) → píldora "Pendiente" + flecha;
+// "none" (fila puramente de navegación, sin un "hoy" que cumplir, como
+// Dispositivos) → solo la flecha, sin píldora. Mismo lenguaje visual que
+// la referencia: ícono en placa gris, título + detalle, estado a la
+// derecha.
+const CheckinRow = ({ Icon, title, detail, status = "pending", onClick }) => (
   <button onClick={onClick} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "15px 4px", textAlign: "left" }}>
-    <span style={{ width: 40, height: 40, borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.line}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-      <Icon size={18} color={MONO.inkDim} />
+    <span style={{ width: 44, height: 44, borderRadius: 13, background: MONO.chipBg, border: `1px solid ${MONO.line}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <Icon size={19} color={MONO.inkDim} />
     </span>
-    <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
-      <span style={{ fontSize: 15.5, fontWeight: 700, color: MONO.ink }}>{title}</span>
-      <span style={{ fontSize: 12.5, color: MONO.inkDim }}>{detail}</span>
+    <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+      <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink }}>{title}</span>
+      <span style={{ fontSize: 13, color: MONO.inkDim, lineHeight: 1.35 }}>{detail}</span>
     </span>
-    {done ? (
-      <span style={{ width: 26, height: 26, borderRadius: 13, background: MONO.ink, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-        <Check size={14} color="#FFFFFF" strokeWidth={3} />
+    {status === "done" ? (
+      <span style={{ width: 30, height: 30, borderRadius: 15, background: MONO.ink, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <Check size={16} color="#FFFFFF" strokeWidth={3} />
+      </span>
+    ) : status === "pending" ? (
+      <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: MONO.inkDim, background: MONO.chipBg, borderRadius: 999, padding: "7px 13px", whiteSpace: "nowrap" }}>Pendiente</span>
+        <ChevronRight size={17} color={MONO.inkFaint} />
       </span>
     ) : <ChevronRight size={17} color={MONO.inkFaint} style={{ flexShrink: 0 }} />}
   </button>
@@ -5517,7 +5526,7 @@ const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
   );
 };
 
-const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat, saveHistory }) => {
+const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, studentName, variant, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat, saveHistory, toast }) => {
   const [showInstr, setShowInstr] = useState(false);
   const [exExpanded, setExExpanded] = useState(false);
   const [dayDetail, setDayDetail] = useState(null);   // día de la franja semanal tocado (variante panel)
@@ -5528,16 +5537,20 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const [weighInOpen, setWeighInOpen] = useState(false);
   const [measureOpen, setMeasureOpen] = useState(false);
   // Recuperación
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [rec, setRec] = useState({});
   const [recComment, setRecComment] = useState("");
   const [recAttachIds, setRecAttachIds] = useState([]);
   const [recSaving, setRecSaving] = useState(false);
   // Fotos y posing
+  const [posingOpen, setPosingOpen] = useState(false);
   const [poseFrontal, setPoseFrontal] = useState(null);
   const [poseLateral, setPoseLateral] = useState(null);
   const [posePosterior, setPosePosterior] = useState(null);
   const [poseVideos, setPoseVideos] = useState([]);
   const [poseSaving, setPoseSaving] = useState(false);
+  // Dispositivos (mismo panel que Más → Herramientas → Dispositivos)
+  const [devicesOpen, setDevicesOpen] = useState(false);
   const d = useTodayData(plan, history, allowedRoutines);
   const name = studentName || "";
   const firstName = name.split(" ")[0] || "";
@@ -5611,6 +5624,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     setRecComment("");
     setRecAttachIds([]);
     setRecSaving(false);
+    setRecoveryOpen(false);
   };
 
   const savePosing = async () => {
@@ -5631,6 +5645,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     for (const s of shots) await sendChatMedia(s.id);
     setPoseFrontal(null); setPoseLateral(null); setPosePosterior(null); setPoseVideos([]);
     setPoseSaving(false);
+    setPosingOpen(false);
   };
 
   // Una sola decisión por pantalla: qué entrenar hoy. Si hay sesión en
@@ -5960,19 +5975,19 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         )}
       </Sheet>
 
+      {/* Cada sección es UNA fila resumen (título + detalle + estado a la
+          derecha) que abre su propia hoja — no todo el contenido expandido
+          de una vez. Se guarda por sección y le llega a tu coach directo al
+          chat, sin tener que completar las 4 en la misma visita. */}
       <Sheet open={checkinOpen} onClose={() => setCheckinOpen(false)} title="Check-in" tall>
-        <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
-          <div style={{ fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.5 }}>
-            Cada sección se guarda por su cuenta y le llega a tu coach directo a tu chat de siempre — no hace falta llenarlas todas de una vez.
-          </div>
-
+        <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
           {/* 1 · Estado físico */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <MonoLabel>1 · Estado físico</MonoLabel>
             <MonoCard style={{ padding: "2px 14px" }}>
               <CheckinRow Icon={Scale} title="Peso en ayunas"
-                detail={bwToday ? `${kg(bwToday.kg)} kg · registrado hoy` : "Pendiente"}
-                done={!!bwToday} onClick={() => setWeighInOpen((v) => !v)} />
+                detail={bwToday ? `${kg(bwToday.kg)} kg · registrado hoy` : "Tu peso corporal, en ayunas y por la mañana"}
+                status={bwToday ? "done" : "pending"} onClick={() => setWeighInOpen((v) => !v)} />
               {weighInOpen && (
                 <div style={{ display: "flex", gap: 8, padding: "0 0 14px" }}>
                   <input type="number" inputMode="decimal" step="any" placeholder="kg de hoy" value={ciWeight} onChange={(e) => setCiWeight(e.target.value)}
@@ -5981,66 +5996,98 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
                 </div>
               )}
               <div style={{ height: 1, background: MONO.line }} />
-              <CheckinRow Icon={Ruler} title="Métricas corporales"
-                detail={measureToday ? "Registradas hoy" : lastMeasure ? `Última: ${daysAgoLabel(lastMeasure.date)}` : "Pendiente"}
-                done={!!measureToday} onClick={() => setMeasureOpen(true)} />
+              <CheckinRow Icon={Ruler} title="Medidas corporales"
+                detail={measureToday ? "Registradas hoy" : lastMeasure ? `Última: ${daysAgoLabel(lastMeasure.date)}` : "Circunferencias, anchos y % de grasa"}
+                status={measureToday ? "done" : "pending"} onClick={() => setMeasureOpen(true)} />
             </MonoCard>
           </div>
 
-          {/* 2 · Recuperación */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <MonoLabel>2 · Recuperación</MonoLabel>
-            <MonoCard style={{ padding: 16, display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <HeartPulse size={18} color={MONO.ink} />
-                <span style={{ fontSize: 15.5, fontWeight: 700, color: MONO.ink }}>¿Cómo estás?</span>
-              </div>
-              <span style={{ fontSize: 12.5, color: MONO.inkDim }}>Más detalle = mejores decisiones de tu coach · toma 60-90 s</span>
+          {/* 2 · Recuperación y estado */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <MonoLabel>2 · Recuperación y estado</MonoLabel>
+            <MonoCard style={{ padding: "2px 14px" }}>
+              <CheckinRow Icon={HeartPulse} title="Cuestionario 1–10"
+                detail={recoveryToday ? "Enviado hoy" : "Energía, sueño, dolor, estrés, hambre, digestión y depleción"}
+                status={recoveryToday ? "done" : "pending"} onClick={() => setRecoveryOpen(true)} />
             </MonoCard>
-            {recoveryToday && (
-              <div style={{ fontSize: 12.5, color: MONO.inkDim }}>Ya mandaste una recuperación hoy — puedes enviar otra si algo cambió.</div>
-            )}
-            {RECOVERY_FIELDS.map((f) => (
-              <RecoveryScale key={f.key} label={f.label} tag={f.tag} lo={f.lo} hi={f.hi}
-                value={rec[f.key]} onChange={(n) => setRec((o) => ({ ...o, [f.key]: n }))} />
-            ))}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <MonoLabel>Comentario de recuperación</MonoLabel>
-              <Txt value={recComment} onChange={(e) => setRecComment(e.target.value)} placeholder="Añade algo que las escalas no reflejen…" rows={3}
-                style={{ borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <AttachButton mode="both" label="Adjuntar foto o archivo" onAttached={(id) => setRecAttachIds((a) => [...a, id])} onError={setCiError} />
-                {recAttachIds.length > 0 && <span style={{ fontSize: 12.5, color: MONO.inkDim }}>{recAttachIds.length} adjunto{recAttachIds.length !== 1 ? "s" : ""}</span>}
-              </div>
-            </div>
-            <Btn kind="ember" onClick={saveRecovery} disabled={recSaving} style={{ width: "100%" }}>
-              {recSaving ? "Guardando…" : "Guardar recuperación"}
-            </Btn>
           </div>
 
-          {/* 3 · Fotos y posing */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <MonoLabel>3 · Fotos y posing</MonoLabel>
-            <div style={{ fontSize: 12.5, color: MONO.inkDim, lineHeight: 1.45 }}>
-              Sube tus fotos frontal, lateral y posterior, y los videos de posing que quieras (los que planeas usar en tu competencia, por ejemplo) para que tu coach los revise y te corrija.
-            </div>
-            {poseToday.length > 0 && <div style={{ fontSize: 12.5, color: MONO.inkDim }}>Ya mandaste {poseToday.length} foto{poseToday.length !== 1 ? "s" : ""}/video{poseToday.length !== 1 ? "s" : ""} hoy.</div>}
-            <div style={{ display: "flex", gap: 10 }}>
-              <PosingPhotoSlot label="Frontal" attachId={poseFrontal} onChange={setPoseFrontal} onError={setCiError} />
-              <PosingPhotoSlot label="Lateral" attachId={poseLateral} onChange={setPoseLateral} onError={setCiError} />
-              <PosingPhotoSlot label="Posterior" attachId={posePosterior} onChange={setPosePosterior} onError={setCiError} />
-            </div>
-            <AttachButton mode="video" label={`Agregar video de posing${poseVideos.length ? ` (${poseVideos.length})` : ""}`}
-              onAttached={(id) => setPoseVideos((v) => [...v, id])} onError={setCiError} />
-            <Btn kind="ember" onClick={savePosing} disabled={poseSaving} style={{ width: "100%" }}>
-              {poseSaving ? "Guardando…" : "Guardar fotos y videos"}
-            </Btn>
+          {/* 3 · Dispositivos */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <MonoLabel>3 · Dispositivos</MonoLabel>
+            <MonoCard style={{ padding: "2px 14px" }}>
+              <CheckinRow Icon={Watch} title="Salud y wearables" detail="Garmin · WHOOP · Apple Health · Oura"
+                status="none" onClick={() => setDevicesOpen(true)} />
+            </MonoCard>
           </div>
 
-          {ciError && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4 }}>{ciError}</div>}
+          {/* 4 · Fotos y posing */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <MonoLabel>4 · Fotos y posing</MonoLabel>
+            <MonoCard style={{ padding: "2px 14px" }}>
+              <CheckinRow Icon={Camera} title="Fotos y videos"
+                detail={poseToday.length > 0 ? `${poseToday.length} enviado${poseToday.length !== 1 ? "s" : ""} hoy` : "Frontal, lateral, posterior y video de posing"}
+                status={poseToday.length > 0 ? "done" : "pending"} onClick={() => setPosingOpen(true)} />
+            </MonoCard>
+          </div>
         </div>
       </Sheet>
+
       <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} />
+
+      <Sheet open={recoveryOpen} onClose={() => setRecoveryOpen(false)} title="Cuestionario 1–10" tall>
+        <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+          <MonoCard style={{ padding: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <HeartPulse size={18} color={MONO.ink} />
+              <span style={{ fontSize: 15.5, fontWeight: 700, color: MONO.ink }}>¿Cómo estás?</span>
+            </div>
+            <span style={{ fontSize: 12.5, color: MONO.inkDim }}>Más detalle = mejores decisiones de tu coach · toma 60-90 s</span>
+          </MonoCard>
+          {recoveryToday && (
+            <div style={{ fontSize: 12.5, color: MONO.inkDim }}>Ya mandaste una recuperación hoy — puedes enviar otra si algo cambió.</div>
+          )}
+          {RECOVERY_FIELDS.map((f) => (
+            <RecoveryScale key={f.key} label={f.label} tag={f.tag} lo={f.lo} hi={f.hi}
+              value={rec[f.key]} onChange={(n) => setRec((o) => ({ ...o, [f.key]: n }))} />
+          ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <MonoLabel>Comentario de recuperación</MonoLabel>
+            <Txt value={recComment} onChange={(e) => setRecComment(e.target.value)} placeholder="Añade algo que las escalas no reflejen…" rows={3}
+              style={{ borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <AttachButton mode="both" label="Adjuntar foto o archivo" onAttached={(id) => setRecAttachIds((a) => [...a, id])} onError={setCiError} />
+              {recAttachIds.length > 0 && <span style={{ fontSize: 12.5, color: MONO.inkDim }}>{recAttachIds.length} adjunto{recAttachIds.length !== 1 ? "s" : ""}</span>}
+            </div>
+          </div>
+          {ciError && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4 }}>{ciError}</div>}
+          <Btn kind="ember" onClick={saveRecovery} disabled={recSaving} style={{ width: "100%" }}>
+            {recSaving ? "Guardando…" : "Guardar recuperación"}
+          </Btn>
+        </div>
+      </Sheet>
+
+      <Sheet open={posingOpen} onClose={() => setPosingOpen(false)} title="Fotos y posing" tall>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ fontSize: 12.5, color: MONO.inkDim, lineHeight: 1.45 }}>
+            Sube tus fotos frontal, lateral y posterior, y los videos de posing que quieras (los que planeas usar en tu competencia, por ejemplo) para que tu coach los revise y te corrija.
+          </div>
+          {poseToday.length > 0 && <div style={{ fontSize: 12.5, color: MONO.inkDim }}>Ya mandaste {poseToday.length} foto{poseToday.length !== 1 ? "s" : ""}/video{poseToday.length !== 1 ? "s" : ""} hoy.</div>}
+          <div style={{ display: "flex", gap: 10 }}>
+            <PosingPhotoSlot label="Frontal" attachId={poseFrontal} onChange={setPoseFrontal} onError={setCiError} />
+            <PosingPhotoSlot label="Lateral" attachId={poseLateral} onChange={setPoseLateral} onError={setCiError} />
+            <PosingPhotoSlot label="Posterior" attachId={posePosterior} onChange={setPosePosterior} onError={setCiError} />
+          </div>
+          <AttachButton mode="video" label={`Agregar video de posing${poseVideos.length ? ` (${poseVideos.length})` : ""}`}
+            onAttached={(id) => setPoseVideos((v) => [...v, id])} onError={setCiError} />
+          {ciError && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4 }}>{ciError}</div>}
+          <Btn kind="ember" onClick={savePosing} disabled={poseSaving} style={{ width: "100%" }}>
+            {poseSaving ? "Guardando…" : "Guardar fotos y videos"}
+          </Btn>
+        </div>
+      </Sheet>
+
+      <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast} />
     </div>
   );
 };
@@ -12343,6 +12390,9 @@ const DEVICE_CATALOG = [
   { id: "applewatch", name: "Apple Watch", group: "Relojes y pulseras", Icon: Watch,
     blurb: "Se conecta a través de la app Salud del iPhone — no hace falta configurarlo aparte del de abajo.",
     syncs: ["Pasos", "Frecuencia cardíaca", "Sueño", "Entrenamientos"] },
+  { id: "oura", name: "Oura", group: "Relojes y pulseras", Icon: Watch,
+    blurb: "Anillo Oura — sueño, recuperación y puntaje de disposición (readiness) del día.",
+    syncs: ["Sueño", "Recuperación", "Readiness", "Frecuencia cardíaca en reposo"] },
   { id: "applehealth", name: "Salud (iPhone)", group: "Apps de salud", Icon: Smartphone,
     blurb: "La app Salud de Apple junta en un solo lugar los datos de tu iPhone, tu Apple Watch y otras apps compatibles.",
     syncs: ["Pasos", "Peso", "Sueño", "Frecuencia cardíaca"] },
@@ -13560,7 +13610,7 @@ const App = () => {
 
         <div key={`${tab}-${sub || ""}`} className="sheetIn" style={{ display: utility ? "none" : undefined }}>
         {mode === "alumno" && tab === "hoy" && (
-          <TodayTabRouter view={homeView} plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory}
+          <TodayTabRouter view={homeView} plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory} toast={toast}
             goTrain={(dayId) => { if (dayId) setAutoStartDayId(dayId); setTab("entrenar"); }}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             bookings={bookings.slots} sid={sid} studentName={currentStudent ? currentStudent.name : ""}
