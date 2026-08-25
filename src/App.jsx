@@ -7,7 +7,7 @@ import {
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
-  Ruler, HeartPulse
+  Ruler, HeartPulse, Watch, Bluetooth, Smartphone
 } from "lucide-react";
 
 /* ============================================================
@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v126";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v127";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -12322,10 +12322,111 @@ const ReadOnlyLock = ({ active, toast, children }) => (
   </div>
 );
 
+/* ============================================================
+   Dispositivos conectados: la ESTRUCTURA para conectar relojes,
+   básculas y apps de salud — a propósito sin la integración real
+   (nada de OAuth, nada de Bluetooth de verdad todavía). El botón
+   "Conectar" de cada ficha muestra un toast honesto en vez de fingir
+   una conexión que no existe — la app no puede prometer que ya te
+   está trayendo datos de un Garmin cuando no hay nada del otro lado.
+   Cuando se conecte la parte real (API de cada marca / Web Bluetooth),
+   solo hace falta reemplazar ese onClick: toda la navegación, las
+   fichas por marca y el detalle de qué trae cada una ya quedan listos.
+   ============================================================ */
+const DEVICE_CATALOG = [
+  { id: "garmin", name: "Garmin", group: "Relojes y pulseras", Icon: Watch,
+    blurb: "Cualquier reloj Garmin — Fénix, Forerunner, Vívoactive, Instinct o el resto de la línea Garmin Connect.",
+    syncs: ["Pasos", "Frecuencia cardíaca", "Sueño", "Calorías", "Entrenamientos registrados en el reloj"] },
+  { id: "whoop", name: "WHOOP", group: "Relojes y pulseras", Icon: Watch,
+    blurb: "Banda WHOOP — recuperación, tensión (strain) y sueño.",
+    syncs: ["Recuperación", "Tensión (strain)", "Sueño", "Frecuencia cardíaca"] },
+  { id: "applewatch", name: "Apple Watch", group: "Relojes y pulseras", Icon: Watch,
+    blurb: "Se conecta a través de la app Salud del iPhone — no hace falta configurarlo aparte del de abajo.",
+    syncs: ["Pasos", "Frecuencia cardíaca", "Sueño", "Entrenamientos"] },
+  { id: "applehealth", name: "Salud (iPhone)", group: "Apps de salud", Icon: Smartphone,
+    blurb: "La app Salud de Apple junta en un solo lugar los datos de tu iPhone, tu Apple Watch y otras apps compatibles.",
+    syncs: ["Pasos", "Peso", "Sueño", "Frecuencia cardíaca"] },
+  { id: "scale", name: "Báscula inteligente", group: "Básculas", Icon: Scale,
+    blurb: "Cualquier báscula con Bluetooth — el peso (y el % de grasa, si la báscula lo mide) se registra solo, sin escribirlo a mano.",
+    syncs: ["Peso", "% de grasa corporal (si la báscula lo mide)"] },
+  { id: "other", name: "Otro dispositivo Bluetooth", group: "Otros", Icon: Bluetooth,
+    blurb: "Cualquier otra marca con Bluetooth que no esté en la lista — pulsómetros, básculas, bandas y más.",
+    syncs: ["Depende del dispositivo"] },
+];
+const DevicesSheet = ({ open, onClose, toast }) => {
+  const [detail, setDetail] = useState(null);
+  const groups = useMemo(() => {
+    const m = new Map();
+    DEVICE_CATALOG.forEach((d) => { if (!m.has(d.group)) m.set(d.group, []); m.get(d.group).push(d); });
+    return [...m.entries()];
+  }, []);
+  const dev = DEVICE_CATALOG.find((d) => d.id === detail);
+  return (
+    <>
+      <Sheet open={open} onClose={onClose} title="Dispositivos conectados" tall>
+        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5, marginBottom: 18 }}>
+          Conecta tus relojes, básculas y apps de salud para que pasos, sueño, frecuencia cardíaca y peso lleguen solos a FORJA, sin escribirlos a mano.
+        </div>
+        {groups.map(([label, items]) => (
+          <div key={label} style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>{label}</div>
+            <Card style={{ padding: "2px 14px" }}>
+              {items.map((d, i) => (
+                <React.Fragment key={d.id}>
+                  <button onClick={() => setDetail(d.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "14px 0", textAlign: "left" }}>
+                    <span style={{ width: 38, height: 38, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: P.dim }}>
+                      <d.Icon size={18} />
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600 }}>{d.name}</div>
+                      <div style={{ fontSize: 12.5, color: P.faint }}>No conectado</div>
+                    </span>
+                    <ChevronRight size={17} color={P.faint} style={{ flexShrink: 0 }} />
+                  </button>
+                  {i < items.length - 1 && <div style={{ height: 1, background: P.line }} />}
+                </React.Fragment>
+              ))}
+            </Card>
+          </div>
+        ))}
+      </Sheet>
+      <Sheet open={!!dev} onClose={() => setDetail(null)} title={dev ? dev.name : ""}>
+        {dev && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <span style={{ width: 52, height: 52, borderRadius: 15, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", color: P.dim, flexShrink: 0 }}>
+                <dev.Icon size={24} />
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 17, fontWeight: 700 }}>{dev.name}</div>
+                <div style={{ fontSize: 13, color: P.faint }}>No conectado</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>{dev.blurb}</div>
+            <div>
+              <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Qué va a traer</div>
+              <Card style={{ padding: "12px 14px" }}>
+                {dev.syncs.map((s, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 14.5, lineHeight: 1.5, marginBottom: i < dev.syncs.length - 1 ? 8 : 0 }}>
+                    <span style={{ color: P.ember2, flexShrink: 0 }}>•</span><span>{s}</span>
+                  </div>
+                ))}
+              </Card>
+            </div>
+            <Btn kind="ember" onClick={() => toast && toast(`La conexión con ${dev.name} llega pronto — te avisamos apenas esté disponible.`)} style={{ width: "100%" }}>
+              <Bluetooth size={15} /> Conectar {dev.name}
+            </Btn>
+          </div>
+        )}
+      </Sheet>
+    </>
+  );
+};
+
 /* Hoja "Más": lo que salió de la barra de pestañas. Herramientas de
    referencia, gestión (alumnos/equipo) y los ajustes de apariencia —
    agrupados en filas de sistema, como los Ajustes de iOS. */
-const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, viewMode, onChangeViewMode, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, viewMode, onChangeViewMode, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices }) => {
   const [theme, setTheme] = useTheme();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
@@ -12350,7 +12451,8 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
       <SettingGroup label="Herramientas">
         <SettingRow Icon={Timer} label="Temporizador" hint="Intervalos, cuenta regresiva y cronómetro" onClick={() => onOpenUtility("timer")} />
         <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} last={mode === "coach"} />
-        {mode === "alumno" && <SettingRow Icon={Calendar} label="Agenda" hint="Tu semana y tus turnos reservados" onClick={() => onOpenUtility("agenda")} last />}
+        {mode === "alumno" && <SettingRow Icon={Calendar} label="Agenda" hint="Tu semana y tus turnos reservados" onClick={() => onOpenUtility("agenda")} />}
+        {mode === "alumno" && <SettingRow Icon={Watch} label="Dispositivos" hint="Relojes, básculas y apps de salud" onClick={onOpenDevices} last />}
       </SettingGroup>
 
       {mode === "coach" && (
@@ -13073,6 +13175,7 @@ const App = () => {
   // pestaña para que volver a ella recuerde dónde estabas.
   const [section, setSection] = useState({});
   const [moreOpen, setMoreOpen] = useState(false);
+  const [devicesOpen, setDevicesOpen] = useState(false);
   // Pantalla de utilidad abierta desde "Más" (temporizador, guía, agenda
   // del alumno). Se muestra por encima de la pestaña actual con una
   // cabecera de "volver", en vez de ocupar un lugar en la barra.
@@ -13563,7 +13666,9 @@ const App = () => {
         onOpenUtility={(id) => { setMoreOpen(false); setUtility(id); }}
         onOpenRoster={() => { setMoreOpen(false); setRosterOpen(true); }}
         onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
+        onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
         onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }} />
+      <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast} />
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
         onEnter={(m, id) => { setRosterOpen(false); openIdentity(m, id, roster, myTeamId); }}
         onAdd={() => addStudent(false)} onRename={renameStudent} onRemove={(s) => setConfirmDel(s)} />
