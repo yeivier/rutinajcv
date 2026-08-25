@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v138";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v139";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4620,17 +4620,26 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
       if (page.group) return;
       if (nextPage) go(1); else setConfirmFinish(true);
     };
+    // Si la próxima página es de OTRO ejercicio (se acaban de terminar
+    // todas las series del actual, o se venía de una superserie), el
+    // nombre del ejercicio va primero — no solo el tipo/reps de la
+    // serie, que por sí solo no dice a qué ejercicio saltar. Cuando es
+    // la siguiente serie del MISMO ejercicio, el nombre ya se sabe (está
+    // en pantalla hace un momento) y no hace falta repetirlo.
     let nextLabel = null;
     if (nextPage) {
       if (nextPage.group) {
-        nextLabel = `${GROUP_KINDS[nextPage.kind].label} · Ronda ${nextPage.roundIdx + 1}/${nextPage.rounds}`;
+        const names = nextPage.members.map((mi) => exs[mi].name).join(" + ");
+        nextLabel = `${GROUP_KINDS[nextPage.kind].label} · ${names}`;
       } else {
-        const ns = exs[nextPage.ei].sets[nextPage.si];
+        const nx = exs[nextPage.ei];
+        const ns = nx.sets[nextPage.si];
         const t = SET_TYPES[ns.type] || SET_TYPES.normal;
         const parts = [t.short];
         if (ns.repsT) parts.push(`${ns.repsT} reps`);
         if (PCT_TYPES.includes(ns.type) && ns.pct != null && ns.pct !== "") parts.push(`−${ns.pct}%`);
-        nextLabel = parts.join(" · ");
+        const sameExercise = !page.group && page.ei === nextPage.ei;
+        nextLabel = sameExercise ? parts.join(" · ") : `${nx.name} · ${parts.join(" · ")}`;
       }
     }
     return (
