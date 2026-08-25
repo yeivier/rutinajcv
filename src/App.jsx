@@ -8,7 +8,7 @@ import {
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText,
-  UserPlus, DollarSign
+  UserPlus, DollarSign, Droplet, Smile
 } from "lucide-react";
 
 /* ============================================================
@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v151";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v152";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1470,6 +1470,25 @@ const lbToKg = (lbVal) => lbVal * KG_PER_LB;
 // igual que kg().
 const fmtUnit = (n) => { const r = Math.round(n * 10) / 10; return kg(r); };
 
+// Calculadora de discos (S3 del handoff, Atlas): a partir de un peso
+// objetivo y una barra, cuántos discos van por lado. Set estándar
+// olímpico en kg; algoritmo goloso (de mayor a menor disco) — funciona
+// para cualquier peso alcanzable con el set y avisa el resto si el
+// peso no es exacto (p.ej. pide 83 kg con una barra de 20: sobran 1,5 kg
+// que ningún disco cubre).
+const PLATE_SET_KG = [25, 20, 15, 10, 5, 2.5, 1.25];
+const BAR_OPTIONS_KG = [20, 15, 10];
+function plateBreakdown(targetKg, barKg, plates = PLATE_SET_KG) {
+  let perSide = Math.max(0, (targetKg - barKg) / 2);
+  const used = [];
+  for (const p of plates) {
+    let count = 0;
+    while (perSide >= p - 0.001) { perSide -= p; count++; }
+    if (count > 0) used.push({ plate: p, count });
+  }
+  return { used, remainder: Math.max(0, Math.round(perSide * 100) / 100) };
+}
+
 let WEIGHT_UNIT = "kg";
 try { WEIGHT_UNIT = window.localStorage.getItem("forja-weight-unit") || "kg"; } catch {}
 const weightUnitListeners = new Set();
@@ -2534,6 +2553,54 @@ const RingProgress = ({ pct, size = 56, stroke = 5, children }) => {
           strokeDasharray={c} strokeDashoffset={c - (clamped / 100) * c} style={{ transition: `stroke-dashoffset 700ms ${EASE_STD}` }} />
       </svg>
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>{children}</div>
+    </div>
+  );
+};
+
+// Cuerpo de la calculadora de discos, compartido entre Atlas (S3) y el
+// chip "Discos" de Focus Mode — mismo cálculo (plateBreakdown), dos
+// puntos de entrada. Cada disco se ve como una placa apilada con su
+// peso, para leerse de un vistazo sin hacer cuentas.
+// kg() redondea a 1 decimal para pesos normales — con discos de 1,25 kg
+// (estándar) eso da "1,3" y confunde. Acá se muestran los decimales
+// exactos que tenga el número (2 máximo), sin el redondeo de kg().
+const platekg = (n) => {
+  const r = Math.round(n * 100) / 100;
+  return String(r).replace(".", ",");
+};
+const PlateCalcBody = ({ initial }) => {
+  const [target, setTarget] = useState(initial != null ? String(initial) : "");
+  const [bar, setBar] = useState(BAR_OPTIONS_KG[0]);
+  const v = numN(target);
+  const { used, remainder } = v > 0 ? plateBreakdown(v, bar) : { used: [], remainder: 0 };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input type="number" inputMode="decimal" step="any" placeholder="Peso total (kg)" value={target} onChange={(e) => setTarget(e.target.value)}
+          style={{ flex: 1, padding: "11px 12px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 15 }} />
+        <select value={bar} onChange={(e) => setBar(+e.target.value)} style={{ padding: "11px 10px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }}>
+          {BAR_OPTIONS_KG.map((b) => <option key={b} value={b}>Barra {b} kg</option>)}
+        </select>
+      </div>
+      {v > 0 && (
+        used.length === 0 ? (
+          <div style={{ fontSize: 13.5, color: P.faint2 }}>Solo la barra ({bar} kg) — no alcanza para ningún disco por lado.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontSize: 13, color: P.faint2 }}>Por lado (barra {bar} kg):</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {used.map(({ plate, count }) => (
+                <div key={plate} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: PLATE_GRAD, color: PLATE_FG,
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>{platekg(plate)}</div>
+                  <div style={{ fontSize: 12.5, color: P.faint2 }}>×{count}</div>
+                </div>
+              ))}
+            </div>
+            {remainder > 0 && <div style={{ fontSize: 12.5, color: P.faint2 }}>Sobran {platekg(remainder)} kg por lado que ningún disco cubre exacto.</div>}
+          </div>
+        )
+      )}
     </div>
   );
 };
@@ -4868,7 +4935,13 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
                   ))}
                 </div>
               </Card>
-              <div style={{ fontSize: 12, color: P.faint2, lineHeight: 1.5 }}>e1RM es una estimación basada en peso, repeticiones y RIR (fórmula de Epley ajustada). No reemplaza un test real. La ficha de discos por barra llega más adelante — por ahora usa el % del top set.</div>
+
+              <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Discos</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>Discos por barra</div>
+                <PlateCalcBody initial={(() => { if (workW != null) return workW; const ar = block.rows[activeRowIdx]; const w = ar ? num(exs[ar.ei].sets[ar.si].weight) : 0; return w > 0 ? w : null; })()} />
+              </Card>
+              <div style={{ fontSize: 12, color: P.faint2, lineHeight: 1.5 }}>e1RM es una estimación basada en peso, repeticiones y RIR (fórmula de Epley ajustada). No reemplaza un test real.</div>
             </div>
           );
         })()}
@@ -5814,6 +5887,15 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const [ciWeight, setCiWeight] = useState("");
   const [weighInOpen, setWeighInOpen] = useState(false);
   const [measureOpen, setMeasureOpen] = useState(false);
+  // "Hoy" (S1 del handoff): sueño/agua/pasos, mismo mecanismo y mismos
+  // arreglos de history que ya usa Progreso · Cuerpo (addDailyMetric) —
+  // el check-in solo agrega otro lugar desde donde registrar el mismo dato.
+  const [ciSleep, setCiSleep] = useState("");
+  const [sleepOpen, setSleepOpen] = useState(false);
+  const [ciWater, setCiWater] = useState("");
+  const [waterOpen, setWaterOpen] = useState(false);
+  const [ciSteps, setCiSteps] = useState("");
+  const [stepsOpen, setStepsOpen] = useState(false);
   // Recuperación
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [rec, setRec] = useState({});
@@ -5832,10 +5914,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const [posePosterior, setPosePosterior] = useState(null);
   const [poseVideos, setPoseVideos] = useState([]);
   const [poseSaving, setPoseSaving] = useState(false);
-  // Dispositivos (mismo panel que Más → Herramientas → Dispositivos)
-  const [devicesOpen, setDevicesOpen] = useState(false);
   // Comentario final + envío general del check-in
-  const [finalCommentOpen, setFinalCommentOpen] = useState(false);
   const [finalComment, setFinalComment] = useState("");
   const [ciSending, setCiSending] = useState(false);
   const d = useTodayData(plan, history, allowedRoutines);
@@ -5858,6 +5937,9 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const lastRecovery = (history.recovery || [])[(history.recovery || []).length - 1];
   const recoveryToday = lastRecovery && (lastRecovery.date || "").slice(0, 10) === todayKey ? lastRecovery : null;
   const poseToday = (history.bodyPhotos || []).filter((p) => (p.date || "").slice(0, 10) === todayKey);
+  const sleepToday = (history.sleep || []).find((s) => (s.date || "").slice(0, 10) === todayKey);
+  const waterToday = (history.water || []).find((w) => (w.date || "").slice(0, 10) === todayKey);
+  const stepsToday = (history.steps || []).find((s) => (s.date || "").slice(0, 10) === todayKey);
   // Ficha "Check-in" de la grilla 2×2: cuántas de las 4 secciones ya
   // tienen algo registrado hoy — mismo criterio que las filas de abajo.
   const ciDoneCount = [!!bwToday, !!measureToday, !!recoveryToday, poseToday.length > 0].filter(Boolean).length;
@@ -5886,6 +5968,34 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     setCiWeight("");
     setWeighInOpen(false);
     await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nPeso en ayunas: ${kg(v)} kg`);
+  };
+
+  const saveSleepCI = async () => {
+    const v = num(ciSleep);
+    if (!v || v <= 0 || !saveHistory) return;
+    const h = structuredClone(history);
+    h.sleep = [...(h.sleep || []), { date: todayISO(), hours: v }];
+    saveHistory(h);
+    setCiSleep(""); setSleepOpen(false);
+    await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nSueño: ${kg(v)} h`);
+  };
+  const saveWaterCI = async () => {
+    const v = num(ciWater);
+    if (!v || v <= 0 || !saveHistory) return;
+    const h = structuredClone(history);
+    h.water = [...(h.water || []), { date: todayISO(), liters: v }];
+    saveHistory(h);
+    setCiWater(""); setWaterOpen(false);
+    await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nAgua: ${kg(v)} L`);
+  };
+  const saveStepsCI = async () => {
+    const v = num(ciSteps);
+    if (!v || v <= 0 || !saveHistory) return;
+    const h = structuredClone(history);
+    h.steps = [...(h.steps || []), { date: todayISO(), count: v }];
+    saveHistory(h);
+    setCiSteps(""); setStepsOpen(false);
+    await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nPasos: ${Math.round(v).toLocaleString("es-CL")}`);
   };
 
   const saveMeasurements = async (values) => {
@@ -6176,14 +6286,22 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           derecha) que abre su propia hoja — no todo el contenido expandido
           de una vez. Se guarda por sección y le llega a tu coach directo al
           chat, sin tener que completar las 4 en la misma visita. */}
+      {/* S1 del handoff: tres grupos de filas (Hoy / Cómo te sientes /
+          Cuerpo) en vez de las 5 secciones numeradas de antes. "Dispositivos"
+          se saca de acá — sigue entera en Más → Herramientas, esta hoja no
+          era su único acceso. "Comentario final" pasa de fila-que-abre-hoja
+          a un textarea directo antes de enviar, un toque menos para lo
+          mismo. Todo lo demás escribe en los mismos arreglos de history de
+          siempre (bodyweight/sleep/water/steps/measurements/recovery/
+          bodyPhotos) — nada nuevo del lado del dato, solo dónde se toca. */}
       <Sheet open={checkinOpen} onClose={() => setCheckinOpen(false)} title="Check-in" tall>
         <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-          {/* 1 · Estado físico */}
+          {/* Hoy */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <MonoLabel>1 · Estado físico</MonoLabel>
+            <MonoLabel>Hoy</MonoLabel>
             <MonoCard style={{ padding: "2px 14px" }}>
-              <CheckinRow Icon={PersonStanding} title="Peso en ayunas"
-                detail={bwToday ? `${kg(bwToday.kg)} kg · registrado hoy` : "Tu peso corporal, en ayunas y por la mañana"}
+              <CheckinRow Icon={PersonStanding} title="Peso"
+                detail={bwToday ? `${kg(bwToday.kg)} kg` : "En ayunas, por la mañana"}
                 status={bwToday ? "done" : "pending"} onClick={() => setWeighInOpen((v) => !v)} />
               {weighInOpen && (
                 <div style={{ display: "flex", gap: 8, padding: "0 0 14px" }}>
@@ -6193,63 +6311,96 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
                 </div>
               )}
               <div style={{ height: 1, background: MONO.line }} />
-              <CheckinRow Icon={PersonStanding} title="Medidas corporales"
+              <CheckinRow Icon={Moon} title="Sueño"
+                detail={sleepToday ? `${kg(sleepToday.hours)} h` : "Horas dormidas anoche"}
+                status={sleepToday ? "done" : "pending"} onClick={() => setSleepOpen((v) => !v)} />
+              {sleepOpen && (
+                <div style={{ display: "flex", gap: 8, padding: "0 0 14px" }}>
+                  <input type="number" inputMode="decimal" step="any" placeholder="Horas" value={ciSleep} onChange={(e) => setCiSleep(e.target.value)}
+                    style={{ flex: 1, padding: "10px 12px", borderRadius: 11, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+                  <button onClick={saveSleepCI} style={{ padding: "10px 15px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
+                </div>
+              )}
+              <div style={{ height: 1, background: MONO.line }} />
+              <CheckinRow Icon={Droplet} title="Agua"
+                detail={waterToday ? `${kg(waterToday.liters)} L` : "Litros de hoy"}
+                status={waterToday ? "done" : "pending"} onClick={() => setWaterOpen((v) => !v)} />
+              {waterOpen && (
+                <div style={{ display: "flex", gap: 8, padding: "0 0 14px" }}>
+                  <input type="number" inputMode="decimal" step="any" placeholder="Litros" value={ciWater} onChange={(e) => setCiWater(e.target.value)}
+                    style={{ flex: 1, padding: "10px 12px", borderRadius: 11, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+                  <button onClick={saveWaterCI} style={{ padding: "10px 15px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
+                </div>
+              )}
+              <div style={{ height: 1, background: MONO.line }} />
+              <CheckinRow Icon={PersonStanding} title="Pasos"
+                detail={stepsToday ? Math.round(stepsToday.count).toLocaleString("es-CL") : "Pasos de hoy"}
+                status={stepsToday ? "done" : "pending"} onClick={() => setStepsOpen((v) => !v)} />
+              {stepsOpen && (
+                <div style={{ display: "flex", gap: 8, padding: "0 0 14px" }}>
+                  <input type="number" inputMode="numeric" placeholder="Pasos" value={ciSteps} onChange={(e) => setCiSteps(e.target.value)}
+                    style={{ flex: 1, padding: "10px 12px", borderRadius: 11, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
+                  <button onClick={saveStepsCI} style={{ padding: "10px 15px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
+                </div>
+              )}
+            </MonoCard>
+          </div>
+
+          {/* Cómo te sientes: 3 de los 10 campos del cuestionario completo
+              como filas directas — tocar cualquiera abre el cuestionario
+              entero (con los otros 7: hambre, digestión, depleción…), no se
+              pierde ninguno, solo cambia cuáles se ven de entrada. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <MonoLabel>Cómo te sientes</MonoLabel>
+            <MonoCard style={{ padding: "2px 14px" }}>
+              <CheckinRow Icon={Zap} title="Energía"
+                detail={recoveryToday && recoveryToday.scores.energia != null ? `${recoveryToday.scores.energia}/10` : "General"}
+                status={recoveryToday && recoveryToday.scores.energia != null ? "done" : "pending"} onClick={() => setRecoveryOpen(true)} />
+              <div style={{ height: 1, background: MONO.line }} />
+              <CheckinRow Icon={Plus} title="Dolor muscular"
+                detail={recoveryToday && recoveryToday.scores.dolor != null ? `${recoveryToday.scores.dolor}/10` : "DOMS"}
+                status={recoveryToday && recoveryToday.scores.dolor != null ? "done" : "pending"} onClick={() => setRecoveryOpen(true)} />
+              <div style={{ height: 1, background: MONO.line }} />
+              <CheckinRow Icon={Smile} title="Estrés"
+                detail={recoveryToday && recoveryToday.scores.estres != null ? `${recoveryToday.scores.estres}/10` : "Sistema nervioso"}
+                status={recoveryToday && recoveryToday.scores.estres != null ? "done" : "pending"} onClick={() => setRecoveryOpen(true)} />
+            </MonoCard>
+          </div>
+
+          {/* Cuerpo */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <MonoLabel>Cuerpo</MonoLabel>
+            <MonoCard style={{ padding: "2px 14px" }}>
+              <CheckinRow Icon={PersonStanding} title="Medidas"
                 detail={measureToday ? "Registradas hoy" : lastMeasure ? `Última: ${daysAgoLabel(lastMeasure.date)}` : "Circunferencias, anchos y % de grasa"}
                 status={measureToday ? "done" : "pending"} onClick={() => setMeasureOpen(true)} />
-            </MonoCard>
-          </div>
-
-          {/* 2 · Recuperación y estado */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <MonoLabel>2 · Recuperación y estado</MonoLabel>
-            <MonoCard style={{ padding: "2px 14px" }}>
-              <CheckinRow Icon={Heart} title="Cuestionario 1–10"
-                detail={recoveryToday ? "Enviado hoy" : "Energía, sueño, dolor, estrés, hambre, digestión y depleción"}
-                status={recoveryToday ? "done" : "pending"} onClick={() => setRecoveryOpen(true)} />
-            </MonoCard>
-          </div>
-
-          {/* 3 · Dispositivos */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <MonoLabel>3 · Dispositivos</MonoLabel>
-            <MonoCard style={{ padding: "2px 14px" }}>
-              <CheckinRow Icon={Watch} title="Salud y wearables" detail="Garmin · WHOOP · Apple Health · Oura"
-                status="none" onClick={() => setDevicesOpen(true)} />
-            </MonoCard>
-          </div>
-
-          {/* 4 · Fotos y posing */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <MonoLabel>4 · Fotos y posing</MonoLabel>
-            <MonoCard style={{ padding: "2px 14px" }}>
-              <CheckinRow Icon={Camera} title="Fotos + videos"
-                detail={poseToday.length > 0 ? `${poseToday.length} enviado${poseToday.length !== 1 ? "s" : ""} hoy` : "Seguimiento físico y poses requeridas"}
+              <div style={{ height: 1, background: MONO.line }} />
+              <CheckinRow Icon={Camera} title="Fotos de progreso"
+                detail={poseToday.length > 0 ? `${poseToday.length} enviada${poseToday.length !== 1 ? "s" : ""} hoy` : "Frontal, lateral, posterior + video"}
                 status={poseToday.length > 0 ? "done" : "pending"} onClick={() => setPosingOpen(true)} />
             </MonoCard>
+            <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+              <PosingPhotoSlot label="Frontal" attachId={poseFrontal} onChange={setPoseFrontal} onError={setCiError} />
+              <PosingPhotoSlot label="Lateral" attachId={poseLateral} onChange={setPoseLateral} onError={setCiError} />
+              <PosingPhotoSlot label="Posterior" attachId={posePosterior} onChange={setPosePosterior} onError={setCiError} />
+            </div>
+            {(poseFrontal || poseLateral || posePosterior) && (
+              <Btn kind="line" small onClick={savePosing} disabled={poseSaving} style={{ width: "100%", marginTop: 8 }}>
+                {poseSaving ? "Guardando…" : "Guardar fotos"}
+              </Btn>
+            )}
           </div>
 
-          {/* 5 · Comentario final */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <MonoLabel>5 · Comentario final</MonoLabel>
-            <MonoCard style={{ padding: "2px 14px" }}>
-              <CheckinRow Icon={FileText} title="¿Hay algo que tu coach debería saber?"
-                detail={finalComment.trim() ? finalComment.trim() : "Comentarios relevantes, sensaciones o contexto adicional"}
-                status="none" onClick={() => setFinalCommentOpen(true)} />
-            </MonoCard>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <MonoLabel>¿Algo que tu coach debería saber?</MonoLabel>
+            <Txt value={finalComment} onChange={(e) => setFinalComment(e.target.value)} placeholder="Comentarios, sensaciones o contexto adicional (opcional)…" rows={3}
+              style={{ borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
           </div>
 
+          {ciError && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4 }}>{ciError}</div>}
           <Btn kind="ember" onClick={sendCheckinSummary} disabled={ciSending} style={{ width: "100%" }}>
-            {ciSending ? "Enviando…" : "Enviar check-in"}
+            {ciSending ? "Enviando…" : "Enviar al coach"}
           </Btn>
-        </div>
-      </Sheet>
-
-      <Sheet open={finalCommentOpen} onClose={() => setFinalCommentOpen(false)} title="Comentario final">
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.5 }}>Cualquier cosa que las secciones de arriba no reflejen — se manda junto con el resto al tocar «Enviar check-in».</div>
-          <Txt value={finalComment} onChange={(e) => setFinalComment(e.target.value)} placeholder="Comentarios relevantes, sensaciones o contexto adicional…" rows={5}
-            style={{ borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-          <Btn kind="ember" onClick={() => setFinalCommentOpen(false)} style={{ width: "100%" }}>Listo</Btn>
         </div>
       </Sheet>
 
@@ -6315,8 +6466,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           </Btn>
         </div>
       </Sheet>
-
-      <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast} />
     </div>
   );
 };
@@ -12720,23 +12869,52 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
   );
 };
 
+// S6 del handoff: "Herramientas" fusiona Temporizador + Guía en una sola
+// hoja — acá se hace agregando una vista previa de la guía (4 términos +
+// "Ver todo") debajo del temporizador, sin sacar nada de lo que ya
+// había (Intervalos/Cronómetro siguen enteros en el segmentado, y
+// "Guía de términos" sigue como ficha aparte en Más → Herramientas
+// para quien quiera entrar directo a buscar un término).
+const TIMER_GUIDE_PREVIEW = ["rir", "topset", "backoff", "tempo"];
 const TimerTab = () => {
   const [sub, setSub] = useState("interval");
+  const [guideOpen, setGuideOpen] = useState(false);
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Timer</h1>
-      <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Cronómetro, temporizador e intervalos de trabajo/descanso. Suena y vibra en cada cambio.</div>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 18 }}>
         {[["interval", "Intervalos"], ["count", "Temporizador"], ["stop", "Cronómetro"]].map(([id, l]) => (
           <button key={id} onClick={() => setSub(id)} style={{ flex: 1, padding: "9px 4px", borderRadius: 10, fontSize: 14, fontWeight: 600,
             background: sub === id ? P.s3 : "transparent", color: sub === id ? P.text : P.faint, border: `1px solid ${sub === id ? P.line : "transparent"}` }}>{l}</button>
         ))}
       </div>
-      <Card style={{ padding: "18px 16px" }}>
+      <Card style={{ padding: "18px 16px", marginBottom: 20 }}>
         {sub === "stop" && <Stopwatch />}
         {sub === "count" && <Countdown />}
         {sub === "interval" && <IntervalTimer />}
       </Card>
+
+      <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Guía de términos</div>
+      <Card style={{ overflow: "hidden" }}>
+        {TIMER_GUIDE_PREVIEW.map((id, i) => {
+          const g = GLOSSARY.find((x) => x.id === id);
+          if (!g) return null;
+          return (
+            <button key={id} onClick={() => setGuideOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+              padding: "13px 14px", borderBottom: `1px solid ${P.line}` }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{g.term.split(" (")[0]}</span>
+              <span style={{ fontSize: 13.5, color: P.faint, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{g.def.split(".")[0]}</span>
+            </button>
+          );
+        })}
+        <button onClick={() => setGuideOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "13px 14px" }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: P.text }}>Ver todo</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13.5, color: P.faint }}>{GLOSSARY.length} términos <ChevronRight size={16} color={P.faint} /></span>
+        </button>
+      </Card>
+
+      <Sheet open={guideOpen} onClose={() => setGuideOpen(false)} title="Guía de términos" tall>
+        <GlossaryBody showTopButton />
+      </Sheet>
     </div>
   );
 };
@@ -13075,6 +13253,166 @@ const UTILITY_SCREENS = {
 const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "mas"] };
 const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
 
+/* ============================================================
+   S2 · Competition Prep (handoff): cuenta atrás a la fecha de
+   competencia + categoría + tips de peak week. No inventa datos
+   nuevos — todo sale de plan.athlete.compDate/category (ya existían
+   en AthleteForm, del lado coach) y de BB_CATEGORIES/BB_PEAK_WEEK (ya
+   existían para el contexto del agente IA). El "Off/Prep/Peak/Post"
+   segmentado del mockup asume una taxonomía de fase que el dato no
+   tiene (BB_PHASES es volumen/definición/mantención/prep, otra cosa) —
+   en vez de inventarla, el segmentado acá organiza el CONTENIDO de la
+   hoja (Categoría / Peak week), no un estado. La categoría es de solo
+   lectura para el alumno (la define el coach en Ficha del atleta): acá
+   se explica cada una y se marca la elegida, no se puede cambiar.
+   El % del anillo asume una prep estándar de 16 semanas (el punto medio
+   de las 16-24 que ya menciona BB_PHASES.prep) — es una referencia, no
+   un dato guardado.
+   ============================================================ */
+const COMP_PREP_STANDARD_WEEKS = 16;
+const CompetitionPrepSheet = ({ open, onClose, plan }) => {
+  const [sub, setSub] = useState("categoria");
+  const a = plan.athlete || {};
+  const compDate = a.compDate ? parseDate(a.compDate) : null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const daysLeft = compDate ? Math.round((compDate - today) / 86400000) : null;
+  const weeksLeft = daysLeft != null ? Math.max(0, Math.ceil(daysLeft / 7)) : null;
+  const pct = daysLeft == null ? 0 : Math.max(0, Math.min(100, Math.round(100 - (daysLeft / (COMP_PREP_STANDARD_WEEKS * 7)) * 100)));
+  const cat = BB_CATEGORIES.find((c) => c.id === a.category);
+  return (
+    <Sheet open={open} onClose={onClose} title="Competition Prep" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {compDate && daysLeft != null && daysLeft >= 0 ? (
+          <Card style={{ padding: 18, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 30, fontWeight: 700, color: P.text }}>{weeksLeft} sem.</div>
+              <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Para el {fmtDateFull(a.compDate)}</div>
+            </div>
+            <RingProgress pct={pct} size={64} stroke={6}><span style={{ fontSize: 14, fontWeight: 700 }}>{pct}%</span></RingProgress>
+          </Card>
+        ) : (
+          <Card style={{ padding: 18 }}>
+            <div style={{ fontSize: 14.5, color: P.faint }}>Tu coach todavía no cargó una fecha de competencia.</div>
+          </Card>
+        )}
+
+        <SectionSwitch value={sub} onChange={setSub} items={[{ id: "categoria", label: "Categoría" }, { id: "peak", label: "Peak week" }]} />
+
+        {sub === "categoria" && (
+          <Card style={{ overflow: "hidden" }}>
+            {BB_CATEGORIES.map((c, i) => (
+              <div key={c.id} style={{ padding: "13px 14px", borderBottom: i === BB_CATEGORIES.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Trophy size={15} color={P.faint2} />
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, color: P.text }}>{c.label}</div>
+                  {cat && cat.id === c.id && <span style={{ fontSize: 12.5, fontWeight: 700, color: PLATE_FG, background: PLATE_GRAD, borderRadius: 8, padding: "4px 9px", flexShrink: 0 }}>Elegida</span>}
+                </div>
+                <div style={{ fontSize: 13, color: P.faint2, marginTop: 4, marginLeft: 46, lineHeight: 1.4 }}>{c.focus}</div>
+              </div>
+            ))}
+          </Card>
+        )}
+        {sub === "peak" && (
+          <Card style={{ overflow: "hidden" }}>
+            {BB_PEAK_WEEK.map((tip, i) => (
+              <div key={i} style={{ display: "flex", gap: 12, padding: "13px 14px", borderBottom: i === BB_PEAK_WEEK.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: P.faint2 }}>{i + 1}</span>
+                <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.45, paddingTop: 6 }}>{tip}</div>
+              </div>
+            ))}
+          </Card>
+        )}
+      </div>
+    </Sheet>
+  );
+};
+
+/* ============================================================
+   S3 · Atlas de ejercicios (handoff): catálogo completo de la
+   biblioteca (library, ya existente) con buscador y filtro por
+   músculo — antes ExerciseInfoSheet solo se abría contextualmente
+   desde una rutina o sesión, nunca había una pantalla de "ver todos".
+   "Calculadora de discos" es la misma PlateCalcBody del chip "Discos"
+   de Focus Mode (mismo cálculo, dos entradas); "Guía de términos"
+   reusa GlossaryBody tal cual ya se usa desde Más → Herramientas.
+   ============================================================ */
+const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
+  const [q, setQ] = useState("");
+  const [muscle, setMuscle] = useState("Todos");
+  const [openEx, setOpenEx] = useState(null);
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  // El Atlas no puede depender solo de "library": muchos coaches nunca la
+  // usan y cargan los ejercicios directo en cada día de la rutina — sin
+  // esto, el Atlas quedaría vacío para la mayoría de los alumnos reales.
+  // Se junta con lo que ya aparece en la rutina actual, sin duplicar por
+  // nombre (mismo criterio que ya usa ActivityTab para "todos los
+  // ejercicios conocidos").
+  const allExercises = useMemo(() => {
+    const seen = new Map();
+    (library || []).forEach((e) => seen.set(e.name.trim().toLowerCase(), e));
+    (plan?.days || []).forEach((d) => (d.exs || []).forEach((e) => {
+      const k = e.name.trim().toLowerCase();
+      if (!seen.has(k)) seen.set(k, e);
+    }));
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  }, [library, plan]);
+  const musclesPresent = useMemo(() => ["Todos", ...MUSCLES.filter((m) => allExercises.some((e) => e.muscle === m))], [allExercises]);
+  const filtered = allExercises.filter((e) =>
+    (muscle === "Todos" || e.muscle === muscle) && e.name.toLowerCase().includes(q.trim().toLowerCase()));
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Atlas" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ position: "relative" }}>
+          <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar ejercicio" aria-label="Buscar ejercicio"
+            style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, border: "none" }} />
+        </div>
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          {musclesPresent.map((m) => (
+            <button key={m} onClick={() => setMuscle(m)} style={{ flexShrink: 0, padding: "7px 13px", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
+              background: muscle === m ? P.s3 : "transparent", border: `1px solid ${muscle === m ? P.line : "transparent"}`, color: muscle === m ? P.text : P.faint }}>{m}</button>
+          ))}
+        </div>
+        {filtered.length === 0 ? (
+          <Empty icon={Dumbbell} title="Sin ejercicios" body="Tu coach todavía no cargó ejercicios en la biblioteca." />
+        ) : (
+          <Card style={{ overflow: "hidden" }}>
+            {filtered.map((e, i) => (
+              <button key={e.id} onClick={() => setOpenEx(e)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+                padding: "13px 14px", borderBottom: i === filtered.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Dumbbell size={15} color={P.faint2} />
+                </span>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</div>
+                <div style={{ fontSize: 13.5, color: P.faint, flexShrink: 0 }}>{e.muscle}</div>
+                <ChevronRight size={16} color={P.faint} />
+              </button>
+            ))}
+          </Card>
+        )}
+
+        <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "6px 2px 0" }}>Herramientas</div>
+        <Card style={{ overflow: "hidden" }}>
+          <SettingRow Icon={Calculator} label="Calculadora de discos" onClick={() => setCalcOpen(true)} />
+          <SettingRow Icon={BookOpen} label="Guía de términos" onClick={() => setGuideOpen(true)} last />
+        </Card>
+      </div>
+
+      <ExerciseInfoSheet ex={openEx} open={!!openEx} onClose={() => setOpenEx(null)} />
+      <Sheet open={calcOpen} onClose={() => setCalcOpen(false)} title="Calculadora de discos">
+        <PlateCalcBody />
+      </Sheet>
+      <Sheet open={guideOpen} onClose={() => setGuideOpen(false)} title="Guía de términos" tall>
+        <GlossaryBody showTopButton />
+      </Sheet>
+    </Sheet>
+  );
+};
+
 /* Pestaña "Más" (···): agrupa lo que antes vivía repartido — mensajería,
    Check-in/Posing (Culturismo) y las herramientas de referencia — en las
    mismas secciones del boceto original. Los ajustes finos (tema, vista,
@@ -13082,14 +13420,10 @@ const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutri
    hoja que ya abre el avatar de la cabecera. */
 // A8 del handoff: grilla de 3 columnas, ficha = icono + nombre (sin
 // frase descriptiva). `kw` es texto SOLO para el buscador — nunca se
-// pinta, es lo único que sobrevive del antiguo `hint`. Atlas y
-// Competition Prep siguen en "muy pronto" acá: sus hojas (S3/S2) todavía
-// no existen — se conectan cuando se construyan, sin volver a tocar esta
-// grilla.
-const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat }) => {
+// pinta, es lo único que sobrevive del antiguo `hint`.
+const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas }) => {
   const [q, setQ] = useState("");
   const unread = useUnreadChatCount(sid, "alumno");
-  const soon = (label) => () => toast(`Muy pronto: ${label}`);
   const groups = [
     { label: "Comunicación", rows: [
       { key: "mensajes", Icon: MessageSquare, label: "Mensajes", kw: "habla coach chat", onClick: () => onOpenUtility("chat"), badge: unread > 0 ? unread : null },
@@ -13097,12 +13431,12 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
     { label: "Culturismo", rows: [
       { key: "checkin", Icon: Camera, label: "Check-in", kw: "peso recuperación fotos video", onClick: onOpenCheckin },
       { key: "posing", Icon: PersonStanding, label: "Posing", kw: "categoría poses", onClick: onOpenPosing },
-      { key: "prep", Icon: Trophy, label: "Competition Prep", kw: "fase categoría peak week", onClick: soon("Competition Prep") },
+      { key: "prep", Icon: Trophy, label: "Competition Prep", kw: "fase categoría peak week", onClick: onOpenCompPrep },
     ] },
     { label: "Herramientas", rows: [
       { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva cronómetro", onClick: () => onOpenUtility("timer") },
       { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "qué significa etiqueta rutina", onClick: () => onOpenUtility("guia") },
-      { key: "atlas", Icon: BarChart3, label: "Atlas", kw: "ejercicios buscar", onClick: soon("Atlas") },
+      { key: "atlas", Icon: BarChart3, label: "Atlas", kw: "ejercicios buscar", onClick: onOpenAtlas },
       { key: "ia", Icon: Sparkles, label: "Coach IA", kw: "asistente entrenamiento", onClick: onOpenAIChat },
       { key: "dispositivos", Icon: Watch, label: "Dispositivos", kw: "relojes básculas salud", onClick: onOpenDevices },
       { key: "agenda", Icon: Calendar, label: "Agenda", kw: "turnos reservas", onClick: () => onOpenUtility("agenda") },
@@ -13482,9 +13816,51 @@ const RosterSheet = ({ open, onClose, roster, sid, onEnter, onAdd, onRename, onR
 };
 
 /* ---- Gestión del equipo (solo Head Coach) ---- */
+// Áreas que de verdad distinguen un rol de otro (timer/guía/chat son
+// ALWAYS_TABS: edición para todos, no suman nada a la matriz). Mismos
+// ids que ya usa ROLE_META.tabAccess — la matriz no inventa datos
+// nuevos, solo hace legible la tabla que ya decidía accesos en silencio.
+const PERMISSION_AREAS = [
+  { id: "rutina", label: "Rutina" }, { id: "borradores", label: "Borradores" },
+  { id: "nutricion", label: "Nutrición" }, { id: "ia", label: "Coach IA" },
+  { id: "indicaciones", label: "Indicaciones" }, { id: "agenda", label: "Agenda" },
+  { id: "actividad", label: "Actividad" },
+];
+const permLabel = (v) => (v === "edit" ? "Edita" : v === "view" ? "Ve" : "Sin acceso");
+const permColor = (v) => (v === "edit" ? P.text : v === "view" ? P.faint : P.faint2);
+
+const RolePermissionsSheet = ({ role, onClose }) => {
+  const meta = role ? (ROLE_META[role] || ROLE_META.head_coach) : null;
+  return (
+    <Sheet open={!!role} onClose={onClose} title={meta ? meta.label : "Permisos"}>
+      {meta && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 13.5, color: P.faint, lineHeight: 1.4, marginBottom: 4 }}>{meta.short}</div>
+          {!meta.tabAccess ? (
+            <Card style={{ padding: "13px 14px" }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{meta.forceView ? "Ve todo, no puede editar nada" : "Acceso completo a todo"}</div>
+            </Card>
+          ) : (
+            <Card style={{ overflow: "hidden" }}>
+              {PERMISSION_AREAS.map((area, i) => (
+                <div key={area.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: i === PERMISSION_AREAS.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                  <span style={{ fontSize: 15, color: P.text }}>{area.label}</span>
+                  <span style={{ fontSize: 13.5, fontWeight: 600, color: permColor(meta.tabAccess[area.id]) }}>{permLabel(meta.tabAccess[area.id])}</span>
+                </div>
+              ))}
+            </Card>
+          )}
+        </div>
+      )}
+    </Sheet>
+  );
+};
+
 const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove }) => {
   const [name, setName] = useState("");
   const [role, setRole] = useState("coach_asistente");
+  const [openMember, setOpenMember] = useState(null); // team.members[i]
+  const [permRole, setPermRole] = useState(null); // id de rol para ver su matriz
   const add = () => {
     const n = name.trim();
     if (!n) return;
@@ -13493,38 +13869,70 @@ const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove }) => 
   };
   return (
     <Sheet open={open} onClose={onClose} title="Equipo" tall>
-      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 6, lineHeight: 1.45 }}>
-        Agrega a tu staff y decide qué puede ver y editar cada uno. Tú siempre eres Head Coach y no aparece en esta lista.
-      </div>
-      <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 14, lineHeight: 1.4, padding: "8px 10px", background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10 }}>
-        FORJA no pide contraseña: la identidad se elige tocando un nombre, igual que con los alumnos. Esto organiza quién ve/edita qué — no reemplaza cuidar quién tiene el dispositivo en la mano.
-      </div>
-      {team.members.length === 0 && (
-        <div style={{ textAlign: "center", padding: "20px 8px", color: P.faint, fontSize: 14 }}>Todavía no agregaste a nadie del equipo.</div>
-      )}
-      {team.members.map((m) => (
-        <Card key={m.id} style={{ padding: "12px 14px", marginBottom: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-            <div className="disp" style={{ width: 34, height: 34, borderRadius: 9, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.ember2, flexShrink: 0 }}>{m.name.slice(0, 1).toUpperCase()}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 15.5 }}>{m.name}</div>
-              <div style={{ fontSize: 12, color: P.faint }}>{(ROLE_META[m.role] || {}).short}</div>
-            </div>
-            <button onClick={() => onRemove(m)} style={{ color: P.faint, padding: 6 }}><Trash2 size={15} /></button>
-          </div>
-          <select value={m.role} onChange={(e) => onChangeRole(m.id, e.target.value)} style={{ width: "100%", padding: "8px 9px", fontSize: 14 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Head coach</div>
+          <Card style={{ padding: "13px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Users size={15} color={P.faint2} />
+            </span>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, color: P.text }}>Tú</div>
+            <button onClick={() => setPermRole("head_coach")} style={{ fontSize: 13.5, color: P.faint }}>Todos los permisos</button>
+          </Card>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Equipo · {team.members.length}</div>
+          {team.members.length === 0 ? (
+            <Card style={{ padding: 20, textAlign: "center" }}><div style={{ fontSize: 14, color: P.faint }}>Todavía no agregaste a nadie.</div></Card>
+          ) : (
+            <Card style={{ overflow: "hidden" }}>
+              {team.members.map((m, i) => (
+                <button key={m.id} onClick={() => setOpenMember(m)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+                  padding: "13px 14px", borderBottom: i === team.members.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                  <span className="disp" style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.faint2, flexShrink: 0 }}>{m.name.slice(0, 1).toUpperCase()}</span>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
+                  <div style={{ fontSize: 13.5, color: P.faint, flexShrink: 0 }}>{(ROLE_META[m.role] || {}).label}</div>
+                  <ChevronRight size={16} color={P.faint} />
+                </button>
+              ))}
+            </Card>
+          )}
+        </div>
+
+        <Card style={{ padding: 14 }}>
+          <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>Agregar al equipo</div>
+          <Inp value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" style={{ marginBottom: 8 }} />
+          <select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: "100%", padding: "9px 9px", fontSize: 14, marginBottom: 10 }}>
             {ROLE_ORDER.map((r) => <option key={r} value={r}>{ROLE_META[r].label}</option>)}
           </select>
+          <Btn kind="ember" onClick={add} disabled={!name.trim()} style={{ width: "100%" }}><Plus size={15} /> Agregar</Btn>
         </Card>
-      ))}
-      <Card style={{ padding: 14, marginTop: 6 }}>
-        <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>Agregar al equipo</div>
-        <Inp value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" style={{ marginBottom: 8 }} />
-        <select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: "100%", padding: "9px 9px", fontSize: 14, marginBottom: 10 }}>
-          {ROLE_ORDER.map((r) => <option key={r} value={r}>{ROLE_META[r].label}</option>)}
-        </select>
-        <Btn kind="ember" onClick={add} disabled={!name.trim()} style={{ width: "100%" }}><Plus size={15} /> Agregar</Btn>
-      </Card>
+
+        <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.4 }}>
+          FORJA no pide contraseña: la identidad se elige tocando un nombre, igual que con los alumnos.
+        </div>
+      </div>
+
+      <Sheet open={!!openMember} onClose={() => setOpenMember(null)} title={openMember ? openMember.name : ""}>
+        {openMember && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Field label="Rol">
+              <select value={openMember.role} onChange={(e) => { onChangeRole(openMember.id, e.target.value); setOpenMember({ ...openMember, role: e.target.value }); }}
+                style={{ width: "100%", padding: "9px 9px", fontSize: 14.5 }}>
+                {ROLE_ORDER.map((r) => <option key={r} value={r}>{ROLE_META[r].label}</option>)}
+              </select>
+            </Field>
+            <SettingGroup>
+              <SettingRow Icon={Lock} label="Ver permisos de este rol" onClick={() => setPermRole(openMember.role)} last />
+            </SettingGroup>
+            <Btn kind="line" onClick={() => { onRemove(openMember); setOpenMember(null); }} style={{ width: "100%", color: P.red }}>
+              <Trash2 size={15} /> Quitar del equipo
+            </Btn>
+          </div>
+        )}
+      </Sheet>
+      <RolePermissionsSheet role={permRole} onClose={() => setPermRole(null)} />
     </Sheet>
   );
 };
@@ -13790,6 +14198,8 @@ const App = () => {
   const [section, setSection] = useState({});
   const [moreOpen, setMoreOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
+  const [compPrepOpen, setCompPrepOpen] = useState(false);
+  const [atlasOpen, setAtlasOpen] = useState(false);
   // Pantalla de utilidad abierta desde "Más" (temporizador, guía, agenda
   // del alumno). Se muestra por encima de la pestaña actual con una
   // cabecera de "volver", en vez de ocupar un lugar en la barra.
@@ -14214,8 +14624,11 @@ const App = () => {
             onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             onOpenPosing={() => { setTab("hoy"); setAutoOpenPosing(true); }}
-            onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)} />
+            onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
+            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)} />
         )}
+        <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} />
+        <ExerciseAtlasSheet open={atlasOpen} onClose={() => setAtlasOpen(false)} library={library} plan={plan} />
         {/* Jerarquía: deshacer/rehacer son acciones corrientes (gris de
             sistema) y "Vaciar" es la destructiva, así que va en contorno,
             no en placa negra. Antes las tres eran placa: la acción más
