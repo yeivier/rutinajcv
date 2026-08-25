@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v143";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v144";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -12345,16 +12345,19 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
         {selDay ? (
           <div style={{ marginTop: 8 }}>
             <div style={{ fontWeight: 700, fontSize: 17 }}>{selDay.name}</div>
-            <div style={{ fontSize: 14, color: P.dim, marginTop: 2 }}>
+            <div style={{ fontSize: 14, color: P.dim, marginTop: 2, marginBottom: 6 }}>
               {selDay.exs.length} ejercicios · {selDay.exs.reduce((a, e) => a + e.sets.length, 0)} series
               {selSessions.length > 0 && ` · realizado ${selSessions.length}×`}
             </div>
-            <div style={{ marginTop: 10, display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {selDay.exs.slice(0, 6).map((e) => (
-                <span key={e.id} style={{ fontSize: 12.5, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "3px 7px" }}>{e.name}</span>
-              ))}
-              {selDay.exs.length > 6 && <span style={{ fontSize: 12.5, color: P.faint }}>+{selDay.exs.length - 6} más</span>}
-            </div>
+            {/* La lista de ejercicios arranca cerrada — antes se desplegaba
+                de entrada, apenas se tocaba un día con rutina. */}
+            <Collapsible title="Ver ejercicios">
+              <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {selDay.exs.map((e) => (
+                  <span key={e.id} style={{ fontSize: 12.5, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "3px 7px" }}>{e.name}</span>
+                ))}
+              </div>
+            </Collapsible>
             {isToday && onGoTrain && (
               <Btn kind="ember" onClick={onGoTrain} style={{ width: "100%", marginTop: 12 }}>
                 <Play size={15} /> Ir a entrenar
