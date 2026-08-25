@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v150";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v151";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8937,11 +8937,12 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
       </button>
 
       {topVol && (
-        <MonoCard style={{ padding: "13px 15px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            <MonoLabel>Volumen</MonoLabel>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: MONO.ink }}>{topVol.muscle} {fmtSets(topVol.sets)} series · {topVol.status}</div>
+        <MonoCard style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 13, color: MONO.inkFaint }}>Volumen {topVol.muscle.toLowerCase()}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: MONO.ink, marginTop: 1 }}>{fmtSets(topVol.sets)} series</div>
           </div>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: MONO.inkDim, background: MONO.chipBg, borderRadius: 8, padding: "5px 9px", flexShrink: 0, textTransform: "capitalize" }}>{topVol.status}</span>
         </MonoCard>
       )}
 
@@ -8969,11 +8970,8 @@ const RoutineTabMono = (props) => {
   }
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "calc(100vh - 220px)", padding: "18px 18px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: MONO.ink }}>Rutina</div>
-        <div style={{ fontSize: 13, color: MONO.inkFaint }}>Toca un día para editarlo. Crear días o rutinas nuevas sigue en el modo Clásico.</div>
-      </div>
+    <div style={{ padding: "10px 20px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
+      <ScreenTitle title="Rutina" sub={`${student ? student.name + " · " : ""}toca un día para editarlo`} />
       {groups.map((g) => (
         <div key={g.key} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <MonoLabel>{g.label}</MonoLabel>
@@ -11451,14 +11449,19 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 10, WebkitOverflowScrolling: "touch" }}>
+      {/* Las 9 especialidades como fichas de 3 columnas (C6 del handoff),
+          en vez de chips en fila horizontal — se elige una y el hilo
+          queda debajo, mismo comportamiento de siempre (BB_SPECIALTIES,
+          buildBBSystemPrompt), solo cambia cómo se ven. */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
         {BB_SPECIALTIES.map(({ id, label, Icon }) => {
           const on = specialty === id;
           return (
-            <button key={id} onClick={() => setSpecialty(id)} style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
-              padding: "7px 11px", borderRadius: 10, fontSize: 13.5, fontWeight: 600,
-              background: on ? `${P.s4}` : P.s2, border: `1px solid ${on ? `${P.dim}` : P.line}`, color: on ? P.ember2 : P.dim }}>
-              <Icon size={13} /> {label}
+            <button key={id} onClick={() => setSpecialty(id)} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8,
+              padding: "12px 10px", borderRadius: R_TILE, minHeight: 76,
+              background: P.s1, border: `1.5px solid ${on ? P.text : P.line}`, color: P.text }}>
+              <Icon size={18} strokeWidth={2} />
+              <span style={{ fontSize: 13.5, fontWeight: 700, lineHeight: 1.2, textAlign: "left" }}>{label}</span>
             </button>
           );
         })}
@@ -11763,8 +11766,8 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
         <Flame size={22} color={P.ember} />
         <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Coach IA</h1>
       </div>
-      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 12, lineHeight: 1.5 }}>
-        Entrenador de culturismo profesional con el caso completo de <b>{currentStudent?.name || "este alumno"}</b> a la vista: ficha, rutina, volumen por músculo, historial de cargas y nutrición. Puede proponer cambios y los aplicas con un botón.
+      <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 12 }}>
+        Con el caso completo de <b>{currentStudent?.name || "este alumno"}</b> a la vista.
       </div>
       {(plan.athlete || {}).enhanced === "asistido" && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: P.ember2,
