@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v137";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v138";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2475,6 +2475,35 @@ const Card = ({ children, style, onClick, ...rest }) => (
   <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_CARD, ...style }}>{children}</div>
 );
 
+// Sección que arranca RESUMIDA y se abre al tocarla, en vez de mostrar
+// todo de entrada — mismo patrón de max-height/opacity que ya usan las
+// demás secciones plegables de la app (nota del coach, comentario de
+// serie), aplicado acá a listas largas para que la pantalla no se sienta
+// tan llena al entrar. `summary` es lo que se ve a la derecha del título
+// SIEMPRE (abierta o cerrada) — un conteo corto, no una repetición del
+// contenido.
+const Collapsible = ({ title, summary, defaultOpen, children, mono }) => {
+  const [open, setOpen] = useState(!!defaultOpen);
+  const labelColor = mono ? MONO.inkFaint : P.faint;
+  const dimColor = mono ? MONO.inkDim : P.dim;
+  return (
+    <div>
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "2px 2px 9px", textAlign: "left" }}>
+        <span style={{ fontSize: 13, color: labelColor, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>{title}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          {summary && <span style={{ fontSize: 13, color: dimColor, fontWeight: 600 }}>{summary}</span>}
+          <ChevronDown size={15} color={labelColor} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s cubic-bezier(.32,.72,0,1)" }} />
+        </span>
+      </button>
+      <div style={{ maxHeight: open ? 4000 : 0, opacity: open ? 1 : 0, overflow: "hidden",
+        transition: "max-height .28s cubic-bezier(.32,.72,0,1), opacity .2s ease" }}>
+        {children}
+      </div>
+    </div>
+  );
+};
+
 // Estado de carga: reemplaza los "Cargando…" en texto plano (que se sentían
 // baratos) por un spinner sutil + etiqueta, en el mismo lugar donde antes
 // iba el texto — mismo patrón de "early return" en cada pestaña async.
@@ -4179,23 +4208,23 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
   // dos lugares: la tarjeta activa de un ejercicio suelto y la de cada
   // integrante de una superserie.
   const fieldDark = (label, value, onChange, step, numericOnly, caption) => (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, flex: 1 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0, flex: 1 }}>
       <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".06em", color: PLATE_DIM, textAlign: "center" }}>{label}</span>
-      <span style={{ display: "flex", flexDirection: "column", background: MONO.surface, border: `1.5px solid ${PLATE_BORDER}`, borderRadius: 14, overflow: "hidden" }}>
+      <span style={{ display: "flex", flexDirection: "column", background: MONO.surface, border: `1.5px solid ${PLATE_BORDER}`, borderRadius: 16, overflow: "hidden" }}>
         <button type="button" data-keep onClick={() => onChange(stepVal(value, step))} aria-label={`Aumentar ${label.toLowerCase()}`}
-          style={{ padding: "7px 0", display: "flex", alignItems: "center", justifyContent: "center", color: MONO.ink }}>
-          <ChevronUp size={15} strokeWidth={2.8} />
+          style={{ padding: "11px 0", display: "flex", alignItems: "center", justifyContent: "center", color: MONO.ink, transition: "opacity .12s ease" }}>
+          <ChevronUp size={17} strokeWidth={2.8} />
         </button>
         <input value={value} inputMode={numericOnly ? "numeric" : "decimal"} enterKeyHint="done" placeholder="—"
           onChange={(e) => onChange(e.target.value.replace(numericOnly ? /[^0-9]/g : /[^0-9.,]/g, ""))}
-          style={{ width: "100%", padding: "6px 2px", border: "none", background: "transparent", textAlign: "center",
-            fontSize: 26, fontWeight: 700, color: MONO.ink }} />
+          style={{ width: "100%", padding: "8px 2px", border: "none", background: "transparent", textAlign: "center",
+            fontSize: 32, fontWeight: 700, color: MONO.ink }} />
         <button type="button" data-keep onClick={() => onChange(stepVal(value, -step))} aria-label={`Disminuir ${label.toLowerCase()}`}
-          style={{ padding: "7px 0", display: "flex", alignItems: "center", justifyContent: "center", color: MONO.ink }}>
-          <ChevronDown size={15} strokeWidth={2.8} />
+          style={{ padding: "11px 0", display: "flex", alignItems: "center", justifyContent: "center", color: MONO.ink, transition: "opacity .12s ease" }}>
+          <ChevronDown size={17} strokeWidth={2.8} />
         </button>
       </span>
-      {caption && <span style={{ fontSize: 10.5, color: PLATE_DIM, textAlign: "center" }}>{caption}</span>}
+      {caption && <span style={{ fontSize: 11, color: PLATE_DIM, textAlign: "center" }}>{caption}</span>}
     </div>
   );
   const plateIconBtn = (onClick, label, Icon, on, disabled) => (
@@ -4516,17 +4545,17 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
 
     return (
       <div>
-        <div style={{ background: PLATE_GRAD, borderRadius: 20, padding: "14px 14px 16px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <div style={{ background: PLATE_GRAD, borderRadius: 22, padding: "20px 18px 24px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
             <span title={(SET_TYPES[st.type] || {}).label} style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, flexShrink: 0 }}>{short}</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
               {plateIconBtn(() => setHistEx(ei), "Historial", History)}
               {plateIconBtn(() => (noteOpen ? hideInstr() : showInstr(ei, false)), "Indicación del coach", Users, noteOpen, !exx.notes)}
               {plateIconBtn(() => setCalcOpen(true), "Calculadoras", Calculator)}
               {plateIconBtn(() => setExMoreFor({ ei, si }), "Más", MoreHorizontal)}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ display: "flex", gap: 12 }}>
             {fieldDark("PESO", st.weight, (v) => setVal(ei, si, "weight", v), weightUnit === "kg" ? 2.5 : 5, false,
               lastSet && lastSet.weight !== "" && lastSet.weight != null ? `Última: ${lastSet.weight} ${weightUnit}` : null)}
             {fieldDark("REPS", st.reps, (v) => setVal(ei, si, "reps", v), 1, true,
@@ -4641,26 +4670,27 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
             <i key={i} style={{ flex: 1, height: 5, borderRadius: 2.5, background: i <= pageIdx ? MONO.ink : MONO.chipBorder }} />
           ))}
         </div>
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "0 18px 16px" }}>
-          <div style={{ background: PLATE_GRAD, borderRadius: 20, padding: "30px 20px 22px", marginTop: 4,
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-            <span className="mono" style={{ fontSize: 12, letterSpacing: ".08em", color: PLATE_DIM }}>DESCANSO</span>
-            <span className="disp" style={{ fontSize: 54, fontWeight: 700, color: PLATE_FG, letterSpacing: "-.02em", lineHeight: 1 }}>{fmtClock(left)}</span>
-            {nextLabel && <span style={{ fontSize: 14.5, color: PLATE_DIM, textAlign: "center" }}>Próxima: {nextLabel}</span>}
-            <div style={{ display: "flex", gap: 8, width: "100%", marginTop: 14 }}>
-              <button onClick={() => onAdjustRest(-15)} style={{ flex: 1, padding: "11px 0", borderRadius: 12,
-                background: MONO.surface, border: `1px solid ${PLATE_BORDER}`, color: MONO.ink, fontSize: 14.5, fontWeight: 700 }}>−15 s</button>
-              <button onClick={() => onAdjustRest(15)} style={{ flex: 1, padding: "11px 0", borderRadius: 12,
-                background: MONO.surface, border: `1px solid ${PLATE_BORDER}`, color: MONO.ink, fontSize: 14.5, fontWeight: 700 }}>+15 s</button>
-              <button onClick={finishRest} style={{ flex: 1, padding: "11px 0", borderRadius: 12,
-                background: MONO.surface, border: `1px solid ${PLATE_BORDER}`, color: MONO.ink, fontSize: 14.5, fontWeight: 700 }}>Omitir</button>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "0 18px 16px",
+          display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          <div style={{ background: PLATE_GRAD, borderRadius: 24, padding: "40px 22px 30px",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <span className="mono" style={{ fontSize: 12.5, letterSpacing: ".08em", color: PLATE_DIM }}>DESCANSO</span>
+            <span className="disp" style={{ fontSize: 64, fontWeight: 700, color: PLATE_FG, letterSpacing: "-.02em", lineHeight: 1 }}>{fmtClock(left)}</span>
+            {nextLabel && <span style={{ fontSize: 15, color: PLATE_DIM, textAlign: "center" }}>Próxima: {nextLabel}</span>}
+            <div style={{ display: "flex", gap: 10, width: "100%", marginTop: 18 }}>
+              <button onClick={() => onAdjustRest(-15)} style={{ flex: 1, padding: "13px 0", borderRadius: 13,
+                background: MONO.surface, border: `1px solid ${PLATE_BORDER}`, color: MONO.ink, fontSize: 14.5, fontWeight: 700, transition: "opacity .15s ease" }}>−15 s</button>
+              <button onClick={() => onAdjustRest(15)} style={{ flex: 1, padding: "13px 0", borderRadius: 13,
+                background: MONO.surface, border: `1px solid ${PLATE_BORDER}`, color: MONO.ink, fontSize: 14.5, fontWeight: 700, transition: "opacity .15s ease" }}>+15 s</button>
+              <button onClick={finishRest} style={{ flex: 1, padding: "13px 0", borderRadius: 13,
+                background: MONO.surface, border: `1px solid ${PLATE_BORDER}`, color: MONO.ink, fontSize: 14.5, fontWeight: 700, transition: "opacity .15s ease" }}>Omitir</button>
             </div>
           </div>
-          <button onClick={finishRest} style={{ width: "100%", marginTop: 12, padding: 16, borderRadius: 16,
-            background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 700 }}>
+          <button onClick={finishRest} style={{ width: "100%", marginTop: 14, padding: 18, borderRadius: 17,
+            background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 700, transition: "opacity .15s ease" }}>
             {page.group ? "Volver a la ronda" : (nextPage ? "Ir a la siguiente serie" : "Terminar sesión")}
           </button>
-          <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 14, background: MONO.surface, border: `1px solid ${MONO.line}`,
+          <div style={{ marginTop: 14, padding: "13px 15px", borderRadius: 14, background: MONO.surface, border: `1px solid ${MONO.line}`,
             textAlign: "center", fontSize: 13, color: MONO.inkDim }}>
             El temporizador puede sonar y vibrar al terminar.
           </div>
@@ -4711,8 +4741,8 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
           (en superserie, el título de cada miembro sigue viviendo en su
           propia fila dentro de la ronda, como siempre). */}
       {exxHead && (
-        <div style={{ padding: "6px 20px 0", flexShrink: 0 }}>
-          <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12, color: MONO.ink, marginBottom: 10 }}>{exxHead.name}</div>
+        <div style={{ padding: "10px 20px 0", flexShrink: 0 }}>
+          <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12, color: MONO.ink, marginBottom: 14 }}>{exxHead.name}</div>
           {parseTempo(exxHead.notes) && (
             <div style={{ marginBottom: 8 }}>
               <TempoBadge tempo={parseTempo(exxHead.notes)} exerciseName={exxHead.name} muscle={exxHead.muscle} big />
@@ -4781,7 +4811,8 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
         )}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", position: "relative", padding: "0 18px 16px" }}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", position: "relative", padding: "0 18px 16px",
+          display: "flex", flexDirection: "column", justifyContent: "center" }}
         onClick={tapNav}
         onTouchStart={(e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY }; }}
         onTouchEnd={(e) => {
@@ -4823,12 +4854,12 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
               })}
             </MonoCard>
           ) : (
-            <div style={{ marginTop: 4 }}>
+            <div style={{ marginTop: 10 }}>
               {renderActiveSetHero(page.ei, page.si)}
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
             {page.group ? (
               <>
                 <button onClick={() => go(-1)} disabled={pageIdx === 0} style={{ flex: 1, padding: "15px 14px", borderRadius: 15,
@@ -4842,21 +4873,21 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
               </>
             ) : (
               <>
-                <button onClick={() => go(-1)} disabled={pageIdx === 0} style={{ flex: 1, padding: "15px 10px", borderRadius: 15,
-                  background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.inkDim, fontSize: 14.5, fontWeight: 700, opacity: pageIdx === 0 ? 0.45 : 1 }}>
+                <button onClick={() => go(-1)} disabled={pageIdx === 0} style={{ flex: 1, padding: "17px 10px", borderRadius: 16,
+                  background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.inkDim, fontSize: 14.5, fontWeight: 700, opacity: pageIdx === 0 ? 0.45 : 1, transition: "opacity .15s ease" }}>
                   <ChevronLeft size={16} style={{ verticalAlign: -3 }} /> Atrás
                 </button>
                 <button onClick={() => onToggleDone(page.ei, page.si)}
                   aria-label={exs[page.ei].sets[page.si].done ? "Desmarcar serie" : "Marcar serie hecha"}
-                  style={{ flex: 1.9, padding: "15px 6px", borderRadius: 15,
+                  style={{ flex: 1.9, padding: "17px 6px", borderRadius: 16,
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap",
                   background: exs[page.ei].sets[page.si].done ? MONO.chipBg : PLATE_GRAD,
                   border: exs[page.ei].sets[page.si].done ? `1px solid ${MONO.line}` : "none",
-                  color: exs[page.ei].sets[page.si].done ? MONO.ink : PLATE_FG, fontSize: 13.5, fontWeight: 700 }}>
+                  color: exs[page.ei].sets[page.si].done ? MONO.ink : PLATE_FG, fontSize: 13.5, fontWeight: 700, transition: "background .15s ease" }}>
                   <Check size={15} strokeWidth={3} /> {exs[page.ei].sets[page.si].done ? "Completada" : "Completar serie"}
                 </button>
-                <button onClick={() => go(1)} disabled={pageIdx >= pages.length - 1} style={{ flex: 1, padding: "15px 10px", borderRadius: 15,
-                  background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.inkDim, fontSize: 14.5, fontWeight: 700, opacity: pageIdx >= pages.length - 1 ? 0.45 : 1 }}>
+                <button onClick={() => go(1)} disabled={pageIdx >= pages.length - 1} style={{ flex: 1, padding: "17px 10px", borderRadius: 16,
+                  background: MONO.chipBg, border: `1px solid ${MONO.line}`, color: MONO.inkDim, fontSize: 14.5, fontWeight: 700, opacity: pageIdx >= pages.length - 1 ? 0.45 : 1, transition: "opacity .15s ease" }}>
                   Siguiente <ChevronRight size={16} style={{ verticalAlign: -3 }} />
                 </button>
               </>
@@ -4930,8 +4961,8 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
             </div>
           );
           const calcResult = (label, value) => (
-            <div style={{ padding: "12px 14px", borderRadius: 12, background: value != null ? MONO.ink : MONO.chipBg,
-              color: value != null ? "#FFFFFF" : MONO.inkFaint, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ padding: "12px 14px", borderRadius: 12, background: value != null ? PLATE_GRAD : MONO.chipBg,
+              color: value != null ? PLATE_FG : MONO.inkFaint, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: 13.5, opacity: value != null ? 0.7 : 1 }}>{label}</span>
               <span style={{ fontSize: 17, fontWeight: 700 }}>{value != null ? value : "—"}</span>
             </div>
@@ -4998,8 +5029,8 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
                   {["70", "75", "80", "85", "90"].map((p) => (
                     <button key={p} onClick={() => setC4pct(p)}
                       style={{ flex: 1, minWidth: 56, padding: "8px 0", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
-                        background: c4pct === p ? MONO.ink : MONO.chipBg, color: c4pct === p ? "#FFFFFF" : MONO.inkDim,
-                        border: `1px solid ${c4pct === p ? MONO.ink : MONO.chipBorder}` }}>{p}%</button>
+                        background: c4pct === p ? PLATE_GRAD : MONO.chipBg, color: c4pct === p ? PLATE_FG : MONO.inkDim,
+                        border: `1px solid ${c4pct === p ? PLATE_GRAD : MONO.chipBorder}` }}>{p}%</button>
                   ))}
                 </div>
               </MonoCard>
@@ -5865,7 +5896,7 @@ const PosingCategoryBlock = () => {
           {POSING_CATEGORIES.map((c) => (
             <button key={c.id} onClick={() => pickCategory(c.id)}
               style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 15px", borderRadius: 13,
-                background: c.id === catId ? MONO.ink : MONO.chipBg, color: c.id === catId ? "#FFFFFF" : MONO.ink, fontWeight: 600, fontSize: 15 }}>
+                background: c.id === catId ? PLATE_GRAD : MONO.chipBg, color: c.id === catId ? PLATE_FG : MONO.ink, fontWeight: 600, fontSize: 15 }}>
               {c.name}
               {c.id === catId && <Check size={16} />}
             </button>
@@ -6431,7 +6462,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
                 <div style={{ display: "flex", gap: 8, padding: "0 0 14px" }}>
                   <input type="number" inputMode="decimal" step="any" placeholder="kg de hoy" value={ciWeight} onChange={(e) => setCiWeight(e.target.value)}
                     style={{ flex: 1, padding: "10px 12px", borderRadius: 11, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-                  <button onClick={saveWeighIn} style={{ padding: "10px 15px", borderRadius: 11, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Registrar</button>
+                  <button onClick={saveWeighIn} style={{ padding: "10px 15px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
                 </div>
               )}
               <div style={{ height: 1, background: MONO.line }} />
@@ -6824,19 +6855,20 @@ const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed, save
           )}
 
           {recentPRs.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-              <MonoLabel>Récords recientes</MonoLabel>
-              {recentPRs.map((pr, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 13, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "14px 15px" }}>
-                  <span style={{ width: 32, height: 32, borderRadius: 10, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: MONO.ink, flexShrink: 0 }}>PR</span>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.name}</span>
-                    <span style={{ fontSize: 12.5, color: MONO.inkDim }}>{daysAgoLabel(pr.date)}</span>
+            <Collapsible mono title="Récords recientes" summary={`${recentPRs.length}`}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {recentPRs.map((pr, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 13, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 12, padding: "14px 15px" }}>
+                    <span style={{ width: 32, height: 32, borderRadius: 10, background: MONO.chipBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: MONO.ink, flexShrink: 0 }}>PR</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.name}</span>
+                      <span style={{ fontSize: 12.5, color: MONO.inkDim }}>{daysAgoLabel(pr.date)}</span>
+                    </div>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: MONO.ink, flexShrink: 0 }}>{pr.value}</span>
                   </div>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: MONO.ink, flexShrink: 0 }}>{pr.value}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </Collapsible>
           )}
 
           <div style={{ display: "flex", alignItems: "center", gap: 16, background: MONO.surface, border: `1px solid ${MONO.line}`, borderRadius: 14, padding: "16px 17px" }}>
@@ -6844,7 +6876,7 @@ const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed, save
               <MonoLabel>Fotos de progreso</MonoLabel>
               <span style={{ fontSize: 13.5, color: MONO.inkDim }}>{lastPhoto ? `Última: ${daysAgoLabel(lastPhoto.date)}` : "Sin fotos todavía"}</span>
             </div>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: "#FFFFFF", background: MONO.ink, borderRadius: 11, padding: "10px 14px" }}>Ver</span>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: PLATE_FG, background: PLATE_GRAD, borderRadius: 11, padding: "10px 14px" }}>Ver</span>
           </div>
         </>
       )}
@@ -6856,7 +6888,7 @@ const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed, save
             <div style={{ display: "flex", gap: 8 }}>
               <input type="number" inputMode="decimal" step="any" placeholder="kg de hoy" value={bw} onChange={(e) => setBw(e.target.value)}
                 style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-              <button onClick={addBW} style={{ padding: "11px 16px", borderRadius: 12, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Registrar</button>
+              <button onClick={addBW} style={{ padding: "11px 16px", borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
             </div>
             {bwEntries.length >= 2 ? <MiniLineChart points={bwPoints} /> : bwEntries.length === 1 ? (
               <div style={{ fontSize: 13.5, color: MONO.inkDim }}>Último registro: {kg(bwEntries[0].kg)} kg. Con dos o más verás la curva.</div>
@@ -6870,7 +6902,7 @@ const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed, save
             <div style={{ display: "flex", gap: 8 }}>
               <input type="number" inputMode="numeric" placeholder="pasos de hoy" value={stepsInput} onChange={(e) => setStepsInput(e.target.value)}
                 style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-              <button onClick={addSteps} style={{ padding: "11px 16px", borderRadius: 12, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Registrar</button>
+              <button onClick={addSteps} style={{ padding: "11px 16px", borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
             </div>
             <div style={{ fontSize: 13.5, color: MONO.inkDim }}>
               {stepsEntries.length ? `Último registro: ${stepsEntries[stepsEntries.length - 1].count.toLocaleString("es-CL")} pasos.` : "Sin registros todavía."}
@@ -6882,7 +6914,7 @@ const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed, save
             <div style={{ display: "flex", gap: 8 }}>
               <input type="number" inputMode="decimal" step="any" placeholder="litros de hoy" value={waterInput} onChange={(e) => setWaterInput(e.target.value)}
                 style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-              <button onClick={addWater} style={{ padding: "11px 16px", borderRadius: 12, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Registrar</button>
+              <button onClick={addWater} style={{ padding: "11px 16px", borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
             </div>
             <div style={{ fontSize: 13.5, color: MONO.inkDim }}>
               {waterEntries.length ? `Último registro: ${kg(waterEntries[waterEntries.length - 1].liters)} L.` : "Sin registros todavía."}
@@ -6894,7 +6926,7 @@ const ProgressTabMono = ({ plan, history, variant, jumpSub, onJumpConsumed, save
             <div style={{ display: "flex", gap: 8 }}>
               <input type="number" inputMode="decimal" step="any" placeholder="horas dormidas" value={sleepInput} onChange={(e) => setSleepInput(e.target.value)}
                 style={{ flex: 1, padding: "11px 12px", borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5 }} />
-              <button onClick={addSleep} style={{ padding: "11px 16px", borderRadius: 12, background: MONO.ink, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Registrar</button>
+              <button onClick={addSleep} style={{ padding: "11px 16px", borderRadius: 12, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
             </div>
             <div style={{ fontSize: 13.5, color: MONO.inkDim }}>
               {sleepEntries.length ? `Último registro: ${kg(sleepEntries[sleepEntries.length - 1].hours)} h.` : "Sin registros todavía."}
@@ -9006,7 +9038,7 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
             <div key={e.id} data-ex-block={blockKey}>
               {gr.first && gr.kind && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "0 2px", flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "#FFFFFF", background: MONO.ink, borderRadius: 7, padding: "4px 8px" }}>{GROUP_KINDS[gr.kind].short}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, background: PLATE_GRAD, borderRadius: 7, padding: "4px 8px" }}>{GROUP_KINDS[gr.kind].short}</span>
                   <span style={{ fontSize: 12.5, fontWeight: 600, color: MONO.inkDim }}>{GROUP_KINDS[gr.kind].label} · {gr.size} ejercicios</span>
                   <span style={{ fontSize: 12, color: MONO.inkFaint }}>rondas</span>
                   <input value={gr.roundsRaw} placeholder="1" aria-label="Rondas del bloque"
@@ -10128,7 +10160,7 @@ const DashboardTabMono = ({ roster, toast, variant }) => {
                 <div style={{ fontSize: 14.5, fontWeight: 600, color: MONO.ink }}>{a.name}</div>
                 <div style={{ fontSize: 12.5, color: MONO.inkFaint }}>{a.text}</div>
               </div>
-              {a.kind === "pr" && <span style={{ fontSize: 11, fontWeight: 700, color: "#FFFFFF", background: MONO.ink, borderRadius: 7, padding: "4px 7px", flexShrink: 0 }}>PR</span>}
+              {a.kind === "pr" && <span style={{ fontSize: 11, fontWeight: 700, color: PLATE_FG, background: PLATE_GRAD, borderRadius: 7, padding: "4px 7px", flexShrink: 0 }}>PR</span>}
               {a.kind === "chat" && <span style={{ width: 9, height: 9, borderRadius: 999, background: MONO.ink, flexShrink: 0 }} />}
               {a.kind === "pago" && <span style={{ fontSize: 12.5, fontWeight: 700, color: MONO.inkFaint, flexShrink: 0 }}>$</span>}
             </MonoCard>
@@ -12209,11 +12241,13 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
 
       {/* La semana entera de un vistazo, con el nombre completo de cada
           sesión: en el calendario solo cabe la placa (A2, C1…), y para saber
-          qué toca el jueves no debería hacer falta ir tocando día por día. */}
+          qué toca el jueves no debería hacer falta ir tocando día por día.
+          Arranca cerrada (el calendario de arriba y el día seleccionado de
+          abajo ya cubren lo esencial de un vistazo) — se abre para ver los
+          7 días completos, en vez de mostrarlos siempre de entrada. */}
       <Card style={{ padding: "13px 15px", marginBottom: 12 }}>
-        <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
-          Esta semana · {fmtWeekRange(selDate)}
-        </div>
+        <Collapsible title={`Esta semana · ${fmtWeekRange(selDate)}`}
+          summary={`${weekDaysOf(selDate).filter((d) => dayFor(d)).length} entren.`}>
         {weekDaysOf(selDate).map((d) => {
           const iso = isoDate(d);
           const wd = dayFor(d);
@@ -12262,6 +12296,7 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
             </div>
           );
         })}
+        </Collapsible>
       </Card>
 
       <Card style={{ padding: "13px 15px" }}>
@@ -14314,7 +14349,7 @@ class ErrorBoundary extends React.Component {
     if (!this.state.err) return this.props.children;
     return (
       <div style={{ minHeight: "100dvh", background: P.bgGrad, color: P.text, padding: "40px 20px",
-        fontFamily: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif" }}>
         <div style={{ maxWidth: 460, margin: "0 auto", background: P.s2, border: `1px solid ${P.frame}`, borderRadius: 16, padding: "22px 20px" }}>
           <div className="disp" style={{ fontSize: 21, fontWeight: 800, marginBottom: 8 }}>Algo se rompió en pantalla</div>
           <div style={{ fontSize: 15.5, color: P.dim, lineHeight: 1.55, marginBottom: 16 }}>
