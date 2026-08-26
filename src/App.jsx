@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v170";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v174";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2771,6 +2771,41 @@ const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals 
   );
 };
 
+// Columna de ajuste para la sesión en vivo: ▲ arriba, el número en el
+// medio, ▼ abajo. Es el mismo dato que el `Stepper` horizontal, pero
+// entrenando se usa distinto: con el teléfono apoyado y una mano libre,
+// tres columnas de ▲/▼ se tocan sin mirar y dejan ver Peso, Reps y RIR
+// de un vistazo, sin que ninguno quede fuera de pantalla. El horizontal
+// se queda donde se rellenan formularios con calma (check-in, ajustes).
+const SetStepperCol = ({ label, caption, value, onChange, step = 1, min = 0, decimals = 1, unit }) => {
+  const fmt = decimals === 0 ? String(value) : String(value).replace(".", ",");
+  const arrow = (dir, Icon) => (
+    <button onClick={() => onChange(stepClamp(value, dir * step, min, decimals))}
+      aria-label={`${dir > 0 ? "Subir" : "Bajar"} ${label}`}
+      style={{ height: 34, width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+        color: P.text, background: "transparent", transition: `background ${DUR_MICRO}ms ease` }}>
+      <Icon size={17} strokeWidth={2.8} />
+    </button>
+  );
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: P.faint2, marginBottom: 5 }}>{label}</div>
+      <div style={{ width: "100%", borderRadius: R_TILE, background: P.s3, overflow: "hidden" }}>
+        {arrow(1, ChevronUp)}
+        <div style={{ height: 1, background: P.s1 }} />
+        <div className="num" style={{ height: 46, display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 26, fontWeight: 600, letterSpacing: "-.02em", color: P.text, fontVariantNumeric: "tabular-nums" }}>
+          {fmt}{unit && <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2, marginLeft: 2 }}>{unit}</span>}
+        </div>
+        <div style={{ height: 1, background: P.s1 }} />
+        {arrow(-1, ChevronDown)}
+      </div>
+      <div style={{ fontSize: 11.5, color: P.faint2, marginTop: 5, textAlign: "center", width: "100%",
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{caption || "\u00a0"}</div>
+    </div>
+  );
+};
+
 // Interruptor iOS: pista 44×27 radio 14, apagado en separator-strong,
 // encendido en tinta plena; perno blanco de 22px que se desliza. Tampoco
 // existía — todo booleano de ajustes usaba el segmentado de 2 opciones.
@@ -4616,7 +4651,7 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    "···" chico en la fila activa (deshacer/rehacer/borrar/comentario/
    unidad), calcando A3 al pixel.
    ============================================================ */
-const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
+const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
   const [weightUnit] = useWeightUnit();
   const pendingWrites = usePendingWrites();
   const [blockIdx, setBlockIdx] = useState(0);
@@ -4639,6 +4674,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [rowMoreFor, setRowMoreFor] = useState(null);
   const [calcOpen, setCalcOpen] = useState(false);
   const [coachNotesOpen, setCoachNotesOpen] = useState(false);
+  // Qué ficha de la hoja de sesión está abierta (null = la grilla).
+  const [sesPane, setSesPane] = useState(null);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [c1w, setC1w] = useState(""); const [c1r, setC1r] = useState(""); const [c1rir, setC1rir] = useState("");
   const [c2e, setC2e] = useState(""); const [c2r, setC2r] = useState(""); const [c2rir, setC2rir] = useState("");
@@ -4890,7 +4927,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // las que todavía no llegaron no hacen nada, así no se saltan series
   // por accidente.
   const setTicks = (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, flex: 1, minWidth: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 1, minWidth: 0, overflow: "hidden" }}>
       {block.rows.map((r, i) => {
         const done = !!exs[r.ei].sets[r.si].done;
         const isNow = i === activeRowIdx;
@@ -4898,11 +4935,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           <button key={`${r.ei}-${r.si}`} disabled={!done}
             onClick={done ? () => onToggleDone(r.ei, r.si) : undefined}
             aria-label={done ? `Serie ${i + 1} hecha — tocar para corregirla` : `Serie ${i + 1}${isNow ? ", en curso" : ", pendiente"}`}
-            style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0, padding: 0,
+            style={{ width: 20, height: 20, borderRadius: 10, flexShrink: 0, padding: 0,
               display: "flex", alignItems: "center", justifyContent: "center",
               background: done ? PLATE_GRAD : isNow ? P.text : "transparent",
               border: done || isNow ? "none" : `1.5px solid ${P.chevron}` }}>
-            {done && <Check size={13} color={PLATE_FG} strokeWidth={3} />}
+            {done && <Check size={12} color={PLATE_FG} strokeWidth={3} />}
           </button>
         );
       })}
@@ -4912,41 +4949,70 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const renderActiveSet = (r) => {
     const exx = exs[r.ei];
     const st = exx.sets[r.si];
-    // El tipo se nombra SIEMPRE (calentamiento, de trabajo, top set,
-    // drop set…), no solo cuando no es una serie normal.
-    const typeTag = setTypeTag(st.type);
-    const rowName = block.group ? exx.name : `Serie ${r.si + 1} de ${block.rows.length}`;
+
     const lastEntry = lastEntryOf(exx.id);
     const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
     const prevWeight = lastSet && lastSet.weight !== "" && lastSet.weight != null ? lastSet.weight : null;
 
-    const targetBits = [];
-    if (block.group) targetBits.push(`Ronda ${(r.round || 0) + 1} de ${block.rounds}`);
-    targetBits.push(typeTag);
-    if (st.repsT) targetBits.push(`Objetivo ${st.repsT}`);
-    if (st.rirT !== "" && st.rirT != null) targetBits.push(`RIR ${st.rirT}`);
-    if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") targetBits.push(`${st.pct}%`);
+    // Objetivo y RIR ya viajan como pie de su propia columna; acá queda
+    // solo lo que no tiene columna donde caer.
+    const extraBits = [];
+    if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") extraBits.push(`${st.pct}% del top set`);
+
+    // Los cuatro accesos del ejercicio (técnica, historial, indicaciones,
+    // Coach IA) más el "···" de la serie. Antes vivían en una grilla de
+    // 5 fichas al pie de la pantalla, lejos de lo que describen; acá van
+    // adentro de la tarjeta, arriba de los números, que es donde se los
+    // busca: son cosas que se consultan MIENTRAS se registra la serie.
+    const hayIndicaciones = (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes)
+      || ((plan && plan.instructions) || []).length > 0;
+    const acciones = [
+      ["Ver la técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei), false],
+      ["Historial del ejercicio", History, () => setHistEx(block.group ? block.members[0] : block.ei), false],
+      ["Indicaciones del coach", FileText, () => setCoachNotesOpen(true), hayIndicaciones],
+      ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
+      ["Más opciones de esta serie", MoreHorizontal, () => setRowMoreFor({ ei: r.ei, si: r.si }), false],
+    ];
 
     return (
-      <div style={{ padding: "0 4px 10px" }}>
-        <div style={{ marginBottom: 6 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <span style={{ fontSize: 19, fontWeight: 600, color: P.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rowName}</span>
-            <button onClick={() => setRowMoreFor({ ei: r.ei, si: r.si })} aria-label="Más opciones de esta serie"
-              style={{ width: 26, height: 26, borderRadius: 13, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint2, flexShrink: 0 }}>
-              <MoreHorizontal size={16} />
-            </button>
+      <div style={{ padding: "2px 0 4px" }}>
+        {block.group && (
+          <div style={{ fontSize: 17, fontWeight: 600, color: P.text, marginBottom: 10,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exx.name}</div>
+        )}
+        {/* Una sola fila: a la izquierda dónde vas dentro del ejercicio
+            (un tilde por serie, las hechas se tocan para corregirlas), a
+            la derecha lo que se consulta sin soltar la mancuerna. Iban en
+            dos filas separadas y eran 34 px de alto que hacían falta para
+            que el botón de completar no quedara bajo la barra. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {setTicks}
+          <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0, marginLeft: "auto" }}>
+            {acciones.map(([lbl, Icon, onClick, marcado]) => (
+              <button key={lbl} onClick={onClick} aria-label={marcado ? `${lbl} — hay indicaciones` : lbl} title={lbl}
+                style={{ width: 32, height: 32, borderRadius: 16, flexShrink: 0,
+                  background: marcado ? PLATE_GRAD : P.s3, color: marcado ? PLATE_FG : P.text,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon size={15} strokeWidth={2.2} />
+              </button>
+            ))}
           </div>
-          <div style={{ fontSize: 13, color: P.faint2, marginTop: 1 }}>{targetBits.join(" · ")}</div>
         </div>
-        <Stepper label="Peso" unit={weightUnit} value={st.weight === "" ? 0 : +st.weight} onChange={(v) => setVal(r.ei, r.si, "weight", String(v))}
-          step={weightUnit === "kg" ? 2.5 : 5} decimals={1} caption={prevWeight != null ? `Antes ${String(prevWeight).replace(".", ",")} ${weightUnit}` : null} />
-        <div style={{ height: 1, background: P.fillTertiary }} />
-        <Stepper label="Reps" value={st.reps === "" ? 0 : +st.reps} onChange={(v) => setVal(r.ei, r.si, "reps", String(v))} step={1} decimals={0}
-          caption={lastSet && lastSet.reps !== "" && lastSet.reps != null ? `Antes ${lastSet.reps}` : null} />
-        <div style={{ height: 1, background: P.fillTertiary }} />
-        <Stepper label="RIR" value={st.rir === "" ? 0 : +st.rir} onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0}
-          caption={lastSet && lastSet.rir !== "" && lastSet.rir != null ? `Antes ${lastSet.rir}` : null} />
+        <div style={{ height: 1, background: P.fillTertiary, margin: "11px 0 12px" }} />
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <SetStepperCol label="Peso" unit={weightUnit} value={st.weight === "" ? 0 : +st.weight}
+            onChange={(v) => setVal(r.ei, r.si, "weight", String(v))} step={weightUnit === "kg" ? 2.5 : 5} decimals={1}
+            caption={prevWeight != null ? `Última: ${String(prevWeight).replace(".", ",")} ${weightUnit}` : null} />
+          <SetStepperCol label="Reps" value={st.reps === "" ? 0 : +st.reps}
+            onChange={(v) => setVal(r.ei, r.si, "reps", String(v))} step={1} decimals={0}
+            caption={st.repsT ? `${st.repsT} reps` : (lastSet && lastSet.reps !== "" && lastSet.reps != null ? `Última: ${lastSet.reps}` : null)} />
+          <SetStepperCol label="RIR" value={st.rir === "" ? 0 : +st.rir}
+            onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0}
+            caption={st.rirT !== "" && st.rirT != null ? `Objetivo ${st.rirT}` : (lastSet && lastSet.rir !== "" && lastSet.rir != null ? `Última: ${lastSet.rir}` : null)} />
+        </div>
+        {extraBits.length > 0 && (
+          <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 8, textAlign: "center" }}>{extraBits.join(" · ")}</div>
+        )}
         {renderCommentBlock(r.ei, r.si)}
       </div>
     );
@@ -4974,10 +5040,52 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     </>
   );
 
+  // Se recalcula con `now` (el reloj de la sesión, que corre cada
+  // segundo), así la duración y el ritmo van en vivo mientras la hoja
+  // está abierta.
+  const stats = useMemo(() => sessionStats(active, history.bodyweight), [active, history.bodyweight, now]);
+
+  // Pulso en vivo. Las muestras se acumulan en una ref (no hace falta
+  // re-renderizar por cada latido) y de ahí salen la media y la máxima.
+  const hr = useHeartRate();
+  const hrSamples = useRef([]);
+  useEffect(() => {
+    if (hr.bpm != null && hr.connected) hrSamples.current.push(hr.bpm);
+  }, [hr.bpm, hr.connected]);
+  const hrStats = hrSamples.current.length
+    ? { media: Math.round(hrSamples.current.reduce((a, b) => a + b, 0) / hrSamples.current.length),
+        max: Math.max(...hrSamples.current) }
+    : null;
+
+  // Referencia de la vez anterior, en una línea: fecha + lo que se
+  // registró en la misma serie. Sale del historial del ejercicio activo;
+  // si nunca se hizo, no se muestra nada en vez de un "—" vacío.
+  const refLast = (() => {
+    if (blockDone || timer) return null;
+    const row = block.rows[activeRowIdx];
+    if (!row) return null;
+    const entry = lastEntryOf(exs[row.ei].id);
+    if (!entry) return null;
+    const st = (entry.sets || [])[row.si] || (entry.sets || [])[0];
+    if (!st) return null;
+    const bits = [fmtDate(entry.date), setSummary(st, weightUnit)];
+    if (st.rir !== "" && st.rir != null) bits.push(`RIR ${st.rir}`);
+    return bits.join(" · ");
+  })();
+  // El tipo de la serie que toca (calentamiento, de trabajo, top set,
+  // drop set…): cambia cómo se ejecuta, así que se nombra siempre y en
+  // el mismo sitio, antes de mirar los números.
+  const activeTypeTag = (() => {
+    if (blockDone || timer) return null;
+    const row = block.rows[activeRowIdx];
+    if (!row) return null;
+    return setTypeTag(exs[row.ei].sets[row.si].type);
+  })();
+
   const askExit = () => setExiting(true);
 
   return (
-    <div style={{ padding: `calc(8px + env(safe-area-inset-top)) 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ padding: `calc(6px + env(safe-area-inset-top)) 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 7 }}>
       {/* Sin título "Entrenar" con la sesión abierta: la franja de abajo
           ya dice qué se está entrenando, y esos 44 px son los que hacían
           falta para que todo quepa sin desplazarse. */}
@@ -4990,10 +5098,20 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           style={{ width: 32, height: 32, borderRadius: 16, background: P.s4, color: P.dim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <X size={15} strokeWidth={2.6} />
         </button>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: P.faint2 }}>{active.dayName}</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 17, fontWeight: 600, color: P.text, fontVariantNumeric: "tabular-nums" }}>
-            {sessionClock(elapsed)}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0, justifyContent: "center" }}>
+          <span className="num" style={{ fontSize: 13, fontWeight: 700, color: P.dim, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
+            padding: "6px 10px", borderRadius: 999, background: P.s3 }}>
+            E{blockIdx + 1}/{totalBlocks} · S{Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)}/{block.rows.length}
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
+            padding: "6px 10px", borderRadius: 999, background: P.s3 }}>
+            <Timer size={13} color={P.faint2} />
+            <span className="num" style={{ fontSize: 14, fontWeight: 700, color: P.text, fontVariantNumeric: "tabular-nums" }}>{sessionClock(elapsed)}</span>
+            {hr.connected && hr.bpm != null && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 13, color: P.faint2 }}>
+                <HeartPulse size={12} /> {hr.bpm}
+              </span>
+            )}
             <span title={pendingWrites ? `Guardando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
               style={{ width: 6, height: 6, borderRadius: 3, flexShrink: 0,
                 background: pendingWrites ? P.line : (storageOK ? P.ember : "transparent"), border: !pendingWrites && !storageOK ? `1.5px solid ${P.text}` : "none" }} />
@@ -5006,35 +5124,33 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       </Card>
 
       <div>
-        {/* Flecha, tildes de las series, flecha. Sin las palabras
-            "Anterior"/"Siguiente" ni el contador de ejercicios: en qué
-            ejercicio vas ya lo dicen las barras de abajo, y lo que uno
-            mira acá es cuántas series lleva. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 30 }}>
-          <button onClick={() => goBlock(-1)} disabled={blockIdx === 0} aria-label="Ejercicio anterior"
-            style={{ width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              color: blockIdx === 0 ? P.chevron : P.text }}>
-            <ChevronLeft size={20} strokeWidth={2.6} />
-          </button>
-          {setTicks}
-          <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} aria-label="Ejercicio siguiente"
-            style={{ width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              color: blockIdx >= blocks.length - 1 ? P.chevron : P.text }}>
-            <ChevronRight size={20} strokeWidth={2.6} />
-          </button>
-        </div>
         <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${blockTitle} — ver la rutina completa`}
-          style={{ display: "flex", alignItems: "center", gap: 4, textAlign: "left", marginTop: 1, width: "100%" }}>
-          <span style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.1, color: P.text, minWidth: 0,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blockTitle}</span>
-          {onBrowseRoutine && <ChevronRight size={17} color={P.chevron} strokeWidth={2.6} style={{ flexShrink: 0 }} />}
+          style={{ display: "flex", alignItems: "flex-start", gap: 6, textAlign: "left", width: "100%" }}>
+          <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.025em", lineHeight: 1.14, color: P.text, minWidth: 0, flex: 1,
+            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{blockTitle}</span>
+          {onBrowseRoutine && <ChevronRight size={18} color={P.chevron} strokeWidth={2.6} style={{ flexShrink: 0, marginTop: 5 }} />}
         </button>
+        {/* Por dónde va la sesión entera, un tramo por ejercicio. */}
+        <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+          {blocks.map((_, i) => <i key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= blockIdx ? P.ember : P.separatorStrong }} />)}
+        </div>
+        {/* Lo que hiciste la última vez en este mismo ejercicio, en una
+            línea. Es la referencia con la que uno decide cuánto poner
+            hoy, y estaba escondida detrás del botón "Historial". */}
+        {(activeTypeTag || refLast) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, minWidth: 0 }}>
+            {activeTypeTag && (
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", flexShrink: 0,
+                padding: "4px 9px", borderRadius: 999, background: P.s3, color: P.dim, whiteSpace: "nowrap" }}>{activeTypeTag}</span>
+            )}
+            {refLast && (
+              <span style={{ fontSize: 12.5, color: P.faint2, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{refLast}</span>
+            )}
+          </div>
+        )}
         {!block.group && parseTempo(exs[block.ei].notes) && (
           <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
         )}
-        <div style={{ display: "flex", gap: 4, marginTop: 7 }}>
-          {blocks.map((_, i) => <i key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= blockIdx ? P.ember : P.s3 }} />)}
-        </div>
       </div>
 
       {/* Una sola cosa en pantalla a la vez: o descansas, o registras la
@@ -5042,36 +5158,40 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           su propio botón grande diciendo qué pasa al tocarlo. */}
       {timer ? restCard : blockDone ? blockDonePanel : (
         <>
-          <Card style={{ padding: "6px 14px" }}>
+          <Card style={{ padding: "11px 13px 13px" }}>
             {block.group && (
-              <div style={{ padding: "10px 4px 0", fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>
-                {GROUP_KINDS[block.kind].label} · {block.rounds} {block.rounds === 1 ? "ronda" : "rondas"}
+              <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2, marginBottom: 8 }}>
+                {GROUP_KINDS[block.kind].label} · Ronda {(block.rows[activeRowIdx].round || 0) + 1} de {block.rounds}
               </div>
             )}
             {renderActiveSet(block.rows[activeRowIdx])}
           </Card>
-          <button onClick={() => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si)}
-            style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
-            Completar serie
-          </button>
+          <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
+            <button onClick={() => goBlock(-1)} disabled={blockIdx === 0} aria-label="Ejercicio anterior"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
+                borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, fontSize: 12.5, fontWeight: 600,
+                color: blockIdx === 0 ? P.chevron : P.text, opacity: blockIdx === 0 ? .55 : 1 }}>
+              <ChevronLeft size={15} strokeWidth={2.6} /> Atrás
+            </button>
+            <button onClick={() => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si)}
+              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "14px 6px",
+                borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 15.5, fontWeight: 600, whiteSpace: "nowrap" }}>
+              Completar serie
+            </button>
+            <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} aria-label="Ejercicio siguiente"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
+                borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, fontSize: 12.5, fontWeight: 600,
+                color: blockIdx >= blocks.length - 1 ? P.chevron : P.text, opacity: blockIdx >= blocks.length - 1 ? .55 : 1 }}>
+              Siguiente <ChevronRight size={15} strokeWidth={2.6} />
+            </button>
+          </div>
+          {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
+              y abajo, para que no haga falta preguntarlo. */}
+          <div style={{ fontSize: 12, color: P.faint2, textAlign: "center", marginTop: -3 }}>
+            {pendingWrites ? "Guardando…" : storageOK ? "Guardado automático" : "Sin guardado — revisa el navegador"}
+          </div>
         </>
       )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 7 }}>
-        {[
-          ["Técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei)],
-          ["Historial", History, () => setHistEx(block.group ? block.members[0] : block.ei)],
-          ["Indicaciones", FileText, () => setCoachNotesOpen(true)],
-          ["Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat()],
-          ["Fotos", Camera, () => setMediaOpen(true)],
-        ].map(([label, Icon, onClick]) => (
-          <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "7px 4px",
-            background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE }}>
-            <Icon size={17} color={P.text} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: P.text }}>{label}</span>
-          </button>
-        ))}
-      </div>
 
 
       {/* Salir de la sesión: hoja de 4 salidas (no un solo diálogo de
@@ -5079,33 +5199,111 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           como en la referencia. "Guardar y seguir después" y "Seguir
           entrenando" hacen lo mismo (cerrar la hoja, la sesión sigue
           activa): son dos maneras de decir "todavía no terminé". */}
-      {exiting && (
-        <>
-          <div className="scrimIn" onClick={() => setExiting(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.32)", zIndex: 80 }} />
-          <div className="sheetIn" style={{ position: "fixed", left: 10, right: 10, bottom: "calc(10px + env(safe-area-inset-bottom))", zIndex: 81,
-            display: "flex", flexDirection: "column", gap: 8 }}>
-            <Card style={{ overflow: "hidden" }}>
-              <div style={{ padding: 16, textAlign: "center", borderBottom: `1px solid ${P.line}` }}>
-                <div style={{ fontSize: 17, fontWeight: 600, color: P.text }}>Sesión en curso</div>
-                <div style={{ fontSize: 13.5, color: P.faint2, marginTop: 3 }}>
-                  {doneSets} {doneSets === 1 ? "serie registrada" : "series registradas"} · {Math.floor(elapsed / 60)} min
+      {/* Todo lo de la sesión, en fichas cuadradas. El "···" ya no es un
+          menú de dos opciones: es donde se mira cómo va la sesión —
+          duración, series, tonelaje, ritmo, calorías y el detalle serie
+          por serie— y desde donde se finaliza o se descarta.
+          Las dos acciones van abajo y separadas de las fichas: en una
+          grilla, "Descartar" se toca sin querer. */}
+      <Sheet open={exiting} onClose={() => { setExiting(false); setSesPane(null); }}
+        title={sesPane ? (sesPane === "segmentos" ? "Serie por serie" : "Calorías") : "Sesión"} tall>
+        {sesPane ? (
+          <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <button onClick={() => setSesPane(null)}
+              style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 15, fontWeight: 600, color: P.text, alignSelf: "flex-start" }}>
+              <ChevronLeft size={17} strokeWidth={2.6} /> Sesión
+            </button>
+            {sesPane === "segmentos" && (
+              stats.segmentos.length === 0 ? (
+                <Empty icon={Timer} title="Todavía no hay series" body="Cuando completes la primera serie vas a ver acá cuánto llevó cada una, incluido el descanso previo." />
+              ) : (
+                <>
+                  <div style={{ fontSize: 13.5, color: P.faint2, lineHeight: 1.5 }}>
+                    Cada fila es el tiempo desde que terminaste la serie anterior hasta que terminaste esta: incluye el descanso.
+                  </div>
+                  <Card style={{ overflow: "hidden" }}>
+                    {stats.segmentos.map((sg, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px",
+                        borderBottom: i < stats.segmentos.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                        <span style={{ fontSize: 13, color: P.faint2, width: 18, flexShrink: 0 }}>{sg.n}</span>
+                        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontSize: 15, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sg.exName}</span>
+                          <span style={{ fontSize: 12.5, color: P.faint2 }}>Serie {sg.serie} · {setSummary(sg.st, weightUnit)}</span>
+                        </span>
+                        <span className="num" style={{ fontSize: 16, fontWeight: 600, color: P.text, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{segClock(sg.sec)}</span>
+                      </div>
+                    ))}
+                  </Card>
+                </>
+              )
+            )}
+            {sesPane === "kcal" && (
+              <>
+                <Card style={{ padding: "18px 16px", display: "flex", flexDirection: "column", gap: 3 }}>
+                  <span style={{ fontSize: 13, color: P.faint2 }}>Estimadas en esta sesión</span>
+                  <span style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+                    <span className="num" style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{stats.kcal}</span>
+                    <span style={{ fontSize: 16, fontWeight: 600, color: P.faint2 }}>kcal</span>
+                  </span>
+                </Card>
+                <RowGroup label="De dónde sale" rows={[
+                  { label: "Duración", value: sessionClock(stats.totalSec) },
+                  { label: "Tu peso", value: stats.kgPeso != null ? `${kg(stats.kgPeso)} kg` : `${PESO_POR_DEFECTO} kg (por defecto)` },
+                  { label: "Intensidad", value: `MET ${String(MET_FUERZA).replace(".", ",")}` },
+                ]} />
+                <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5 }}>
+                  Es una <b style={{ color: P.dim }}>estimación</b>, no una medición: sale de la fórmula MET
+                  (intensidad × peso × tiempo), la misma que usan las tablas de actividad física.
+                  {stats.pesoEstimado && " Como no hay ningún peso tuyo registrado, se usa 75 kg — regístralo en el Check-in y el número se ajusta a ti."}
+                  {" "}Para medirlas de verdad hace falta un pulsómetro.
                 </div>
-              </div>
-              <button onClick={() => { setExiting(false); onFinish(); }}
-                style={{ width: "100%", padding: 17, textAlign: "center", fontSize: 18, fontWeight: 600, color: P.text, borderBottom: `1px solid ${P.line}` }}>
-                Finalizar sesión
-              </button>
-              <button onClick={() => { setExiting(false); setConfirmDiscard(true); }} style={{ width: "100%", padding: 17, textAlign: "center", fontSize: 18, color: P.red }}>
-                Descartar la sesión
-              </button>
-            </Card>
-            <button onClick={() => setExiting(false)} style={{ width: "100%", padding: 17, textAlign: "center", fontSize: 18, fontWeight: 600, color: P.text,
-              background: P.s1, borderRadius: R_CARD }}>
-              Seguir entrenando
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+              <StatSquare top="Duración" value={sessionClock(stats.totalSec)} sub={`${active.dayName}`} />
+              <StatSquare top="Series" value={`${stats.setsDone}`} sub={`de ${stats.setsTotal} · ${stats.ejercicios} ejercicios`} />
+              <StatSquare top="Tonelaje" value={stats.volumen >= 1000 ? `${(stats.volumen / 1000).toFixed(1).replace(".", ",")}` : `${Math.round(stats.volumen)}`}
+                unit={stats.volumen >= 1000 ? "t" : weightUnit} sub={`${stats.reps} repeticiones`} />
+              {/* El ritmo necesita al menos un minuto de sesión para no dar
+                  un número disparatado; hasta entonces la ficha lo dice en
+                  vez de mostrar un guion con una leyenda que lo contradice. */}
+              <StatSquare top="Ritmo" value={stats.seriesPorHora != null ? String(stats.seriesPorHora).replace(".", ",") : "—"}
+                unit={stats.seriesPorHora != null ? "series/h" : ""}
+                sub={stats.seriesPorHora != null
+                  ? (stats.mediaPorSerie != null ? `${segClock(stats.mediaPorSerie)} por serie` : null)
+                  : "Al minuto de empezar"} />
+              <StatSquare top="Serie por serie" value={`${stats.segmentos.length}`} unit="tramos"
+                sub="Ver el detalle" onClick={() => setSesPane("segmentos")} />
+              <StatSquare top="Calorías" value={`${stats.kcal}`} unit="kcal" sub="Estimadas · ver cómo" onClick={() => setSesPane("kcal")} />
+            </div>
+
+            {/* Frecuencia cardíaca, mapa y clima necesitan hardware que la
+                app no tiene desde el navegador. En vez de una pantalla
+                vacía que finge, se dice qué falta y se lleva a donde se
+                conectan los dispositivos. */}
+            <RowGroup label={hr.connected ? `Pulsómetro · ${hr.name || "conectado"}` : "Con un dispositivo conectado"} rows={[
+              { label: "Frecuencia cardíaca",
+                value: hr.connected ? (hr.bpm != null ? `${hr.bpm} lpm` : "Conectado") : "Sin pulsómetro",
+                onClick: onOpenDevices },
+              hrStats && { label: "Media de la sesión", value: `${hrStats.media} lpm` },
+              hrStats && { label: "Máxima", value: `${hrStats.max} lpm` },
+              !hr.connected && { label: "Calorías medidas", value: "Sin pulsómetro", onClick: onOpenDevices },
+            ]} />
+
+            <button onClick={() => { setExiting(false); setSesPane(null); onFinish(); }}
+              style={{ width: "100%", padding: "15px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+              Finalizar sesión
+            </button>
+            <button onClick={() => { setExiting(false); setSesPane(null); setConfirmDiscard(true); }}
+              style={{ width: "100%", padding: "11px 0", textAlign: "center", fontSize: 15.5, fontWeight: 600, color: P.red }}>
+              Descartar la sesión
             </button>
           </div>
-        </>
-      )}
+        )}
+      </Sheet>
 
       <Confirm open={confirmDiscard} danger title="Descartar sesión"
         body="Se borrará todo lo registrado en esta sesión y no quedará en el historial. Esta acción no se puede deshacer."
@@ -5126,6 +5324,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
               background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
             <MessageSquare size={18} /> Comentario de esta serie
+          </button>
+          <button data-keep onClick={() => { setRowMoreFor(null); setMediaOpen(true); }}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
+              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
+            <Camera size={18} /> Video y fotos de la sesión
           </button>
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={undo} disabled={!undoStack.length}
@@ -5299,7 +5502,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, autoStartDayId, onAutoStartConsumed, onOpenAIChat, onLeave }) => {
+const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, autoStartDayId, onAutoStartConsumed, onOpenAIChat, onLeave, onOpenDevices }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
   const [previewDay, setPreviewDay] = useState(null);
@@ -5372,7 +5575,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
               </Card>
             ))}
           </div>
-          {summary.prs.length > 0 && (
+          {(summary.prs || []).length > 0 && (
             <div style={{ background: "rgba(255,255,255,.08)", border: `1px solid ${P.dim}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
               <div style={{ fontWeight: 700, color: P.ember2, marginBottom: 6 }}><Award size={15} style={{ verticalAlign: -2, marginRight: 5 }} />Récords personales de peso</div>
               {summary.prs.map((p) => <div key={p} style={{ fontSize: 15, color: P.text, padding: "2px 0" }}>• {p}</div>)}
@@ -5548,6 +5751,9 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
       if (willDone) {
         if (st.reps === "" || st.reps == null) { const n = repsTargetNum(st.repsT); if (n != null) st.reps = String(n); }
         if ((st.rir === "" || st.rir == null) && st.rirT !== "" && st.rirT != null) st.rir = String(st.rirT);
+        st.doneAt = new Date().toISOString();
+      } else {
+        delete st.doneAt;
       }
       return a;
     });
@@ -5573,7 +5779,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
 
   return (
     <>
-      <FocusModeMono active={active} history={history} plan={plan} patch={patch} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
+      <FocusModeMono active={active} history={history} plan={plan} patch={patch} onOpenDevices={onOpenDevices} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
         timer={timer} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
         onBrowseRoutine={() => { setBrowsing(true); setPreviewDay(null); }} />
@@ -6532,7 +6738,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <span style={{ fontWeight: 600, fontSize: 15.5 }}>{d.lastSession.dayName}</span>
           <span style={{ fontSize: 13, color: P.faint }}>
             {fmtDateFull(d.lastSession.date)} · {d.lastSession.durationMin} min · {Math.round(d.lastSession.volume).toLocaleString("es-CL")} kg
-            {d.lastSession.prs.length > 0 && <span style={{ color: P.text, fontWeight: 700 }}> · {d.lastSession.prs.length} PR</span>}
+            {(d.lastSession.prs || []).length > 0 && <span style={{ color: P.text, fontWeight: 700 }}> · {d.lastSession.prs.length} PR</span>}
           </span>
         </Card>
       )}
@@ -7004,39 +7210,260 @@ const daysAgoLabel = (dateStr) => {
   if (days < 14) return `hace ${days} días`;
   return `hace ${Math.round(days / 7)} semanas`;
 };
+
+/* ============================================================
+   Mapa muscular y estadísticas de entrenamiento por grupo
+   ------------------------------------------------------------
+   Todo esto sale del HISTORIAL, no del plan: es lo que de verdad se
+   entrenó, no lo que estaba programado. El plan solo se usa para saber
+   a qué músculo pertenece cada ejercicio (los ejercicios en el
+   historial se guardan por id).
+   ============================================================ */
+const PERIODOS = [
+  { id: "semana", label: "Semana", days: 7 },
+  { id: "mes", label: "Mes", days: 30 },
+  { id: "ano", label: "Año", days: 365 },
+  { id: "todo", label: "Todo", days: null },
+];
+
+// Series efectivas por músculo dentro de un periodo, contando el aporte
+// parcial de los secundarios igual que el resto de la app.
+function muscleWorkFromHistory(plan, history, days) {
+  const cutoff = days ? Date.now() - days * 86400000 : null;
+  // exId → {muscle, secondary, name} tomado del plan; lo que ya no esté
+  // en el plan cae en "Otro" en vez de desaparecer del conteo.
+  const meta = {};
+  (plan.days || []).forEach((d) => (d.exs || []).forEach((e) => {
+    meta[e.id] = { muscle: e.muscle || "Otro", secondary: e.secondary || [], name: e.name };
+  }));
+
+  const perMuscle = {}, sesionesPorMusculo = {}, porEjercicio = {};
+  Object.keys(history.byEx || {}).forEach((exId) => {
+    (history.byEx[exId] || []).forEach((en) => {
+      if (cutoff && new Date(en.date).getTime() < cutoff) return;
+      const efectivas = (en.sets || []).filter((s) => s.done && s.type !== "warmup").length;
+      if (!efectivas) return;
+      const m = (meta[exId] || {}).muscle || "Otro";
+      const nombre = (meta[exId] || {}).name || en.exName || "Ejercicio";
+      perMuscle[m] = (perMuscle[m] || 0) + efectivas;
+      porEjercicio[nombre] = (porEjercicio[nombre] || 0) + efectivas;
+      (sesionesPorMusculo[m] = sesionesPorMusculo[m] || new Set()).add(en.sessionId || en.date);
+      ((meta[exId] || {}).secondary || []).forEach((sec) => {
+        if (!sec || !sec.muscle || sec.muscle === m) return;
+        const frac = (sec.pct != null ? sec.pct : 50) / 100;
+        perMuscle[sec.muscle] = (perMuscle[sec.muscle] || 0) + efectivas * frac;
+        (sesionesPorMusculo[sec.muscle] = sesionesPorMusculo[sec.muscle] || new Set()).add(en.sessionId || en.date);
+      });
+    });
+  });
+
+  const max = Math.max(0, ...Object.values(perMuscle));
+  const musculos = Object.entries(perMuscle)
+    .map(([muscle, sets]) => ({
+      muscle, sets: Math.round(sets * 10) / 10,
+      sesiones: (sesionesPorMusculo[muscle] || new Set()).size,
+      pct: max ? Math.round((sets / max) * 100) : 0,
+    }))
+    .sort((a, b) => b.sets - a.sets);
+  const ejercicios = Object.entries(porEjercicio)
+    .map(([name, sets]) => ({ name, sets }))
+    .sort((a, b) => b.sets - a.sets);
+  return { musculos, ejercicios, max };
+}
+
+/* Silueta de cuerpo, de frente y de espaldas. No es una lámina de
+   anatomía —no hace falta— pero las proporciones y la posición de cada
+   grupo son las correctas, que es lo que tiene que hacer: decir de un
+   vistazo dónde se está entrenando y dónde no.
+   La intensidad es OPACIDAD sobre la tinta del tema, no color: la app es
+   monocroma y un mapa de calor verde/amarillo no pega con nada. */
+// Piezas del cuerpo, en gris de fondo. Se dibujan siempre; encima van
+// las regiones musculares con su intensidad.
+const BODY_BASE = [
+  "M50 4.5 a8.5 8.5 0 0 1 0 17 a8.5 8.5 0 0 1 0 -17",           // cabeza
+  "M45.5 20 h9 v7 h-9 z",                                        // cuello
+  "M38 27 h24 l4 8 l-2 27 l-4 22 h-20 l-4 -22 l-2 -27 z",        // torso
+  "M33.5 30 a7 7 0 0 0 -6.5 7 l1 4 h6 z",                        // hombro izq
+  "M66.5 30 a7 7 0 0 1 6.5 7 l-1 4 h-6 z",                       // hombro der
+  "M27.5 41 h6.5 l-0.5 21 h-6.5 z", "M72.5 41 h-6.5 l0.5 21 h6.5 z",  // brazos
+  "M27 62 h6.5 l-1 22 h-6 z", "M73 62 h-6.5 l1 22 h6 z",         // antebrazos
+  "M26 84 h6 v6 a3 3 0 0 1 -6 0 z", "M74 84 h-6 v6 a3 3 0 0 0 6 0 z", // manos
+  "M40 84 h9.2 l-1.2 39 h-7.6 z", "M60 84 h-9.2 l1.2 39 h7.6 z", // muslos
+  "M40.6 125 h7.2 l-1 33 h-5.6 z", "M59.4 125 h-7.2 l1 33 h5.6 z", // pantorrillas
+  "M40 160 h7 v5 h-9 a2 2 0 0 1 2 -5", "M60 160 h-7 v5 h9 a2 2 0 0 0 -2 -5", // pies
+];
+
+const BODY_SHAPES = {
+  front: {
+    Trapecio:   ["M40 27 h20 l3 6 l-11 3 l-11 -3 z"],
+    Hombro:     ["M33.5 30 a7 7 0 0 0 -6.5 7 l1 4 h6 z", "M66.5 30 a7 7 0 0 1 6.5 7 l-1 4 h-6 z"],
+    Pecho:      ["M39 35 h10.5 v14 l-12 -2 z", "M61 35 h-10.5 v14 l12 -2 z"],
+    Core:       ["M39.5 50 h21 l-2 22 h-17 z"],
+    Bíceps:     ["M27.5 41 h6.5 l-0.5 21 h-6.5 z", "M72.5 41 h-6.5 l0.5 21 h6.5 z"],
+    Antebrazo:  ["M27 62 h6.5 l-1 22 h-6 z", "M73 62 h-6.5 l1 22 h6 z"],
+    Cuádriceps: ["M40 85 h9 l-1 33 h-7 z", "M60 85 h-9 l1 33 h7 z"],
+    Gemelo:     ["M40.6 126 h7 l-0.8 26 h-5.4 z", "M59.4 126 h-7 l0.8 26 h5.4 z"],
+  },
+  back: {
+    Trapecio:   ["M39 27 h22 l4 8 l-4 14 l-11 4 l-11 -4 l-4 -14 z"],
+    Hombro:     ["M33.5 30 a7 7 0 0 0 -6.5 7 l1 4 h6 z", "M66.5 30 a7 7 0 0 1 6.5 7 l-1 4 h-6 z"],
+    Espalda:    ["M37 42 l13 5 l13 -5 l-2 20 l-11 8 l-11 -8 z"],
+    Tríceps:    ["M27.5 41 h6.5 l-0.5 21 h-6.5 z", "M72.5 41 h-6.5 l0.5 21 h6.5 z"],
+    Antebrazo:  ["M27 62 h6.5 l-1 22 h-6 z", "M73 62 h-6.5 l1 22 h6 z"],
+    Glúteo:     ["M39 72 h22 l-1 14 h-20 z"],
+    Femoral:    ["M40 87 h9 l-1 31 h-7 z", "M60 87 h-9 l1 31 h7 z"],
+    Gemelo:     ["M40.6 126 h7 l-0.8 26 h-5.4 z", "M59.4 126 h-7 l0.8 26 h5.4 z"],
+  },
+};
+
+const BodyMap = ({ trabajo, onPick, seleccion }) => {
+  const nivel = (m) => {
+    const row = trabajo.musculos.find((x) => x.muscle === m);
+    return row ? row.pct / 100 : 0;
+  };
+  const cara = (lado) => (
+    <svg viewBox="0 0 100 168" style={{ width: "100%", height: "auto", display: "block" }} aria-hidden="true">
+      {BODY_BASE.map((d, i) => <path key={`b${i}`} d={d} fill={P.s3} />)}
+      {Object.keys(BODY_SHAPES[lado]).map((m) => {
+        const n = nivel(m);
+        const on = seleccion === m;
+        return BODY_SHAPES[lado][m].map((d, i) => (
+          <path key={`${m}-${i}`} d={d} onClick={onPick ? () => onPick(on ? null : m) : undefined}
+            style={{ cursor: onPick ? "pointer" : "default", transition: `fill-opacity ${DUR_ROW}ms ${EASE_STD}` }}
+            fill={P.text} fillOpacity={n === 0 ? 0 : 0.25 + n * 0.75}
+            stroke={on ? P.text : "none"} strokeWidth={on ? 1.4 : 0} />
+        ));
+      })}
+    </svg>
+  );
+  return (
+    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+      <div style={{ flex: 1, maxWidth: 112 }}>{cara("front")}</div>
+      <div style={{ flex: 1, maxWidth: 112 }}>{cara("back")}</div>
+    </div>
+  );
+};
+
 // Volumen para el ALUMNO. `VolumePanel` (el del coach) sigue igual: ahí
 // el coach necesita el desglose por sesión, el comparador natural/asistido
-// y la nota de dónde salen los landmarks. Al alumno le sirve una sola
-// cosa — cuántas series le tocan por grupo y si está corto o pasado —
-// así que acá van las barras y nada más; la explicación queda plegada.
-const AthleteVolumePanel = ({ plan }) => {
+// y la nota de dónde salen los landmarks. Al alumno le sirve otra cosa —
+// qué entrenó de verdad y qué está dejando de lado — así que acá manda el
+// mapa muscular, sacado del historial, no del plan.
+const AthleteVolumePanel = ({ plan, history }) => {
+  const [periodo, setPeriodo] = useState("semana");
+  const [pane, setPane] = useState(null);
+  const [sel, setSel] = useState(null);
+  const def = PERIODOS.find((x) => x.id === periodo) || PERIODOS[0];
+  const trabajo = useMemo(() => muscleWorkFromHistory(plan, history, def.days), [plan, history, def.days]);
+
+  // El plan sigue mandando en la parte de "cuánto DEBERÍAS": MEV/MAV/MRV
+  // son referencias sobre el volumen programado, no sobre lo ya hecho.
   const enhanced = (plan.athlete || {}).enhanced === "asistido";
   const refTable = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
   const vol = useMemo(() => volumeByMuscle(plan, refTable), [plan, refTable]);
-  if (!vol.rows.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Cuando tu coach cargue la rutina vas a ver acá el volumen por grupo muscular." />;
-  const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
+  const maxRef = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
   const fuera = vol.rows.filter((r) => r.status && r.status !== "en rango").length;
+
+  const chips = (
+    <div style={{ display: "flex", gap: 6 }}>
+      {PERIODOS.map((x) => {
+        const on = x.id === periodo;
+        return (
+          <button key={x.id} onClick={() => setPeriodo(x.id)}
+            style={{ flex: 1, padding: "8px 0", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
+              background: on ? P.text : P.s3, color: on ? PLATE_FG : P.faint,
+              transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>{x.label}</button>
+        );
+      })}
+    </div>
+  );
+
+  if (pane) {
+    const titulo = pane === "ejercicios" ? "Ejercicios más usados" : pane === "musculos" ? "Todos los grupos" : "Volumen programado";
+    return (
+      <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <button onClick={() => setPane(null)}
+          style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 15, fontWeight: 600, color: P.text, alignSelf: "flex-start" }}>
+          <ChevronLeft size={17} strokeWidth={2.6} /> {titulo === "Volumen programado" ? "Músculos" : "Músculos"}
+        </button>
+        {pane === "musculos" && (
+          <RowGroup rows={trabajo.musculos.map((m) => ({
+            label: m.muscle,
+            value: `${fmtSets(m.sets)} series · ${m.sesiones} ${m.sesiones === 1 ? "sesión" : "sesiones"} · ${m.pct} %`,
+          }))} />
+        )}
+        {pane === "ejercicios" && (
+          trabajo.ejercicios.length === 0
+            ? <Empty icon={Dumbbell} title="Sin sesiones en este periodo" body="Cuando registres entrenamientos vas a ver acá cuáles son los ejercicios que más haces." />
+            : (
+              <Card style={{ overflow: "hidden" }}>
+                {trabajo.ejercicios.slice(0, 12).map((e, i) => {
+                  const top = trabajo.ejercicios[0].sets || 1;
+                  return (
+                    <div key={e.name} style={{ padding: "11px 16px", borderBottom: i < Math.min(12, trabajo.ejercicios.length) - 1 ? `1px solid ${P.line}` : "none" }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 15, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2, flexShrink: 0 }}>{fmtSets(e.sets)}</span>
+                      </div>
+                      <div style={{ height: 8, borderRadius: 4, background: P.s3, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${Math.max(4, (e.sets / top) * 100)}%`, background: P.text, borderRadius: 4 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </Card>
+            )
+        )}
+        {pane === "programado" && (
+          vol.rows.length === 0
+            ? <Empty icon={Dumbbell} title="Sin rutina cargada" body="Cuando tu coach cargue la rutina vas a ver acá cuántas series te tocan por grupo." />
+            : (
+              <>
+                <div style={{ fontSize: 13.5, color: P.faint2, lineHeight: 1.5 }}>
+                  Lo que tu rutina tiene programado por semana, contra los rangos de referencia.
+                </div>
+                {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={maxRef} compact />)}
+                <Collapsible title="Qué es MEV, MAV y MRV" summary="">
+                  <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>
+                    MEV es el mínimo que hace efecto, MAV la zona donde se progresa mejor y MRV el techo
+                    que se alcanza a recuperar. Son rangos orientativos
+                    {enhanced ? " para atletas asistidos" : " según los landmarks de Renaissance Periodization"}:
+                    el punto exacto lo ajusta tu coach según cómo respondas.
+                  </div>
+                </Collapsible>
+              </>
+            )
+        )}
+      </div>
+    );
+  }
+
+  const selRow = sel ? trabajo.musculos.find((x) => x.muscle === sel) : null;
+
   return (
-    <>
-      <Card style={{ padding: "15px 15px 13px", display: "flex", flexDirection: "column", gap: 2 }}>
-        <span style={{ fontSize: 13, color: P.faint2 }}>{vol.basis === "semana" ? "Series efectivas por semana" : "Series efectivas por vuelta"}</span>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{fmtSets(vol.total)}</span>
-          <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 14, fontWeight: 600, color: fuera ? P.red : P.faint2 }}>
-            {fuera ? `${fuera} fuera de rango` : "todo en rango"}
-          </span>
+    <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {chips}
+      <Card style={{ padding: "10px 12px 4px" }}>
+        <BodyMap trabajo={trabajo} onPick={setSel} seleccion={sel} />
+        <div style={{ textAlign: "center", fontSize: 12.5, color: P.faint2, padding: "2px 0 8px", minHeight: 18 }}>
+          {selRow
+            ? `${selRow.muscle} · ${fmtSets(selRow.sets)} series · ${selRow.sesiones} ${selRow.sesiones === 1 ? "sesión" : "sesiones"}`
+            : trabajo.musculos.length ? "Toca un músculo para ver su detalle" : "Sin entrenamientos en este periodo"}
         </div>
       </Card>
-      {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} compact />)}
-      <Collapsible title="Qué es MEV, MAV y MRV" summary="">
-        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>
-          MEV es el mínimo que hace efecto, MAV la zona donde se progresa mejor y
-          MRV el techo que se alcanza a recuperar. Son rangos orientativos
-          {enhanced ? " para atletas asistidos (heurística de campo: con soporte anabólico el techo recuperable sube)" : " según los landmarks de Renaissance Periodization"}: el punto exacto lo ajusta tu coach según cómo respondas.
-        </div>
-      </Collapsible>
-    </>
+
+      <RowGroup label={trabajo.musculos.length ? "Lo que entrenaste" : null} rows={[
+        ...trabajo.musculos.slice(0, 3).map((m) => ({
+          label: m.muscle,
+          value: `${m.sesiones} ${m.sesiones === 1 ? "sesión" : "sesiones"} · ${m.pct} %`,
+          tone: m.muscle === sel ? P.text : undefined,
+          onClick: () => setSel(m.muscle === sel ? null : m.muscle),
+        })),
+        trabajo.musculos.length > 3 && { label: "Ver los demás grupos", value: `${trabajo.musculos.length - 3} más`, onClick: () => setPane("musculos") },
+        { label: "Ejercicios más usados", value: trabajo.ejercicios.length ? `${trabajo.ejercicios.length}` : "—", onClick: () => setPane("ejercicios") },
+        { label: "Volumen programado", value: fuera ? `${fuera} fuera de rango` : vol.rows.length ? "todo en rango" : "—", tone: fuera ? P.red : undefined, onClick: () => setPane("programado") },
+      ]} />
+    </div>
   );
 };
 
@@ -7156,7 +7583,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
         </>
       )}
 
-      {sub === "volumen" && <AthleteVolumePanel plan={plan} />}
+      {sub === "volumen" && <AthleteVolumePanel plan={plan} history={history} />}
 
       {sub === "logros" && <AchievementGrid history={history} />}
 
@@ -9969,7 +10396,7 @@ const ActivityTab = ({ plan, history }) => {
               <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>{fmtDateFull(s.date)} · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg</div>
             </div>
             {s.hasComments && <MessageSquare size={15} color={P.ember2} />}
-            {s.prs.length > 0 && <Award size={15} color={P.ember2} />}
+            {(s.prs || []).length > 0 && <Award size={15} color={P.ember2} />}
             <ChevronRight size={16} color={P.faint} />
           </button>
         </Card>
@@ -10917,6 +11344,87 @@ const LeadsTab = ({ onCreateStudent, onManageStudent, toast }) => {
    ============================================================ */
 // Reloj de una sesión larga: agrega la hora cuando pasa de 60 min
 // ("1:12:06"); por debajo se queda en minutos:segundos ("12:06").
+
+/* ============================================================
+   Métricas de la sesión
+   ------------------------------------------------------------
+   Lo que una app de fuerza SÍ puede medir sin sensores: cuánto duró
+   cada serie, cuánto se fue en descanso, cuánto peso se movió y a qué
+   ritmo. Las calorías son una estimación declarada como tal (fórmula
+   MET), no una medición: para medirlas de verdad hace falta pulsómetro,
+   y eso vive en Dispositivos.
+   ============================================================ */
+// MET de entrenamiento de fuerza (compendio de actividad física de
+// Ainsworth): ~5,0 para trabajo con pesas continuo. Se usa uno solo para
+// toda la sesión en vez de inventar uno por ejercicio — más precisión
+// falsa no la haría más cierta.
+const MET_FUERZA = 5.0;
+const PESO_POR_DEFECTO = 75;
+
+const sessionStats = (active, bodyweight) => {
+  const startedAt = new Date(active.startedAt).getTime();
+  const now = Date.now();
+  const totalSec = Math.max(0, Math.round((now - startedAt) / 1000));
+
+  // Un segmento por serie hecha, en el orden en que se completaron: de
+  // cuándo terminó la anterior a cuándo terminó esta.
+  const hechas = [];
+  active.exs.forEach((ex, ei) => ex.sets.forEach((st, si) => {
+    if (st.done && st.doneAt) hechas.push({ ei, si, exName: ex.name, at: new Date(st.doneAt).getTime(), st });
+  }));
+  hechas.sort((a, b) => a.at - b.at);
+  let prev = startedAt;
+  const segmentos = hechas.map((h, i) => {
+    const dur = Math.max(0, Math.round((h.at - prev) / 1000));
+    prev = h.at;
+    return { n: i + 1, exName: h.exName, serie: h.si + 1, sec: dur, st: h.st };
+  });
+
+  let setsDone = 0, setsTotal = 0, volumen = 0, reps = 0;
+  active.exs.forEach((ex) => ex.sets.forEach((st) => {
+    setsTotal += 1;
+    if (!st.done) return;
+    setsDone += 1;
+    volumen += num(st.weight) * num(st.reps);
+    reps += num(st.reps);
+    (st.drops || []).forEach((d) => { volumen += num(d.weight) * num(d.reps); });
+  }));
+
+  const trabajoSec = segmentos.reduce((a, x) => a + x.sec, 0);
+  const kgPeso = (bodyweight || []).length ? bodyweight[bodyweight.length - 1].kg : null;
+  const minutos = totalSec / 60;
+  const kcal = Math.round(MET_FUERZA * 3.5 * (kgPeso || PESO_POR_DEFECTO) / 200 * minutos);
+
+  return {
+    totalSec, segmentos, setsDone, setsTotal, volumen, reps,
+    ejercicios: active.exs.length,
+    // Ritmo: series por hora y media por serie. Es lo que dice si la
+    // sesión se está yendo de largo entre serie y serie.
+    seriesPorHora: totalSec > 60 ? Math.round((setsDone / (totalSec / 3600)) * 10) / 10 : null,
+    mediaPorSerie: setsDone ? Math.round(trabajoSec / setsDone) : null,
+    kcal: minutos >= 1 ? kcal : 0,
+    kgPeso, pesoEstimado: kgPeso == null,
+  };
+};
+
+// mm:ss para las duraciones de segmento (siempre por debajo de la hora).
+const segClock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+// Ficha cuadrada de dato: rótulo chico, número grande, nota abajo. Es la
+// misma forma que "Estado de hoy" y las fichas del check-in.
+const StatSquare = ({ top, value, unit, sub, onClick }) => (
+  <button onClick={onClick} disabled={!onClick}
+    style={{ width: "100%", minHeight: 92, textAlign: "left", background: P.s1, border: `1px solid ${P.frame}`,
+      borderRadius: R_TILE, padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
+    <span style={{ fontSize: 12.5, color: P.faint2 }}>{top}</span>
+    <span style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+      <span className="num" style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: P.text, lineHeight: 1.1 }}>{value}</span>
+      {unit && <span style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>{unit}</span>}
+    </span>
+    {sub != null && <span style={{ fontSize: 12, color: P.faint2, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</span>}
+  </button>
+);
+
 const sessionClock = (s) => {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
   return `${h ? `${h}:${String(m).padStart(2, "0")}` : String(m)}:${String(ss).padStart(2, "0")}`;
@@ -11401,7 +11909,7 @@ function buildAthleteContext({ plan, history, athlete, student }) {
     : "  (sin series cargadas)";
 
   const sessTxt = recent.length
-    ? recent.map((s) => `  · ${fmtDate(s.date)} — ${s.dayName}: ${s.setsDone}/${s.setsTotal} series, ${Math.round(s.volume)} kg de tonelaje, ${s.durationMin} min${s.prs.length ? `, PR: ${s.prs.join("; ")}` : ""}`).join("\n")
+    ? recent.map((s) => `  · ${fmtDate(s.date)} — ${s.dayName}: ${s.setsDone}/${s.setsTotal} series, ${Math.round(s.volume)} kg de tonelaje, ${s.durationMin} min${(s.prs || []).length ? `, PR: ${s.prs.join("; ")}` : ""}`).join("\n")
     : "  (todavía no registra sesiones)";
 
   const bwTxt = bw.length
@@ -13481,92 +13989,349 @@ const ReadOnlyLock = ({ active, toast, children }) => (
    solo hace falta reemplazar ese onClick: toda la navegación, las
    fichas por marca y el detalle de qué trae cada una ya quedan listos.
    ============================================================ */
-const DEVICE_CATALOG = [
-  { id: "garmin", name: "Garmin", group: "Relojes y pulseras", Icon: Watch,
-    blurb: "Cualquier reloj Garmin — Fénix, Forerunner, Vívoactive, Instinct o el resto de la línea Garmin Connect.",
-    syncs: ["Pasos", "Frecuencia cardíaca", "Sueño", "Calorías", "Entrenamientos registrados en el reloj"] },
-  { id: "whoop", name: "WHOOP", group: "Relojes y pulseras", Icon: Watch,
-    blurb: "Banda WHOOP — recuperación, tensión (strain) y sueño.",
-    syncs: ["Recuperación", "Tensión (strain)", "Sueño", "Frecuencia cardíaca"] },
-  { id: "applewatch", name: "Apple Watch", group: "Relojes y pulseras", Icon: Watch,
-    blurb: "Se conecta a través de la app Salud del iPhone — no hace falta configurarlo aparte del de abajo.",
-    syncs: ["Pasos", "Frecuencia cardíaca", "Sueño", "Entrenamientos"] },
-  { id: "oura", name: "Oura", group: "Relojes y pulseras", Icon: Watch,
-    blurb: "Anillo Oura — sueño, recuperación y puntaje de disposición (readiness) del día.",
-    syncs: ["Sueño", "Recuperación", "Readiness", "Frecuencia cardíaca en reposo"] },
-  { id: "applehealth", name: "Salud (iPhone)", group: "Apps de salud", Icon: Smartphone,
-    blurb: "La app Salud de Apple junta en un solo lugar los datos de tu iPhone, tu Apple Watch y otras apps compatibles.",
-    syncs: ["Pasos", "Peso", "Sueño", "Frecuencia cardíaca"] },
-  { id: "scale", name: "Báscula inteligente", group: "Básculas", Icon: Scale,
-    blurb: "Cualquier báscula con Bluetooth — el peso (y el % de grasa, si la báscula lo mide) se registra solo, sin escribirlo a mano.",
-    syncs: ["Peso", "% de grasa corporal (si la báscula lo mide)"] },
-  { id: "other", name: "Otro dispositivo Bluetooth", group: "Otros", Icon: Bluetooth,
-    blurb: "Cualquier otra marca con Bluetooth que no esté en la lista — pulsómetros, básculas, bandas y más.",
-    syncs: ["Depende del dispositivo"] },
+/* ============================================================
+   Bluetooth de verdad (Web Bluetooth)
+   ------------------------------------------------------------
+   Qué se puede y qué no, sin rodeos:
+
+   · Pulsómetros y básculas con Bluetooth LE: SÍ. Hablan perfiles
+     estándar (Heart Rate 0x180D, Weight Scale 0x181D), así que se
+     conectan y se leen directo desde el navegador, sin cuenta ni
+     servidor de por medio.
+   · Garmin, WHOOP, Oura, Apple Watch: NO por Bluetooth. Sus relojes
+     no exponen sus datos por BLE a terceros; lo que ofrecen es una API
+     en la nube con OAuth, que necesita credenciales de desarrollador y
+     un servidor que guarde el secreto. Para esos, lo que sí funciona
+     hoy es importar el archivo que cada una deja exportar.
+   · Web Bluetooth NO existe en Safari (ni en iPhone). Es decisión de
+     Apple, no falta nuestra. En iPhone quedan la importación de
+     archivos y la carga a mano.
+
+   La conexión vive en una variable de módulo con suscriptores, igual
+   que el tema y la unidad de peso: así la sesión y la hoja de
+   dispositivos ven el mismo pulso sin pasarse props por media app.
+   ============================================================ */
+const bleSupported = () => typeof navigator !== "undefined" && !!navigator.bluetooth;
+
+let HR_STATE = { device: null, name: "", bpm: null, battery: null, error: "" };
+const hrListeners = new Set();
+const hrEmit = () => hrListeners.forEach((fn) => fn(HR_STATE));
+const hrSet = (patch) => { HR_STATE = { ...HR_STATE, ...patch }; hrEmit(); };
+
+// El pulso llega en un paquete cuyo primer byte dice el formato: bit 0
+// en 0 = un byte, en 1 = dos bytes little-endian.
+const parseHeartRate = (view) => {
+  const flags = view.getUint8(0);
+  return (flags & 0x01) ? view.getUint16(1, true) : view.getUint8(1);
+};
+
+async function hrConnect() {
+  if (!bleSupported()) { hrSet({ error: "Este navegador no tiene Bluetooth. En iPhone, Safari no lo implementa." }); return false; }
+  try {
+    hrSet({ error: "" });
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: ["heart_rate"] }],
+      optionalServices: ["battery_service"],
+    });
+    device.addEventListener("gattserverdisconnected", () => hrSet({ device: null, name: "", bpm: null, battery: null }));
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService("heart_rate");
+    const ch = await svc.getCharacteristic("heart_rate_measurement");
+    ch.addEventListener("characteristicvaluechanged", (e) => {
+      const bpm = parseHeartRate(e.target.value);
+      if (bpm > 0) hrSet({ bpm });
+    });
+    await ch.startNotifications();
+    hrSet({ device, name: device.name || "Pulsómetro" });
+    // La batería es opcional: hay cintas que no la publican.
+    try {
+      const bsvc = await server.getPrimaryService("battery_service");
+      const bch = await bsvc.getCharacteristic("battery_level");
+      hrSet({ battery: (await bch.readValue()).getUint8(0) });
+    } catch { /* sin batería publicada */ }
+    return true;
+  } catch (e) {
+    // Cancelar el diálogo del navegador no es un error que haya que gritar.
+    if (e && e.name === "NotFoundError") { hrSet({ error: "" }); return false; }
+    hrSet({ error: e && e.message ? e.message : "No se pudo conectar." });
+    return false;
+  }
+}
+function hrDisconnect() {
+  try { if (HR_STATE.device && HR_STATE.device.gatt.connected) HR_STATE.device.gatt.disconnect(); } catch { /* ya desconectado */ }
+  hrSet({ device: null, name: "", bpm: null, battery: null });
+}
+function useHeartRate() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    hrListeners.add(fn);
+    return () => hrListeners.delete(fn);
+  }, []);
+  return { ...HR_STATE, connected: !!HR_STATE.device, supported: bleSupported(), connect: hrConnect, disconnect: hrDisconnect };
+}
+
+// Básculas BLE: perfil Weight Scale. El peso viene en unidades de
+// 0,005 kg (o 0,01 lb si el primer bit dice imperial).
+async function scaleRead() {
+  if (!bleSupported()) throw new Error("Este navegador no tiene Bluetooth. En iPhone, Safari no lo implementa.");
+  const device = await navigator.bluetooth.requestDevice({ filters: [{ services: ["weight_scale"] }] });
+  const server = await device.gatt.connect();
+  const svc = await server.getPrimaryService("weight_scale");
+  const ch = await svc.getCharacteristic("weight_measurement");
+  return await new Promise((resolve, reject) => {
+    const to = setTimeout(() => reject(new Error("La báscula no envió ninguna medición. Súbete a ella con la app abierta.")), 30000);
+    ch.addEventListener("characteristicvaluechanged", (e) => {
+      const v = e.target.value, flags = v.getUint8(0), raw = v.getUint16(1, true);
+      clearTimeout(to);
+      const kgVal = (flags & 0x01) ? raw * 0.01 * 0.45359237 : raw * 0.005;
+      try { device.gatt.disconnect(); } catch { /* da igual */ }
+      resolve(Math.round(kgVal * 10) / 10);
+    });
+    ch.startNotifications().catch(reject);
+  });
+}
+
+/* ------------------------------------------------------------
+   Importar el archivo que exportan Garmin, WHOOP, Oura y Salud.
+   Es lo que SÍ funciona hoy en iPhone: ninguna de esas apps deja
+   leer por Bluetooth, pero todas dejan exportar. Se acepta CSV con
+   cabecera; se busca una columna de fecha y una de cada métrica,
+   por nombre, en español o inglés.
+   ------------------------------------------------------------ */
+const IMPORT_FIELDS = [
+  { key: "kg",     store: "bodyweight", field: "kg",     label: "Peso",              alias: ["peso", "weight", "body weight", "weight (kg)", "masa"] },
+  { key: "count",  store: "steps",      field: "count",  label: "Pasos",             alias: ["pasos", "steps", "step count", "total steps"] },
+  { key: "hours",  store: "sleep",      field: "hours",  label: "Sueño",             alias: ["sueño", "sueno", "sleep", "sleep duration", "asleep time", "horas de sueño"] },
+  { key: "liters", store: "water",      field: "liters", label: "Agua",              alias: ["agua", "water", "hidratación"] },
 ];
-const DevicesSheet = ({ open, onClose, toast }) => {
+const DATE_ALIAS = ["fecha", "date", "day", "start", "cycle start time", "timestamp"];
+
+const parseCsv = (texto) => {
+  const lineas = String(texto || "").trim().split(/\r?\n/).filter((l) => l.trim());
+  if (lineas.length < 2) return null;
+  // Separador: el que más aparece en la cabecera de los tres habituales.
+  const cab = lineas[0];
+  const sep = [",", ";", "\t"].sort((a, b) => cab.split(b).length - cab.split(a).length)[0];
+  const corta = (l) => l.split(sep).map((c) => c.trim().replace(/^"|"$/g, ""));
+  const cols = corta(cab).map((c) => c.toLowerCase());
+  const filas = lineas.slice(1).map(corta);
+  return { cols, filas };
+};
+
+// Devuelve { bodyweight: [...], steps: [...] } listo para volcar en
+// history, más un resumen de qué se encontró para poder mostrarlo antes
+// de escribir nada.
+function importFromCsv(texto) {
+  const csv = parseCsv(texto);
+  if (!csv) return { error: "El archivo no parece un CSV con cabecera." };
+  const idxFecha = csv.cols.findIndex((c) => DATE_ALIAS.some((a) => c === a || c.includes(a)));
+  if (idxFecha < 0) return { error: "No encontré ninguna columna de fecha (Fecha, Date, Day…)." };
+  const encontrados = IMPORT_FIELDS
+    .map((f) => ({ ...f, idx: csv.cols.findIndex((c) => f.alias.some((a) => c === a || c.startsWith(a))) }))
+    .filter((f) => f.idx >= 0);
+  if (!encontrados.length) return { error: "No encontré ninguna columna que sepa leer (peso, pasos, sueño o agua)." };
+
+  const out = {}, conteo = {};
+  csv.filas.forEach((fila) => {
+    const d = new Date(fila[idxFecha]);
+    if (Number.isNaN(d.getTime())) return;
+    encontrados.forEach((f) => {
+      const n = parseFloat(String(fila[f.idx] || "").replace(",", "."));
+      if (!isFinite(n) || n <= 0) return;
+      (out[f.store] = out[f.store] || []).push({ date: d.toISOString(), [f.field]: n });
+      conteo[f.label] = (conteo[f.label] || 0) + 1;
+    });
+  });
+  if (!Object.keys(conteo).length) return { error: "Encontré las columnas pero ninguna fila con datos legibles." };
+  return { out, conteo };
+}
+
+// Cómo se conecta cada cosa, de verdad. `via` decide qué botón sale:
+//   ble    → Bluetooth directo desde el navegador (funciona hoy)
+//   import → exportar de la app de la marca e importar el archivo acá
+const DEVICE_CATALOG = [
+  { id: "hr", name: "Pulsómetro Bluetooth", group: "Se conectan ahora", Icon: HeartPulse, via: "ble",
+    blurb: "Cualquier banda o cinta pectoral con Bluetooth LE — Polar, Garmin HRM, Wahoo, Coospo, Magene y las demás. Se conecta directo y el pulso se ve en vivo durante la sesión.",
+    syncs: ["Frecuencia cardíaca en vivo", "Media y máxima de cada sesión", "Batería de la banda"] },
+  { id: "scale", name: "Báscula Bluetooth", group: "Se conectan ahora", Icon: Scale, via: "ble",
+    blurb: "Básculas con el perfil estándar de Bluetooth LE. Te subes con la app abierta y el peso queda registrado sin escribirlo.",
+    syncs: ["Peso corporal"] },
+  { id: "garmin", name: "Garmin", group: "Se importan por archivo", Icon: Watch, via: "import",
+    blurb: "Garmin Connect no deja que otra app lea el reloj por Bluetooth, pero sí exportar tus datos. En Garmin Connect: Configuración → Gestión de datos → Exportar.",
+    syncs: ["Peso", "Pasos", "Sueño"] },
+  { id: "whoop", name: "WHOOP", group: "Se importan por archivo", Icon: Watch, via: "import",
+    blurb: "En la app WHOOP: Perfil → Configuración → Exportar mis datos. Llega un CSV por correo.",
+    syncs: ["Sueño", "Frecuencia cardíaca en reposo"] },
+  { id: "oura", name: "Oura", group: "Se importan por archivo", Icon: Watch, via: "import",
+    blurb: "En la app Oura: Perfil → Exportar datos. También llega por correo.",
+    syncs: ["Sueño", "Frecuencia cardíaca en reposo"] },
+  { id: "applehealth", name: "Salud / Apple Watch", group: "Se importan por archivo", Icon: Smartphone, via: "import",
+    blurb: "En Salud: tu foto arriba a la derecha → Exportar todos los datos. Apple no ofrece ninguna forma de que una web lea Salud directamente.",
+    syncs: ["Peso", "Pasos", "Sueño"] },
+];
+
+const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
   const [detail, setDetail] = useState(null);
+  const [pane, setPane] = useState(null);      // "import"
+  const [texto, setTexto] = useState("");
+  const [previo, setPrevio] = useState(null);
+  const [scaleMsg, setScaleMsg] = useState("");
+  const hr = useHeartRate();
+
+  useEffect(() => { if (!open) { setDetail(null); setPane(null); setTexto(""); setPrevio(null); setScaleMsg(""); } }, [open]);
+
   const groups = useMemo(() => {
     const m = new Map();
     DEVICE_CATALOG.forEach((d) => { if (!m.has(d.group)) m.set(d.group, []); m.get(d.group).push(d); });
     return [...m.entries()];
   }, []);
   const dev = DEVICE_CATALOG.find((d) => d.id === detail);
+
+  const leerBascula = async () => {
+    setScaleMsg("Buscando la báscula…");
+    try {
+      const kgVal = await scaleRead();
+      if (saveHistory) {
+        const h = structuredClone(history);
+        h.bodyweight = [...(h.bodyweight || []), { date: todayISO(), kg: kgVal }];
+        saveHistory(h);
+      }
+      setScaleMsg(`Registrado: ${kg(kgVal)} kg`);
+    } catch (e) {
+      setScaleMsg(e && e.name === "NotFoundError" ? "" : (e && e.message) || "No se pudo leer la báscula.");
+    }
+  };
+
+  const analizar = (t) => { setTexto(t); setPrevio(t.trim() ? importFromCsv(t) : null); };
+  const importar = () => {
+    if (!previo || previo.error || !saveHistory) return;
+    const h = structuredClone(history);
+    Object.keys(previo.out).forEach((store) => {
+      const previas = h[store] || [];
+      const yaHay = new Set(previas.map((x) => (x.date || "").slice(0, 10)));
+      // No se pisan los registros que ya existen para ese día: importar
+      // dos veces el mismo archivo no duplica nada.
+      h[store] = [...previas, ...previo.out[store].filter((x) => !yaHay.has((x.date || "").slice(0, 10)))]
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+    });
+    saveHistory(h);
+    toast && toast("Datos importados");
+    setPane(null); setTexto(""); setPrevio(null);
+  };
+
   return (
     <>
-      <Sheet open={open} onClose={onClose} title="Dispositivos conectados" tall>
-        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5, marginBottom: 18 }}>
-          Conecta tus relojes, básculas y apps de salud para que pasos, sueño, frecuencia cardíaca y peso lleguen solos a FORJA, sin escribirlos a mano.
-        </div>
-        {groups.map(([label, items]) => (
-          <div key={label} style={{ marginBottom: 18 }}>
-            <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>{label}</div>
-            <Card style={{ padding: "2px 14px" }}>
-              {items.map((d, i) => (
-                <React.Fragment key={d.id}>
-                  <button onClick={() => setDetail(d.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "14px 0", textAlign: "left" }}>
-                    <span style={{ width: 38, height: 38, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: P.dim }}>
-                      <d.Icon size={18} />
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 600 }}>{d.name}</div>
-                      <div style={{ fontSize: 12.5, color: P.faint }}>No conectado</div>
-                    </span>
-                    <ChevronRight size={17} color={P.faint} style={{ flexShrink: 0 }} />
-                  </button>
-                  {i < items.length - 1 && <div style={{ height: 1, background: P.line }} />}
-                </React.Fragment>
-              ))}
-            </Card>
+      <Sheet open={open} onClose={onClose} title={pane === "import" ? "Importar datos" : "Dispositivos"} tall>
+        {pane === "import" ? (
+          <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <button onClick={() => setPane(null)} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 15, fontWeight: 600, color: P.text, alignSelf: "flex-start" }}>
+              <ChevronLeft size={17} strokeWidth={2.6} /> Dispositivos
+            </button>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>
+              Pega acá el CSV que exportaste, o elige el archivo. Se leen las columnas de
+              fecha, peso, pasos, sueño y agua; el resto se ignora.
+            </div>
+            <input type="file" accept=".csv,text/csv,text/plain" aria-label="Elegir archivo CSV"
+              onChange={(e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => analizar(String(r.result || "")); r.readAsText(f); }}
+              style={{ fontSize: 14, color: P.dim }} />
+            <Txt value={texto} onChange={(e) => analizar(e.target.value)} rows={6} placeholder={"fecha,peso,pasos\n2026-08-01,78.4,9482"}
+              style={{ borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 13.5, fontFamily: MONO.mono }} />
+            {previo && previo.error && <div style={{ fontSize: 13.5, color: P.red, lineHeight: 1.4 }}>{previo.error}</div>}
+            {previo && !previo.error && (
+              <>
+                <RowGroup label="Encontrado en el archivo" rows={Object.keys(previo.conteo).map((k) => ({ label: k, value: `${previo.conteo[k]} registros` }))} />
+                <Btn kind="ember" onClick={importar} style={{ width: "100%" }}>Importar</Btn>
+                <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5 }}>
+                  Los días que ya tengan un registro tuyo se respetan: importar dos veces el mismo archivo no duplica nada.
+                </div>
+              </>
+            )}
           </div>
-        ))}
-      </Sheet>
-      <Sheet open={!!dev} onClose={() => setDetail(null)} title={dev ? dev.name : ""}>
-        {dev && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <span style={{ width: 52, height: 52, borderRadius: 15, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", color: P.dim, flexShrink: 0 }}>
-                <dev.Icon size={24} />
+        ) : (
+          <div className="paneIn">
+            {/* Estado del pulsómetro arriba: es lo único que se conecta en
+                vivo y lo que cambia mientras entrenas. */}
+            <Card style={{ padding: "14px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ width: 38, height: 38, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                background: hr.connected ? PLATE_GRAD : P.s3, color: hr.connected ? PLATE_FG : P.faint2 }}>
+                <HeartPulse size={19} />
               </span>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 17, fontWeight: 700 }}>{dev.name}</div>
-                <div style={{ fontSize: 13, color: P.faint }}>No conectado</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text }}>
+                  {hr.connected ? (hr.name || "Pulsómetro") : "Pulsómetro"}
+                </div>
+                <div style={{ fontSize: 13, color: P.faint2, marginTop: 1 }}>
+                  {hr.connected
+                    ? `${hr.bpm != null ? `${hr.bpm} lpm` : "Conectado"}${hr.battery != null ? ` · batería ${hr.battery} %` : ""}`
+                    : hr.supported ? "Sin conectar" : "Tu navegador no tiene Bluetooth"}
+                </div>
               </div>
-            </div>
-            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>{dev.blurb}</div>
-            <div>
-              <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Qué va a traer</div>
-              <Card style={{ padding: "12px 14px" }}>
-                {dev.syncs.map((s, i) => (
-                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 14.5, lineHeight: 1.5, marginBottom: i < dev.syncs.length - 1 ? 8 : 0 }}>
-                    <span style={{ color: P.ember2, flexShrink: 0 }}>•</span><span>{s}</span>
-                  </div>
-                ))}
-              </Card>
-            </div>
-            <Btn kind="ember" onClick={() => toast && toast(`La conexión con ${dev.name} llega pronto — te avisamos apenas esté disponible.`)} style={{ width: "100%" }}>
-              <Bluetooth size={15} /> Conectar {dev.name}
-            </Btn>
+              {hr.connected ? (
+                <button onClick={hr.disconnect} style={{ fontSize: 14, fontWeight: 600, color: P.red, flexShrink: 0 }}>Desconectar</button>
+              ) : (
+                <Btn kind="line" small disabled={!hr.supported} onClick={hr.connect} style={{ flexShrink: 0 }}>
+                  <Bluetooth size={14} /> Conectar
+                </Btn>
+              )}
+            </Card>
+            {hr.error && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4, marginBottom: 14 }}>{hr.error}</div>}
+            {!hr.supported && (
+              <div style={{ fontSize: 13, color: P.faint2, lineHeight: 1.5, marginBottom: 16 }}>
+                Safari no implementa Bluetooth en la web, así que en iPhone y iPad no se puede conectar
+                nada por Bluetooth desde el navegador — es decisión de Apple. En Chrome de Android o de
+                computador sí funciona. Mientras tanto, la importación por archivo de acá abajo anda en
+                cualquier dispositivo.
+              </div>
+            )}
+
+            {groups.map(([label, items]) => (
+              <div key={label} style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4, marginBottom: 8 }}>{label}</div>
+                <Card style={{ overflow: "hidden" }}>
+                  {items.map((d, i) => (
+                    <button key={d.id} onClick={() => setDetail(d.id)}
+                      style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px",
+                        borderBottom: i < items.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                      <span style={{ width: 32, height: 32, borderRadius: 10, background: P.s3, color: P.text, flexShrink: 0,
+                        display: "flex", alignItems: "center", justifyContent: "center" }}><d.Icon size={16} strokeWidth={2.2} /></span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 16, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+                      <ChevronRight size={16} color={P.chevron} />
+                    </button>
+                  ))}
+                </Card>
+              </div>
+            ))}
+          </div>
+        )}
+      </Sheet>
+
+      <Sheet open={!!dev} onClose={() => { setDetail(null); setScaleMsg(""); }} title={dev ? dev.name : ""}>
+        {dev && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.55 }}>{dev.blurb}</div>
+            <RowGroup label="Qué trae" rows={dev.syncs.map((x) => ({ label: x }))} />
+            {dev.via === "ble" && dev.id === "hr" && (
+              hr.connected
+                ? <Btn kind="line" onClick={hr.disconnect} style={{ width: "100%" }}>Desconectar {hr.name || "el pulsómetro"}</Btn>
+                : <Btn kind="ember" disabled={!hr.supported} onClick={hr.connect} style={{ width: "100%" }}><Bluetooth size={15} /> Conectar por Bluetooth</Btn>
+            )}
+            {dev.via === "ble" && dev.id === "scale" && (
+              <>
+                <Btn kind="ember" disabled={!bleSupported()} onClick={leerBascula} style={{ width: "100%" }}><Bluetooth size={15} /> Leer el peso</Btn>
+                {scaleMsg && <div style={{ fontSize: 13.5, color: P.dim }}>{scaleMsg}</div>}
+              </>
+            )}
+            {dev.via === "import" && (
+              <Btn kind="ember" onClick={() => { setDetail(null); setPane("import"); }} style={{ width: "100%" }}>
+                <Upload size={15} /> Importar el archivo exportado
+              </Btn>
+            )}
+            {dev.via === "ble" && !bleSupported() && (
+              <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5 }}>
+                Tu navegador no tiene Bluetooth. En iPhone no hay forma: Safari no lo implementa.
+              </div>
+            )}
           </div>
         )}
       </Sheet>
@@ -15573,7 +16338,7 @@ const App = () => {
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             autoStartDayId={autoStartDayId} onAutoStartConsumed={() => setAutoStartDayId(null)}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
-            onLeave={() => setTab("hoy")} />
+            onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} />
         )}
         {mode === "alumno" && tab === "progreso" && (
           <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
@@ -15689,7 +16454,8 @@ const App = () => {
         onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
         onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
         onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }} />
-      <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast} />
+      <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast}
+        history={history} saveHistory={saveHistory} />
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
         onEnter={(m, id) => { setRosterOpen(false); openIdentity(m, id, roster, myTeamId); }}
         onAdd={() => addStudent(false)} onRename={renameStudent} onRemove={(s) => setConfirmDel(s)} />
