@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v174";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v175";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -16503,8 +16503,61 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-const AppWithBoundary = () => (
-  <ErrorBoundary><App /></ErrorBoundary>
-);
+/* ============================================================
+   Callback OAuth de WHOOP: existe para que developer-dashboard.whoop.com
+   tenga una Redirect URL REAL (que responde 200 y dice algo con sentido)
+   en vez de una inventada que rompería su validación de formulario.
+   netlify.toml manda cualquier ruta sin archivo propio a index.html, así
+   que esta pantalla se detecta por window.location.pathname apenas monta
+   la app — no hace falta un router.
+   Todavía NO hace el intercambio del `code` por un token: eso necesita el
+   client secret de WHOOP en un backend (una función server-side, no el
+   bundle del navegador), que es el siguiente paso. Por ahora, mismo
+   criterio que DEVICE_CATALOG más arriba: un mensaje honesto en vez de
+   fingir una conexión que todavía no existe.
+   ============================================================ */
+const WHOOP_CALLBACK_PATH = "/integrations/whoop/callback";
+
+const WhoopCallbackScreen = () => {
+  useTheme();
+  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+  const oauthError = params.get("error");
+  const hasCode = !!params.get("code");
+  const goHome = () => { window.history.replaceState(null, "", "/"); window.location.reload(); };
+  return (
+    <div style={{ minHeight: "100dvh", background: P.bgGrad, color: P.text, padding: "40px 20px",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif" }}>
+      <div style={{ maxWidth: 460, width: "100%", background: P.s2, border: `1px solid ${P.frame}`, borderRadius: 16, padding: "26px 22px" }}>
+        <div style={{ width: 46, height: 46, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center",
+          marginBottom: 16, background: oauthError ? P.s3 : PLATE_GRAD, color: oauthError ? P.dim : PLATE_FG }}>
+          {oauthError ? <AlertTriangle size={22} /> : <Watch size={22} />}
+        </div>
+        <div className="disp" style={{ fontSize: 21, fontWeight: 800, marginBottom: 8 }}>
+          {oauthError ? "No se conectó tu WHOOP" : hasCode ? "Autorización recibida" : "Nada que procesar acá"}
+        </div>
+        <div style={{ fontSize: 15.5, color: P.dim, lineHeight: 1.55, marginBottom: 16 }}>
+          {oauthError
+            ? "WHOOP no completó la conexión (se canceló el permiso o algo falló del otro lado). Podés intentarlo de nuevo cuando quieras desde “Dispositivos conectados”."
+            : hasCode
+              ? "Recibimos el permiso de tu cuenta WHOOP. Todavía estamos terminando de conectar esta parte para empezar a traer tu recuperación, tensión y sueño a FORJA — probá de nuevo más adelante."
+              : "Esta pantalla solo tiene sentido cuando WHOOP te redirige acá después de autorizar la conexión."}
+        </div>
+        <button onClick={goHome}
+          style={{ width: "100%", padding: "13px 16px", borderRadius: 12, border: "none", cursor: "pointer",
+            background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 16 }}>
+          Volver a FORJA
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const AppWithBoundary = () => {
+  const isWhoopCallback = typeof window !== "undefined" && window.location.pathname === WHOOP_CALLBACK_PATH;
+  return (
+    <ErrorBoundary>{isWhoopCallback ? <WhoopCallbackScreen /> : <App />}</ErrorBoundary>
+  );
+};
 
 export default AppWithBoundary;
