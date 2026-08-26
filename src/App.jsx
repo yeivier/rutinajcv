@@ -2644,21 +2644,23 @@ const stepClamp = (n, delta, min = 0, decimals = 1) => {
   const f = 10 ** decimals;
   return Math.max(min, Math.round((n + delta) * f) / f);
 };
-const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals = 1, format }) => {
+const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals = 1, format, unit }) => {
   const fmt = format || ((v) => (decimals === 0 ? String(v) : String(v).replace(".", ",")));
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 0" }}>
-      <div style={{ minWidth: 0 }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontSize: 17, fontWeight: 400, color: P.text }}>{label}</div>
-        {caption && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 2 }}>{caption}</div>}
+        {caption && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{caption}</div>}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
         <button onClick={() => onChange(stepClamp(value, -step, min, decimals))} aria-label={`Bajar ${label}`}
           style={{ width: 44, height: 44, borderRadius: "50%", background: P.s3, color: P.text,
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: `opacity ${DUR_MICRO}ms ease` }}>
           <Minus size={18} strokeWidth={2.6} />
         </button>
-        <span className="num" style={{ fontSize: 26, fontWeight: 600, minWidth: 52, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>{fmt(value)}</span>
+        <span className="num" style={{ fontSize: 26, fontWeight: 600, minWidth: 76, textAlign: "center", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+          {fmt(value)}{unit && <span style={{ fontSize: 16, fontWeight: 600, color: P.faint2, marginLeft: 3 }}>{unit}</span>}
+        </span>
         <button onClick={() => onChange(stepClamp(value, step, min, decimals))} aria-label={`Subir ${label}`}
           style={{ width: 44, height: 44, borderRadius: "50%", background: P.s3, color: P.text,
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: `opacity ${DUR_MICRO}ms ease` }}>
@@ -4708,9 +4710,15 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
     const st = exx.sets[r.si];
     const isActive = idx === activeRowIdx;
     const isDone = !!st.done;
-    const label = block.group ? exx.name : `Serie ${r.si + 1}`;
     const typeShort = (SET_TYPES[st.type] || SET_TYPES.normal).short;
     const showType = st.type !== "normal";
+    // El tipo de serie viaja pegado al nombre ("Serie 1 · calent."), no como
+    // un chip aparte: así la línea de la derecha queda libre para el objetivo.
+    const typeSuffix = st.type === "warmup" ? " · calent." : showType ? ` · ${typeShort}` : "";
+    const label = block.group ? exx.name : `Serie ${r.si + 1}${typeSuffix}`;
+    const lastEntry = lastEntryOf(exx.id);
+    const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
+    const prevWeight = lastSet && lastSet.weight !== "" && lastSet.weight != null ? lastSet.weight : null;
 
     if (!isActive) {
       // La fila justo después de la activa hereda el separador que la
@@ -4731,18 +4739,17 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
           </span>
           <span style={{ flex: 1, fontSize: 13, color: isDone ? P.text : P.faint2 }}>{label}</span>
           <span style={{ fontSize: 13, color: P.faint2 }}>
-            {isDone ? `${st.weight || "—"} ${weightUnit} × ${st.reps || "—"}` : `${showType ? typeShort + " · " : ""}${st.repsT ? `${st.repsT} reps` : ""}`}
+            {isDone
+              ? `${st.weight || "—"} ${weightUnit} × ${st.reps || "—"}`
+              : [prevWeight != null ? `${String(prevWeight).replace(".", ",")} ${weightUnit}` : null, st.repsT || null].filter(Boolean).join(" · ")}
           </span>
         </button>
       );
     }
 
-    const lastEntry = lastEntryOf(exx.id);
-    const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
     const isLastRow = idx === block.rows.length - 1;
     const targetBits = [];
-    if (showType) targetBits.push(typeShort);
-    if (st.repsT) targetBits.push(`${st.repsT}`);
+    if (st.repsT) targetBits.push(`Objetivo ${st.repsT}`);
     if (st.rirT !== "" && st.rirT != null) targetBits.push(`RIR ${st.rirT}`);
     if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") targetBits.push(`${st.pct}%`);
 
@@ -4753,23 +4760,23 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
     return (
       <div key={`${r.ei}-${r.si}`} style={{ padding: idx === 0 ? "5px 4px 20px" : "18px 4px 20px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-          <span style={{ fontSize: 19, fontWeight: 600, color: P.text }}>
-            {block.group ? label : `Serie ${r.si + 1} de ${exx.sets.length}`}
-          </span>
+          <span style={{ fontSize: 19, fontWeight: 600, color: P.text }}>{label}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            {targetBits.length > 0 && <span style={{ fontSize: 12.5, color: P.faint2 }}>{targetBits.join(" · ")}</span>}
+            {targetBits.length > 0 && <span style={{ fontSize: 14, color: P.faint2 }}>{targetBits.join(" · ")}</span>}
             <button onClick={() => setRowMoreFor({ ei: r.ei, si: r.si })} aria-label="Más opciones de esta serie"
               style={{ width: 26, height: 26, borderRadius: 13, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint2 }}>
               <MoreHorizontal size={16} />
             </button>
           </div>
         </div>
-        <Stepper label="Peso" value={st.weight === "" ? 0 : +st.weight} onChange={(v) => setVal(r.ei, r.si, "weight", String(v))}
-          step={weightUnit === "kg" ? 2.5 : 5} decimals={1} caption={lastSet && lastSet.weight !== "" && lastSet.weight != null ? `Antes ${lastSet.weight} ${weightUnit}` : null} />
+        <Stepper label="Peso" unit={weightUnit} value={st.weight === "" ? 0 : +st.weight} onChange={(v) => setVal(r.ei, r.si, "weight", String(v))}
+          step={weightUnit === "kg" ? 2.5 : 5} decimals={1} caption={prevWeight != null ? `Antes ${String(prevWeight).replace(".", ",")} ${weightUnit}` : null} />
         <div style={{ height: 1, background: P.fillTertiary }} />
-        <Stepper label="Reps" value={st.reps === "" ? 0 : +st.reps} onChange={(v) => setVal(r.ei, r.si, "reps", String(v))} step={1} decimals={0} />
+        <Stepper label="Reps" value={st.reps === "" ? 0 : +st.reps} onChange={(v) => setVal(r.ei, r.si, "reps", String(v))} step={1} decimals={0}
+          caption={lastSet && lastSet.reps !== "" && lastSet.reps != null ? `Antes ${lastSet.reps}` : null} />
         <div style={{ height: 1, background: P.fillTertiary }} />
-        <Stepper label="RIR" value={st.rir === "" ? 0 : +st.rir} onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0} />
+        <Stepper label="RIR" value={st.rir === "" ? 0 : +st.rir} onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0}
+          caption={st.rirT !== "" && st.rirT != null ? `Objetivo ${st.rirT}` : null} />
         <button onClick={() => onToggleDone(r.ei, r.si)} aria-label="Marcar serie hecha"
           style={{ width: "100%", marginTop: 14, padding: "16px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
           {isLastRow ? "Siguiente ejercicio" : "Serie hecha"}
@@ -4796,7 +4803,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: P.faint2 }}>{active.dayName}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 17, fontWeight: 600, color: P.text, fontVariantNumeric: "tabular-nums" }}>
-            {bigTime(elapsed)}
+            {sessionClock(elapsed)}
             <span title={pendingWrites ? `Guardando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
               style={{ width: 6, height: 6, borderRadius: 3, flexShrink: 0,
                 background: pendingWrites ? P.line : (storageOK ? P.ember : "transparent"), border: !pendingWrites && !storageOK ? `1.5px solid ${P.text}` : "none" }} />
@@ -4804,6 +4811,52 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
         </div>
         <button onClick={askExit} style={{ padding: "9px 14px", borderRadius: 18, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14.5, fontWeight: 600, flexShrink: 0 }}>Terminar</button>
       </Card>
+
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Ejercicio {blockIdx + 1} de {totalBlocks}</div>
+        <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12, color: P.text, marginTop: 2 }}>{blockTitle}</div>
+        {!block.group && parseTempo(exs[block.ei].notes) && (
+          <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
+        )}
+        <div style={{ display: "flex", gap: 4, marginTop: 12 }}>
+          {blocks.map((_, i) => <i key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= blockIdx ? P.ember : P.s3 }} />)}
+        </div>
+      </div>
+
+      <Card style={{ padding: "6px 14px" }}>
+        {block.group && (
+          <div style={{ padding: "10px 4px", fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>
+            {GROUP_KINDS[block.kind].label} · {block.rounds} {block.rounds === 1 ? "ronda" : "rondas"}
+          </div>
+        )}
+        {block.rows.map((r, idx) => renderRow(r, idx))}
+      </Card>
+
+      {restCard}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        <button onClick={() => goBlock(-1)} disabled={blockIdx === 0}
+          style={{ flex: 1, padding: "14px 0", borderRadius: R_ROW, textAlign: "center", fontSize: 15.5, fontWeight: 600,
+            background: blockIdx === 0 ? P.fillTertiary : P.s3, color: blockIdx === 0 ? P.chevron : P.text }}>Anterior</button>
+        <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1}
+          style={{ flex: 1, padding: "14px 0", borderRadius: R_ROW, textAlign: "center", fontSize: 15.5, fontWeight: 600,
+            background: blockIdx >= blocks.length - 1 ? P.fillTertiary : P.s3, color: blockIdx >= blocks.length - 1 ? P.chevron : P.text }}>Saltar</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+        {[
+          ["Técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei)],
+          ["Historial", History, () => setHistEx(block.group ? block.members[0] : block.ei)],
+          ["Discos", Calculator, () => setCalcOpen(true)],
+          ["Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat()],
+        ].map(([label, Icon, onClick]) => (
+          <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px",
+            background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE }}>
+            <Icon size={17} color={P.text} />
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: P.text }}>{label}</span>
+          </button>
+        ))}
+      </div>
 
       <Card style={{ padding: "11px 12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -4826,50 +4879,11 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
         )}
       </Card>
 
-      <div>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Ejercicio {blockIdx + 1} de {totalBlocks}</span>
-          {onBrowseRoutine && <button onClick={onBrowseRoutine} style={{ fontSize: 13, fontWeight: 600, color: P.text }}>Ver rutina completa</button>}
-        </div>
-        <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12, color: P.text, marginTop: 2 }}>{blockTitle}</div>
-        {!block.group && parseTempo(exs[block.ei].notes) && (
-          <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
-        )}
-        <div style={{ display: "flex", gap: 4, marginTop: 12 }}>
-          {blocks.map((_, i) => <i key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= blockIdx ? P.ember : P.s3 }} />)}
-        </div>
-      </div>
-
-      <Card style={{ padding: "6px 14px" }}>
-        {block.group && (
-          <div style={{ padding: "10px 4px", fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>
-            {GROUP_KINDS[block.kind].label} · {block.rounds} {block.rounds === 1 ? "ronda" : "rondas"}
-          </div>
-        )}
-        {block.rows.map((r, idx) => renderRow(r, idx))}
-      </Card>
-
-      {restCard}
-
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <button onClick={() => goBlock(-1)} disabled={blockIdx === 0} style={{ fontSize: 15, fontWeight: 600, color: P.textQuaternary, opacity: blockIdx === 0 ? .5 : 1 }}>Anterior</button>
-        <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} style={{ fontSize: 15, fontWeight: 600, color: P.text, opacity: blockIdx >= blocks.length - 1 ? .5 : 1 }}>Saltar</button>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
-        {[
-          ["Técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei)],
-          ["Historial", History, () => setHistEx(block.group ? block.members[0] : block.ei)],
-          ["Discos", Calculator, () => setCalcOpen(true)],
-          ["Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat()],
-        ].map(([label, Icon, onClick]) => (
-          <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px",
-            background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE }}>
-            <Icon size={17} color={P.text} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: P.text }}>{label}</span>
-          </button>
-        ))}
-      </div>
+      {onBrowseRoutine && (
+        <button onClick={onBrowseRoutine} style={{ alignSelf: "center", fontSize: 14.5, fontWeight: 600, color: P.faint2, padding: 4 }}>
+          Ver rutina completa
+        </button>
+      )}
 
       {/* Salir de la sesión: hoja de 4 salidas (no un solo diálogo de
           confirmación) — la "✕" y "Terminar" abren la misma hoja, tal
@@ -10562,6 +10576,12 @@ const LeadsTab = ({ onCreateStudent, onManageStudent, toast }) => {
 /* ============================================================
    Timer: cronómetro, temporizador e intervalos
    ============================================================ */
+// Reloj de una sesión larga: agrega la hora cuando pasa de 60 min
+// ("1:12:06"); por debajo se queda en minutos:segundos ("12:06").
+const sessionClock = (s) => {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  return `${h ? `${h}:${String(m).padStart(2, "0")}` : String(m)}:${String(ss).padStart(2, "0")}`;
+};
 const bigTime = (s) => { const m = Math.floor(s / 60); const ss = s % 60; return `${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`; };
 
 const Stopwatch = () => {
