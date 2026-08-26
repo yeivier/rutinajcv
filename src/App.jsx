@@ -4725,14 +4725,21 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
     const showType = st.type !== "normal";
 
     if (!isActive) {
+      // La fila justo después de la activa hereda el separador que la
+      // sección abierta no dibuja por su cuenta (ver el bloque isActive
+      // más abajo) — así la lista queda con UNA sola línea entre cada
+      // par de filas, sea cual sea su estado, en vez de dos.
+      const showTop = idx > 0 && idx - 1 === activeRowIdx;
       return (
         <button key={`${r.ei}-${r.si}`} onClick={() => onToggleDone(r.ei, r.si)}
           aria-label={isDone ? "Desmarcar serie" : "Marcar serie hecha"}
           style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 4px",
+            borderTop: showTop ? `1px solid ${P.line}` : "none",
             borderBottom: idx < block.rows.length - 1 ? `1px solid ${P.line}` : "none" }}>
           <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: isDone ? PLATE_GRAD : "transparent", border: isDone ? "none" : `1.5px solid ${P.chevron}` }}>
-            {isDone && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
+            background: isDone ? PLATE_GRAD : "transparent", border: isDone ? "none" : `1.5px solid ${P.chevron}`,
+            fontSize: 12, fontWeight: 600, color: P.faint2 }}>
+            {isDone ? <Check size={14} color={PLATE_FG} strokeWidth={3} /> : r.si + 1}
           </span>
           <span style={{ flex: 1, fontSize: 13, color: isDone ? P.text : P.faint2 }}>{label}</span>
           <span style={{ fontSize: 13, color: P.faint2 }}>
@@ -4751,9 +4758,13 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
     if (st.rirT !== "" && st.rirT != null) targetBits.push(`RIR ${st.rirT}`);
     if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") targetBits.push(`${st.pct}%`);
 
+    // La serie activa se abre DENTRO de la misma lista, no en una tarjeta
+    // aparte: nada de fondo gris propio ni margen que la separe — solo
+    // más aire vertical que una fila colapsada. El separador de arriba
+    // y de abajo los ponen las filas vecinas (ver showTop más arriba).
     return (
-      <div key={`${r.ei}-${r.si}`} style={{ background: P.s3, borderRadius: R_TILE, padding: "14px 14px 16px", margin: idx === 0 ? "0 0 9px" : "9px 0" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+      <div key={`${r.ei}-${r.si}`} style={{ padding: idx === 0 ? "5px 4px 20px" : "18px 4px 20px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
           <span style={{ fontSize: 19, fontWeight: 600, color: P.text }}>
             {block.group ? label : `Serie ${r.si + 1} de ${exx.sets.length}`}
           </span>
@@ -4767,10 +4778,12 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
         </div>
         <Stepper label="Peso" value={st.weight === "" ? 0 : +st.weight} onChange={(v) => setVal(r.ei, r.si, "weight", String(v))}
           step={weightUnit === "kg" ? 2.5 : 5} decimals={1} caption={lastSet && lastSet.weight !== "" && lastSet.weight != null ? `Antes ${lastSet.weight} ${weightUnit}` : null} />
+        <div style={{ height: 1, background: P.fillTertiary }} />
         <Stepper label="Reps" value={st.reps === "" ? 0 : +st.reps} onChange={(v) => setVal(r.ei, r.si, "reps", String(v))} step={1} decimals={0} />
+        <div style={{ height: 1, background: P.fillTertiary }} />
         <Stepper label="RIR" value={st.rir === "" ? 0 : +st.rir} onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0} />
         <button onClick={() => onToggleDone(r.ei, r.si)} aria-label="Marcar serie hecha"
-          style={{ width: "100%", marginTop: 14, padding: "14px 0", borderRadius: R_ROW, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+          style={{ width: "100%", marginTop: 14, padding: "16px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
           {isLastRow ? "Siguiente ejercicio" : "Serie hecha"}
         </button>
         {renderCommentBlock(r.ei, r.si)}
@@ -4835,7 +4848,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onE
 
         <div style={{ display: "flex", justifyContent: "space-between", padding: "16px 4px 4px", marginTop: "auto" }}>
           <button onClick={() => goBlock(-1)} disabled={blockIdx === 0} style={{ fontSize: 15, fontWeight: 600, color: P.textQuaternary, opacity: blockIdx === 0 ? .5 : 1 }}>Anterior</button>
-          <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} style={{ fontSize: 15, fontWeight: 600, color: P.text, opacity: blockIdx >= blocks.length - 1 ? .5 : 1 }}>Saltar ejercicio</button>
+          <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} style={{ fontSize: 15, fontWeight: 600, color: P.text, opacity: blockIdx >= blocks.length - 1 ? .5 : 1 }}>Saltar</button>
         </div>
       </div>
 
