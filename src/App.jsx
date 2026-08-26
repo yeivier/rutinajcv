@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v172";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v173";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2771,6 +2771,41 @@ const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals 
   );
 };
 
+// Columna de ajuste para la sesión en vivo: ▲ arriba, el número en el
+// medio, ▼ abajo. Es el mismo dato que el `Stepper` horizontal, pero
+// entrenando se usa distinto: con el teléfono apoyado y una mano libre,
+// tres columnas de ▲/▼ se tocan sin mirar y dejan ver Peso, Reps y RIR
+// de un vistazo, sin que ninguno quede fuera de pantalla. El horizontal
+// se queda donde se rellenan formularios con calma (check-in, ajustes).
+const SetStepperCol = ({ label, caption, value, onChange, step = 1, min = 0, decimals = 1, unit }) => {
+  const fmt = decimals === 0 ? String(value) : String(value).replace(".", ",");
+  const arrow = (dir, Icon) => (
+    <button onClick={() => onChange(stepClamp(value, dir * step, min, decimals))}
+      aria-label={`${dir > 0 ? "Subir" : "Bajar"} ${label}`}
+      style={{ height: 34, width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+        color: P.text, background: "transparent", transition: `background ${DUR_MICRO}ms ease` }}>
+      <Icon size={17} strokeWidth={2.8} />
+    </button>
+  );
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: P.faint2, marginBottom: 5 }}>{label}</div>
+      <div style={{ width: "100%", borderRadius: R_TILE, background: P.s3, overflow: "hidden" }}>
+        {arrow(1, ChevronUp)}
+        <div style={{ height: 1, background: P.s1 }} />
+        <div className="num" style={{ height: 46, display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 26, fontWeight: 600, letterSpacing: "-.02em", color: P.text, fontVariantNumeric: "tabular-nums" }}>
+          {fmt}{unit && <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2, marginLeft: 2 }}>{unit}</span>}
+        </div>
+        <div style={{ height: 1, background: P.s1 }} />
+        {arrow(-1, ChevronDown)}
+      </div>
+      <div style={{ fontSize: 11.5, color: P.faint2, marginTop: 5, textAlign: "center", width: "100%",
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{caption || "\u00a0"}</div>
+    </div>
+  );
+};
+
 // Interruptor iOS: pista 44×27 radio 14, apagado en separator-strong,
 // encendido en tinta plena; perno blanco de 22px que se desliza. Tampoco
 // existía — todo booleano de ajustes usaba el segmentado de 2 opciones.
@@ -4892,7 +4927,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // las que todavía no llegaron no hacen nada, así no se saltan series
   // por accidente.
   const setTicks = (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, flex: 1, minWidth: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 1, minWidth: 0, overflow: "hidden" }}>
       {block.rows.map((r, i) => {
         const done = !!exs[r.ei].sets[r.si].done;
         const isNow = i === activeRowIdx;
@@ -4900,11 +4935,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           <button key={`${r.ei}-${r.si}`} disabled={!done}
             onClick={done ? () => onToggleDone(r.ei, r.si) : undefined}
             aria-label={done ? `Serie ${i + 1} hecha — tocar para corregirla` : `Serie ${i + 1}${isNow ? ", en curso" : ", pendiente"}`}
-            style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0, padding: 0,
+            style={{ width: 20, height: 20, borderRadius: 10, flexShrink: 0, padding: 0,
               display: "flex", alignItems: "center", justifyContent: "center",
               background: done ? PLATE_GRAD : isNow ? P.text : "transparent",
               border: done || isNow ? "none" : `1.5px solid ${P.chevron}` }}>
-            {done && <Check size={13} color={PLATE_FG} strokeWidth={3} />}
+            {done && <Check size={12} color={PLATE_FG} strokeWidth={3} />}
           </button>
         );
       })}
@@ -4914,41 +4949,70 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const renderActiveSet = (r) => {
     const exx = exs[r.ei];
     const st = exx.sets[r.si];
-    // El tipo se nombra SIEMPRE (calentamiento, de trabajo, top set,
-    // drop set…), no solo cuando no es una serie normal.
-    const typeTag = setTypeTag(st.type);
-    const rowName = block.group ? exx.name : `Serie ${r.si + 1} de ${block.rows.length}`;
+
     const lastEntry = lastEntryOf(exx.id);
     const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
     const prevWeight = lastSet && lastSet.weight !== "" && lastSet.weight != null ? lastSet.weight : null;
 
-    const targetBits = [];
-    if (block.group) targetBits.push(`Ronda ${(r.round || 0) + 1} de ${block.rounds}`);
-    targetBits.push(typeTag);
-    if (st.repsT) targetBits.push(`Objetivo ${st.repsT}`);
-    if (st.rirT !== "" && st.rirT != null) targetBits.push(`RIR ${st.rirT}`);
-    if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") targetBits.push(`${st.pct}%`);
+    // Objetivo y RIR ya viajan como pie de su propia columna; acá queda
+    // solo lo que no tiene columna donde caer.
+    const extraBits = [];
+    if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") extraBits.push(`${st.pct}% del top set`);
+
+    // Los cuatro accesos del ejercicio (técnica, historial, indicaciones,
+    // Coach IA) más el "···" de la serie. Antes vivían en una grilla de
+    // 5 fichas al pie de la pantalla, lejos de lo que describen; acá van
+    // adentro de la tarjeta, arriba de los números, que es donde se los
+    // busca: son cosas que se consultan MIENTRAS se registra la serie.
+    const hayIndicaciones = (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes)
+      || ((plan && plan.instructions) || []).length > 0;
+    const acciones = [
+      ["Ver la técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei), false],
+      ["Historial del ejercicio", History, () => setHistEx(block.group ? block.members[0] : block.ei), false],
+      ["Indicaciones del coach", FileText, () => setCoachNotesOpen(true), hayIndicaciones],
+      ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
+      ["Más opciones de esta serie", MoreHorizontal, () => setRowMoreFor({ ei: r.ei, si: r.si }), false],
+    ];
 
     return (
-      <div style={{ padding: "0 4px 10px" }}>
-        <div style={{ marginBottom: 6 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <span style={{ fontSize: 19, fontWeight: 600, color: P.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rowName}</span>
-            <button onClick={() => setRowMoreFor({ ei: r.ei, si: r.si })} aria-label="Más opciones de esta serie"
-              style={{ width: 26, height: 26, borderRadius: 13, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint2, flexShrink: 0 }}>
-              <MoreHorizontal size={16} />
-            </button>
+      <div style={{ padding: "2px 0 4px" }}>
+        {block.group && (
+          <div style={{ fontSize: 17, fontWeight: 600, color: P.text, marginBottom: 10,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exx.name}</div>
+        )}
+        {/* Una sola fila: a la izquierda dónde vas dentro del ejercicio
+            (un tilde por serie, las hechas se tocan para corregirlas), a
+            la derecha lo que se consulta sin soltar la mancuerna. Iban en
+            dos filas separadas y eran 34 px de alto que hacían falta para
+            que el botón de completar no quedara bajo la barra. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {setTicks}
+          <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0, marginLeft: "auto" }}>
+            {acciones.map(([lbl, Icon, onClick, marcado]) => (
+              <button key={lbl} onClick={onClick} aria-label={marcado ? `${lbl} — hay indicaciones` : lbl} title={lbl}
+                style={{ width: 32, height: 32, borderRadius: 16, flexShrink: 0,
+                  background: marcado ? PLATE_GRAD : P.s3, color: marcado ? PLATE_FG : P.text,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon size={15} strokeWidth={2.2} />
+              </button>
+            ))}
           </div>
-          <div style={{ fontSize: 13, color: P.faint2, marginTop: 1 }}>{targetBits.join(" · ")}</div>
         </div>
-        <Stepper label="Peso" unit={weightUnit} value={st.weight === "" ? 0 : +st.weight} onChange={(v) => setVal(r.ei, r.si, "weight", String(v))}
-          step={weightUnit === "kg" ? 2.5 : 5} decimals={1} caption={prevWeight != null ? `Antes ${String(prevWeight).replace(".", ",")} ${weightUnit}` : null} />
-        <div style={{ height: 1, background: P.fillTertiary }} />
-        <Stepper label="Reps" value={st.reps === "" ? 0 : +st.reps} onChange={(v) => setVal(r.ei, r.si, "reps", String(v))} step={1} decimals={0}
-          caption={lastSet && lastSet.reps !== "" && lastSet.reps != null ? `Antes ${lastSet.reps}` : null} />
-        <div style={{ height: 1, background: P.fillTertiary }} />
-        <Stepper label="RIR" value={st.rir === "" ? 0 : +st.rir} onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0}
-          caption={lastSet && lastSet.rir !== "" && lastSet.rir != null ? `Antes ${lastSet.rir}` : null} />
+        <div style={{ height: 1, background: P.fillTertiary, margin: "11px 0 12px" }} />
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <SetStepperCol label="Peso" unit={weightUnit} value={st.weight === "" ? 0 : +st.weight}
+            onChange={(v) => setVal(r.ei, r.si, "weight", String(v))} step={weightUnit === "kg" ? 2.5 : 5} decimals={1}
+            caption={prevWeight != null ? `Última: ${String(prevWeight).replace(".", ",")} ${weightUnit}` : null} />
+          <SetStepperCol label="Reps" value={st.reps === "" ? 0 : +st.reps}
+            onChange={(v) => setVal(r.ei, r.si, "reps", String(v))} step={1} decimals={0}
+            caption={st.repsT ? `${st.repsT} reps` : (lastSet && lastSet.reps !== "" && lastSet.reps != null ? `Última: ${lastSet.reps}` : null)} />
+          <SetStepperCol label="RIR" value={st.rir === "" ? 0 : +st.rir}
+            onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0}
+            caption={st.rirT !== "" && st.rirT != null ? `Objetivo ${st.rirT}` : (lastSet && lastSet.rir !== "" && lastSet.rir != null ? `Última: ${lastSet.rir}` : null)} />
+        </div>
+        {extraBits.length > 0 && (
+          <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 8, textAlign: "center" }}>{extraBits.join(" · ")}</div>
+        )}
         {renderCommentBlock(r.ei, r.si)}
       </div>
     );
@@ -4993,10 +5057,35 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         max: Math.max(...hrSamples.current) }
     : null;
 
+  // Referencia de la vez anterior, en una línea: fecha + lo que se
+  // registró en la misma serie. Sale del historial del ejercicio activo;
+  // si nunca se hizo, no se muestra nada en vez de un "—" vacío.
+  const refLast = (() => {
+    if (blockDone || timer) return null;
+    const row = block.rows[activeRowIdx];
+    if (!row) return null;
+    const entry = lastEntryOf(exs[row.ei].id);
+    if (!entry) return null;
+    const st = (entry.sets || [])[row.si] || (entry.sets || [])[0];
+    if (!st) return null;
+    const bits = [fmtDate(entry.date), setSummary(st, weightUnit)];
+    if (st.rir !== "" && st.rir != null) bits.push(`RIR ${st.rir}`);
+    return bits.join(" · ");
+  })();
+  // El tipo de la serie que toca (calentamiento, de trabajo, top set,
+  // drop set…): cambia cómo se ejecuta, así que se nombra siempre y en
+  // el mismo sitio, antes de mirar los números.
+  const activeTypeTag = (() => {
+    if (blockDone || timer) return null;
+    const row = block.rows[activeRowIdx];
+    if (!row) return null;
+    return setTypeTag(exs[row.ei].sets[row.si].type);
+  })();
+
   const askExit = () => setExiting(true);
 
   return (
-    <div style={{ padding: `calc(8px + env(safe-area-inset-top)) 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ padding: `calc(6px + env(safe-area-inset-top)) 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 7 }}>
       {/* Sin título "Entrenar" con la sesión abierta: la franja de abajo
           ya dice qué se está entrenando, y esos 44 px son los que hacían
           falta para que todo quepa sin desplazarse. */}
@@ -5009,13 +5098,18 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           style={{ width: 32, height: 32, borderRadius: 16, background: P.s4, color: P.dim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <X size={15} strokeWidth={2.6} />
         </button>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: P.faint2 }}>{active.dayName}</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 17, fontWeight: 600, color: P.text, fontVariantNumeric: "tabular-nums" }}>
-            {sessionClock(elapsed)}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0, justifyContent: "center" }}>
+          <span className="num" style={{ fontSize: 13, fontWeight: 700, color: P.dim, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
+            padding: "6px 10px", borderRadius: 999, background: P.s3 }}>
+            E{blockIdx + 1}/{totalBlocks} · S{Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)}/{block.rows.length}
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
+            padding: "6px 10px", borderRadius: 999, background: P.s3 }}>
+            <Timer size={13} color={P.faint2} />
+            <span className="num" style={{ fontSize: 14, fontWeight: 700, color: P.text, fontVariantNumeric: "tabular-nums" }}>{sessionClock(elapsed)}</span>
             {hr.connected && hr.bpm != null && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 14, color: P.faint2 }}>
-                <HeartPulse size={13} /> {hr.bpm}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 13, color: P.faint2 }}>
+                <HeartPulse size={12} /> {hr.bpm}
               </span>
             )}
             <span title={pendingWrites ? `Guardando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
@@ -5030,35 +5124,33 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       </Card>
 
       <div>
-        {/* Flecha, tildes de las series, flecha. Sin las palabras
-            "Anterior"/"Siguiente" ni el contador de ejercicios: en qué
-            ejercicio vas ya lo dicen las barras de abajo, y lo que uno
-            mira acá es cuántas series lleva. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 30 }}>
-          <button onClick={() => goBlock(-1)} disabled={blockIdx === 0} aria-label="Ejercicio anterior"
-            style={{ width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              color: blockIdx === 0 ? P.chevron : P.text }}>
-            <ChevronLeft size={20} strokeWidth={2.6} />
-          </button>
-          {setTicks}
-          <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} aria-label="Ejercicio siguiente"
-            style={{ width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              color: blockIdx >= blocks.length - 1 ? P.chevron : P.text }}>
-            <ChevronRight size={20} strokeWidth={2.6} />
-          </button>
-        </div>
         <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${blockTitle} — ver la rutina completa`}
-          style={{ display: "flex", alignItems: "center", gap: 4, textAlign: "left", marginTop: 1, width: "100%" }}>
-          <span style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.1, color: P.text, minWidth: 0,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blockTitle}</span>
-          {onBrowseRoutine && <ChevronRight size={17} color={P.chevron} strokeWidth={2.6} style={{ flexShrink: 0 }} />}
+          style={{ display: "flex", alignItems: "flex-start", gap: 6, textAlign: "left", width: "100%" }}>
+          <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.025em", lineHeight: 1.14, color: P.text, minWidth: 0, flex: 1,
+            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{blockTitle}</span>
+          {onBrowseRoutine && <ChevronRight size={18} color={P.chevron} strokeWidth={2.6} style={{ flexShrink: 0, marginTop: 5 }} />}
         </button>
+        {/* Por dónde va la sesión entera, un tramo por ejercicio. */}
+        <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+          {blocks.map((_, i) => <i key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= blockIdx ? P.ember : P.separatorStrong }} />)}
+        </div>
+        {/* Lo que hiciste la última vez en este mismo ejercicio, en una
+            línea. Es la referencia con la que uno decide cuánto poner
+            hoy, y estaba escondida detrás del botón "Historial". */}
+        {(activeTypeTag || refLast) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, minWidth: 0 }}>
+            {activeTypeTag && (
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", flexShrink: 0,
+                padding: "4px 9px", borderRadius: 999, background: P.s3, color: P.dim, whiteSpace: "nowrap" }}>{activeTypeTag}</span>
+            )}
+            {refLast && (
+              <span style={{ fontSize: 12.5, color: P.faint2, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{refLast}</span>
+            )}
+          </div>
+        )}
         {!block.group && parseTempo(exs[block.ei].notes) && (
           <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
         )}
-        <div style={{ display: "flex", gap: 4, marginTop: 7 }}>
-          {blocks.map((_, i) => <i key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= blockIdx ? P.ember : P.s3 }} />)}
-        </div>
       </div>
 
       {/* Una sola cosa en pantalla a la vez: o descansas, o registras la
@@ -5066,36 +5158,40 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           su propio botón grande diciendo qué pasa al tocarlo. */}
       {timer ? restCard : blockDone ? blockDonePanel : (
         <>
-          <Card style={{ padding: "6px 14px" }}>
+          <Card style={{ padding: "11px 13px 13px" }}>
             {block.group && (
-              <div style={{ padding: "10px 4px 0", fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>
-                {GROUP_KINDS[block.kind].label} · {block.rounds} {block.rounds === 1 ? "ronda" : "rondas"}
+              <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2, marginBottom: 8 }}>
+                {GROUP_KINDS[block.kind].label} · Ronda {(block.rows[activeRowIdx].round || 0) + 1} de {block.rounds}
               </div>
             )}
             {renderActiveSet(block.rows[activeRowIdx])}
           </Card>
-          <button onClick={() => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si)}
-            style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
-            Completar serie
-          </button>
+          <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
+            <button onClick={() => goBlock(-1)} disabled={blockIdx === 0} aria-label="Ejercicio anterior"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
+                borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, fontSize: 12.5, fontWeight: 600,
+                color: blockIdx === 0 ? P.chevron : P.text, opacity: blockIdx === 0 ? .55 : 1 }}>
+              <ChevronLeft size={15} strokeWidth={2.6} /> Atrás
+            </button>
+            <button onClick={() => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si)}
+              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "14px 6px",
+                borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 15.5, fontWeight: 600, whiteSpace: "nowrap" }}>
+              Completar serie
+            </button>
+            <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} aria-label="Ejercicio siguiente"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
+                borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, fontSize: 12.5, fontWeight: 600,
+                color: blockIdx >= blocks.length - 1 ? P.chevron : P.text, opacity: blockIdx >= blocks.length - 1 ? .55 : 1 }}>
+              Siguiente <ChevronRight size={15} strokeWidth={2.6} />
+            </button>
+          </div>
+          {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
+              y abajo, para que no haga falta preguntarlo. */}
+          <div style={{ fontSize: 12, color: P.faint2, textAlign: "center", marginTop: -3 }}>
+            {pendingWrites ? "Guardando…" : storageOK ? "Guardado automático" : "Sin guardado — revisa el navegador"}
+          </div>
         </>
       )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 7 }}>
-        {[
-          ["Técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei)],
-          ["Historial", History, () => setHistEx(block.group ? block.members[0] : block.ei)],
-          ["Indicaciones", FileText, () => setCoachNotesOpen(true)],
-          ["Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat()],
-          ["Fotos", Camera, () => setMediaOpen(true)],
-        ].map(([label, Icon, onClick]) => (
-          <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "7px 4px",
-            background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE }}>
-            <Icon size={17} color={P.text} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: P.text }}>{label}</span>
-          </button>
-        ))}
-      </div>
 
 
       {/* Salir de la sesión: hoja de 4 salidas (no un solo diálogo de
@@ -5228,6 +5324,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
               background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
             <MessageSquare size={18} /> Comentario de esta serie
+          </button>
+          <button data-keep onClick={() => { setRowMoreFor(null); setMediaOpen(true); }}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
+              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
+            <Camera size={18} /> Video y fotos de la sesión
           </button>
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={undo} disabled={!undoStack.length}
