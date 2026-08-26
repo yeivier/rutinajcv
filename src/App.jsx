@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v163";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v164";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -331,6 +331,24 @@ const EQUIPMENT = ["Barra","Barra EZ","Mancuernas","Máquina","Polea","Smith","P
 // Porcentaje de crédito que se le puede asignar a un músculo secundario
 // (el ejercicio también lo trabaja, pero no es el músculo principal).
 const SECONDARY_PCTS = [25, 50, 75];
+
+// Primer número de un objetivo de reps: "6-10" → 6, "8" → 8, "AMRAP" →
+// null. Sirve para arrancar el contador de reps en algo razonable cuando
+// no hay sesión anterior de la que copiar.
+const repsTargetNum = (t) => {
+  const m = String(t == null ? "" : t).match(/\d+/);
+  return m ? +m[0] : null;
+};
+
+// Cómo se lee una serie ya registrada. Sin peso (ejercicios de peso
+// corporal) no escribe "— kg": escribe solo las reps. Sin nada, lo dice.
+const setSummary = (st, unit) => {
+  const w = st.weight !== "" && st.weight != null ? `${String(st.weight).replace(".", ",")} ${unit}` : null;
+  const r = st.reps !== "" && st.reps != null ? String(st.reps) : null;
+  if (w && r) return `${w} × ${r}`;
+  if (r) return `${r} reps`;
+  return w || "sin registrar";
+};
 
 // "Serie de trabajo (Working set)" → "de trabajo"; "Calentamiento
 // (Warm-up set)" → "calentamiento"; "AMRAP" → "AMRAP". Se le quita el
@@ -4626,12 +4644,18 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
     clone.exs.forEach((exx) => {
       const entries = history.byEx[exx.id] || [];
       const lastEntry = entries.length ? entries[entries.length - 1] : null;
-      if (!lastEntry) return;
       exx.sets.forEach((s, si) => {
         if (s.weight !== "" || s.reps !== "" || s.rir !== "") return;
-        const prev = (lastEntry.sets || [])[si];
-        if (!prev) return;
-        ["weight", "reps", "rir"].forEach((k) => { if (prev[k] !== "" && prev[k] != null) { s[k] = String(prev[k]); any = true; } });
+        const prev = lastEntry ? (lastEntry.sets || [])[si] : null;
+        if (prev) {
+          ["weight", "reps", "rir"].forEach((k) => { if (prev[k] !== "" && prev[k] != null) { s[k] = String(prev[k]); any = true; } });
+        }
+        // Sin sesión anterior de la que copiar (primera vez que se hace el
+        // ejercicio) se arranca del objetivo que puso el coach, no de
+        // vacío: si no, la serie se registraba como "— kg × —" y no
+        // servía ni para el historial ni para precargar la próxima.
+        if (s.reps === "") { const n = repsTargetNum(s.repsT); if (n != null) { s.reps = String(n); any = true; } }
+        if (s.rir === "" && s.rirT !== "" && s.rirT != null) { s.rir = String(s.rirT); any = true; }
       });
     });
     if (any) patch(() => clone);
@@ -4750,14 +4774,14 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
             <button onClick={() => onAdjustRest(-15)} style={{ flex: 1, padding: "13px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>−15 s</button>
             <button onClick={() => onAdjustRest(15)} style={{ flex: 1, padding: "13px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>+15 s</button>
           </div>
-          {justSet && (justSet.weight !== "" || justSet.reps !== "") && (
+          {justSet && (
             <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, paddingTop: 2 }}>
               <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Check size={14} color={PLATE_FG} strokeWidth={3} />
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, color: P.faint2 }}>Acabas de registrar</div>
-                <div style={{ fontSize: 15, fontWeight: 600 }}>{justSet.weight || "—"} {weightUnit} × {justSet.reps || "—"}</div>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>{setSummary(justSet, weightUnit)}</div>
               </div>
               <button onClick={onDismissRest} style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>Corregir</button>
             </div>
@@ -5397,7 +5421,18 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   });
   const toggleDone = (ei, si) => {
     const willDone = !active.exs[ei].sets[si].done;
-    patch((a) => { a.exs[ei].sets[si].done = willDone; return a; });
+    patch((a) => {
+      const st = a.exs[ei].sets[si];
+      st.done = willDone;
+      // Una serie hecha no se guarda vacía. La precarga ya deja reps y
+      // RIR con algo al abrir la sesión; esto cubre lo que se le escape
+      // (una serie agregada a mano en plena sesión, por ejemplo).
+      if (willDone) {
+        if (st.reps === "" || st.reps == null) { const n = repsTargetNum(st.repsT); if (n != null) st.reps = String(n); }
+        if ((st.rir === "" || st.rir == null) && st.rirT !== "" && st.rirT != null) st.rir = String(st.rirT);
+      }
+      return a;
+    });
     if (willDone) {
       const rest = restOf(ei, si);
       const lastSet = si === active.exs[ei].sets.length - 1;
