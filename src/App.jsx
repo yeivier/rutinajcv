@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v153";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v165";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -331,6 +331,24 @@ const EQUIPMENT = ["Barra","Barra EZ","Mancuernas","Máquina","Polea","Smith","P
 // Porcentaje de crédito que se le puede asignar a un músculo secundario
 // (el ejercicio también lo trabaja, pero no es el músculo principal).
 const SECONDARY_PCTS = [25, 50, 75];
+
+// Primer número de un objetivo de reps: "6-10" → 6, "8" → 8, "AMRAP" →
+// null. Sirve para arrancar el contador de reps en algo razonable cuando
+// no hay sesión anterior de la que copiar.
+const repsTargetNum = (t) => {
+  const m = String(t == null ? "" : t).match(/\d+/);
+  return m ? +m[0] : null;
+};
+
+// Cómo se lee una serie ya registrada. Sin peso (ejercicios de peso
+// corporal) no escribe "— kg": escribe solo las reps. Sin nada, lo dice.
+const setSummary = (st, unit) => {
+  const w = st.weight !== "" && st.weight != null ? `${String(st.weight).replace(".", ",")} ${unit}` : null;
+  const r = st.reps !== "" && st.reps != null ? String(st.reps) : null;
+  if (w && r) return `${w} × ${r}`;
+  if (r) return `${r} reps`;
+  return w || "sin registrar";
+};
 
 // "Serie de trabajo (Working set)" → "de trabajo"; "Calentamiento
 // (Warm-up set)" → "calentamiento"; "AMRAP" → "AMRAP". Se le quita el
@@ -2730,6 +2748,40 @@ const KpiTile = ({ top, value, sub, onClick }) => (
   </button>
 );
 
+// Grupo de filas del sistema: un rótulo chico y una tarjeta con filas
+// "nombre · valor · chevron". Es el patrón que más se repite en la app;
+// tenerlo acá evita repetir el mismo bloque de estilos en cada pantalla
+// y garantiza que todas se lean igual. `rows` acepta `false`/`null` para
+// que quien lo usa pueda condicionar una fila sin armar el arreglo
+// aparte.
+const RowGroup = ({ label, rows }) => {
+  const list = (rows || []).filter(Boolean);
+  if (!list.length) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {label && <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{label}</div>}
+      <Card style={{ overflow: "hidden" }}>
+        {list.map((r, i) => {
+          const frame = { width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+            padding: "13px 16px", borderBottom: i < list.length - 1 ? `1px solid ${P.line}` : "none" };
+          const inner = (
+            <>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 16, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
+              {r.value != null && r.value !== "" && (
+                <span style={{ fontSize: 15, color: r.tone || P.faint2, flexShrink: 0 }}>{r.value}</span>
+              )}
+              {r.onClick && <ChevronRight size={16} color={P.chevron} style={{ flexShrink: 0 }} />}
+            </>
+          );
+          return r.onClick
+            ? <button key={i} onClick={r.onClick} style={frame}>{inner}</button>
+            : <div key={i} style={frame}>{inner}</div>;
+        })}
+      </Card>
+    </div>
+  );
+};
+
 // Anillo de progreso circular — 104px, mismo trazo (14px) y mismo
 // cubic-bezier de aparición que el resto de la app. `pct` 0–100.
 const Ring = ({ pct, size = 104, stroke = 14 }) => {
@@ -3758,13 +3810,23 @@ const ExerciseProgress = ({ entries }) => {
 
       {chartData.length ? (
         <Card style={{ padding: "14px 8px 6px", marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0 10px 6px", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13.5, color: P.dim }}>Mejor peso por sesión (kg)</span>
-            {rangeDelta != null && (
-              <span style={{ fontSize: 13.5, fontWeight: 700, color: rangeDelta >= 0 ? P.ember2 : P.red }}>
-                {rangeDelta >= 0 ? "+" : ""}{kg(rangeDelta)} kg · este rango
+          {/* El dato en grande arriba de la curva, no solo el delta: lo
+              primero que se busca al abrir esta pantalla es "¿en cuánto
+              estoy?", y antes había que leerlo del último punto del eje. */}
+          <div style={{ padding: "0 10px 6px" }}>
+            <div style={{ fontSize: 13, color: P.faint2 }}>Mejor peso por sesión</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>
+                {kg(filtered[filtered.length - 1].best)}
               </span>
-            )}
+              <span style={{ fontSize: 15, color: P.faint2 }}>kg</span>
+              <span style={{ flex: 1 }} />
+              {rangeDelta != null && (
+                <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2 }}>
+                  {rangeDelta >= 0 ? "+" : "−"}{kg(Math.abs(rangeDelta))} kg
+                </span>
+              )}
+            </div>
           </div>
           <ChartBox data={chartData} unit="kg" />
         </Card>
@@ -4503,13 +4565,23 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
   const cmtRef = useRef(null);
   const didPrefill = useRef(false);
   const restFiredRef = useRef(false);
+  // Qué hacer cuando el descanso llega a cero. Se guarda en una ref
+  // porque depende del bloque activo, que se calcula más abajo.
+  const autoNextRef = useRef(null);
 
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
   useEffect(() => () => clearTimeout(cmtTimer.current), []);
   useEffect(() => {
     if (!timer) { restFiredRef.current = false; return; }
     const left = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
-    if (left <= 0 && !restFiredRef.current) { restFiredRef.current = true; beep(); }
+    if (left > 0 || restFiredRef.current) return;
+    restFiredRef.current = true;
+    beep();
+    // Se avanza solo. Si el bloque quedó completo, además pasa al
+    // ejercicio siguiente; si era el último, se queda en el panel de
+    // "Ejercicio completo", que ya ofrece terminar la sesión.
+    onDismissRest();
+    if (autoNextRef.current) autoNextRef.current();
   }, [timer, now]);
 
   const exs = active.exs;
@@ -4557,6 +4629,12 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
   const activeRowIdx = block.rows.findIndex((r) => !exs[r.ei].sets[r.si].done);
   const blockDone = activeRowIdx === -1;
   const blockTitle = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
+  // Lo que hace el descanso al llegar a cero: si el ejercicio quedó
+  // completo, saltar al siguiente; si no, no hay nada que hacer más que
+  // cerrar el reloj (la serie que toca ya aparece sola).
+  autoNextRef.current = () => {
+    if (blockDone && blockIdx < blocks.length - 1) setBlockIdx(blockIdx + 1);
+  };
 
   useEffect(() => {
     if (didPrefill.current) return;
@@ -4566,12 +4644,18 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
     clone.exs.forEach((exx) => {
       const entries = history.byEx[exx.id] || [];
       const lastEntry = entries.length ? entries[entries.length - 1] : null;
-      if (!lastEntry) return;
       exx.sets.forEach((s, si) => {
         if (s.weight !== "" || s.reps !== "" || s.rir !== "") return;
-        const prev = (lastEntry.sets || [])[si];
-        if (!prev) return;
-        ["weight", "reps", "rir"].forEach((k) => { if (prev[k] !== "" && prev[k] != null) { s[k] = String(prev[k]); any = true; } });
+        const prev = lastEntry ? (lastEntry.sets || [])[si] : null;
+        if (prev) {
+          ["weight", "reps", "rir"].forEach((k) => { if (prev[k] !== "" && prev[k] != null) { s[k] = String(prev[k]); any = true; } });
+        }
+        // Sin sesión anterior de la que copiar (primera vez que se hace el
+        // ejercicio) se arranca del objetivo que puso el coach, no de
+        // vacío: si no, la serie se registraba como "— kg × —" y no
+        // servía ni para el historial ni para precargar la próxima.
+        if (s.reps === "") { const n = repsTargetNum(s.repsT); if (n != null) { s.reps = String(n); any = true; } }
+        if (s.rir === "" && s.rirT !== "" && s.rirT != null) { s.rir = String(s.rirT); any = true; }
       });
     });
     if (any) patch(() => clone);
@@ -4655,14 +4739,13 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
   // vía props) está corriendo. `timer.exIdx`/`timer.setIdx` identifican
   // la serie que se acaba de completar — "Acabas de registrar" la
   // muestra con un link para editarla sin salir del descanso.
-  // Descanso (A4): antes reemplazaba toda la pantalla; ahora es una
-  // tarjeta más dentro del flujo normal de la pestaña Entrenar, entre la
-  // tarjeta de series y "Anterior/Saltar" — coincide con la referencia,
-  // que nunca tapa la barra de pestañas ni el resto de la sesión.
+  // Descanso: mientras corre, ES la pantalla — ocupa el lugar de la
+  // tarjeta de la serie en vez de sumarse debajo. Entrenando no se
+  // decide entre dos cosas a la vez: o estás registrando una serie o
+  // estás descansando, y el botón grande dice cuál es el paso siguiente.
   let restCard = null;
   if (timer) {
     const left = Math.max(0, Math.ceil((timer.endsAt - now) / 1000));
-    const donePct = timer.total ? Math.max(0, Math.min(100, ((timer.total - left) / timer.total) * 100)) : 0;
     const justEx = exs[timer.exIdx];
     const justSet = justEx ? justEx.sets[timer.setIdx] : null;
     // Qué sigue: se lee directo de activeRowIdx/blockDone — ya reflejan
@@ -4673,101 +4756,93 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
       onDismissRest();
       if (blockDone) { if (blockIdx < blocks.length - 1) setBlockIdx(blockIdx + 1); }
     };
+    // Qué viene después, en una línea, para que el botón grande no sea
+    // un salto a ciegas.
+    const nextLabel = nextInBlock
+      ? `Próxima: Serie ${activeRowIdx + 1}${exs[nextInBlock.ei].sets[nextInBlock.si].repsT ? ` · ${exs[nextInBlock.ei].sets[nextInBlock.si].repsT} reps` : ""}`
+      : nextBlock
+        ? `Sigue: ${nextBlock.group ? nextBlock.members.map((m) => exs[m].name).join(" + ") : exs[nextBlock.ei].name}`
+        : "Era la última serie de la sesión";
+    const ctaLabel = nextInBlock ? "Ir a la siguiente serie" : nextBlock ? "Ir al siguiente ejercicio" : "Terminar la sesión";
     restCard = (
-      <Card style={{ padding: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>{justEx ? justEx.name : "Descanso"}</span>
-        <span className="num" style={{ fontSize: 60, fontWeight: 600, letterSpacing: "-.03em", lineHeight: 1, fontVariantNumeric: "tabular-nums", color: P.text }}>{fmtClock(left)}</span>
-        <div style={{ width: "100%", height: 4, borderRadius: 2, background: P.s3, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${donePct}%`, background: P.ember, transition: "width 1s linear" }} />
-        </div>
-        <div style={{ display: "flex", gap: 9, width: "100%" }}>
-          <button onClick={() => onAdjustRest(-15)} style={{ flex: 1, padding: "14px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>−15 s</button>
-          <button onClick={() => onAdjustRest(15)} style={{ flex: 1, padding: "14px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>+15 s</button>
-          <button onClick={finishRest} style={{ flex: 1, padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 15, fontWeight: 600 }}>Saltar</button>
-        </div>
-        {justSet && (
-          <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "3px 1px 0" }}>
-            <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Check size={14} color={PLATE_FG} strokeWidth={3} />
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, color: P.faint2 }}>Acabas de registrar</div>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{justSet.weight || "—"} {weightUnit} × {justSet.reps || "—"}</div>
+      <>
+        <Card style={{ padding: "15px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 11 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint2 }}>Descanso</span>
+          <span className="num" style={{ fontSize: 52, fontWeight: 600, letterSpacing: "-.03em", lineHeight: 1, fontVariantNumeric: "tabular-nums", color: P.text }}>{fmtClock(left)}</span>
+          <div style={{ fontSize: 14, color: P.faint2, textAlign: "center" }}>{nextLabel}</div>
+          <div style={{ display: "flex", gap: 9, width: "100%" }}>
+            <button onClick={() => onAdjustRest(-15)} style={{ flex: 1, padding: "13px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>−15 s</button>
+            <button onClick={() => onAdjustRest(15)} style={{ flex: 1, padding: "13px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>+15 s</button>
+          </div>
+          {justSet && (
+            <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, paddingTop: 2 }}>
+              <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Check size={14} color={PLATE_FG} strokeWidth={3} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, color: P.faint2 }}>Acabas de registrar</div>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>{setSummary(justSet, weightUnit)}</div>
+              </div>
+              <button onClick={onDismissRest} style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>Corregir</button>
             </div>
-            <button onClick={onDismissRest} style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>Editar</button>
-          </div>
-        )}
-        {(nextInBlock || nextBlock) && (
-          <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "1px" }}>
-            <span style={{ fontSize: 15, color: P.faint2 }}>Sigue</span>
-            <span style={{ flex: 1, fontSize: 15, fontWeight: 600, textAlign: "right" }}>
-              {nextInBlock ? `Serie ${activeRowIdx + 1}` : blocks[blockIdx + 1].group
-                ? blocks[blockIdx + 1].members.map((m) => exs[m].name).join(" + ")
-                : exs[blocks[blockIdx + 1].ei].name}
-            </span>
-          </div>
-        )}
-      </Card>
+          )}
+        </Card>
+        <button onClick={nextBlock || nextInBlock ? finishRest : () => { onDismissRest(); askExit(); }}
+          style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+          {ctaLabel}
+        </button>
+      </>
     );
   }
 
-  // Fila de la tarjeta: colapsada (hecha o pendiente) o abierta (activa,
-  // la que gobierna activeRowIdx). El check de una fila HECHA sigue
-  // tocable — desmarcarla la vuelve a abrir como activa, que es cómo se
-  // corrige una serie ya registrada sin tener que usar Deshacer.
-  const renderRow = (r, idx) => {
+  // UNA serie a la vez. Antes la tarjeta listaba las tres o cuatro
+  // series del ejercicio (hechas colapsadas, la activa abierta, las
+  // pendientes en gris) y había que buscar con la vista cuál era "la
+  // mía" y qué pasaba al marcarla. Entrenando eso sobra: se muestra la
+  // serie que toca, se completa, y aparece el descanso diciendo qué
+  // sigue. Dónde estás dentro del ejercicio lo dice la tira de puntos.
+  const setDots = (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 4px 8px" }}>
+      {block.rows.map((r, i) => {
+        const done = !!exs[r.ei].sets[r.si].done;
+        const isNow = i === activeRowIdx;
+        // Solo las hechas responden al toque, y solo para corregirlas:
+        // desmarcarla la vuelve a abrir. Las que todavía no llegaron no
+        // hacen nada — no se saltan series por accidente.
+        return (
+          <button key={`${r.ei}-${r.si}`} disabled={!done}
+            onClick={done ? () => onToggleDone(r.ei, r.si) : undefined}
+            aria-label={done ? `Corregir serie ${i + 1}` : `Serie ${i + 1}${isNow ? ", en curso" : ", pendiente"}`}
+            style={{ flex: 1, height: 6, borderRadius: 3, padding: 0,
+              background: done ? P.ember : isNow ? P.text : P.s3 }} />
+        );
+      })}
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2, flexShrink: 0, marginLeft: 2 }}>
+        {Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)} / {block.rows.length}
+      </span>
+    </div>
+  );
+
+  const renderActiveSet = (r) => {
     const exx = exs[r.ei];
     const st = exx.sets[r.si];
-    const isActive = idx === activeRowIdx;
-    const isDone = !!st.done;
     // El tipo se nombra SIEMPRE (calentamiento, de trabajo, top set,
     // drop set…), no solo cuando no es una serie normal.
     const typeTag = setTypeTag(st.type);
-    const rowName = block.group ? exx.name : `Serie ${r.si + 1}`;
-    const label = `${rowName} · ${typeTag}`;
+    const rowName = block.group ? exx.name : `Serie ${r.si + 1} de ${block.rows.length}`;
     const lastEntry = lastEntryOf(exx.id);
     const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
     const prevWeight = lastSet && lastSet.weight !== "" && lastSet.weight != null ? lastSet.weight : null;
 
-    if (!isActive) {
-      // La fila justo después de la activa hereda el separador que la
-      // sección abierta no dibuja por su cuenta (ver el bloque isActive
-      // más abajo) — así la lista queda con UNA sola línea entre cada
-      // par de filas, sea cual sea su estado, en vez de dos.
-      const showTop = idx > 0 && idx - 1 === activeRowIdx;
-      return (
-        <button key={`${r.ei}-${r.si}`} onClick={() => onToggleDone(r.ei, r.si)}
-          aria-label={isDone ? "Desmarcar serie" : "Marcar serie hecha"}
-          style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "9px 4px",
-            borderTop: showTop ? `1px solid ${P.line}` : "none",
-            borderBottom: idx < block.rows.length - 1 ? `1px solid ${P.line}` : "none" }}>
-          <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: isDone ? PLATE_GRAD : "transparent", border: isDone ? "none" : `1.5px solid ${P.chevron}`,
-            fontSize: 12, fontWeight: 600, color: P.faint2 }}>
-            {isDone ? <Check size={14} color={PLATE_FG} strokeWidth={3} /> : r.si + 1}
-          </span>
-          <span style={{ flex: 1, fontSize: 13, color: isDone ? P.text : P.faint2 }}>{label}</span>
-          <span style={{ fontSize: 13, color: P.faint2 }}>
-            {isDone
-              ? `${st.weight || "—"} ${weightUnit} × ${st.reps || "—"}`
-              : [prevWeight != null ? `${String(prevWeight).replace(".", ",")} ${weightUnit}` : null, st.repsT || null].filter(Boolean).join(" · ")}
-          </span>
-        </button>
-      );
-    }
-
-    const isLastRow = idx === block.rows.length - 1;
-    const targetBits = [typeTag];
+    const targetBits = [];
+    if (block.group) targetBits.push(`Ronda ${(r.round || 0) + 1} de ${block.rounds}`);
+    targetBits.push(typeTag);
     if (st.repsT) targetBits.push(`Objetivo ${st.repsT}`);
     if (st.rirT !== "" && st.rirT != null) targetBits.push(`RIR ${st.rirT}`);
     if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") targetBits.push(`${st.pct}%`);
 
-    // La serie activa se abre DENTRO de la misma lista, no en una tarjeta
-    // aparte: nada de fondo gris propio ni margen que la separe — solo
-    // más aire vertical que una fila colapsada. El separador de arriba
-    // y de abajo los ponen las filas vecinas (ver showTop más arriba).
     return (
-      <div key={`${r.ei}-${r.si}`} style={{ padding: idx === 0 ? "3px 4px 12px" : "11px 4px 12px" }}>
+      <div style={{ padding: "0 4px 10px" }}>
         <div style={{ marginBottom: 6 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <span style={{ fontSize: 19, fontWeight: 600, color: P.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rowName}</span>
@@ -4786,19 +4861,37 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
         <div style={{ height: 1, background: P.fillTertiary }} />
         <Stepper label="RIR" value={st.rir === "" ? 0 : +st.rir} onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0}
           caption={lastSet && lastSet.rir !== "" && lastSet.rir != null ? `Antes ${lastSet.rir}` : null} />
-        <button onClick={() => onToggleDone(r.ei, r.si)} aria-label="Marcar serie hecha"
-          style={{ width: "100%", marginTop: 8, padding: "13px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 17.5, fontWeight: 600 }}>
-          {isLastRow ? "Siguiente ejercicio" : "Serie hecha"}
-        </button>
         {renderCommentBlock(r.ei, r.si)}
       </div>
     );
   };
 
+  // El ejercicio quedó completo y no hay descanso corriendo: no se deja
+  // al usuario mirando una tarjeta vacía preguntándose qué hacer.
+  const blockDonePanel = (
+    <>
+      <Card style={{ padding: "17px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
+        <span style={{ width: 44, height: 44, borderRadius: 22, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Check size={24} color={PLATE_FG} strokeWidth={3} />
+        </span>
+        <span style={{ fontSize: 18, fontWeight: 600, color: P.text }}>Ejercicio completo</span>
+        <span style={{ fontSize: 14, color: P.faint2, textAlign: "center" }}>
+          {blockIdx < blocks.length - 1
+            ? `Sigue: ${blocks[blockIdx + 1].group ? blocks[blockIdx + 1].members.map((m) => exs[m].name).join(" + ") : exs[blocks[blockIdx + 1].ei].name}`
+            : "Es el último ejercicio de la sesión"}
+        </span>
+      </Card>
+      <button onClick={() => (blockIdx < blocks.length - 1 ? goBlock(1) : askExit())}
+        style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+        {blockIdx < blocks.length - 1 ? "Ir al siguiente ejercicio" : "Terminar la sesión"}
+      </button>
+    </>
+  );
+
   const askExit = () => setExiting(true);
 
   return (
-    <div style={{ padding: `calc(10px + env(safe-area-inset-top)) 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ padding: `calc(8px + env(safe-area-inset-top)) 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 8 }}>
       {/* Sin título "Entrenar" con la sesión abierta: la franja de abajo
           ya dice qué se está entrenando, y esos 44 px son los que hacían
           falta para que todo quepa sin desplazarse. */}
@@ -4824,11 +4917,31 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
       </Card>
 
       <div>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2 }}>Ejercicio {blockIdx + 1} de {totalBlocks}</span>
-          {onBrowseRoutine && <button onClick={onBrowseRoutine} style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2, flexShrink: 0 }}>Ver rutina</button>}
+        {/* "Anterior" y "Siguiente" dicen lo que hacen y viven en la misma
+            línea que el contador, que es justo lo que numeran. Antes eran
+            dos fichas grises de ancho completo ocupando una fila entera, y
+            la de la derecha decía "Saltar" — que suena a descartar el
+            ejercicio, no a pasar al que viene. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => goBlock(-1)} disabled={blockIdx === 0}
+            style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, fontWeight: 600, flexShrink: 0,
+              color: blockIdx === 0 ? P.chevron : P.text }}>
+            <ChevronLeft size={15} strokeWidth={2.6} /> Anterior
+          </button>
+          <span style={{ flex: 1, textAlign: "center", fontSize: 12.5, fontWeight: 600, color: P.faint2, minWidth: 0,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Ejercicio {blockIdx + 1} de {totalBlocks}</span>
+          <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1}
+            style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, fontWeight: 600, flexShrink: 0,
+              color: blockIdx >= blocks.length - 1 ? P.chevron : P.text }}>
+            Siguiente <ChevronRight size={15} strokeWidth={2.6} />
+          </button>
         </div>
-        <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.1, color: P.text, marginTop: 1 }}>{blockTitle}</div>
+        <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${blockTitle} — ver la rutina completa`}
+          style={{ display: "flex", alignItems: "center", gap: 4, textAlign: "left", marginTop: 1, width: "100%" }}>
+          <span style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.1, color: P.text, minWidth: 0,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blockTitle}</span>
+          {onBrowseRoutine && <ChevronRight size={17} color={P.chevron} strokeWidth={2.6} style={{ flexShrink: 0 }} />}
+        </button>
         {!block.group && parseTempo(exs[block.ei].notes) && (
           <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
         )}
@@ -4837,25 +4950,26 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
         </div>
       </div>
 
-      <Card style={{ padding: "6px 14px" }}>
-        {block.group && (
-          <div style={{ padding: "10px 4px", fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>
-            {GROUP_KINDS[block.kind].label} · {block.rounds} {block.rounds === 1 ? "ronda" : "rondas"}
-          </div>
-        )}
-        {block.rows.map((r, idx) => renderRow(r, idx))}
-      </Card>
-
-      {restCard}
-
-      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <button onClick={() => goBlock(-1)} disabled={blockIdx === 0}
-          style={{ flex: 1, padding: "12px 0", borderRadius: R_ROW, textAlign: "center", fontSize: 15.5, fontWeight: 600,
-            background: blockIdx === 0 ? P.fillTertiary : P.s3, color: blockIdx === 0 ? P.chevron : P.text }}>Anterior</button>
-        <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1}
-          style={{ flex: 1, padding: "12px 0", borderRadius: R_ROW, textAlign: "center", fontSize: 15.5, fontWeight: 600,
-            background: blockIdx >= blocks.length - 1 ? P.fillTertiary : P.s3, color: blockIdx >= blocks.length - 1 ? P.chevron : P.text }}>Saltar</button>
-      </div>
+      {/* Una sola cosa en pantalla a la vez: o descansas, o registras la
+          serie que toca, o el ejercicio ya está hecho. Cada estado trae
+          su propio botón grande diciendo qué pasa al tocarlo. */}
+      {timer ? restCard : blockDone ? blockDonePanel : (
+        <>
+          <Card style={{ padding: "6px 14px" }}>
+            {block.group && (
+              <div style={{ padding: "10px 4px 0", fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>
+                {GROUP_KINDS[block.kind].label} · {block.rounds} {block.rounds === 1 ? "ronda" : "rondas"}
+              </div>
+            )}
+            {setDots}
+            {renderActiveSet(block.rows[activeRowIdx])}
+          </Card>
+          <button onClick={() => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si)}
+            style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+            Completar serie
+          </button>
+        </>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 7 }}>
         {[
@@ -4865,7 +4979,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
           ["Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat()],
           ["Fotos", Camera, () => setMediaOpen(true)],
         ].map(([label, Icon, onClick]) => (
-          <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 4px",
+          <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "7px 4px",
             background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE }}>
             <Icon size={17} color={P.text} />
             <span style={{ fontSize: 11, fontWeight: 600, color: P.text }}>{label}</span>
@@ -5309,7 +5423,18 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   });
   const toggleDone = (ei, si) => {
     const willDone = !active.exs[ei].sets[si].done;
-    patch((a) => { a.exs[ei].sets[si].done = willDone; return a; });
+    patch((a) => {
+      const st = a.exs[ei].sets[si];
+      st.done = willDone;
+      // Una serie hecha no se guarda vacía. La precarga ya deja reps y
+      // RIR con algo al abrir la sesión; esto cubre lo que se le escape
+      // (una serie agregada a mano en plena sesión, por ejemplo).
+      if (willDone) {
+        if (st.reps === "" || st.reps == null) { const n = repsTargetNum(st.repsT); if (n != null) st.reps = String(n); }
+        if ((st.rir === "" || st.rir == null) && st.rirT !== "" && st.rirT != null) st.rir = String(st.rirT);
+      }
+      return a;
+    });
     if (willDone) {
       const rest = restOf(ei, si);
       const lastSet = si === active.exs[ei].sets.length - 1;
@@ -6669,6 +6794,28 @@ const MiniLineChart = ({ points, height = 110 }) => {
     </svg>
   );
 };
+// Cabecera de tendencia: rótulo, dato grande, variación del periodo y
+// la curva. Es lo primero que se ve en cada segmento de Progreso, en vez
+// de un párrafo explicando qué se está mirando.
+const TrendCard = ({ label, value, unit, delta, deltaUnit = "", points }) => (
+  <Card style={{ padding: "15px 15px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
+    <span style={{ fontSize: 13, color: P.faint2 }}>{label}</span>
+    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+      <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{value}</span>
+      {unit && <span style={{ fontSize: 15, color: P.faint2 }}>{unit}</span>}
+      <span style={{ flex: 1 }} />
+      {delta != null && (
+        <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2 }}>
+          {delta >= 0 ? "+" : "−"}{kg(Math.abs(delta))}{deltaUnit}
+        </span>
+      )}
+    </div>
+    {(points || []).length >= 2
+      ? <MiniLineChart points={points} height={96} />
+      : <div style={{ fontSize: 13.5, color: P.faint2, padding: "12px 0 10px" }}>Con dos registros aparece la curva.</div>}
+  </Card>
+);
+
 const daysAgoLabel = (dateStr) => {
   const days = Math.max(0, Math.round((Date.now() - new Date(dateStr).getTime()) / 86400000));
   if (days === 0) return "hoy";
@@ -6676,13 +6823,45 @@ const daysAgoLabel = (dateStr) => {
   if (days < 14) return `hace ${days} días`;
   return `hace ${Math.round(days / 7)} semanas`;
 };
-const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }) => {
+// Volumen para el ALUMNO. `VolumePanel` (el del coach) sigue igual: ahí
+// el coach necesita el desglose por sesión, el comparador natural/asistido
+// y la nota de dónde salen los landmarks. Al alumno le sirve una sola
+// cosa — cuántas series le tocan por grupo y si está corto o pasado —
+// así que acá van las barras y nada más; la explicación queda plegada.
+const AthleteVolumePanel = ({ plan }) => {
+  const enhanced = (plan.athlete || {}).enhanced === "asistido";
+  const refTable = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
+  const vol = useMemo(() => volumeByMuscle(plan, refTable), [plan, refTable]);
+  if (!vol.rows.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Cuando tu coach cargue la rutina vas a ver acá el volumen por grupo muscular." />;
+  const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
+  const fuera = vol.rows.filter((r) => r.status && r.status !== "en rango").length;
+  return (
+    <>
+      <Card style={{ padding: "15px 15px 13px", display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontSize: 13, color: P.faint2 }}>{vol.basis === "semana" ? "Series efectivas por semana" : "Series efectivas por vuelta"}</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{fmtSets(vol.total)}</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 14, fontWeight: 600, color: fuera ? P.red : P.faint2 }}>
+            {fuera ? `${fuera} fuera de rango` : "todo en rango"}
+          </span>
+        </div>
+      </Card>
+      {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} compact />)}
+      <Collapsible title="Qué es MEV, MAV y MRV" summary="">
+        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>
+          MEV es el mínimo que hace efecto, MAV la zona donde se progresa mejor y
+          MRV el techo que se alcanza a recuperar. Son rangos orientativos
+          {enhanced ? " para atletas asistidos (heurística de campo: con soporte anabólico el techo recuperable sube)" : " según los landmarks de Renaissance Periodization"}: el punto exacto lo ajusta tu coach según cómo respondas.
+        </div>
+      </Collapsible>
+    </>
+  );
+};
+
+const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, onOpenCheckin }) => {
   const [sub, setSub] = useState("fuerza");
   const [exId, setExId] = useState("");
-  const [bw, setBw] = useState("");
-  const [stepsInput, setStepsInput] = useState("");
-  const [waterInput, setWaterInput] = useState("");
-  const [sleepInput, setSleepInput] = useState("");
   const [measureOpen, setMeasureOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   // Permite abrir esta pestaña directo en una sub-sección (p.ej. desde las
@@ -6714,38 +6893,14 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }
 
   const bwEntries = history.bodyweight || [];
   const bwPoints = bwEntries.map((b) => ({ v: b.kg }));
+  // Variación entre el primer y el último registro: es lo que la
+  // cabecera muestra a la derecha del peso de hoy.
+  const bwDelta = bwEntries.length >= 2 ? bwEntries[bwEntries.length - 1].kg - bwEntries[0].kg : null;
   const measurements = history.measurements || [];
   const lastMeasure = measurements[measurements.length - 1];
   const photos = history.bodyPhotos || [];
   const adherence = adherencePct(plan, history, monthKeyOf(todayISO()));
 
-  // El input y el botón "Registrar" existían en la pantalla desde el
-  // rediseño, pero nunca llegaron a guardar nada — history.bodyweight no
-  // se tocaba. Se notaba clic tras clic: "registrar" no hacía nada,
-  // exactamente el tipo de pantalla muerta que se reportó.
-  const addBW = () => {
-    const v = parseFloat(String(bw).replace(",", "."));
-    if (!v || v <= 0 || !saveHistory) return;
-    const h = structuredClone(history);
-    h.bodyweight = [...(h.bodyweight || []), { date: todayISO(), kg: v }];
-    saveHistory(h);
-    setBw("");
-  };
-  // Pasos, agua y sueño: mismo mecanismo que el peso (un registro fechado
-  // por toque de "Registrar"), factorizado en una sola función en vez de
-  // repetirla tres veces — la única diferencia real es qué arreglo de
-  // history tocan y qué campo numérico guardan.
-  const addDailyMetric = (key, field, raw, setInput) => {
-    const v = parseFloat(String(raw).replace(",", "."));
-    if (!v || v <= 0 || !saveHistory) return;
-    const h = structuredClone(history);
-    h[key] = [...(h[key] || []), { date: todayISO(), [field]: v }];
-    saveHistory(h);
-    setInput("");
-  };
-  const addSteps = () => addDailyMetric("steps", "count", stepsInput, setStepsInput);
-  const addWater = () => addDailyMetric("water", "liters", waterInput, setWaterInput);
-  const addSleep = () => addDailyMetric("sleep", "hours", sleepInput, setSleepInput);
   const saveMeasurements = (values) => {
     if (!saveHistory) return;
     const h = structuredClone(history);
@@ -6797,79 +6952,30 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }
 
       {sub === "cuerpo" && (
         <>
-          <Card style={{ overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-              <span style={{ flex: 1, fontSize: 16 }}>Adherencia</span>
-              <span style={{ fontSize: 15, color: P.faint2 }}>{adherence == null ? "—" : `${Math.round(adherence)}%`}</span>
-            </div>
-          </Card>
+          {/* El registro diario (peso, pasos, agua, sueño) ya se toma en
+              el Check-in, con su propio campo y su propio "Registrar".
+              Acá se MUESTRA lo registrado y se enlaza allá: antes esta
+              pantalla repetía los cuatro formularios enteros, así que el
+              mismo dato se podía cargar en dos sitios distintos. */}
+          <TrendCard label="Peso corporal" value={bwEntries.length ? kg(bwEntries[bwEntries.length - 1].kg) : "—"}
+            unit="kg" delta={bwDelta} deltaUnit=" kg" points={bwPoints} />
 
-          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Peso corporal</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="number" inputMode="decimal" step="any" placeholder="kg de hoy" value={bw} onChange={(e) => setBw(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
-              <button onClick={addBW} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
-            </div>
-            {bwEntries.length >= 2 ? <MiniLineChart points={bwPoints} /> : bwEntries.length === 1 ? (
-              <div style={{ fontSize: 13.5, color: P.faint2 }}>Último registro: {kg(bwEntries[0].kg)} kg. Con dos o más verás la curva.</div>
-            ) : (
-              <div style={{ fontSize: 13.5, color: P.faint2 }}>Sin registros todavía.</div>
-            )}
-          </Card>
+          <RowGroup label="Hoy" rows={[
+            { label: "Peso", value: bwEntries.length ? `${kg(bwEntries[bwEntries.length - 1].kg)} kg` : "Sin registrar", onClick: onOpenCheckin },
+            { label: "Pasos", value: stepsEntries.length ? Math.round(stepsEntries[stepsEntries.length - 1].count).toLocaleString("es-CL") : "Sin registrar", onClick: onOpenCheckin },
+            { label: "Agua", value: waterEntries.length ? `${kg(waterEntries[waterEntries.length - 1].liters)} L` : "Sin registrar", onClick: onOpenCheckin },
+            { label: "Sueño", value: sleepEntries.length ? `${kg(sleepEntries[sleepEntries.length - 1].hours)} h` : "Sin registrar", onClick: onOpenCheckin },
+          ]} />
 
-          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Pasos</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="number" inputMode="numeric" placeholder="pasos de hoy" value={stepsInput} onChange={(e) => setStepsInput(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
-              <button onClick={addSteps} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
-            </div>
-            <div style={{ fontSize: 13.5, color: P.faint2 }}>
-              {stepsEntries.length ? `Último registro: ${stepsEntries[stepsEntries.length - 1].count.toLocaleString("es-CL")} pasos.` : "Sin registros todavía."}
-            </div>
-          </Card>
-
-          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Agua</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="number" inputMode="decimal" step="any" placeholder="litros de hoy" value={waterInput} onChange={(e) => setWaterInput(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
-              <button onClick={addWater} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
-            </div>
-            <div style={{ fontSize: 13.5, color: P.faint2 }}>
-              {waterEntries.length ? `Último registro: ${kg(waterEntries[waterEntries.length - 1].liters)} L.` : "Sin registros todavía."}
-            </div>
-          </Card>
-
-          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Sueño</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="number" inputMode="decimal" step="any" placeholder="horas dormidas" value={sleepInput} onChange={(e) => setSleepInput(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
-              <button onClick={addSleep} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
-            </div>
-            <div style={{ fontSize: 13.5, color: P.faint2 }}>
-              {sleepEntries.length ? `Último registro: ${kg(sleepEntries[sleepEntries.length - 1].hours)} h.` : "Sin registros todavía."}
-            </div>
-          </Card>
-
-          <Card style={{ overflow: "hidden" }}>
-            <button onClick={() => setMeasureOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-              <span style={{ flex: 1, fontSize: 16 }}>Medidas</span>
-              <span style={{ fontSize: 15, color: P.faint2 }}>{lastMeasure ? daysAgoLabel(lastMeasure.date) : "—"}</span>
-              <ChevronRight size={16} color={P.chevron} />
-            </button>
-            <button onClick={() => setCompareOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-              <span style={{ flex: 1, fontSize: 16 }}>Fotos</span>
-              <span style={{ fontSize: 15, color: P.faint2 }}>{photos.length ? `${photos.length}` : "—"}</span>
-              <ChevronRight size={16} color={P.chevron} />
-            </button>
-          </Card>
+          <RowGroup label="Cuerpo" rows={[
+            { label: "Medidas", value: lastMeasure ? daysAgoLabel(lastMeasure.date) : "—", onClick: () => setMeasureOpen(true) },
+            { label: "Fotos", value: photos.length ? String(photos.length) : "—", onClick: () => setCompareOpen(true) },
+            { label: "Adherencia", value: adherence == null ? "—" : `${Math.round(adherence)}%` },
+          ]} />
         </>
       )}
 
-      {sub === "volumen" && <VolumePanel plan={plan} />}
+      {sub === "volumen" && <AthleteVolumePanel plan={plan} />}
 
       {sub === "logros" && <AchievementGrid history={history} />}
 
@@ -8687,7 +8793,6 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       {!easy && view === "biblioteca" && <LibraryPanel plan={plan} history={history} library={library} onSaveLibrary={onSaveLibrary} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
 
       {(easy || view === "dias") && (<>
-      {!easy && <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} />}
 
       <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden" }}>
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -9495,6 +9600,43 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
       <Btn kind="ember" style={{ width: "100%" }} onClick={() => mut((x) => x.meals.push({ id: uid(), name: `Comida ${n.meals.length + 1}`, time: "", items: [{ id: uid(), food: "", qty: "" }], notes: "" }))}>
         <Plus size={16} /> Añadir comida
       </Btn>
+
+      {/* Suplementos. El modelo (plan.nutrition.supplements) ya existía y
+          el alumno ya los marcaba en Nutrición, pero no había forma de
+          cargarlos: la lista nacía siempre vacía. Acá se cargan, con dosis
+          y momento, y con el bloque en que los ve el alumno ("Diario" o
+          "Entreno"). Los ítems viejos, que solo tienen nombre, siguen
+          válidos y caen en "Diario". */}
+      <div style={{ marginTop: 26 }}>
+        <div className="mono" style={{ margin: "0 4px 8px" }}>Suplementos</div>
+        {(n.supplements || []).map((sp, si) => (
+          <Card key={sp.id} style={{ padding: 13, marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <Inp value={sp.name} placeholder="Nombre del suplemento" onChange={(e) => mut((x) => (x.supplements[si].name = e.target.value))} />
+              <button onClick={() => mut((x) => x.supplements.splice(si, 1))} aria-label="Quitar suplemento" style={{ color: P.faint }}><Trash2 size={16} /></button>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Inp value={sp.dose || ""} placeholder="Dosis (5 g)" onChange={(e) => mut((x) => (x.supplements[si].dose = e.target.value))} />
+              <Inp value={sp.when || ""} placeholder="Momento (pre entreno)" onChange={(e) => mut((x) => (x.supplements[si].when = e.target.value))} />
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              {SUPP_GROUPS.map(([gid, glabel]) => {
+                const on = (sp.group || "diario") === gid;
+                return (
+                  <button key={gid} onClick={() => mut((x) => (x.supplements[si].group = gid))}
+                    style={{ flex: 1, padding: "8px 6px", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
+                      background: on ? P.s3 : "transparent", color: on ? P.text : P.faint,
+                      border: `1px solid ${on ? P.line : "transparent"}` }}>{glabel}</button>
+                );
+              })}
+            </div>
+          </Card>
+        ))}
+        <Btn kind="line" style={{ width: "100%" }}
+          onClick={() => mut((x) => { x.supplements = [...(x.supplements || []), { id: uid(), name: "", dose: "", when: "", group: "diario" }]; })}>
+          <Plus size={16} /> Añadir suplemento
+        </Btn>
+      </div>
     </div>
   );
 };
@@ -10130,7 +10272,7 @@ const DashboardTab = ({ roster, toast }) => {
    mismo propósito (avisar qué conversación necesita atención).
    ============================================================ */
 
-const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent, onOpenCobros }) => {
+const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent, onOpenCobros, onOpenAtletas, onOpenMensajes, onOpenTeam, teamSize }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, sessions, chat, pay }
   const [staleOpen, setStaleOpen] = useState(false);
@@ -10221,40 +10363,27 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
         </span>
       } />
 
-      {/* Cuatro cifras en grilla 2×2: activos, check-in, sin leer, por
-          cobrar. Antes eran 3 en fila; "Por cobrar" reusa exactamente el
-          mismo cálculo de estado de pago que ya usa Cobros. */}
+      {/* Las mismas cuatro cifras que ya había, pero en `KpiTile`, que es
+          la ficha que usa "Estado de hoy" del alumno: una sola ficha de
+          dato en toda la app en vez de una tarjeta a medida por pantalla.
+          Cada una lleva adonde se resuelve. */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
-        <Card style={{ padding: "16px 16px" }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{activeCount}</div>
-          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Atletas</div>
-        </Card>
-        <Card style={{ padding: "16px 16px" }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{checkinPct}%</div>
-          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Check-in</div>
-        </Card>
-        <Card style={{ padding: "16px 16px" }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{pendCount}</div>
-          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Sin leer</div>
-        </Card>
-        <Card style={{ padding: "16px 16px" }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{dueCount}</div>
-          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Por cobrar</div>
-        </Card>
+        <KpiTile top="Atletas" value={String(activeCount)} onClick={onOpenAtletas} />
+        <KpiTile top="Check-in" value={`${checkinPct}%`} sub="últimos 7 días" onClick={onOpenAtletas} />
+        <KpiTile top="Sin leer" value={String(pendCount)} onClick={onOpenMensajes} />
+        <KpiTile top="Por cobrar" value={String(dueCount)} onClick={onOpenCobros} />
       </div>
 
-      {stale.length > 0 && (
-        <button onClick={() => setStaleOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
-          marginTop: 14, padding: "14px 15px", borderRadius: R_TILE, background: P.s1, border: `1.5px solid ${P.text}` }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: P.text }}>{stale.length} sin entrenar</div>
-            <div style={{ fontSize: 13.5, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {stale.slice(0, 4).map((s) => s.name).join(" · ")}{stale.length > 4 ? "…" : ""}
-            </div>
-          </div>
-          <ChevronRight size={17} color={P.faint} />
-        </button>
-      )}
+      {/* "Requiere atención": lo que hay que mirar hoy, en una sola lista,
+          en vez de un único aviso de "sin entrenar" y el resto escondido
+          detrás de las cifras. Las filas sin nada pendiente no se pintan. */}
+      <div style={{ marginTop: 14 }}>
+        <RowGroup label="Requiere atención" rows={[
+          stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
+          dueCount > 0 && { label: `${dueCount} cuota${dueCount !== 1 ? "s" : ""} por vencer`, onClick: onOpenCobros },
+          pendCount > 0 && { label: `${pendCount} mensaje${pendCount !== 1 ? "s" : ""} sin leer`, onClick: onOpenMensajes },
+        ]} />
+      </div>
 
       <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "20px 2px 8px" }}>Hoy</div>
       {activity.length === 0 ? (
@@ -10279,7 +10408,14 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
       <SettingGroup>
         <SettingRow Icon={ClipboardList} label="Nueva rutina" onClick={onNewRoutine} />
         <SettingRow Icon={UserPlus} label="Agregar atleta" onClick={onAddStudent} />
-        <SettingRow Icon={DollarSign} label="Cobrar cuota" onClick={onOpenCobros} last />
+        <SettingRow Icon={DollarSign} label="Cobrar cuota" onClick={onOpenCobros} last={!onOpenTeam} />
+        {onOpenTeam && (
+          <SettingRow Icon={Award} label="Equipo y roles" onClick={onOpenTeam} last
+            right={<span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {teamSize != null && <span style={{ fontSize: 15, color: P.faint2 }}>{teamSize}</span>}
+              <ChevronRight size={17} color={P.faint} strokeWidth={2.4} />
+            </span>} />
+        )}
       </SettingGroup>
 
       <Sheet open={staleOpen} onClose={() => setStaleOpen(false)} title="Sin entrenar" tall>
@@ -11324,7 +11460,10 @@ const AthleteForm = ({ plan, savePlan }) => {
 };
 
 /* ---- Volumen por grupo muscular ---- */
-const MuscleVolumeRow = ({ r, max }) => {
+// `compact` es la variante del alumno: los mismos landmarks en una sola
+// línea, sin la frecuencia sugerida (eso es dato de planificación, lo usa
+// el coach al armar la rutina, no el alumno al mirar cómo va).
+const MuscleVolumeRow = ({ r, max, compact }) => {
   const col = volStatusColor(r.status);
   return (
   <Card style={{ padding: "11px 13px", marginBottom: 8 }}>
@@ -11344,8 +11483,8 @@ const MuscleVolumeRow = ({ r, max }) => {
         background: col, opacity: .85, borderRadius: 5 }} />
     </div>
     {r.ref && (
-      <div style={{ fontSize: 12.5, color: P.faint, marginTop: 6 }}>
-        MEV {r.ref.mev} · zona óptima {r.ref.mav[0]}–{r.ref.mav[1]} · MRV {r.ref.mrv} · frecuencia sugerida {r.ref.freq}
+      <div style={{ fontSize: 12.5, color: P.faint, marginTop: 6, whiteSpace: compact ? "nowrap" : "normal", overflow: "hidden", textOverflow: "ellipsis" }}>
+        MEV {r.ref.mev} · óptimo {r.ref.mav[0]}–{r.ref.mav[1]} · MRV {r.ref.mrv}{compact ? "" : ` · frecuencia sugerida ${r.ref.freq}`}
       </div>
     )}
   </Card>
@@ -12521,7 +12660,7 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
 /* Agenda en modo coach: mismo calendario que ve el alumno, más la
    configuración de la semana tipo. Tocar cualquier día abre el detalle y
    permite agregar o editar un evento con fecha, color y aviso previo. */
-const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBookings, availability, onSaveAvailability }) => {
+const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBookings, availability, onSaveAvailability, toast }) => {
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const [view, setView] = useState("week");
@@ -12529,10 +12668,18 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
   const [selected, setSelected] = useState(isoDate(today));
   const [eventSheet, setEventSheet] = useState(null); // { id?, date, title, note, color, remind }
   const [bookingSheet, setBookingSheet] = useState(null); // { id?, date, studentId, time, durationMin, note }
-  // El calendario completo (mes, eventos, franjas de color) sigue existiendo
-  // tal cual — la ficha nueva de A5/C5 (7 días grandes) es ahora lo primero
-  // que se ve, y "Calendario completo" lo revela sin perder nada.
-  const [showFullCalendar, setShowFullCalendar] = useState(false);
+  // Semana / Mes / Temporada. "view" (week|month) sigue siendo el modo
+  // INTERNO de la grilla; este es el segmentado de la pantalla.
+  const [agendaView, setAgendaView] = useState("semana");
+  // `switchView` es de CalendarGrid, no de acá: la grilla se pone en modo
+  // mensual con su propio estado y el cursor se lleva al mes del día
+  // seleccionado, que es lo que el usuario espera ver al tocar "Mes".
+  useEffect(() => {
+    if (agendaView !== "mes") return;
+    setView("month");
+    const base = parseDate(selected);
+    setCursor(new Date(base.getFullYear(), base.getMonth(), 1));
+  }, [agendaView]);
   const [availSheet, setAvailSheet] = useState(null); // "window" | "duration"
   // Días donde se dejó visible el selector de segunda sesión (AM/PM) aunque
   // todavía no se haya elegido nada — solo UI, no se guarda en el plan.
@@ -12627,14 +12774,25 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
 
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
-      <ScreenTitle title="Agenda" />
+      {/* Semana / Mes / Temporada. Antes el mes vivía plegado detrás de un
+          "Calendario completo" y la temporada (los mesociclos) estaba en
+          otra pestaña entera, dentro de Rutinas: dos vistas del mismo
+          calendario en dos sitios que no se parecían. */}
+      <div style={{ marginBottom: 14 }}>
+        <SectionSwitch value={agendaView} onChange={setAgendaView}
+          items={[{ id: "semana", label: "Semana" }, { id: "mes", label: "Mes" }, { id: "temporada", label: "Temporada" }]} />
+      </div>
 
       <EventReminderBanner events={plan.events} />
+
+      {agendaView === "temporada" ? <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} /> : (
+      <>
 
       {/* Semana en 7 fichas grandes (C5 del handoff): reemplaza a la grilla
           compacta como lo primero que se ve. La grilla completa (mes,
           eventos, sesiones ya hechas) sigue entera más abajo, plegada
           detrás de "Calendario completo" — no se pierde nada. */}
+      {agendaView === "semana" && (
       <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
         {weekDaysOf(selDate).map((d) => {
           const iso = isoDate(d);
@@ -12651,12 +12809,12 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
           );
         })}
       </div>
-      <button onClick={() => setShowFullCalendar((s) => !s)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13.5, fontWeight: 600, color: P.faint, marginBottom: 12 }}>
-        {showFullCalendar ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Calendario completo
-      </button>
-      {showFullCalendar && (
-        <CalendarGrid plan={plan} cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
-          dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} bookingsFor={bookingsForDay} />
+      )}
+      {agendaView === "mes" && (
+        <div style={{ marginBottom: 14 }}>
+          <CalendarGrid plan={plan} cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
+            dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} bookingsFor={bookingsForDay} />
+        </div>
       )}
 
       <Card style={{ padding: "13px 15px", marginBottom: 14 }}>
@@ -12849,7 +13007,11 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
           );
         })}
       </Card>
+      </>
+      )}
 
+      {/* Las hojas quedan fuera del segmentado: se abren desde cualquiera
+          de las tres vistas. */}
       <Sheet open={!!eventSheet} onClose={() => setEventSheet(null)} title={eventSheet && eventSheet.id ? "Editar evento" : "Nuevo evento"}>
         {eventSheet && (
           <>
@@ -13059,7 +13221,7 @@ const Toast = ({ msg }) => !msg ? null : (
 // datos del alumno, así que quedan disponibles para cualquier rol.
 // "chat" también queda para cualquier rol: es la vía directa con el
 // alumno, no algo que tenga sentido restringir por especialidad.
-const ALWAYS_TABS = { timer: "edit", guia: "edit", chat: "edit" };
+const ALWAYS_TABS = { timer: "edit", guia: "edit", chat: "edit", cmas: "edit" };
 const ROLE_META = {
   head_coach:  { label: "Head Coach", short: "Acceso completo + gestiona el equipo", manageTeam: true, tabAccess: null },
   coach_asistente: { label: "Coach asistente", short: "Acceso completo, no gestiona el equipo", manageTeam: false, tabAccess: null },
@@ -13081,7 +13243,7 @@ const ROLE_META = {
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["dashboard", "rutina", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "chat", "timer", "guia"];
+const TABS_COACH_IDS = ["dashboard", "rutina", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "chat", "timer", "guia", "cmas"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -13317,11 +13479,11 @@ const TABS = {
     { id: "atletas", label: "Atletas", Icon: Users, sections: ["actividad", "rankings", "cobros", "leads"] },
     { id: "rutina", label: "Rutinas", Icon: ClipboardList, sections: ["rutina", "borradores", "nutricion", "ia"] },
     { id: "indicaciones", label: "Mensajes", Icon: MessageSquare, sections: ["chat", "indicaciones"] },
-    { id: "agenda", label: "Agenda", Icon: Calendar, sections: ["agenda"] },
+    { id: "cmas", label: "Más", Icon: MoreHorizontal, sections: ["cmas"] },
   ],
 };
 const SECTION_LABELS = {
-  chat: "Chat", indicaciones: "Indicaciones",
+  chat: "Chat", indicaciones: "Indicaciones", cmas: "Más",
   actividad: "Actividad", rankings: "Rankings", cobros: "Cobros", leads: "Leads",
   rutina: "Rutina", borradores: "Borradores", nutricion: "Nutrición", ia: "IA",
 };
@@ -13334,8 +13496,8 @@ const UTILITY_SCREENS = {
 
 // Easy Mode deja solo lo imprescindible en la barra inferior. Todo lo
 // demás sigue existiendo: vuelve al toque con el switch de Interfaz.
-const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "mas"] };
-const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
+const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "cmas"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "mas"] };
+const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", cmas: "Más", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
 
 /* ============================================================
    S2 · Competition Prep (handoff): cuenta atrás a la fecha de
@@ -13505,7 +13667,508 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
 // A8 del handoff: grilla de 3 columnas, ficha = icono + nombre (sin
 // frase descriptiva). `kw` es texto SOLO para el buscador — nunca se
 // pinta, es lo único que sobrevive del antiguo `hint`.
-const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas }) => {
+/* ============================================================
+   Analítica de control (laboratorio)
+   ------------------------------------------------------------
+   El prototipo trae los valores escritos a mano con su "· alto"
+   pegado al texto. Acá no: cada marcador declara su unidad y su
+   rango de referencia, y "alto"/"bajo" se calcula. Así el mismo
+   catálogo sirve para pintar la analítica, para contar cuántos
+   marcadores están fuera de rango y para la evolución de uno solo
+   a lo largo de los controles, sin repetir el dato en tres sitios.
+
+   Los rangos son los de laboratorio de adulto: orientativos, y así
+   se dice en pantalla. Quien interpreta es el médico — la app
+   registra y ordena, no diagnostica ni sugiere conductas.
+   ============================================================ */
+// [clave, nombre, unidad, mínimo, máximo]. Sin mínimo/máximo = marcador
+// cualitativo (se guarda el texto tal cual, sin marcar rango).
+const LAB_PANELS = [
+  { label: "Hemograma y fórmula", markers: [
+    ["leucocitos", "Leucocitos", "×10³/µL", 4, 11],
+    ["neutrofilos", "Neutrófilos", "%", 40, 75],
+    ["linfocitos", "Linfocitos", "%", 20, 45],
+    ["monocitos", "Monocitos", "%", 2, 10],
+    ["eosinofilos", "Eosinófilos", "%", 0, 6],
+    ["basofilos", "Basófilos", "%", 0, 2],
+    ["hematies", "Hematíes", "×10⁶/µL", 4.5, 5.5],
+    ["hemoglobina", "Hemoglobina", "g/dL", 13.5, 17],
+    ["hematocrito", "Hematocrito", "%", 40, 50],
+    ["vcm", "VCM", "fL", 80, 100],
+    ["hcm", "HCM", "pg", 27, 33],
+    ["plaquetas", "Plaquetas", "×10³/µL", 150, 400],
+  ]},
+  { label: "Coagulación básica", markers: [
+    ["tp", "Tiempo de protrombina", "s", 10, 13],
+    ["inr", "INR", "", 0.8, 1.2],
+    ["ttpa", "TTPA", "s", 25, 35],
+    ["fibrinogeno", "Fibrinógeno", "mg/dL", 200, 400],
+  ]},
+  { label: "Función renal y metabólica", markers: [
+    ["glucosa", "Glucosa", "mg/dL", 70, 100],
+    ["urea", "Urea", "mg/dL", 15, 45],
+    ["creatinina", "Creatinina", "mg/dL", 0.7, 1.2],
+    ["fg", "Filtrado glomerular", "mL/min", 90, null],
+    ["acidourico", "Ácido úrico", "mg/dL", 3.5, 7.2],
+    ["homocisteina", "Homocisteína", "µmol/L", 5, 15],
+    ["cistatinac", "Cistatina C", "mg/L", 0.6, 1.1],
+  ]},
+  { label: "Iones y minerales", markers: [
+    ["sodio", "Sodio (Na)", "mmol/L", 135, 145],
+    ["potasio", "Potasio (K)", "mmol/L", 3.5, 5.1],
+    ["calcio", "Calcio (Ca)", "mg/dL", 8.6, 10.2],
+    ["fosforo", "Fósforo (P)", "mg/dL", 2.5, 4.5],
+    ["magnesio", "Magnesio (Mg)", "mg/dL", 1.7, 2.4],
+  ]},
+  { label: "Proteínas y lipoproteínas", markers: [
+    ["proteinograma", "Proteinograma", "", null, null],
+    ["apoa", "APO-A", "mg/dL", 110, 180],
+    ["apob", "APO-B", "mg/dL", null, 100],
+    ["lpa", "Lp(a)", "mg/dL", null, 50],
+  ]},
+  { label: "Perfil lipídico", markers: [
+    ["colesterol", "Colesterol total", "mg/dL", null, 200],
+    ["ldl", "LDL", "mg/dL", null, 130],
+    ["hdl", "HDL", "mg/dL", 40, null],
+    ["trigliceridos", "Triglicéridos", "mg/dL", null, 150],
+  ]},
+  { label: "Perfil hepático", markers: [
+    ["got", "GOT / AST", "U/L", null, 40],
+    ["gpt", "GPT / ALT", "U/L", null, 41],
+    ["ggt", "GGT", "U/L", null, 60],
+    ["fosfatasa", "Fosfatasa alcalina", "U/L", 40, 130],
+    ["bilirrubinat", "Bilirrubina total", "mg/dL", null, 1.2],
+    ["bilirrubinad", "Bilirrubina directa", "mg/dL", null, 0.3],
+    ["ldh", "LDH", "U/L", 120, 250],
+  ]},
+  { label: "Inflamación y músculo", markers: [
+    ["pcr", "PCR", "mg/L", null, 5],
+    ["cpk", "CPK", "U/L", null, 200],
+    ["cpkmb", "CPK-mb", "ng/mL", null, 5],
+  ]},
+  { label: "Metabolismo del hierro", markers: [
+    ["hierro", "Hierro (Fe)", "µg/dL", 65, 175],
+    ["ferritina", "Ferritina", "ng/mL", 30, 400],
+    ["ist", "IST", "%", 20, 50],
+  ]},
+  { label: "Perfil hormonal", markers: [
+    ["hba1c", "Hb1Ac", "%", null, 5.7],
+    ["cortisol", "Cortisol", "µg/dL", 6, 23],
+    ["prolactina", "Prolactina", "ng/mL", 4, 15],
+    ["testototal", "Testosterona total", "ng/dL", 300, 1000],
+    ["testolibre", "Testosterona libre", "pg/mL", 9, 30],
+    ["estradiol", "Estradiol", "pg/mL", 10, 40],
+    ["psa", "PSA", "ng/mL", null, 4],
+    ["psalibre", "PSA libre", "ng/mL", null, null],
+    ["tsh", "TSH", "mUI/L", 0.4, 4],
+    ["t3", "T3", "pg/mL", 2.3, 4.2],
+    ["t4", "T4", "ng/dL", 0.8, 1.8],
+    ["gh", "GH", "ng/mL", null, 3],
+    ["igf1", "IGF-1", "ng/mL", 80, 230],
+  ]},
+  { label: "Vitaminas", markers: [
+    ["b12", "Vitamina B12", "pg/mL", 200, 900],
+    ["vitd", "Vitamina D", "ng/mL", 30, 100],
+    ["folico", "Ácido fólico", "ng/mL", 3, 17],
+  ]},
+  { label: "Marcadores cardíacos", markers: [
+    ["troponinat", "Troponina T", "ng/mL", null, 0.01],
+    ["troponinai", "Troponina I", "ng/mL", null, 0.04],
+    ["probnp", "Pro-BNP", "pg/mL", null, 125],
+  ]},
+  { label: "Orina", markers: [
+    ["sedimento", "Sedimento", "", null, null],
+    ["bioquimicao", "Bioquímica", "", null, null],
+    ["microalbuminuria", "Microalbuminuria", "mg/g", null, 30],
+  ]},
+];
+
+// Catálogo aplanado por clave, para no recorrer los 13 paneles cada vez
+// que hay que resolver el nombre o la unidad de un marcador.
+const LAB_BY_KEY = LAB_PANELS.reduce((acc, panel) => {
+  panel.markers.forEach(([key, label, unit, min, max]) => { acc[key] = { key, label, unit, min, max, panel: panel.label }; });
+  return acc;
+}, {});
+
+// "alto" / "bajo" / null. Un marcador sin rango (cualitativo) nunca se
+// marca: no hay nada contra qué compararlo.
+const labFlag = (marker, raw) => {
+  if (!marker || raw == null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : parseFloat(String(raw).replace(",", "."));
+  if (!isFinite(n)) return null;
+  if (marker.min != null && n < marker.min) return "bajo";
+  if (marker.max != null && n > marker.max) return "alto";
+  return null;
+};
+
+// Todos los marcadores fuera de rango de una analítica, en el orden del
+// catálogo. Es la lista de "Requiere atención" y también de dónde sale
+// el conteo de la cabecera.
+const labFlagged = (lab) => {
+  const out = [];
+  if (!lab) return out;
+  LAB_PANELS.forEach((panel) => panel.markers.forEach(([key]) => {
+    const m = LAB_BY_KEY[key], v = (lab.values || {})[key];
+    const flag = labFlag(m, v);
+    if (flag) out.push({ ...m, value: v, flag });
+  }));
+  return out;
+};
+
+const labValueText = (m, v) => {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+  const shown = isFinite(n) ? String(n).replace(".", ",") : String(v);
+  return m.unit ? `${shown} ${m.unit}` : shown;
+};
+
+// Evolución de UN marcador a lo largo de todos los controles cargados.
+const LabMarkerSheet = ({ open, onClose, marker, labs }) => {
+  if (!marker) return null;
+  const series = (labs || [])
+    .map((l) => ({ date: l.date, v: parseFloat(String((l.values || {})[marker.key]).replace(",", ".")) }))
+    .filter((x) => isFinite(x.v));
+  return (
+    <Sheet open={open} onClose={onClose} title={marker.label}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Card style={{ padding: "15px 15px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 13, color: P.faint2 }}>
+            {marker.min != null && marker.max != null ? `Referencia ${String(marker.min).replace(".", ",")}–${String(marker.max).replace(".", ",")}`
+              : marker.max != null ? `Referencia hasta ${String(marker.max).replace(".", ",")}`
+              : marker.min != null ? `Referencia desde ${String(marker.min).replace(".", ",")}`
+              : "Sin rango de referencia"}
+            {marker.unit ? ` ${marker.unit}` : ""}
+          </span>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>
+              {series.length ? String(series[series.length - 1].v).replace(".", ",") : "—"}
+            </span>
+            {marker.unit && <span style={{ fontSize: 15, color: P.faint2 }}>{marker.unit}</span>}
+          </div>
+          {series.length >= 2
+            ? <MiniLineChart points={series.map((x) => ({ v: x.v }))} height={96} />
+            : <div style={{ fontSize: 13.5, color: P.faint2, padding: "12px 0 10px" }}>Con dos controles aparece la curva.</div>}
+        </Card>
+        <RowGroup label="Controles" rows={[...series].reverse().map((x) => {
+          const flag = labFlag(marker, x.v);
+          return { label: fmtDateFull(x.date), value: `${String(x.v).replace(".", ",")}${marker.unit ? ` ${marker.unit}` : ""}${flag ? ` · ${flag}` : ""}`, tone: flag ? P.red : undefined };
+        })} />
+      </div>
+    </Sheet>
+  );
+};
+
+// Alta de una analítica: los 13 paneles con un campo por marcador. No
+// hay campos obligatorios — se carga lo que traiga el informe y el resto
+// queda vacío (no se guarda, así no cuenta como "medido").
+const LabFormSheet = ({ open, onClose, onSave }) => {
+  const [vals, setVals] = useState({});
+  const [date, setDate] = useState(todayISO().slice(0, 10));
+  const [doctor, setDoctor] = useState("");
+  useEffect(() => { if (open) { setVals({}); setDate(todayISO().slice(0, 10)); setDoctor(""); } }, [open]);
+  const filled = Object.keys(vals).filter((k) => vals[k] !== "").length;
+  const save = () => {
+    const values = {};
+    Object.keys(vals).forEach((k) => { if (vals[k] !== "" && vals[k] != null) values[k] = vals[k]; });
+    if (!Object.keys(values).length) return;
+    onSave({ id: uid(), date: new Date(date).toISOString(), requestedBy: doctor.trim(), values });
+  };
+  return (
+    <Sheet open={open} onClose={onClose} title="Nueva analítica" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Fecha de la extracción"
+            style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
+          <input value={doctor} onChange={(e) => setDoctor(e.target.value)} placeholder="Solicitada por"
+            style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
+        </div>
+        {LAB_PANELS.map((panel) => (
+          <div key={panel.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{panel.label}</div>
+            <Card style={{ overflow: "hidden" }}>
+              {panel.markers.map(([key, label, unit], i) => (
+                <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px",
+                  borderBottom: i < panel.markers.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 15, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+                  <input value={vals[key] || ""} onChange={(e) => setVals((o) => ({ ...o, [key]: e.target.value }))}
+                    inputMode="decimal" aria-label={label} placeholder="—"
+                    style={{ width: 86, padding: "7px 9px", borderRadius: 9, background: P.s3, border: `1px solid ${P.separatorStrong}`,
+                      color: P.text, fontSize: 14.5, textAlign: "right" }} />
+                  {unit && <span style={{ fontSize: 12.5, color: P.faint2, width: 56, flexShrink: 0 }}>{unit}</span>}
+                </div>
+              ))}
+            </Card>
+          </div>
+        ))}
+        <Btn kind="ember" onClick={save} disabled={!filled} style={{ width: "100%" }}>
+          {filled ? `Guardar ${filled} marcador${filled !== 1 ? "es" : ""}` : "Guardar analítica"}
+        </Btn>
+      </div>
+    </Sheet>
+  );
+};
+
+const LabsSheet = ({ open, onClose, history, saveHistory, athlete }) => {
+  const [formOpen, setFormOpen] = useState(false);
+  const [marker, setMarker] = useState(null);
+  const labs = (history && history.labs) || [];
+  const last = labs.length ? labs[labs.length - 1] : null;
+  const prev = labs.length > 1 ? labs[labs.length - 2] : null;
+  const flagged = labFlagged(last);
+  const measured = last ? Object.keys(last.values || {}).filter((k) => LAB_BY_KEY[k] && last.values[k] !== "").length : 0;
+  const saveLab = (lab) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.labs = [...(h.labs || []), lab].sort((a, b) => new Date(a.date) - new Date(b.date));
+    saveHistory(h);
+    setFormOpen(false);
+  };
+  return (
+    <>
+      <Sheet open={open} onClose={onClose} title="Analítica de control" tall>
+        {!last ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Empty icon={Ruler} title="Sin analíticas cargadas" body="Carga el informe de laboratorio y FORJA marca solo qué quedó fuera de rango y cómo evoluciona cada marcador entre controles." />
+            <Btn kind="ember" onClick={() => setFormOpen(true)} style={{ width: "100%" }}>Cargar analítica</Btn>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <RowGroup label={`Extracción del ${fmtDateFull(last.date)}`} rows={[
+              { label: "Marcadores medidos", value: String(measured), tone: P.text },
+              { label: "Fuera de rango", value: String(flagged.length), tone: flagged.length ? P.red : P.text },
+              prev && { label: "Control anterior", value: daysAgoLabel(prev.date) },
+              last.requestedBy ? { label: "Solicitada por", value: last.requestedBy } : null,
+            ]} />
+
+            {flagged.length > 0 && (
+              <RowGroup label="Requiere atención" rows={flagged.map((m) => ({
+                label: m.label, value: `${labValueText(m, m.value)} · ${m.flag}`, tone: P.red,
+                onClick: () => setMarker(m),
+              }))} />
+            )}
+
+            {LAB_PANELS.map((panel) => {
+              const rows = panel.markers
+                .filter(([key]) => (last.values || {})[key] !== undefined && (last.values || {})[key] !== "")
+                .map(([key]) => {
+                  const m = LAB_BY_KEY[key], v = last.values[key], flag = labFlag(m, v);
+                  return { label: m.label, value: `${labValueText(m, v)}${flag ? ` · ${flag}` : ""}`,
+                    tone: flag ? P.red : P.text, onClick: () => setMarker(m) };
+                });
+              return rows.length ? <RowGroup key={panel.label} label={panel.label} rows={rows} /> : null;
+            })}
+
+            <RowGroup label="Seguimiento" rows={[
+              { label: "Subir nueva analítica", onClick: () => setFormOpen(true) },
+              { label: "Controles cargados", value: String(labs.length) },
+              (athlete || {}).doctor ? { label: "Médico tratante", value: athlete.doctor } : null,
+            ]} />
+
+            <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5, padding: "0 4px" }}>
+              Los rangos son de laboratorio de adulto y sirven para ordenar el informe.
+              Quien interpreta los resultados y decide qué hacer es tu médico.
+            </div>
+          </div>
+        )}
+      </Sheet>
+      <LabFormSheet open={formOpen} onClose={() => setFormOpen(false)} onSave={saveLab} />
+      <LabMarkerSheet open={!!marker} onClose={() => setMarker(null)} marker={marker} labs={labs} />
+    </>
+  );
+};
+
+/* ============================================================
+   Suplementación
+   ------------------------------------------------------------
+   El coach carga la lista en el editor de nutrición
+   (plan.nutrition.supplements) y el alumno marca acá lo que va
+   tomando. Cada ítem puede llevar dosis y momento ("5 g", "pre
+   entreno"); los que ya existían sin esos campos siguen andando y
+   caen en el bloque "Diario".
+
+   El "protocolo médico" del prototipo no se registra acá a
+   propósito: FORJA no lleva sustancias ni dosis médicas. Lo que sí
+   lleva es el seguimiento — quién es el médico tratante y cuándo
+   fue y toca el próximo control de laboratorio — y enlaza a la
+   analítica, que es donde ese seguimiento vive de verdad.
+   ============================================================ */
+const SUPP_GROUPS = [["diario", "Diario"], ["entreno", "Entreno"]];
+
+const SupplementsSheet = ({ open, onClose, plan, history, saveHistory, onOpenLabs }) => {
+  const supplements = ((plan.nutrition || {}).supplements) || [];
+  const todayKey = todayISO().slice(0, 10);
+  const checks = (history && history.supplementChecks) || {};
+  const today = checks[todayKey] || {};
+  const toggle = (id) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.supplementChecks = h.supplementChecks || {};
+    h.supplementChecks[todayKey] = { ...(h.supplementChecks[todayKey] || {}) };
+    if (h.supplementChecks[todayKey][id]) delete h.supplementChecks[todayKey][id];
+    else h.supplementChecks[todayKey][id] = true;
+    saveHistory(h);
+  };
+
+  // Adherencia de los últimos 30 días: tomas registradas sobre tomas
+  // posibles. No se cuenta como fallado lo anterior a la primera marca,
+  // así que empezar a usarlo no arranca en 0 % para siempre.
+  const adherencia = (() => {
+    if (!supplements.length) return null;
+    const days = Object.keys(checks).sort();
+    if (!days.length) return null;
+    const from = new Date(days[0]).getTime();
+    let posibles = 0, hechas = 0;
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(Date.now() - i * 86400000);
+      if (d.getTime() < from) break;
+      const key = d.toISOString().slice(0, 10);
+      posibles += supplements.length;
+      hechas += Object.keys(checks[key] || {}).length;
+    }
+    return posibles ? Math.round((hechas / posibles) * 100) : null;
+  })();
+
+  const labs = (history && history.labs) || [];
+  const lastLab = labs.length ? labs[labs.length - 1] : null;
+  const doctor = (plan.athlete || {}).doctor || "";
+  const tomadas = supplements.filter((s) => today[s.id]).length;
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Suplementación" tall>
+      {supplements.length === 0 ? (
+        <Empty icon={Droplet} title="Sin suplementos cargados" body="Cuando tu coach cargue la lista vas a poder ir marcando acá lo que tomas cada día." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <Card style={{ padding: "15px 15px 13px", display: "flex", flexDirection: "column", gap: 2 }}>
+            <span style={{ fontSize: 13, color: P.faint2 }}>Hoy</span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{tomadas} de {supplements.length}</span>
+              <span style={{ flex: 1 }} />
+              {adherencia != null && <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2 }}>{adherencia} % este mes</span>}
+            </div>
+          </Card>
+
+          {SUPP_GROUPS.map(([id, label]) => {
+            const list = supplements.filter((s) => (s.group || "diario") === id);
+            if (!list.length) return null;
+            return (
+              <div key={id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{label}</div>
+                <Card style={{ overflow: "hidden" }}>
+                  {list.map((s, i) => {
+                    const done = !!today[s.id];
+                    const detail = [s.dose, s.when].filter(Boolean).join(" · ");
+                    return (
+                      <button key={s.id} onClick={() => toggle(s.id)}
+                        aria-label={`${s.name}: ${done ? "tomada" : "pendiente"}`}
+                        style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+                          padding: "13px 16px", borderBottom: i < list.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                        <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                          background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
+                          {done && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+                          <span style={{ fontSize: 16, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</span>
+                          {detail && <span style={{ fontSize: 12.5, color: P.faint2 }}>{detail}</span>}
+                        </span>
+                        <span style={{ fontSize: 15, color: P.faint2, flexShrink: 0 }}>{done ? "tomada" : "pendiente"}</span>
+                      </button>
+                    );
+                  })}
+                </Card>
+              </div>
+            );
+          })}
+
+          <RowGroup label="Seguimiento médico" rows={[
+            { label: "Analítica de control", value: lastLab ? daysAgoLabel(lastLab.date) : "sin cargar", onClick: onOpenLabs },
+            doctor ? { label: "Médico tratante", value: doctor } : null,
+          ]} />
+
+          <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5, padding: "0 4px" }}>
+            FORJA registra la adherencia a lo que cargó tu coach. No indica
+            sustancias, dosis ni protocolos médicos: eso lo lleva tu médico.
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+};
+
+
+// "Más" del coach. La barra tenía Agenda como quinta pestaña y todo lo
+// demás (equipo, borradores, temporizador, guía, ajustes) repartido entre
+// segmentos de otras pestañas y la hoja del botón de la cabecera — había
+// que saber dónde estaba cada cosa. Ahora hay una pantalla que las junta,
+// igual que "Más" del alumno, y la Agenda entra por acá.
+//
+// `access` es el mapa de permisos del rol (coachTabsForRole): una ficha
+// cuyo destino el rol no puede ni ver, no se dibuja. No se “desactiva”
+// con un candado: si no hay acceso, no existe.
+const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpenTeam, onOpenSettings, onSwitchMode, onOpenCompPrep, onOpenAtlas }) => {
+  const [q, setQ] = useState("");
+  const can = (k) => !!access[k];
+  const groups = [
+    { label: "Agenda y equipo", rows: [
+      can("agenda") && { key: "agenda", Icon: Calendar, label: "Agenda", kw: "turnos disponibilidad calendario", onClick: () => onOpenUtility("agenda") },
+      canManageTeam && { key: "equipo", Icon: Award, label: "Equipo y roles", kw: "coaches permisos nutricionista", onClick: onOpenTeam },
+      can("cobros") && { key: "cobros", Icon: DollarSign, label: "Cobros", kw: "cuotas pagos vencidas", onClick: () => onGoSection("atletas", "cobros") },
+    ] },
+    { label: "Atletas", rows: [
+      can("rankings") && { key: "rankings", Icon: Trophy, label: "Rankings", kw: "tonelaje adherencia tabla", onClick: () => onGoSection("atletas", "rankings") },
+      can("leads") && { key: "leads", Icon: UserPlus, label: "Leads", kw: "prospectos altas nuevos", onClick: () => onGoSection("atletas", "leads") },
+      can("indicaciones") && { key: "indic", Icon: FileText, label: "Indicaciones", kw: "instrucciones generales plan", onClick: () => onGoSection("indicaciones", "indicaciones") },
+    ] },
+    { label: "Herramientas", rows: [
+      can("ia") && { key: "ia", Icon: Sparkles, label: "Coach IA", kw: "asistente progresión volumen", onClick: () => onGoSection("rutina", "ia") },
+      { key: "atlas", Icon: BarChart3, label: "Atlas", kw: "ejercicios buscar biblioteca", onClick: onOpenAtlas },
+      { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva", onClick: () => onOpenUtility("timer") },
+      { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "etiquetas top drop rir", onClick: () => onOpenUtility("guia") },
+      can("borradores") && { key: "borradores", Icon: ClipboardList, label: "Borradores", kw: "plantillas rutinas guardadas", onClick: () => onGoSection("rutina", "borradores") },
+      { key: "prep", Icon: Medal, label: "Competition Prep", kw: "fase categoría peak week", onClick: onOpenCompPrep },
+    ] },
+    { label: "Cuenta", rows: [
+      { key: "config", Icon: Sun, label: "Configuración", kw: "tema apariencia unidades", onClick: onOpenSettings },
+      { key: "cambiar", Icon: Users, label: "Cambiar a Atleta", kw: "modo alumno", onClick: () => onSwitchMode("alumno") },
+    ] },
+  ].map((g) => ({ ...g, rows: g.rows.filter(Boolean) })).filter((g) => g.rows.length > 0);
+
+  const query = q.trim().toLowerCase();
+  const filtered = query
+    ? groups.map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.kw.includes(query)) })).filter((g) => g.rows.length > 0)
+    : groups;
+
+  return (
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
+      <ScreenTitle title="Más" />
+      <div style={{ position: "relative" }}>
+        <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar en FORJA"
+          aria-label="Buscar en FORJA" style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15,
+            background: P.s4, borderRadius: R_TILE, border: "none" }} />
+        {q && (
+          <button onClick={() => setQ("")} aria-label="Borrar búsqueda"
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: P.faint2, padding: 4 }}>
+            <X size={15} />
+          </button>
+        )}
+      </div>
+      {filtered.length === 0 && (
+        <div style={{ textAlign: "center", color: P.faint2, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
+      )}
+      {filtered.map((g) => (
+        <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
+            {g.rows.map((r) => <Tile key={r.key} Icon={r.Icon} label={r.label} onClick={r.onClick} />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos }) => {
   const [q, setQ] = useState("");
   const unread = useUnreadChatCount(sid, "alumno");
   const groups = [
@@ -13516,6 +14179,9 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
       { key: "checkin", Icon: Camera, label: "Check-in", kw: "peso recuperación fotos video", onClick: onOpenCheckin },
       { key: "posing", Icon: PersonStanding, label: "Posing", kw: "categoría poses", onClick: onOpenPosing },
       { key: "prep", Icon: Trophy, label: "Competition Prep", kw: "fase categoría peak week", onClick: onOpenCompPrep },
+      { key: "fotos", Icon: Camera, label: "Comparar fotos", kw: "progreso antes después", onClick: onOpenPhotos },
+      { key: "supp", Icon: Droplet, label: "Suplementación", kw: "creatina proteína adherencia tomas", onClick: onOpenSupplements },
+      { key: "labs", Icon: Ruler, label: "Analítica", kw: "laboratorio sangre marcadores control médico", onClick: onOpenLabs },
     ] },
     { label: "Herramientas", rows: [
       { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva cronómetro", onClick: () => onOpenUtility("timer") },
@@ -14070,6 +14736,11 @@ function clampFabPos(p) {
 // iOS — que con un toque lo trae de vuelta al instante. El ajuste de
 // "Más" sigue existiendo como forma alternativa, no se saca nada.
 const AI_FAB_HOLD_MS = 550;
+// El botón vive en z-index 55: por ENCIMA de la barra de pestañas (50),
+// para que siga alcanzable mientras se navega, y por DEBAJO de las hojas
+// (60). Antes estaba en 95 y quedaba flotando sobre cualquier hoja
+// abierta, tapando la última fila —se vio tapando "Médico tratante" en
+// Suplementación y la quinta ficha de accesos en la sesión.
 const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatSignal, toast }) => {
   const [visible, setVisible] = useAiFabVisible();
   const [pos, setPos] = useState(() => clampFabPos(loadFabPos() || { right: 16, bottom: 110 }));
@@ -14147,7 +14818,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
           aria-label="Asistente de IA — mantén pulsado para ocultarlo, arrastra para moverlo, toca para abrirlo"
           title="Asistente de IA"
           style={{ position: "fixed", right: pos.right, bottom: pos.bottom, width: AI_FAB_SIZE, height: AI_FAB_SIZE, borderRadius: AI_FAB_SIZE / 2,
-            zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 55, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
             boxShadow: dragging ? DRAG_LIFT_SHADOW : "0 6px 20px -12px rgba(0,0,0,.25)",
             transform: dragging ? "scale(1.06)" : "scale(1)",
             transition: dragging ? "none" : "transform .15s ease, box-shadow .15s ease",
@@ -14157,7 +14828,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
       ) : (
         <button onClick={() => setVisible(true)} aria-label="Mostrar asistente de IA" title="Mostrar asistente de IA"
           style={{ position: "fixed", right: 0, bottom: pos.bottom, width: 18, height: 48, borderRadius: "14px 0 0 14px",
-            zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 55, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
             boxShadow: "0 4px 14px -8px rgba(0,0,0,.3)", opacity: 0.9 }}>
           <Sparkles size={12} strokeWidth={2.4} />
         </button>
@@ -14286,6 +14957,9 @@ const App = () => {
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [compPrepOpen, setCompPrepOpen] = useState(false);
   const [atlasOpen, setAtlasOpen] = useState(false);
+  const [supplementsOpen, setSupplementsOpen] = useState(false);
+  const [labsOpen, setLabsOpen] = useState(false);
+  const [photosOpen, setPhotosOpen] = useState(false);
   // Pantalla de utilidad abierta desde "Más" (temporizador, guía, agenda
   // del alumno). Se muestra por encima de la pestaña actual con una
   // cabecera de "volver", en vez de ocupar un lugar en la barra.
@@ -14665,10 +15339,15 @@ const App = () => {
                 <GlossaryBody showTopButton />
               </div>
             )}
-            {utility === "agenda" && (
+            {utility === "agenda" && (mode === "coach" ? (
+              <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
+                <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings} toast={toast}
+                  availability={availability} onSaveAvailability={saveAvailability} />
+              </ReadOnlyLock>
+            ) : (
               <CalendarTab plan={plan} history={history} onGoTrain={() => { setUtility(null); setTab("entrenar"); }}
                 bookings={bookings.slots} sid={sid} onCancelBooking={(id) => saveBookings(bookings.slots.map((x) => (x.id === id ? { ...x, status: "cancelada" } : x)))} />
-            )}
+            ))}
             {utility === "chat" && <ChatTab sid={sid} role="alumno" />}
           </div>
         )}
@@ -14704,6 +15383,7 @@ const App = () => {
         )}
         {mode === "alumno" && tab === "progreso" && (
           <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
+            onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             jumpSub={progressJumpSub} onJumpConsumed={() => setProgressJumpSub(null)} />
         )}
         {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} history={history} saveHistory={saveHistory} />}
@@ -14713,10 +15393,18 @@ const App = () => {
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             onOpenPosing={() => { setTab("hoy"); setAutoOpenPosing(true); }}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
-            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)} />
+            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)}
+            onOpenSupplements={() => setSupplementsOpen(true)} onOpenLabs={() => setLabsOpen(true)}
+            onOpenPhotos={() => setPhotosOpen(true)} />
         )}
         <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} />
         <ExerciseAtlasSheet open={atlasOpen} onClose={() => setAtlasOpen(false)} library={library} plan={plan} />
+        {/* Suplementación abre la analítica sin cerrarse: el seguimiento
+            médico es justamente el puente entre las dos. */}
+        <SupplementsSheet open={supplementsOpen} onClose={() => setSupplementsOpen(false)} plan={plan} history={history}
+          saveHistory={saveHistory} onOpenLabs={() => setLabsOpen(true)} />
+        <LabsSheet open={labsOpen} onClose={() => setLabsOpen(false)} history={history} saveHistory={saveHistory} athlete={plan.athlete} />
+        <PhotoCompareSheet open={photosOpen} onClose={() => setPhotosOpen(false)} photos={history.bodyPhotos || []} />
         {/* Jerarquía: deshacer/rehacer son acciones corrientes (gris de
             sistema) y "Vaciar" es la destructiva, así que va en contorno,
             no en placa negra. Antes las tres eran placa: la acción más
@@ -14741,12 +15429,6 @@ const App = () => {
             <DraftsPanel toast={toast} onInfo={onInfo} roster={roster} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "agenda" && (
-          <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
-            <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings}
-              availability={availability} onSaveAvailability={saveAvailability} />
-          </ReadOnlyLock>
-        )}
         {mode === "coach" && sub === "nutricion" && (
           <ReadOnlyLock active={roleTabAccess.nutricion === "view"} toast={toast}>
             <NutritionEditor plan={plan} savePlan={savePlan} history={history}
@@ -14768,7 +15450,10 @@ const App = () => {
           <DashboardTabMono roster={roster} toast={toast} coachName={myTeamId ? (team.members.find((m) => m.id === myTeamId) || {}).name : "Tú"}
             onNewRoutine={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "rutina" })); }}
             onAddStudent={() => addStudent(false)}
-            onOpenCobros={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "cobros" })); }} />
+            onOpenCobros={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "cobros" })); }}
+            onOpenAtletas={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "actividad" })); }}
+            onOpenMensajes={() => { setTab("indicaciones"); setSection((o) => ({ ...o, indicaciones: "chat" })); }}
+            onOpenTeam={myRoleMeta.manageTeam ? () => setEquipoOpen(true) : null} teamSize={(team.members || []).length} />
         )}
         {mode === "coach" && sub === "actividad" && <AtletasActividadTab roster={roster} toast={toast} />}
         {mode === "coach" && sub === "rankings" && (
@@ -14787,6 +15472,13 @@ const App = () => {
           </ReadOnlyLock>
         )}
         {mode === "coach" && sub === "chat" && <AtletasMensajesTab roster={roster} toast={toast} />}
+        {mode === "coach" && sub === "cmas" && (
+          <CoachMasTab access={roleTabAccess} canManageTeam={myRoleMeta.manageTeam}
+            onGoSection={(t, sec) => { setTab(t); setSection((o) => ({ ...o, [t]: sec })); }}
+            onOpenUtility={setUtility} onOpenTeam={() => setEquipoOpen(true)}
+            onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
+            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)} />
+        )}
         </div>
       </div>
 
