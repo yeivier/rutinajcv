@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v170";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v171";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5453,7 +5453,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
               </Card>
             ))}
           </div>
-          {summary.prs.length > 0 && (
+          {(summary.prs || []).length > 0 && (
             <div style={{ background: "rgba(255,255,255,.08)", border: `1px solid ${P.dim}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
               <div style={{ fontWeight: 700, color: P.ember2, marginBottom: 6 }}><Award size={15} style={{ verticalAlign: -2, marginRight: 5 }} />Récords personales de peso</div>
               {summary.prs.map((p) => <div key={p} style={{ fontSize: 15, color: P.text, padding: "2px 0" }}>• {p}</div>)}
@@ -6616,7 +6616,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <span style={{ fontWeight: 600, fontSize: 15.5 }}>{d.lastSession.dayName}</span>
           <span style={{ fontSize: 13, color: P.faint }}>
             {fmtDateFull(d.lastSession.date)} · {d.lastSession.durationMin} min · {Math.round(d.lastSession.volume).toLocaleString("es-CL")} kg
-            {d.lastSession.prs.length > 0 && <span style={{ color: P.text, fontWeight: 700 }}> · {d.lastSession.prs.length} PR</span>}
+            {(d.lastSession.prs || []).length > 0 && <span style={{ color: P.text, fontWeight: 700 }}> · {d.lastSession.prs.length} PR</span>}
           </span>
         </Card>
       )}
@@ -7088,39 +7088,260 @@ const daysAgoLabel = (dateStr) => {
   if (days < 14) return `hace ${days} días`;
   return `hace ${Math.round(days / 7)} semanas`;
 };
+
+/* ============================================================
+   Mapa muscular y estadísticas de entrenamiento por grupo
+   ------------------------------------------------------------
+   Todo esto sale del HISTORIAL, no del plan: es lo que de verdad se
+   entrenó, no lo que estaba programado. El plan solo se usa para saber
+   a qué músculo pertenece cada ejercicio (los ejercicios en el
+   historial se guardan por id).
+   ============================================================ */
+const PERIODOS = [
+  { id: "semana", label: "Semana", days: 7 },
+  { id: "mes", label: "Mes", days: 30 },
+  { id: "ano", label: "Año", days: 365 },
+  { id: "todo", label: "Todo", days: null },
+];
+
+// Series efectivas por músculo dentro de un periodo, contando el aporte
+// parcial de los secundarios igual que el resto de la app.
+function muscleWorkFromHistory(plan, history, days) {
+  const cutoff = days ? Date.now() - days * 86400000 : null;
+  // exId → {muscle, secondary, name} tomado del plan; lo que ya no esté
+  // en el plan cae en "Otro" en vez de desaparecer del conteo.
+  const meta = {};
+  (plan.days || []).forEach((d) => (d.exs || []).forEach((e) => {
+    meta[e.id] = { muscle: e.muscle || "Otro", secondary: e.secondary || [], name: e.name };
+  }));
+
+  const perMuscle = {}, sesionesPorMusculo = {}, porEjercicio = {};
+  Object.keys(history.byEx || {}).forEach((exId) => {
+    (history.byEx[exId] || []).forEach((en) => {
+      if (cutoff && new Date(en.date).getTime() < cutoff) return;
+      const efectivas = (en.sets || []).filter((s) => s.done && s.type !== "warmup").length;
+      if (!efectivas) return;
+      const m = (meta[exId] || {}).muscle || "Otro";
+      const nombre = (meta[exId] || {}).name || en.exName || "Ejercicio";
+      perMuscle[m] = (perMuscle[m] || 0) + efectivas;
+      porEjercicio[nombre] = (porEjercicio[nombre] || 0) + efectivas;
+      (sesionesPorMusculo[m] = sesionesPorMusculo[m] || new Set()).add(en.sessionId || en.date);
+      ((meta[exId] || {}).secondary || []).forEach((sec) => {
+        if (!sec || !sec.muscle || sec.muscle === m) return;
+        const frac = (sec.pct != null ? sec.pct : 50) / 100;
+        perMuscle[sec.muscle] = (perMuscle[sec.muscle] || 0) + efectivas * frac;
+        (sesionesPorMusculo[sec.muscle] = sesionesPorMusculo[sec.muscle] || new Set()).add(en.sessionId || en.date);
+      });
+    });
+  });
+
+  const max = Math.max(0, ...Object.values(perMuscle));
+  const musculos = Object.entries(perMuscle)
+    .map(([muscle, sets]) => ({
+      muscle, sets: Math.round(sets * 10) / 10,
+      sesiones: (sesionesPorMusculo[muscle] || new Set()).size,
+      pct: max ? Math.round((sets / max) * 100) : 0,
+    }))
+    .sort((a, b) => b.sets - a.sets);
+  const ejercicios = Object.entries(porEjercicio)
+    .map(([name, sets]) => ({ name, sets }))
+    .sort((a, b) => b.sets - a.sets);
+  return { musculos, ejercicios, max };
+}
+
+/* Silueta de cuerpo, de frente y de espaldas. No es una lámina de
+   anatomía —no hace falta— pero las proporciones y la posición de cada
+   grupo son las correctas, que es lo que tiene que hacer: decir de un
+   vistazo dónde se está entrenando y dónde no.
+   La intensidad es OPACIDAD sobre la tinta del tema, no color: la app es
+   monocroma y un mapa de calor verde/amarillo no pega con nada. */
+// Piezas del cuerpo, en gris de fondo. Se dibujan siempre; encima van
+// las regiones musculares con su intensidad.
+const BODY_BASE = [
+  "M50 4.5 a8.5 8.5 0 0 1 0 17 a8.5 8.5 0 0 1 0 -17",           // cabeza
+  "M45.5 20 h9 v7 h-9 z",                                        // cuello
+  "M38 27 h24 l4 8 l-2 27 l-4 22 h-20 l-4 -22 l-2 -27 z",        // torso
+  "M33.5 30 a7 7 0 0 0 -6.5 7 l1 4 h6 z",                        // hombro izq
+  "M66.5 30 a7 7 0 0 1 6.5 7 l-1 4 h-6 z",                       // hombro der
+  "M27.5 41 h6.5 l-0.5 21 h-6.5 z", "M72.5 41 h-6.5 l0.5 21 h6.5 z",  // brazos
+  "M27 62 h6.5 l-1 22 h-6 z", "M73 62 h-6.5 l1 22 h6 z",         // antebrazos
+  "M26 84 h6 v6 a3 3 0 0 1 -6 0 z", "M74 84 h-6 v6 a3 3 0 0 0 6 0 z", // manos
+  "M40 84 h9.2 l-1.2 39 h-7.6 z", "M60 84 h-9.2 l1.2 39 h7.6 z", // muslos
+  "M40.6 125 h7.2 l-1 33 h-5.6 z", "M59.4 125 h-7.2 l1 33 h5.6 z", // pantorrillas
+  "M40 160 h7 v5 h-9 a2 2 0 0 1 2 -5", "M60 160 h-7 v5 h9 a2 2 0 0 0 -2 -5", // pies
+];
+
+const BODY_SHAPES = {
+  front: {
+    Trapecio:   ["M40 27 h20 l3 6 l-11 3 l-11 -3 z"],
+    Hombro:     ["M33.5 30 a7 7 0 0 0 -6.5 7 l1 4 h6 z", "M66.5 30 a7 7 0 0 1 6.5 7 l-1 4 h-6 z"],
+    Pecho:      ["M39 35 h10.5 v14 l-12 -2 z", "M61 35 h-10.5 v14 l12 -2 z"],
+    Core:       ["M39.5 50 h21 l-2 22 h-17 z"],
+    Bíceps:     ["M27.5 41 h6.5 l-0.5 21 h-6.5 z", "M72.5 41 h-6.5 l0.5 21 h6.5 z"],
+    Antebrazo:  ["M27 62 h6.5 l-1 22 h-6 z", "M73 62 h-6.5 l1 22 h6 z"],
+    Cuádriceps: ["M40 85 h9 l-1 33 h-7 z", "M60 85 h-9 l1 33 h7 z"],
+    Gemelo:     ["M40.6 126 h7 l-0.8 26 h-5.4 z", "M59.4 126 h-7 l0.8 26 h5.4 z"],
+  },
+  back: {
+    Trapecio:   ["M39 27 h22 l4 8 l-4 14 l-11 4 l-11 -4 l-4 -14 z"],
+    Hombro:     ["M33.5 30 a7 7 0 0 0 -6.5 7 l1 4 h6 z", "M66.5 30 a7 7 0 0 1 6.5 7 l-1 4 h-6 z"],
+    Espalda:    ["M37 42 l13 5 l13 -5 l-2 20 l-11 8 l-11 -8 z"],
+    Tríceps:    ["M27.5 41 h6.5 l-0.5 21 h-6.5 z", "M72.5 41 h-6.5 l0.5 21 h6.5 z"],
+    Antebrazo:  ["M27 62 h6.5 l-1 22 h-6 z", "M73 62 h-6.5 l1 22 h6 z"],
+    Glúteo:     ["M39 72 h22 l-1 14 h-20 z"],
+    Femoral:    ["M40 87 h9 l-1 31 h-7 z", "M60 87 h-9 l1 31 h7 z"],
+    Gemelo:     ["M40.6 126 h7 l-0.8 26 h-5.4 z", "M59.4 126 h-7 l0.8 26 h5.4 z"],
+  },
+};
+
+const BodyMap = ({ trabajo, onPick, seleccion }) => {
+  const nivel = (m) => {
+    const row = trabajo.musculos.find((x) => x.muscle === m);
+    return row ? row.pct / 100 : 0;
+  };
+  const cara = (lado) => (
+    <svg viewBox="0 0 100 168" style={{ width: "100%", height: "auto", display: "block" }} aria-hidden="true">
+      {BODY_BASE.map((d, i) => <path key={`b${i}`} d={d} fill={P.s3} />)}
+      {Object.keys(BODY_SHAPES[lado]).map((m) => {
+        const n = nivel(m);
+        const on = seleccion === m;
+        return BODY_SHAPES[lado][m].map((d, i) => (
+          <path key={`${m}-${i}`} d={d} onClick={onPick ? () => onPick(on ? null : m) : undefined}
+            style={{ cursor: onPick ? "pointer" : "default", transition: `fill-opacity ${DUR_ROW}ms ${EASE_STD}` }}
+            fill={P.text} fillOpacity={n === 0 ? 0 : 0.25 + n * 0.75}
+            stroke={on ? P.text : "none"} strokeWidth={on ? 1.4 : 0} />
+        ));
+      })}
+    </svg>
+  );
+  return (
+    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+      <div style={{ flex: 1, maxWidth: 112 }}>{cara("front")}</div>
+      <div style={{ flex: 1, maxWidth: 112 }}>{cara("back")}</div>
+    </div>
+  );
+};
+
 // Volumen para el ALUMNO. `VolumePanel` (el del coach) sigue igual: ahí
 // el coach necesita el desglose por sesión, el comparador natural/asistido
-// y la nota de dónde salen los landmarks. Al alumno le sirve una sola
-// cosa — cuántas series le tocan por grupo y si está corto o pasado —
-// así que acá van las barras y nada más; la explicación queda plegada.
-const AthleteVolumePanel = ({ plan }) => {
+// y la nota de dónde salen los landmarks. Al alumno le sirve otra cosa —
+// qué entrenó de verdad y qué está dejando de lado — así que acá manda el
+// mapa muscular, sacado del historial, no del plan.
+const AthleteVolumePanel = ({ plan, history }) => {
+  const [periodo, setPeriodo] = useState("semana");
+  const [pane, setPane] = useState(null);
+  const [sel, setSel] = useState(null);
+  const def = PERIODOS.find((x) => x.id === periodo) || PERIODOS[0];
+  const trabajo = useMemo(() => muscleWorkFromHistory(plan, history, def.days), [plan, history, def.days]);
+
+  // El plan sigue mandando en la parte de "cuánto DEBERÍAS": MEV/MAV/MRV
+  // son referencias sobre el volumen programado, no sobre lo ya hecho.
   const enhanced = (plan.athlete || {}).enhanced === "asistido";
   const refTable = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
   const vol = useMemo(() => volumeByMuscle(plan, refTable), [plan, refTable]);
-  if (!vol.rows.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Cuando tu coach cargue la rutina vas a ver acá el volumen por grupo muscular." />;
-  const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
+  const maxRef = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
   const fuera = vol.rows.filter((r) => r.status && r.status !== "en rango").length;
+
+  const chips = (
+    <div style={{ display: "flex", gap: 6 }}>
+      {PERIODOS.map((x) => {
+        const on = x.id === periodo;
+        return (
+          <button key={x.id} onClick={() => setPeriodo(x.id)}
+            style={{ flex: 1, padding: "8px 0", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
+              background: on ? P.text : P.s3, color: on ? PLATE_FG : P.faint,
+              transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>{x.label}</button>
+        );
+      })}
+    </div>
+  );
+
+  if (pane) {
+    const titulo = pane === "ejercicios" ? "Ejercicios más usados" : pane === "musculos" ? "Todos los grupos" : "Volumen programado";
+    return (
+      <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <button onClick={() => setPane(null)}
+          style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 15, fontWeight: 600, color: P.text, alignSelf: "flex-start" }}>
+          <ChevronLeft size={17} strokeWidth={2.6} /> {titulo === "Volumen programado" ? "Músculos" : "Músculos"}
+        </button>
+        {pane === "musculos" && (
+          <RowGroup rows={trabajo.musculos.map((m) => ({
+            label: m.muscle,
+            value: `${fmtSets(m.sets)} series · ${m.sesiones} ${m.sesiones === 1 ? "sesión" : "sesiones"} · ${m.pct} %`,
+          }))} />
+        )}
+        {pane === "ejercicios" && (
+          trabajo.ejercicios.length === 0
+            ? <Empty icon={Dumbbell} title="Sin sesiones en este periodo" body="Cuando registres entrenamientos vas a ver acá cuáles son los ejercicios que más haces." />
+            : (
+              <Card style={{ overflow: "hidden" }}>
+                {trabajo.ejercicios.slice(0, 12).map((e, i) => {
+                  const top = trabajo.ejercicios[0].sets || 1;
+                  return (
+                    <div key={e.name} style={{ padding: "11px 16px", borderBottom: i < Math.min(12, trabajo.ejercicios.length) - 1 ? `1px solid ${P.line}` : "none" }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 15, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2, flexShrink: 0 }}>{fmtSets(e.sets)}</span>
+                      </div>
+                      <div style={{ height: 8, borderRadius: 4, background: P.s3, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${Math.max(4, (e.sets / top) * 100)}%`, background: P.text, borderRadius: 4 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </Card>
+            )
+        )}
+        {pane === "programado" && (
+          vol.rows.length === 0
+            ? <Empty icon={Dumbbell} title="Sin rutina cargada" body="Cuando tu coach cargue la rutina vas a ver acá cuántas series te tocan por grupo." />
+            : (
+              <>
+                <div style={{ fontSize: 13.5, color: P.faint2, lineHeight: 1.5 }}>
+                  Lo que tu rutina tiene programado por semana, contra los rangos de referencia.
+                </div>
+                {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={maxRef} compact />)}
+                <Collapsible title="Qué es MEV, MAV y MRV" summary="">
+                  <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>
+                    MEV es el mínimo que hace efecto, MAV la zona donde se progresa mejor y MRV el techo
+                    que se alcanza a recuperar. Son rangos orientativos
+                    {enhanced ? " para atletas asistidos" : " según los landmarks de Renaissance Periodization"}:
+                    el punto exacto lo ajusta tu coach según cómo respondas.
+                  </div>
+                </Collapsible>
+              </>
+            )
+        )}
+      </div>
+    );
+  }
+
+  const selRow = sel ? trabajo.musculos.find((x) => x.muscle === sel) : null;
+
   return (
-    <>
-      <Card style={{ padding: "15px 15px 13px", display: "flex", flexDirection: "column", gap: 2 }}>
-        <span style={{ fontSize: 13, color: P.faint2 }}>{vol.basis === "semana" ? "Series efectivas por semana" : "Series efectivas por vuelta"}</span>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{fmtSets(vol.total)}</span>
-          <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 14, fontWeight: 600, color: fuera ? P.red : P.faint2 }}>
-            {fuera ? `${fuera} fuera de rango` : "todo en rango"}
-          </span>
+    <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {chips}
+      <Card style={{ padding: "10px 12px 4px" }}>
+        <BodyMap trabajo={trabajo} onPick={setSel} seleccion={sel} />
+        <div style={{ textAlign: "center", fontSize: 12.5, color: P.faint2, padding: "2px 0 8px", minHeight: 18 }}>
+          {selRow
+            ? `${selRow.muscle} · ${fmtSets(selRow.sets)} series · ${selRow.sesiones} ${selRow.sesiones === 1 ? "sesión" : "sesiones"}`
+            : trabajo.musculos.length ? "Toca un músculo para ver su detalle" : "Sin entrenamientos en este periodo"}
         </div>
       </Card>
-      {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} compact />)}
-      <Collapsible title="Qué es MEV, MAV y MRV" summary="">
-        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>
-          MEV es el mínimo que hace efecto, MAV la zona donde se progresa mejor y
-          MRV el techo que se alcanza a recuperar. Son rangos orientativos
-          {enhanced ? " para atletas asistidos (heurística de campo: con soporte anabólico el techo recuperable sube)" : " según los landmarks de Renaissance Periodization"}: el punto exacto lo ajusta tu coach según cómo respondas.
-        </div>
-      </Collapsible>
-    </>
+
+      <RowGroup label={trabajo.musculos.length ? "Lo que entrenaste" : null} rows={[
+        ...trabajo.musculos.slice(0, 3).map((m) => ({
+          label: m.muscle,
+          value: `${m.sesiones} ${m.sesiones === 1 ? "sesión" : "sesiones"} · ${m.pct} %`,
+          tone: m.muscle === sel ? P.text : undefined,
+          onClick: () => setSel(m.muscle === sel ? null : m.muscle),
+        })),
+        trabajo.musculos.length > 3 && { label: "Ver los demás grupos", value: `${trabajo.musculos.length - 3} más`, onClick: () => setPane("musculos") },
+        { label: "Ejercicios más usados", value: trabajo.ejercicios.length ? `${trabajo.ejercicios.length}` : "—", onClick: () => setPane("ejercicios") },
+        { label: "Volumen programado", value: fuera ? `${fuera} fuera de rango` : vol.rows.length ? "todo en rango" : "—", tone: fuera ? P.red : undefined, onClick: () => setPane("programado") },
+      ]} />
+    </div>
   );
 };
 
@@ -7240,7 +7461,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
         </>
       )}
 
-      {sub === "volumen" && <AthleteVolumePanel plan={plan} />}
+      {sub === "volumen" && <AthleteVolumePanel plan={plan} history={history} />}
 
       {sub === "logros" && <AchievementGrid history={history} />}
 
@@ -10053,7 +10274,7 @@ const ActivityTab = ({ plan, history }) => {
               <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>{fmtDateFull(s.date)} · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg</div>
             </div>
             {s.hasComments && <MessageSquare size={15} color={P.ember2} />}
-            {s.prs.length > 0 && <Award size={15} color={P.ember2} />}
+            {(s.prs || []).length > 0 && <Award size={15} color={P.ember2} />}
             <ChevronRight size={16} color={P.faint} />
           </button>
         </Card>
@@ -11566,7 +11787,7 @@ function buildAthleteContext({ plan, history, athlete, student }) {
     : "  (sin series cargadas)";
 
   const sessTxt = recent.length
-    ? recent.map((s) => `  · ${fmtDate(s.date)} — ${s.dayName}: ${s.setsDone}/${s.setsTotal} series, ${Math.round(s.volume)} kg de tonelaje, ${s.durationMin} min${s.prs.length ? `, PR: ${s.prs.join("; ")}` : ""}`).join("\n")
+    ? recent.map((s) => `  · ${fmtDate(s.date)} — ${s.dayName}: ${s.setsDone}/${s.setsTotal} series, ${Math.round(s.volume)} kg de tonelaje, ${s.durationMin} min${(s.prs || []).length ? `, PR: ${s.prs.join("; ")}` : ""}`).join("\n")
     : "  (todavía no registra sesiones)";
 
   const bwTxt = bw.length
