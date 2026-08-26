@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v161";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v163";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4547,13 +4547,23 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
   const cmtRef = useRef(null);
   const didPrefill = useRef(false);
   const restFiredRef = useRef(false);
+  // Qué hacer cuando el descanso llega a cero. Se guarda en una ref
+  // porque depende del bloque activo, que se calcula más abajo.
+  const autoNextRef = useRef(null);
 
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
   useEffect(() => () => clearTimeout(cmtTimer.current), []);
   useEffect(() => {
     if (!timer) { restFiredRef.current = false; return; }
     const left = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
-    if (left <= 0 && !restFiredRef.current) { restFiredRef.current = true; beep(); }
+    if (left > 0 || restFiredRef.current) return;
+    restFiredRef.current = true;
+    beep();
+    // Se avanza solo. Si el bloque quedó completo, además pasa al
+    // ejercicio siguiente; si era el último, se queda en el panel de
+    // "Ejercicio completo", que ya ofrece terminar la sesión.
+    onDismissRest();
+    if (autoNextRef.current) autoNextRef.current();
   }, [timer, now]);
 
   const exs = active.exs;
@@ -4601,6 +4611,12 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
   const activeRowIdx = block.rows.findIndex((r) => !exs[r.ei].sets[r.si].done);
   const blockDone = activeRowIdx === -1;
   const blockTitle = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
+  // Lo que hace el descanso al llegar a cero: si el ejercicio quedó
+  // completo, saltar al siguiente; si no, no hay nada que hacer más que
+  // cerrar el reloj (la serie que toca ya aparece sola).
+  autoNextRef.current = () => {
+    if (blockDone && blockIdx < blocks.length - 1) setBlockIdx(blockIdx + 1);
+  };
 
   useEffect(() => {
     if (didPrefill.current) return;
@@ -4699,14 +4715,13 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
   // vía props) está corriendo. `timer.exIdx`/`timer.setIdx` identifican
   // la serie que se acaba de completar — "Acabas de registrar" la
   // muestra con un link para editarla sin salir del descanso.
-  // Descanso (A4): antes reemplazaba toda la pantalla; ahora es una
-  // tarjeta más dentro del flujo normal de la pestaña Entrenar, entre la
-  // tarjeta de series y "Anterior/Saltar" — coincide con la referencia,
-  // que nunca tapa la barra de pestañas ni el resto de la sesión.
+  // Descanso: mientras corre, ES la pantalla — ocupa el lugar de la
+  // tarjeta de la serie en vez de sumarse debajo. Entrenando no se
+  // decide entre dos cosas a la vez: o estás registrando una serie o
+  // estás descansando, y el botón grande dice cuál es el paso siguiente.
   let restCard = null;
   if (timer) {
     const left = Math.max(0, Math.ceil((timer.endsAt - now) / 1000));
-    const donePct = timer.total ? Math.max(0, Math.min(100, ((timer.total - left) / timer.total) * 100)) : 0;
     const justEx = exs[timer.exIdx];
     const justSet = justEx ? justEx.sets[timer.setIdx] : null;
     // Qué sigue: se lee directo de activeRowIdx/blockDone — ya reflejan
@@ -4717,101 +4732,91 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
       onDismissRest();
       if (blockDone) { if (blockIdx < blocks.length - 1) setBlockIdx(blockIdx + 1); }
     };
+    // Qué viene después, en una línea, para que el botón grande no sea
+    // un salto a ciegas.
+    const nextLabel = nextInBlock
+      ? `Próxima: Serie ${activeRowIdx + 1}${exs[nextInBlock.ei].sets[nextInBlock.si].repsT ? ` · ${exs[nextInBlock.ei].sets[nextInBlock.si].repsT} reps` : ""}`
+      : nextBlock
+        ? `Sigue: ${nextBlock.group ? nextBlock.members.map((m) => exs[m].name).join(" + ") : exs[nextBlock.ei].name}`
+        : "Era la última serie de la sesión";
+    const ctaLabel = nextInBlock ? "Ir a la siguiente serie" : nextBlock ? "Ir al siguiente ejercicio" : "Terminar la sesión";
     restCard = (
-      <Card style={{ padding: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>{justEx ? justEx.name : "Descanso"}</span>
-        <span className="num" style={{ fontSize: 60, fontWeight: 600, letterSpacing: "-.03em", lineHeight: 1, fontVariantNumeric: "tabular-nums", color: P.text }}>{fmtClock(left)}</span>
-        <div style={{ width: "100%", height: 4, borderRadius: 2, background: P.s3, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${donePct}%`, background: P.ember, transition: "width 1s linear" }} />
-        </div>
-        <div style={{ display: "flex", gap: 9, width: "100%" }}>
-          <button onClick={() => onAdjustRest(-15)} style={{ flex: 1, padding: "14px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>−15 s</button>
-          <button onClick={() => onAdjustRest(15)} style={{ flex: 1, padding: "14px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>+15 s</button>
-          <button onClick={finishRest} style={{ flex: 1, padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 15, fontWeight: 600 }}>Saltar</button>
-        </div>
-        {justSet && (
-          <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "3px 1px 0" }}>
-            <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Check size={14} color={PLATE_FG} strokeWidth={3} />
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, color: P.faint2 }}>Acabas de registrar</div>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{justSet.weight || "—"} {weightUnit} × {justSet.reps || "—"}</div>
+      <>
+        <Card style={{ padding: "15px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 11 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint2 }}>Descanso</span>
+          <span className="num" style={{ fontSize: 52, fontWeight: 600, letterSpacing: "-.03em", lineHeight: 1, fontVariantNumeric: "tabular-nums", color: P.text }}>{fmtClock(left)}</span>
+          <div style={{ fontSize: 14, color: P.faint2, textAlign: "center" }}>{nextLabel}</div>
+          <div style={{ display: "flex", gap: 9, width: "100%" }}>
+            <button onClick={() => onAdjustRest(-15)} style={{ flex: 1, padding: "13px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>−15 s</button>
+            <button onClick={() => onAdjustRest(15)} style={{ flex: 1, padding: "13px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>+15 s</button>
+          </div>
+          {justSet && (justSet.weight !== "" || justSet.reps !== "") && (
+            <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, paddingTop: 2 }}>
+              <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Check size={14} color={PLATE_FG} strokeWidth={3} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, color: P.faint2 }}>Acabas de registrar</div>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>{justSet.weight || "—"} {weightUnit} × {justSet.reps || "—"}</div>
+              </div>
+              <button onClick={onDismissRest} style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>Corregir</button>
             </div>
-            <button onClick={onDismissRest} style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>Editar</button>
-          </div>
-        )}
-        {(nextInBlock || nextBlock) && (
-          <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "1px" }}>
-            <span style={{ fontSize: 15, color: P.faint2 }}>Sigue</span>
-            <span style={{ flex: 1, fontSize: 15, fontWeight: 600, textAlign: "right" }}>
-              {nextInBlock ? `Serie ${activeRowIdx + 1}` : blocks[blockIdx + 1].group
-                ? blocks[blockIdx + 1].members.map((m) => exs[m].name).join(" + ")
-                : exs[blocks[blockIdx + 1].ei].name}
-            </span>
-          </div>
-        )}
-      </Card>
+          )}
+        </Card>
+        <button onClick={nextBlock || nextInBlock ? finishRest : () => { onDismissRest(); askExit(); }}
+          style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+          {ctaLabel}
+        </button>
+      </>
     );
   }
 
-  // Fila de la tarjeta: colapsada (hecha o pendiente) o abierta (activa,
-  // la que gobierna activeRowIdx). El check de una fila HECHA sigue
-  // tocable — desmarcarla la vuelve a abrir como activa, que es cómo se
-  // corrige una serie ya registrada sin tener que usar Deshacer.
-  const renderRow = (r, idx) => {
+  // UNA serie a la vez. Antes la tarjeta listaba las tres o cuatro
+  // series del ejercicio (hechas colapsadas, la activa abierta, las
+  // pendientes en gris) y había que buscar con la vista cuál era "la
+  // mía" y qué pasaba al marcarla. Entrenando eso sobra: se muestra la
+  // serie que toca, se completa, y aparece el descanso diciendo qué
+  // sigue. Dónde estás dentro del ejercicio lo dice la tira de puntos.
+  const setDots = (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 4px 8px" }}>
+      {block.rows.map((r, i) => {
+        const done = !!exs[r.ei].sets[r.si].done;
+        const isNow = i === activeRowIdx;
+        // Solo las hechas responden al toque, y solo para corregirlas:
+        // desmarcarla la vuelve a abrir. Las que todavía no llegaron no
+        // hacen nada — no se saltan series por accidente.
+        return (
+          <button key={`${r.ei}-${r.si}`} disabled={!done}
+            onClick={done ? () => onToggleDone(r.ei, r.si) : undefined}
+            aria-label={done ? `Corregir serie ${i + 1}` : `Serie ${i + 1}${isNow ? ", en curso" : ", pendiente"}`}
+            style={{ flex: 1, height: 6, borderRadius: 3, padding: 0,
+              background: done ? P.ember : isNow ? P.text : P.s3 }} />
+        );
+      })}
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2, flexShrink: 0, marginLeft: 2 }}>
+        {Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)} / {block.rows.length}
+      </span>
+    </div>
+  );
+
+  const renderActiveSet = (r) => {
     const exx = exs[r.ei];
     const st = exx.sets[r.si];
-    const isActive = idx === activeRowIdx;
-    const isDone = !!st.done;
     // El tipo se nombra SIEMPRE (calentamiento, de trabajo, top set,
     // drop set…), no solo cuando no es una serie normal.
     const typeTag = setTypeTag(st.type);
-    const rowName = block.group ? exx.name : `Serie ${r.si + 1}`;
-    const label = `${rowName} · ${typeTag}`;
+    const rowName = block.group ? exx.name : `Serie ${r.si + 1} de ${block.rows.length}`;
     const lastEntry = lastEntryOf(exx.id);
     const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
     const prevWeight = lastSet && lastSet.weight !== "" && lastSet.weight != null ? lastSet.weight : null;
 
-    if (!isActive) {
-      // La fila justo después de la activa hereda el separador que la
-      // sección abierta no dibuja por su cuenta (ver el bloque isActive
-      // más abajo) — así la lista queda con UNA sola línea entre cada
-      // par de filas, sea cual sea su estado, en vez de dos.
-      const showTop = idx > 0 && idx - 1 === activeRowIdx;
-      return (
-        <button key={`${r.ei}-${r.si}`} onClick={() => onToggleDone(r.ei, r.si)}
-          aria-label={isDone ? "Desmarcar serie" : "Marcar serie hecha"}
-          style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "9px 4px",
-            borderTop: showTop ? `1px solid ${P.line}` : "none",
-            borderBottom: idx < block.rows.length - 1 ? `1px solid ${P.line}` : "none" }}>
-          <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: isDone ? PLATE_GRAD : "transparent", border: isDone ? "none" : `1.5px solid ${P.chevron}`,
-            fontSize: 12, fontWeight: 600, color: P.faint2 }}>
-            {isDone ? <Check size={14} color={PLATE_FG} strokeWidth={3} /> : r.si + 1}
-          </span>
-          <span style={{ flex: 1, fontSize: 13, color: isDone ? P.text : P.faint2 }}>{label}</span>
-          <span style={{ fontSize: 13, color: P.faint2 }}>
-            {isDone
-              ? `${st.weight || "—"} ${weightUnit} × ${st.reps || "—"}`
-              : [prevWeight != null ? `${String(prevWeight).replace(".", ",")} ${weightUnit}` : null, st.repsT || null].filter(Boolean).join(" · ")}
-          </span>
-        </button>
-      );
-    }
-
-    const isLastRow = idx === block.rows.length - 1;
     const targetBits = [typeTag];
     if (st.repsT) targetBits.push(`Objetivo ${st.repsT}`);
     if (st.rirT !== "" && st.rirT != null) targetBits.push(`RIR ${st.rirT}`);
     if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") targetBits.push(`${st.pct}%`);
 
-    // La serie activa se abre DENTRO de la misma lista, no en una tarjeta
-    // aparte: nada de fondo gris propio ni margen que la separe — solo
-    // más aire vertical que una fila colapsada. El separador de arriba
-    // y de abajo los ponen las filas vecinas (ver showTop más arriba).
     return (
-      <div key={`${r.ei}-${r.si}`} style={{ padding: idx === 0 ? "3px 4px 12px" : "11px 4px 12px" }}>
+      <div style={{ padding: "0 4px 10px" }}>
         <div style={{ marginBottom: 6 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <span style={{ fontSize: 19, fontWeight: 600, color: P.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rowName}</span>
@@ -4830,19 +4835,37 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
         <div style={{ height: 1, background: P.fillTertiary }} />
         <Stepper label="RIR" value={st.rir === "" ? 0 : +st.rir} onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0}
           caption={lastSet && lastSet.rir !== "" && lastSet.rir != null ? `Antes ${lastSet.rir}` : null} />
-        <button onClick={() => onToggleDone(r.ei, r.si)} aria-label="Marcar serie hecha"
-          style={{ width: "100%", marginTop: 8, padding: "13px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 17.5, fontWeight: 600 }}>
-          {isLastRow ? "Siguiente ejercicio" : "Serie hecha"}
-        </button>
         {renderCommentBlock(r.ei, r.si)}
       </div>
     );
   };
 
+  // El ejercicio quedó completo y no hay descanso corriendo: no se deja
+  // al usuario mirando una tarjeta vacía preguntándose qué hacer.
+  const blockDonePanel = (
+    <>
+      <Card style={{ padding: "17px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
+        <span style={{ width: 44, height: 44, borderRadius: 22, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Check size={24} color={PLATE_FG} strokeWidth={3} />
+        </span>
+        <span style={{ fontSize: 18, fontWeight: 600, color: P.text }}>Ejercicio completo</span>
+        <span style={{ fontSize: 14, color: P.faint2, textAlign: "center" }}>
+          {blockIdx < blocks.length - 1
+            ? `Sigue: ${blocks[blockIdx + 1].group ? blocks[blockIdx + 1].members.map((m) => exs[m].name).join(" + ") : exs[blocks[blockIdx + 1].ei].name}`
+            : "Es el último ejercicio de la sesión"}
+        </span>
+      </Card>
+      <button onClick={() => (blockIdx < blocks.length - 1 ? goBlock(1) : askExit())}
+        style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+        {blockIdx < blocks.length - 1 ? "Ir al siguiente ejercicio" : "Terminar la sesión"}
+      </button>
+    </>
+  );
+
   const askExit = () => setExiting(true);
 
   return (
-    <div style={{ padding: `calc(10px + env(safe-area-inset-top)) 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ padding: `calc(8px + env(safe-area-inset-top)) 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 8 }}>
       {/* Sin título "Entrenar" con la sesión abierta: la franja de abajo
           ya dice qué se está entrenando, y esos 44 px son los que hacían
           falta para que todo quepa sin desplazarse. */}
@@ -4868,11 +4891,31 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
       </Card>
 
       <div>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2 }}>Ejercicio {blockIdx + 1} de {totalBlocks}</span>
-          {onBrowseRoutine && <button onClick={onBrowseRoutine} style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2, flexShrink: 0 }}>Ver rutina</button>}
+        {/* "Anterior" y "Siguiente" dicen lo que hacen y viven en la misma
+            línea que el contador, que es justo lo que numeran. Antes eran
+            dos fichas grises de ancho completo ocupando una fila entera, y
+            la de la derecha decía "Saltar" — que suena a descartar el
+            ejercicio, no a pasar al que viene. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => goBlock(-1)} disabled={blockIdx === 0}
+            style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, fontWeight: 600, flexShrink: 0,
+              color: blockIdx === 0 ? P.chevron : P.text }}>
+            <ChevronLeft size={15} strokeWidth={2.6} /> Anterior
+          </button>
+          <span style={{ flex: 1, textAlign: "center", fontSize: 12.5, fontWeight: 600, color: P.faint2, minWidth: 0,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Ejercicio {blockIdx + 1} de {totalBlocks}</span>
+          <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1}
+            style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, fontWeight: 600, flexShrink: 0,
+              color: blockIdx >= blocks.length - 1 ? P.chevron : P.text }}>
+            Siguiente <ChevronRight size={15} strokeWidth={2.6} />
+          </button>
         </div>
-        <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.1, color: P.text, marginTop: 1 }}>{blockTitle}</div>
+        <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${blockTitle} — ver la rutina completa`}
+          style={{ display: "flex", alignItems: "center", gap: 4, textAlign: "left", marginTop: 1, width: "100%" }}>
+          <span style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.1, color: P.text, minWidth: 0,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blockTitle}</span>
+          {onBrowseRoutine && <ChevronRight size={17} color={P.chevron} strokeWidth={2.6} style={{ flexShrink: 0 }} />}
+        </button>
         {!block.group && parseTempo(exs[block.ei].notes) && (
           <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
         )}
@@ -4881,25 +4924,26 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
         </div>
       </div>
 
-      <Card style={{ padding: "6px 14px" }}>
-        {block.group && (
-          <div style={{ padding: "10px 4px", fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>
-            {GROUP_KINDS[block.kind].label} · {block.rounds} {block.rounds === 1 ? "ronda" : "rondas"}
-          </div>
-        )}
-        {block.rows.map((r, idx) => renderRow(r, idx))}
-      </Card>
-
-      {restCard}
-
-      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <button onClick={() => goBlock(-1)} disabled={blockIdx === 0}
-          style={{ flex: 1, padding: "12px 0", borderRadius: R_ROW, textAlign: "center", fontSize: 15.5, fontWeight: 600,
-            background: blockIdx === 0 ? P.fillTertiary : P.s3, color: blockIdx === 0 ? P.chevron : P.text }}>Anterior</button>
-        <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1}
-          style={{ flex: 1, padding: "12px 0", borderRadius: R_ROW, textAlign: "center", fontSize: 15.5, fontWeight: 600,
-            background: blockIdx >= blocks.length - 1 ? P.fillTertiary : P.s3, color: blockIdx >= blocks.length - 1 ? P.chevron : P.text }}>Saltar</button>
-      </div>
+      {/* Una sola cosa en pantalla a la vez: o descansas, o registras la
+          serie que toca, o el ejercicio ya está hecho. Cada estado trae
+          su propio botón grande diciendo qué pasa al tocarlo. */}
+      {timer ? restCard : blockDone ? blockDonePanel : (
+        <>
+          <Card style={{ padding: "6px 14px" }}>
+            {block.group && (
+              <div style={{ padding: "10px 4px 0", fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>
+                {GROUP_KINDS[block.kind].label} · {block.rounds} {block.rounds === 1 ? "ronda" : "rondas"}
+              </div>
+            )}
+            {setDots}
+            {renderActiveSet(block.rows[activeRowIdx])}
+          </Card>
+          <button onClick={() => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si)}
+            style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+            Completar serie
+          </button>
+        </>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 7 }}>
         {[
@@ -4909,7 +4953,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
           ["Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat()],
           ["Fotos", Camera, () => setMediaOpen(true)],
         ].map(([label, Icon, onClick]) => (
-          <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 4px",
+          <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "7px 4px",
             background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE }}>
             <Icon size={17} color={P.text} />
             <span style={{ fontSize: 11, fontWeight: 600, color: P.text }}>{label}</span>
