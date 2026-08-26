@@ -2647,7 +2647,7 @@ const stepClamp = (n, delta, min = 0, decimals = 1) => {
 const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals = 1, format, unit }) => {
   const fmt = format || ((v) => (decimals === 0 ? String(v) : String(v).replace(".", ",")));
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 0" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "5px 0" }}>
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontSize: 17, fontWeight: 400, color: P.text }}>{label}</div>
         {caption && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{caption}</div>}
@@ -4485,6 +4485,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
   // sueltos en la tarjeta y ahora se junta en una sola hoja chica.
   const [rowMoreFor, setRowMoreFor] = useState(null);
   const [calcOpen, setCalcOpen] = useState(false);
+  const [mediaOpen, setMediaOpen] = useState(false);
   const [c1w, setC1w] = useState(""); const [c1r, setC1r] = useState(""); const [c1rir, setC1rir] = useState("");
   const [c2e, setC2e] = useState(""); const [c2r, setC2r] = useState(""); const [c2rir, setC2rir] = useState("");
   const [c3prev, setC3prev] = useState(""); const [c3cur, setC3cur] = useState("");
@@ -4729,7 +4730,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
       return (
         <button key={`${r.ei}-${r.si}`} onClick={() => onToggleDone(r.ei, r.si)}
           aria-label={isDone ? "Desmarcar serie" : "Marcar serie hecha"}
-          style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 4px",
+          style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "9px 4px",
             borderTop: showTop ? `1px solid ${P.line}` : "none",
             borderBottom: idx < block.rows.length - 1 ? `1px solid ${P.line}` : "none" }}>
           <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
@@ -4758,7 +4759,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
     // más aire vertical que una fila colapsada. El separador de arriba
     // y de abajo los ponen las filas vecinas (ver showTop más arriba).
     return (
-      <div key={`${r.ei}-${r.si}`} style={{ padding: idx === 0 ? "5px 4px 20px" : "18px 4px 20px" }}>
+      <div key={`${r.ei}-${r.si}`} style={{ padding: idx === 0 ? "3px 4px 12px" : "11px 4px 12px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
           <span style={{ fontSize: 19, fontWeight: 600, color: P.text }}>{label}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -4778,7 +4779,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
         <Stepper label="RIR" value={st.rir === "" ? 0 : +st.rir} onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0}
           caption={st.rirT !== "" && st.rirT != null ? `Objetivo ${st.rirT}` : null} />
         <button onClick={() => onToggleDone(r.ei, r.si)} aria-label="Marcar serie hecha"
-          style={{ width: "100%", marginTop: 14, padding: "16px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+          style={{ width: "100%", marginTop: 8, padding: "13px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 17.5, fontWeight: 600 }}>
           {isLastRow ? "Siguiente ejercicio" : "Serie hecha"}
         </button>
         {renderCommentBlock(r.ei, r.si)}
@@ -4789,15 +4790,17 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
   const askExit = () => setExiting(true);
 
   return (
-    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 0" }}>Entrenar</h1>
+    <div style={{ padding: `calc(10px + env(safe-area-inset-top)) 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* Sin título "Entrenar" con la sesión abierta: la franja de abajo
+          ya dice qué se está entrenando, y esos 44 px son los que hacían
+          falta para que todo quepa sin desplazarse. */}
 
       {/* Franja de sesión: reemplaza el antiguo encabezado de pantalla
           completa. Siempre visible arriba de la pestaña, con la barra de
           navegación de la app debajo — nunca tapa nada. */}
-      <Card style={{ padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <Card style={{ padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <button onClick={askExit} aria-label="Salir de la sesión"
-          style={{ width: 36, height: 36, borderRadius: 18, background: P.s4, color: P.dim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          style={{ width: 32, height: 32, borderRadius: 16, background: P.s4, color: P.dim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <X size={15} strokeWidth={2.6} />
         </button>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
@@ -4809,17 +4812,20 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
                 background: pendingWrites ? P.line : (storageOK ? P.ember : "transparent"), border: !pendingWrites && !storageOK ? `1.5px solid ${P.text}` : "none" }} />
           </span>
         </div>
-        <button onClick={askExit} style={{ padding: "9px 14px", borderRadius: 18, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14.5, fontWeight: 600, flexShrink: 0 }}>Terminar</button>
+        <button onClick={askExit} style={{ padding: "8px 14px", borderRadius: 16, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14.5, fontWeight: 600, flexShrink: 0 }}>Terminar</button>
       </Card>
 
       <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Ejercicio {blockIdx + 1} de {totalBlocks}</div>
-        <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12, color: P.text, marginTop: 2 }}>{blockTitle}</div>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2 }}>Ejercicio {blockIdx + 1} de {totalBlocks}</span>
+          {onBrowseRoutine && <button onClick={onBrowseRoutine} style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2, flexShrink: 0 }}>Ver rutina</button>}
+        </div>
+        <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.1, color: P.text, marginTop: 1 }}>{blockTitle}</div>
         {!block.group && parseTempo(exs[block.ei].notes) && (
           <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
         )}
-        <div style={{ display: "flex", gap: 4, marginTop: 12 }}>
-          {blocks.map((_, i) => <i key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= blockIdx ? P.ember : P.s3 }} />)}
+        <div style={{ display: "flex", gap: 4, marginTop: 7 }}>
+          {blocks.map((_, i) => <i key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= blockIdx ? P.ember : P.s3 }} />)}
         </div>
       </div>
 
@@ -4836,54 +4842,29 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
 
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
         <button onClick={() => goBlock(-1)} disabled={blockIdx === 0}
-          style={{ flex: 1, padding: "14px 0", borderRadius: R_ROW, textAlign: "center", fontSize: 15.5, fontWeight: 600,
+          style={{ flex: 1, padding: "12px 0", borderRadius: R_ROW, textAlign: "center", fontSize: 15.5, fontWeight: 600,
             background: blockIdx === 0 ? P.fillTertiary : P.s3, color: blockIdx === 0 ? P.chevron : P.text }}>Anterior</button>
         <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1}
-          style={{ flex: 1, padding: "14px 0", borderRadius: R_ROW, textAlign: "center", fontSize: 15.5, fontWeight: 600,
+          style={{ flex: 1, padding: "12px 0", borderRadius: R_ROW, textAlign: "center", fontSize: 15.5, fontWeight: 600,
             background: blockIdx >= blocks.length - 1 ? P.fillTertiary : P.s3, color: blockIdx >= blocks.length - 1 ? P.chevron : P.text }}>Saltar</button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 7 }}>
         {[
           ["Técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei)],
           ["Historial", History, () => setHistEx(block.group ? block.members[0] : block.ei)],
           ["Discos", Calculator, () => setCalcOpen(true)],
           ["Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat()],
+          ["Fotos", Camera, () => setMediaOpen(true)],
         ].map(([label, Icon, onClick]) => (
-          <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px",
+          <button key={label} onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 4px",
             background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE }}>
             <Icon size={17} color={P.text} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: P.text }}>{label}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: P.text }}>{label}</span>
           </button>
         ))}
       </div>
 
-      <Card style={{ padding: "11px 12px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <div style={{ flex: 1, minWidth: 130 }}>
-            <div style={{ fontSize: 14.5, fontWeight: 700 }}>Video y fotos de la sesión</div>
-            <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>Lo general del día: cómo te sentiste, el ambiente, un resumen</div>
-          </div>
-          <AttachButton mode="photo" onError={onError}
-            onAttached={(aid) => patch((a) => { a.attachIds = [...(a.attachIds || []), aid]; return a; })} />
-          <AttachButton mode="video" onError={onError}
-            onAttached={(aid) => patch((a) => { a.attachIds = [...(a.attachIds || []), aid]; return a; })} />
-        </div>
-        {(active.attachIds || []).length > 0 && (
-          <div style={{ display: "flex", gap: 7, marginTop: 10, overflowX: "auto" }}>
-            {(active.attachIds || []).map((aid) => (
-              <AttachThumb key={aid} id={aid} size={54} onOpen={setViewImg}
-                onRemove={() => patch((a) => { a.attachIds = (a.attachIds || []).filter((x) => x !== aid); return a; })} />
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {onBrowseRoutine && (
-        <button onClick={onBrowseRoutine} style={{ alignSelf: "center", fontSize: 14.5, fontWeight: 600, color: P.faint2, padding: 4 }}>
-          Ver rutina completa
-        </button>
-      )}
 
       {/* Salir de la sesión: hoja de 4 salidas (no un solo diálogo de
           confirmación) — la "✕" y "Terminar" abren la misma hoja, tal
@@ -4957,6 +4938,27 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
             <span style={{ fontSize: 14.5, color: P.dim, fontWeight: 600 }}>Unidad de peso</span>
             <UnitToggle />
           </div>
+        </div>
+      </Sheet>
+      <Sheet open={mediaOpen} onClose={() => setMediaOpen(false)} title="Video y fotos de la sesión">
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.45 }}>
+            Lo general del día: cómo te sentiste, el ambiente, un resumen.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <AttachButton mode="photo" onError={onError}
+              onAttached={(aid) => patch((a) => { a.attachIds = [...(a.attachIds || []), aid]; return a; })} />
+            <AttachButton mode="video" onError={onError}
+              onAttached={(aid) => patch((a) => { a.attachIds = [...(a.attachIds || []), aid]; return a; })} />
+          </div>
+          {(active.attachIds || []).length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {(active.attachIds || []).map((aid) => (
+                <AttachThumb key={aid} id={aid} size={72} onOpen={setViewImg}
+                  onRemove={() => patch((a) => { a.attachIds = (a.attachIds || []).filter((x) => x !== aid); return a; })} />
+              ))}
+            </div>
+          )}
         </div>
       </Sheet>
       <Sheet open={calcOpen} onClose={() => setCalcOpen(false)} title="Calculadoras" tall>
@@ -12999,8 +13001,8 @@ const StorageBanner = () => {
       <div style={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12,
         margin: "10px 16px 0", padding: "10px 12px", display: "flex", gap: 9, alignItems: "flex-start" }}>
         <WifiOff size={16} color={P.faint} style={{ flexShrink: 0, marginTop: 1 }} />
-        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.45 }}>
-          Sin conexión: tus cambios se están guardando en este dispositivo ({pendingWrites} pendiente{pendingWrites === 1 ? "" : "s"}) y se sincronizarán solos apenas vuelva la señal.
+        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.4 }}>
+          Sin conexión · {pendingWrites} cambio{pendingWrites === 1 ? "" : "s"} guardado{pendingWrites === 1 ? "" : "s"} aquí. Se sincroniza solo.
         </div>
       </div>
     );
@@ -14622,17 +14624,19 @@ const App = () => {
             nombre, cambiar de cuenta) antes de sus grupos de herramientas y
             ajustes — así sí funciona como el perfil que se espera al tocar
             el avatar, no solo un menú suelto. */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "calc(8px + env(safe-area-inset-top)) 16px 4px" }}>
-          <button onClick={() => setReady(false)} style={{ textAlign: "left", minWidth: 0 }}>
-            <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{currentStudent?.name || "—"}</div>
-            <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>modo {mode} · cambiar</div>
-          </button>
-          <button onClick={() => setMoreOpen(true)} aria-label="Perfil y más opciones"
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
-              background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
-            {(currentStudent?.name || "?").slice(0, 1).toUpperCase()}
-          </button>
-        </div>
+        {!(mode === "alumno" && tab === "entrenar" && active) && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "calc(8px + env(safe-area-inset-top)) 16px 4px" }}>
+            <button onClick={() => setReady(false)} style={{ textAlign: "left", minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{currentStudent?.name || "—"}</div>
+              <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>modo {mode} · cambiar</div>
+            </button>
+            <button onClick={() => setMoreOpen(true)} aria-label="Perfil y más opciones"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
+                background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+              {(currentStudent?.name || "?").slice(0, 1).toUpperCase()}
+            </button>
+          </div>
+        )}
         <StorageBanner />
 
         {/* key={tab}: al cambiar de pestaña, React desmonta el bloque anterior
@@ -14814,9 +14818,14 @@ const App = () => {
       <Sheet open={gloss.open} onClose={() => setGloss({ open: false, focus: null })} title="Guía rápida" tall>
         <GlossaryBody focusId={gloss.focus} />
       </Sheet>
-      <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
-        onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
-        openChatSignal={aiChatOpenSignal} toast={toast} />
+      {/* Con la sesión abierta el botón flotante se esconde: tapaba la fila
+          de accesos y ahí ya hay un "Coach IA" propio, así que además
+          sobraba. Vuelve solo al salir de la sesión. */}
+      {!(mode === "alumno" && tab === "entrenar" && active) && (
+        <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
+          onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
+          openChatSignal={aiChatOpenSignal} toast={toast} />
+      )}
       <Toast msg={toastMsg} />
     </div>
   );
