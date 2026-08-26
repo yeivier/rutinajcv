@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v164";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v165";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4834,7 +4834,9 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
     const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
     const prevWeight = lastSet && lastSet.weight !== "" && lastSet.weight != null ? lastSet.weight : null;
 
-    const targetBits = [typeTag];
+    const targetBits = [];
+    if (block.group) targetBits.push(`Ronda ${(r.round || 0) + 1} de ${block.rounds}`);
+    targetBits.push(typeTag);
     if (st.repsT) targetBits.push(`Objetivo ${st.repsT}`);
     if (st.rirT !== "" && st.rirT != null) targetBits.push(`RIR ${st.rirT}`);
     if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") targetBits.push(`${st.pct}%`);
@@ -8791,7 +8793,6 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       {!easy && view === "biblioteca" && <LibraryPanel plan={plan} history={history} library={library} onSaveLibrary={onSaveLibrary} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
 
       {(easy || view === "dias") && (<>
-      {!easy && <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} />}
 
       <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden" }}>
         <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -12659,7 +12660,7 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
 /* Agenda en modo coach: mismo calendario que ve el alumno, más la
    configuración de la semana tipo. Tocar cualquier día abre el detalle y
    permite agregar o editar un evento con fecha, color y aviso previo. */
-const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBookings, availability, onSaveAvailability }) => {
+const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBookings, availability, onSaveAvailability, toast }) => {
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const [view, setView] = useState("week");
@@ -12667,10 +12668,18 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
   const [selected, setSelected] = useState(isoDate(today));
   const [eventSheet, setEventSheet] = useState(null); // { id?, date, title, note, color, remind }
   const [bookingSheet, setBookingSheet] = useState(null); // { id?, date, studentId, time, durationMin, note }
-  // El calendario completo (mes, eventos, franjas de color) sigue existiendo
-  // tal cual — la ficha nueva de A5/C5 (7 días grandes) es ahora lo primero
-  // que se ve, y "Calendario completo" lo revela sin perder nada.
-  const [showFullCalendar, setShowFullCalendar] = useState(false);
+  // Semana / Mes / Temporada. "view" (week|month) sigue siendo el modo
+  // INTERNO de la grilla; este es el segmentado de la pantalla.
+  const [agendaView, setAgendaView] = useState("semana");
+  // `switchView` es de CalendarGrid, no de acá: la grilla se pone en modo
+  // mensual con su propio estado y el cursor se lleva al mes del día
+  // seleccionado, que es lo que el usuario espera ver al tocar "Mes".
+  useEffect(() => {
+    if (agendaView !== "mes") return;
+    setView("month");
+    const base = parseDate(selected);
+    setCursor(new Date(base.getFullYear(), base.getMonth(), 1));
+  }, [agendaView]);
   const [availSheet, setAvailSheet] = useState(null); // "window" | "duration"
   // Días donde se dejó visible el selector de segunda sesión (AM/PM) aunque
   // todavía no se haya elegido nada — solo UI, no se guarda en el plan.
@@ -12765,14 +12774,25 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
 
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
-      <ScreenTitle title="Agenda" />
+      {/* Semana / Mes / Temporada. Antes el mes vivía plegado detrás de un
+          "Calendario completo" y la temporada (los mesociclos) estaba en
+          otra pestaña entera, dentro de Rutinas: dos vistas del mismo
+          calendario en dos sitios que no se parecían. */}
+      <div style={{ marginBottom: 14 }}>
+        <SectionSwitch value={agendaView} onChange={setAgendaView}
+          items={[{ id: "semana", label: "Semana" }, { id: "mes", label: "Mes" }, { id: "temporada", label: "Temporada" }]} />
+      </div>
 
       <EventReminderBanner events={plan.events} />
+
+      {agendaView === "temporada" ? <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} /> : (
+      <>
 
       {/* Semana en 7 fichas grandes (C5 del handoff): reemplaza a la grilla
           compacta como lo primero que se ve. La grilla completa (mes,
           eventos, sesiones ya hechas) sigue entera más abajo, plegada
           detrás de "Calendario completo" — no se pierde nada. */}
+      {agendaView === "semana" && (
       <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
         {weekDaysOf(selDate).map((d) => {
           const iso = isoDate(d);
@@ -12789,12 +12809,12 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
           );
         })}
       </div>
-      <button onClick={() => setShowFullCalendar((s) => !s)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13.5, fontWeight: 600, color: P.faint, marginBottom: 12 }}>
-        {showFullCalendar ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Calendario completo
-      </button>
-      {showFullCalendar && (
-        <CalendarGrid plan={plan} cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
-          dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} bookingsFor={bookingsForDay} />
+      )}
+      {agendaView === "mes" && (
+        <div style={{ marginBottom: 14 }}>
+          <CalendarGrid plan={plan} cursor={cursor} setCursor={setCursor} view={view} setView={setView} selected={selected} setSelected={setSelected}
+            dayFor={dayFor} eventsFor={eventsFor} sessionsOnDate={sessionsOnDate} bookingsFor={bookingsForDay} />
+        </div>
       )}
 
       <Card style={{ padding: "13px 15px", marginBottom: 14 }}>
@@ -12987,7 +13007,11 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
           );
         })}
       </Card>
+      </>
+      )}
 
+      {/* Las hojas quedan fuera del segmentado: se abren desde cualquiera
+          de las tres vistas. */}
       <Sheet open={!!eventSheet} onClose={() => setEventSheet(null)} title={eventSheet && eventSheet.id ? "Editar evento" : "Nuevo evento"}>
         {eventSheet && (
           <>
@@ -15317,7 +15341,7 @@ const App = () => {
             )}
             {utility === "agenda" && (mode === "coach" ? (
               <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
-                <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings}
+                <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings} toast={toast}
                   availability={availability} onSaveAvailability={saveAvailability} />
               </ReadOnlyLock>
             ) : (
@@ -15403,12 +15427,6 @@ const App = () => {
         {mode === "coach" && sub === "borradores" && (
           <ReadOnlyLock active={roleTabAccess.borradores === "view"} toast={toast}>
             <DraftsPanel toast={toast} onInfo={onInfo} roster={roster} />
-          </ReadOnlyLock>
-        )}
-        {mode === "coach" && sub === "agenda" && (
-          <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
-            <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings}
-              availability={availability} onSaveAvailability={saveAvailability} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && sub === "nutricion" && (
