@@ -332,6 +332,15 @@ const EQUIPMENT = ["Barra","Barra EZ","Mancuernas","Máquina","Polea","Smith","P
 // (el ejercicio también lo trabaja, pero no es el músculo principal).
 const SECONDARY_PCTS = [25, 50, 75];
 
+// "Serie de trabajo (Working set)" → "de trabajo"; "Calentamiento
+// (Warm-up set)" → "calentamiento"; "AMRAP" → "AMRAP". Se le quita el
+// paréntesis en inglés y el "Serie " del principio (ya lo dice el número
+// de la fila), y se baja la inicial salvo en las siglas.
+const setTypeTag = (t) => {
+  const n = ((SET_TYPES[t] || SET_TYPES.normal).label.split(" (")[0]).replace(/^Serie\s+/i, "");
+  return /^[A-ZÁÉÍÓÚÑ0-9-]+$/.test(n) ? n : n.charAt(0).toLowerCase() + n.slice(1);
+};
+
 // Tipos de serie que admiten porcentaje de bajada de carga
 const PCT_TYPES = ["top", "backoff", "drop", "amrap"];
 const PCT_HINT = {
@@ -4711,12 +4720,11 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
     const st = exx.sets[r.si];
     const isActive = idx === activeRowIdx;
     const isDone = !!st.done;
-    const typeShort = (SET_TYPES[st.type] || SET_TYPES.normal).short;
-    const showType = st.type !== "normal";
-    // El tipo de serie viaja pegado al nombre ("Serie 1 · calent."), no como
-    // un chip aparte: así la línea de la derecha queda libre para el objetivo.
-    const typeSuffix = st.type === "warmup" ? " · calent." : showType ? ` · ${typeShort}` : "";
-    const label = block.group ? exx.name : `Serie ${r.si + 1}${typeSuffix}`;
+    // El tipo se nombra SIEMPRE (calentamiento, de trabajo, top set,
+    // drop set…), no solo cuando no es una serie normal.
+    const typeTag = setTypeTag(st.type);
+    const rowName = block.group ? exx.name : `Serie ${r.si + 1}`;
+    const label = `${rowName} · ${typeTag}`;
     const lastEntry = lastEntryOf(exx.id);
     const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
     const prevWeight = lastSet && lastSet.weight !== "" && lastSet.weight != null ? lastSet.weight : null;
@@ -4749,7 +4757,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
     }
 
     const isLastRow = idx === block.rows.length - 1;
-    const targetBits = [];
+    const targetBits = [typeTag];
     if (st.repsT) targetBits.push(`Objetivo ${st.repsT}`);
     if (st.rirT !== "" && st.rirT != null) targetBits.push(`RIR ${st.rirT}`);
     if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") targetBits.push(`${st.pct}%`);
@@ -4760,15 +4768,15 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
     // y de abajo los ponen las filas vecinas (ver showTop más arriba).
     return (
       <div key={`${r.ei}-${r.si}`} style={{ padding: idx === 0 ? "3px 4px 12px" : "11px 4px 12px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-          <span style={{ fontSize: 19, fontWeight: 600, color: P.text }}>{label}</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            {targetBits.length > 0 && <span style={{ fontSize: 14, color: P.faint2 }}>{targetBits.join(" · ")}</span>}
+        <div style={{ marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span style={{ fontSize: 19, fontWeight: 600, color: P.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rowName}</span>
             <button onClick={() => setRowMoreFor({ ei: r.ei, si: r.si })} aria-label="Más opciones de esta serie"
-              style={{ width: 26, height: 26, borderRadius: 13, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint2 }}>
+              style={{ width: 26, height: 26, borderRadius: 13, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint2, flexShrink: 0 }}>
               <MoreHorizontal size={16} />
             </button>
           </div>
+          <div style={{ fontSize: 13, color: P.faint2, marginTop: 1 }}>{targetBits.join(" · ")}</div>
         </div>
         <Stepper label="Peso" unit={weightUnit} value={st.weight === "" ? 0 : +st.weight} onChange={(v) => setVal(r.ei, r.si, "weight", String(v))}
           step={weightUnit === "kg" ? 2.5 : 5} decimals={1} caption={prevWeight != null ? `Antes ${String(prevWeight).replace(".", ",")} ${weightUnit}` : null} />
@@ -4777,7 +4785,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
           caption={lastSet && lastSet.reps !== "" && lastSet.reps != null ? `Antes ${lastSet.reps}` : null} />
         <div style={{ height: 1, background: P.fillTertiary }} />
         <Stepper label="RIR" value={st.rir === "" ? 0 : +st.rir} onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0}
-          caption={st.rirT !== "" && st.rirT != null ? `Objetivo ${st.rirT}` : null} />
+          caption={lastSet && lastSet.rir !== "" && lastSet.rir != null ? `Antes ${lastSet.rir}` : null} />
         <button onClick={() => onToggleDone(r.ei, r.si)} aria-label="Marcar serie hecha"
           style={{ width: "100%", marginTop: 8, padding: "13px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 17.5, fontWeight: 600 }}>
           {isLastRow ? "Siguiente ejercicio" : "Serie hecha"}
