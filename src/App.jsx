@@ -2730,6 +2730,40 @@ const KpiTile = ({ top, value, sub, onClick }) => (
   </button>
 );
 
+// Grupo de filas del sistema: un rótulo chico y una tarjeta con filas
+// "nombre · valor · chevron". Es el patrón que más se repite en la app;
+// tenerlo acá evita repetir el mismo bloque de estilos en cada pantalla
+// y garantiza que todas se lean igual. `rows` acepta `false`/`null` para
+// que quien lo usa pueda condicionar una fila sin armar el arreglo
+// aparte.
+const RowGroup = ({ label, rows }) => {
+  const list = (rows || []).filter(Boolean);
+  if (!list.length) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {label && <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{label}</div>}
+      <Card style={{ overflow: "hidden" }}>
+        {list.map((r, i) => {
+          const frame = { width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+            padding: "13px 16px", borderBottom: i < list.length - 1 ? `1px solid ${P.line}` : "none" };
+          const inner = (
+            <>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 16, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
+              {r.value != null && r.value !== "" && (
+                <span style={{ fontSize: 15, color: r.tone || P.faint2, flexShrink: 0 }}>{r.value}</span>
+              )}
+              {r.onClick && <ChevronRight size={16} color={P.chevron} style={{ flexShrink: 0 }} />}
+            </>
+          );
+          return r.onClick
+            ? <button key={i} onClick={r.onClick} style={frame}>{inner}</button>
+            : <div key={i} style={frame}>{inner}</div>;
+        })}
+      </Card>
+    </div>
+  );
+};
+
 // Anillo de progreso circular — 104px, mismo trazo (14px) y mismo
 // cubic-bezier de aparición que el resto de la app. `pct` 0–100.
 const Ring = ({ pct, size = 104, stroke = 14 }) => {
@@ -3758,13 +3792,23 @@ const ExerciseProgress = ({ entries }) => {
 
       {chartData.length ? (
         <Card style={{ padding: "14px 8px 6px", marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0 10px 6px", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13.5, color: P.dim }}>Mejor peso por sesión (kg)</span>
-            {rangeDelta != null && (
-              <span style={{ fontSize: 13.5, fontWeight: 700, color: rangeDelta >= 0 ? P.ember2 : P.red }}>
-                {rangeDelta >= 0 ? "+" : ""}{kg(rangeDelta)} kg · este rango
+          {/* El dato en grande arriba de la curva, no solo el delta: lo
+              primero que se busca al abrir esta pantalla es "¿en cuánto
+              estoy?", y antes había que leerlo del último punto del eje. */}
+          <div style={{ padding: "0 10px 6px" }}>
+            <div style={{ fontSize: 13, color: P.faint2 }}>Mejor peso por sesión</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>
+                {kg(filtered[filtered.length - 1].best)}
               </span>
-            )}
+              <span style={{ fontSize: 15, color: P.faint2 }}>kg</span>
+              <span style={{ flex: 1 }} />
+              {rangeDelta != null && (
+                <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2 }}>
+                  {rangeDelta >= 0 ? "+" : "−"}{kg(Math.abs(rangeDelta))} kg
+                </span>
+              )}
+            </div>
           </div>
           <ChartBox data={chartData} unit="kg" />
         </Card>
@@ -6669,6 +6713,28 @@ const MiniLineChart = ({ points, height = 110 }) => {
     </svg>
   );
 };
+// Cabecera de tendencia: rótulo, dato grande, variación del periodo y
+// la curva. Es lo primero que se ve en cada segmento de Progreso, en vez
+// de un párrafo explicando qué se está mirando.
+const TrendCard = ({ label, value, unit, delta, deltaUnit = "", points }) => (
+  <Card style={{ padding: "15px 15px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
+    <span style={{ fontSize: 13, color: P.faint2 }}>{label}</span>
+    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+      <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{value}</span>
+      {unit && <span style={{ fontSize: 15, color: P.faint2 }}>{unit}</span>}
+      <span style={{ flex: 1 }} />
+      {delta != null && (
+        <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2 }}>
+          {delta >= 0 ? "+" : "−"}{kg(Math.abs(delta))}{deltaUnit}
+        </span>
+      )}
+    </div>
+    {(points || []).length >= 2
+      ? <MiniLineChart points={points} height={96} />
+      : <div style={{ fontSize: 13.5, color: P.faint2, padding: "12px 0 10px" }}>Con dos registros aparece la curva.</div>}
+  </Card>
+);
+
 const daysAgoLabel = (dateStr) => {
   const days = Math.max(0, Math.round((Date.now() - new Date(dateStr).getTime()) / 86400000));
   if (days === 0) return "hoy";
@@ -6676,13 +6742,45 @@ const daysAgoLabel = (dateStr) => {
   if (days < 14) return `hace ${days} días`;
   return `hace ${Math.round(days / 7)} semanas`;
 };
-const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }) => {
+// Volumen para el ALUMNO. `VolumePanel` (el del coach) sigue igual: ahí
+// el coach necesita el desglose por sesión, el comparador natural/asistido
+// y la nota de dónde salen los landmarks. Al alumno le sirve una sola
+// cosa — cuántas series le tocan por grupo y si está corto o pasado —
+// así que acá van las barras y nada más; la explicación queda plegada.
+const AthleteVolumePanel = ({ plan }) => {
+  const enhanced = (plan.athlete || {}).enhanced === "asistido";
+  const refTable = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
+  const vol = useMemo(() => volumeByMuscle(plan, refTable), [plan, refTable]);
+  if (!vol.rows.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Cuando tu coach cargue la rutina vas a ver acá el volumen por grupo muscular." />;
+  const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
+  const fuera = vol.rows.filter((r) => r.status && r.status !== "en rango").length;
+  return (
+    <>
+      <Card style={{ padding: "15px 15px 13px", display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontSize: 13, color: P.faint2 }}>{vol.basis === "semana" ? "Series efectivas por semana" : "Series efectivas por vuelta"}</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{fmtSets(vol.total)}</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 14, fontWeight: 600, color: fuera ? P.red : P.faint2 }}>
+            {fuera ? `${fuera} fuera de rango` : "todo en rango"}
+          </span>
+        </div>
+      </Card>
+      {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} compact />)}
+      <Collapsible title="Qué es MEV, MAV y MRV" summary="">
+        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>
+          MEV es el mínimo que hace efecto, MAV la zona donde se progresa mejor y
+          MRV el techo que se alcanza a recuperar. Son rangos orientativos
+          {enhanced ? " para atletas asistidos (heurística de campo: con soporte anabólico el techo recuperable sube)" : " según los landmarks de Renaissance Periodization"}: el punto exacto lo ajusta tu coach según cómo respondas.
+        </div>
+      </Collapsible>
+    </>
+  );
+};
+
+const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, onOpenCheckin }) => {
   const [sub, setSub] = useState("fuerza");
   const [exId, setExId] = useState("");
-  const [bw, setBw] = useState("");
-  const [stepsInput, setStepsInput] = useState("");
-  const [waterInput, setWaterInput] = useState("");
-  const [sleepInput, setSleepInput] = useState("");
   const [measureOpen, setMeasureOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   // Permite abrir esta pestaña directo en una sub-sección (p.ej. desde las
@@ -6714,38 +6812,14 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }
 
   const bwEntries = history.bodyweight || [];
   const bwPoints = bwEntries.map((b) => ({ v: b.kg }));
+  // Variación entre el primer y el último registro: es lo que la
+  // cabecera muestra a la derecha del peso de hoy.
+  const bwDelta = bwEntries.length >= 2 ? bwEntries[bwEntries.length - 1].kg - bwEntries[0].kg : null;
   const measurements = history.measurements || [];
   const lastMeasure = measurements[measurements.length - 1];
   const photos = history.bodyPhotos || [];
   const adherence = adherencePct(plan, history, monthKeyOf(todayISO()));
 
-  // El input y el botón "Registrar" existían en la pantalla desde el
-  // rediseño, pero nunca llegaron a guardar nada — history.bodyweight no
-  // se tocaba. Se notaba clic tras clic: "registrar" no hacía nada,
-  // exactamente el tipo de pantalla muerta que se reportó.
-  const addBW = () => {
-    const v = parseFloat(String(bw).replace(",", "."));
-    if (!v || v <= 0 || !saveHistory) return;
-    const h = structuredClone(history);
-    h.bodyweight = [...(h.bodyweight || []), { date: todayISO(), kg: v }];
-    saveHistory(h);
-    setBw("");
-  };
-  // Pasos, agua y sueño: mismo mecanismo que el peso (un registro fechado
-  // por toque de "Registrar"), factorizado en una sola función en vez de
-  // repetirla tres veces — la única diferencia real es qué arreglo de
-  // history tocan y qué campo numérico guardan.
-  const addDailyMetric = (key, field, raw, setInput) => {
-    const v = parseFloat(String(raw).replace(",", "."));
-    if (!v || v <= 0 || !saveHistory) return;
-    const h = structuredClone(history);
-    h[key] = [...(h[key] || []), { date: todayISO(), [field]: v }];
-    saveHistory(h);
-    setInput("");
-  };
-  const addSteps = () => addDailyMetric("steps", "count", stepsInput, setStepsInput);
-  const addWater = () => addDailyMetric("water", "liters", waterInput, setWaterInput);
-  const addSleep = () => addDailyMetric("sleep", "hours", sleepInput, setSleepInput);
   const saveMeasurements = (values) => {
     if (!saveHistory) return;
     const h = structuredClone(history);
@@ -6797,79 +6871,30 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory }
 
       {sub === "cuerpo" && (
         <>
-          <Card style={{ overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-              <span style={{ flex: 1, fontSize: 16 }}>Adherencia</span>
-              <span style={{ fontSize: 15, color: P.faint2 }}>{adherence == null ? "—" : `${Math.round(adherence)}%`}</span>
-            </div>
-          </Card>
+          {/* El registro diario (peso, pasos, agua, sueño) ya se toma en
+              el Check-in, con su propio campo y su propio "Registrar".
+              Acá se MUESTRA lo registrado y se enlaza allá: antes esta
+              pantalla repetía los cuatro formularios enteros, así que el
+              mismo dato se podía cargar en dos sitios distintos. */}
+          <TrendCard label="Peso corporal" value={bwEntries.length ? kg(bwEntries[bwEntries.length - 1].kg) : "—"}
+            unit="kg" delta={bwDelta} deltaUnit=" kg" points={bwPoints} />
 
-          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Peso corporal</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="number" inputMode="decimal" step="any" placeholder="kg de hoy" value={bw} onChange={(e) => setBw(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
-              <button onClick={addBW} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
-            </div>
-            {bwEntries.length >= 2 ? <MiniLineChart points={bwPoints} /> : bwEntries.length === 1 ? (
-              <div style={{ fontSize: 13.5, color: P.faint2 }}>Último registro: {kg(bwEntries[0].kg)} kg. Con dos o más verás la curva.</div>
-            ) : (
-              <div style={{ fontSize: 13.5, color: P.faint2 }}>Sin registros todavía.</div>
-            )}
-          </Card>
+          <RowGroup label="Hoy" rows={[
+            { label: "Peso", value: bwEntries.length ? `${kg(bwEntries[bwEntries.length - 1].kg)} kg` : "Sin registrar", onClick: onOpenCheckin },
+            { label: "Pasos", value: stepsEntries.length ? Math.round(stepsEntries[stepsEntries.length - 1].count).toLocaleString("es-CL") : "Sin registrar", onClick: onOpenCheckin },
+            { label: "Agua", value: waterEntries.length ? `${kg(waterEntries[waterEntries.length - 1].liters)} L` : "Sin registrar", onClick: onOpenCheckin },
+            { label: "Sueño", value: sleepEntries.length ? `${kg(sleepEntries[sleepEntries.length - 1].hours)} h` : "Sin registrar", onClick: onOpenCheckin },
+          ]} />
 
-          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Pasos</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="number" inputMode="numeric" placeholder="pasos de hoy" value={stepsInput} onChange={(e) => setStepsInput(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
-              <button onClick={addSteps} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
-            </div>
-            <div style={{ fontSize: 13.5, color: P.faint2 }}>
-              {stepsEntries.length ? `Último registro: ${stepsEntries[stepsEntries.length - 1].count.toLocaleString("es-CL")} pasos.` : "Sin registros todavía."}
-            </div>
-          </Card>
-
-          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Agua</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="number" inputMode="decimal" step="any" placeholder="litros de hoy" value={waterInput} onChange={(e) => setWaterInput(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
-              <button onClick={addWater} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
-            </div>
-            <div style={{ fontSize: 13.5, color: P.faint2 }}>
-              {waterEntries.length ? `Último registro: ${kg(waterEntries[waterEntries.length - 1].liters)} L.` : "Sin registros todavía."}
-            </div>
-          </Card>
-
-          <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Sueño</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input type="number" inputMode="decimal" step="any" placeholder="horas dormidas" value={sleepInput} onChange={(e) => setSleepInput(e.target.value)}
-                style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
-              <button onClick={addSleep} style={{ padding: "11px 16px", borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14, fontWeight: 700 }}>Registrar</button>
-            </div>
-            <div style={{ fontSize: 13.5, color: P.faint2 }}>
-              {sleepEntries.length ? `Último registro: ${kg(sleepEntries[sleepEntries.length - 1].hours)} h.` : "Sin registros todavía."}
-            </div>
-          </Card>
-
-          <Card style={{ overflow: "hidden" }}>
-            <button onClick={() => setMeasureOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-              <span style={{ flex: 1, fontSize: 16 }}>Medidas</span>
-              <span style={{ fontSize: 15, color: P.faint2 }}>{lastMeasure ? daysAgoLabel(lastMeasure.date) : "—"}</span>
-              <ChevronRight size={16} color={P.chevron} />
-            </button>
-            <button onClick={() => setCompareOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-              <span style={{ flex: 1, fontSize: 16 }}>Fotos</span>
-              <span style={{ fontSize: 15, color: P.faint2 }}>{photos.length ? `${photos.length}` : "—"}</span>
-              <ChevronRight size={16} color={P.chevron} />
-            </button>
-          </Card>
+          <RowGroup label="Cuerpo" rows={[
+            { label: "Medidas", value: lastMeasure ? daysAgoLabel(lastMeasure.date) : "—", onClick: () => setMeasureOpen(true) },
+            { label: "Fotos", value: photos.length ? String(photos.length) : "—", onClick: () => setCompareOpen(true) },
+            { label: "Adherencia", value: adherence == null ? "—" : `${Math.round(adherence)}%` },
+          ]} />
         </>
       )}
 
-      {sub === "volumen" && <VolumePanel plan={plan} />}
+      {sub === "volumen" && <AthleteVolumePanel plan={plan} />}
 
       {sub === "logros" && <AchievementGrid history={history} />}
 
@@ -11324,7 +11349,10 @@ const AthleteForm = ({ plan, savePlan }) => {
 };
 
 /* ---- Volumen por grupo muscular ---- */
-const MuscleVolumeRow = ({ r, max }) => {
+// `compact` es la variante del alumno: los mismos landmarks en una sola
+// línea, sin la frecuencia sugerida (eso es dato de planificación, lo usa
+// el coach al armar la rutina, no el alumno al mirar cómo va).
+const MuscleVolumeRow = ({ r, max, compact }) => {
   const col = volStatusColor(r.status);
   return (
   <Card style={{ padding: "11px 13px", marginBottom: 8 }}>
@@ -11344,8 +11372,8 @@ const MuscleVolumeRow = ({ r, max }) => {
         background: col, opacity: .85, borderRadius: 5 }} />
     </div>
     {r.ref && (
-      <div style={{ fontSize: 12.5, color: P.faint, marginTop: 6 }}>
-        MEV {r.ref.mev} · zona óptima {r.ref.mav[0]}–{r.ref.mav[1]} · MRV {r.ref.mrv} · frecuencia sugerida {r.ref.freq}
+      <div style={{ fontSize: 12.5, color: P.faint, marginTop: 6, whiteSpace: compact ? "nowrap" : "normal", overflow: "hidden", textOverflow: "ellipsis" }}>
+        MEV {r.ref.mev} · óptimo {r.ref.mav[0]}–{r.ref.mav[1]} · MRV {r.ref.mrv}{compact ? "" : ` · frecuencia sugerida ${r.ref.freq}`}
       </div>
     )}
   </Card>
@@ -14704,6 +14732,7 @@ const App = () => {
         )}
         {mode === "alumno" && tab === "progreso" && (
           <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
+            onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             jumpSub={progressJumpSub} onJumpConsumed={() => setProgressJumpSub(null)} />
         )}
         {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} history={history} saveHistory={saveHistory} />}
