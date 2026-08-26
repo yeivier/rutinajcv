@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v174";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v175";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2782,25 +2782,30 @@ const SetStepperCol = ({ label, caption, value, onChange, step = 1, min = 0, dec
   const arrow = (dir, Icon) => (
     <button onClick={() => onChange(stepClamp(value, dir * step, min, decimals))}
       aria-label={`${dir > 0 ? "Subir" : "Bajar"} ${label}`}
-      style={{ height: 34, width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+      style={{ height: 46, flexShrink: 0, width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
         color: P.text, background: "transparent", transition: `background ${DUR_MICRO}ms ease` }}>
-      <Icon size={17} strokeWidth={2.8} />
+      <Icon size={19} strokeWidth={2.8} />
     </button>
   );
   return (
-    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: P.faint2, marginBottom: 5 }}>{label}</div>
-      <div style={{ width: "100%", borderRadius: R_TILE, background: P.s3, overflow: "hidden" }}>
+    <div style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: P.faint2, marginBottom: 7 }}>{label}</div>
+      {/* La celda del número crece con la pantalla (con tope, para que en
+          un teléfono alto no quede desproporcionada) y se encoge en uno
+          bajo: así la tarjeta se llena entera, sin aire muerto abajo, sea
+          cual sea el alto del dispositivo. */}
+      <div style={{ width: "100%", borderRadius: R_TILE, background: P.s3, overflow: "hidden",
+        display: "flex", flexDirection: "column" }}>
         {arrow(1, ChevronUp)}
-        <div style={{ height: 1, background: P.s1 }} />
-        <div className="num" style={{ height: 46, display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 26, fontWeight: 600, letterSpacing: "-.02em", color: P.text, fontVariantNumeric: "tabular-nums" }}>
-          {fmt}{unit && <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2, marginLeft: 2 }}>{unit}</span>}
+        <div style={{ height: 1, flexShrink: 0, background: P.s1 }} />
+        <div className="num" style={{ height: 66, display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 31, fontWeight: 600, letterSpacing: "-.02em", color: P.text, fontVariantNumeric: "tabular-nums" }}>
+          {fmt}{unit && <span style={{ fontSize: 15, fontWeight: 600, color: P.faint2, marginLeft: 2 }}>{unit}</span>}
         </div>
-        <div style={{ height: 1, background: P.s1 }} />
+        <div style={{ height: 1, flexShrink: 0, background: P.s1 }} />
         {arrow(-1, ChevronDown)}
       </div>
-      <div style={{ fontSize: 11.5, color: P.faint2, marginTop: 5, textAlign: "center", width: "100%",
+      <div style={{ fontSize: 12, color: P.faint2, marginTop: 7, textAlign: "center", width: "100%",
         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{caption || "\u00a0"}</div>
     </div>
   );
@@ -4886,7 +4891,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     const ctaLabel = nextInBlock ? "Ir a la siguiente serie" : nextBlock ? "Ir al siguiente ejercicio" : "Finalizar sesión";
     restCard = (
       <>
-        <Card style={{ padding: "15px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 11 }}>
+        <Card style={{ padding: "22px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
           <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint2 }}>Descanso</span>
           <span className="num" style={{ fontSize: 52, fontWeight: 600, letterSpacing: "-.03em", lineHeight: 1, fontVariantNumeric: "tabular-nums", color: P.text }}>{fmtClock(left)}</span>
           <div style={{ fontSize: 14, color: P.faint2, textAlign: "center" }}>{nextLabel}</div>
@@ -4921,31 +4926,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // mía" y qué pasaba al marcarla. Entrenando eso sobra: se muestra la
   // serie que toca, se completa, y aparece el descanso diciendo qué
   // sigue. Dónde estás dentro del ejercicio lo dice la tira de puntos.
-  // Un tilde por serie: hecha (tilde), en curso (relleno) o pendiente
-  // (vacía). Va entre las dos flechas, que es donde se mira. Las hechas
-  // responden al toque para corregirlas — desmarcarla la vuelve a abrir;
-  // las que todavía no llegaron no hacen nada, así no se saltan series
-  // por accidente.
-  const setTicks = (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 1, minWidth: 0, overflow: "hidden" }}>
-      {block.rows.map((r, i) => {
-        const done = !!exs[r.ei].sets[r.si].done;
-        const isNow = i === activeRowIdx;
-        return (
-          <button key={`${r.ei}-${r.si}`} disabled={!done}
-            onClick={done ? () => onToggleDone(r.ei, r.si) : undefined}
-            aria-label={done ? `Serie ${i + 1} hecha — tocar para corregirla` : `Serie ${i + 1}${isNow ? ", en curso" : ", pendiente"}`}
-            style={{ width: 20, height: 20, borderRadius: 10, flexShrink: 0, padding: 0,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: done ? PLATE_GRAD : isNow ? P.text : "transparent",
-              border: done || isNow ? "none" : `1.5px solid ${P.chevron}` }}>
-            {done && <Check size={12} color={PLATE_FG} strokeWidth={3} />}
-          </button>
-        );
-      })}
-    </div>
-  );
-
   const renderActiveSet = (r) => {
     const exx = exs[r.ei];
     const st = exx.sets[r.si];
@@ -4975,31 +4955,30 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     ];
 
     return (
-      <div style={{ padding: "2px 0 4px" }}>
+      <div>
         {block.group && (
           <div style={{ fontSize: 17, fontWeight: 600, color: P.text, marginBottom: 10,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exx.name}</div>
         )}
-        {/* Una sola fila: a la izquierda dónde vas dentro del ejercicio
-            (un tilde por serie, las hechas se tocan para corregirlas), a
-            la derecha lo que se consulta sin soltar la mancuerna. Iban en
-            dos filas separadas y eran 34 px de alto que hacían falta para
-            que el botón de completar no quedara bajo la barra. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {setTicks}
-          <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0, marginLeft: "auto" }}>
-            {acciones.map(([lbl, Icon, onClick, marcado]) => (
-              <button key={lbl} onClick={onClick} aria-label={marcado ? `${lbl} — hay indicaciones` : lbl} title={lbl}
-                style={{ width: 32, height: 32, borderRadius: 16, flexShrink: 0,
-                  background: marcado ? PLATE_GRAD : P.s3, color: marcado ? PLATE_FG : P.text,
-                  display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon size={15} strokeWidth={2.2} />
-              </button>
-            ))}
-          </div>
+        {/* Todo lo que se consulta sin soltar la mancuerna, a la
+            izquierda; la sigla del tipo de serie a la derecha. Por qué
+            serie vas ya lo dice el "S1/3" de arriba. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          {acciones.map(([lbl, Icon, onClick, marcado]) => (
+            <button key={lbl} onClick={onClick} aria-label={marcado ? `${lbl} — hay indicaciones` : lbl} title={lbl}
+              style={{ width: 36, height: 36, borderRadius: 18, flexShrink: 0,
+                background: marcado ? PLATE_GRAD : P.s3, color: marcado ? PLATE_FG : P.text,
+                display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon size={16} strokeWidth={2.2} />
+            </button>
+          ))}
+          <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 12, fontWeight: 700, letterSpacing: ".05em",
+            padding: "7px 14px", borderRadius: 999, border: `1.5px solid ${P.separatorStrong}`, color: P.text, whiteSpace: "nowrap" }}>
+            {(SET_TYPES[st.type] || SET_TYPES.normal).short}
+          </span>
         </div>
-        <div style={{ height: 1, background: P.fillTertiary, margin: "11px 0 12px" }} />
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+        <div style={{ height: 1, background: P.fillTertiary, margin: "13px 0 0" }} />
+        <div style={{ display: "flex", gap: 10, alignItems: "stretch", paddingTop: 14 }}>
           <SetStepperCol label="Peso" unit={weightUnit} value={st.weight === "" ? 0 : +st.weight}
             onChange={(v) => setVal(r.ei, r.si, "weight", String(v))} step={weightUnit === "kg" ? 2.5 : 5} decimals={1}
             caption={prevWeight != null ? `Última: ${String(prevWeight).replace(".", ",")} ${weightUnit}` : null} />
@@ -5022,7 +5001,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // al usuario mirando una tarjeta vacía preguntándose qué hacer.
   const blockDonePanel = (
     <>
-      <Card style={{ padding: "17px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
+      <Card style={{ padding: "22px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 9 }}>
         <span style={{ width: 44, height: 44, borderRadius: 22, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Check size={24} color={PLATE_FG} strokeWidth={3} />
         </span>
@@ -5075,17 +5054,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // El tipo de la serie que toca (calentamiento, de trabajo, top set,
   // drop set…): cambia cómo se ejecuta, así que se nombra siempre y en
   // el mismo sitio, antes de mirar los números.
-  const activeTypeTag = (() => {
-    if (blockDone || timer) return null;
-    const row = block.rows[activeRowIdx];
-    if (!row) return null;
-    return setTypeTag(exs[row.ei].sets[row.si].type);
-  })();
 
-  const askExit = () => setExiting(true);
 
   return (
-    <div style={{ padding: `calc(6px + env(safe-area-inset-top)) 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 7 }}>
+    <div style={{ minHeight: "100vh", minHeight: "100dvh",
+      padding: `calc(10px + env(safe-area-inset-top)) 20px calc(16px + env(safe-area-inset-bottom))`,
+      display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 14 }}>
       {/* Sin título "Entrenar" con la sesión abierta: la franja de abajo
           ya dice qué se está entrenando, y esos 44 px son los que hacían
           falta para que todo quepa sin desplazarse. */}
@@ -5093,42 +5067,36 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       {/* Franja de sesión: reemplaza el antiguo encabezado de pantalla
           completa. Siempre visible arriba de la pestaña, con la barra de
           navegación de la app debajo — nunca tapa nada. */}
-      <Card style={{ padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span className="num" style={{ fontSize: 13, fontWeight: 700, color: P.dim, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
+          padding: "7px 12px", borderRadius: 999, background: P.s3 }}>
+          E{blockIdx + 1}/{totalBlocks} · S{Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)}/{block.rows.length}
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
+          padding: "7px 12px", borderRadius: 999, background: P.s3 }}>
+          <Timer size={13} color={P.faint2} />
+          <span className="num" style={{ fontSize: 14, fontWeight: 700, color: P.text, fontVariantNumeric: "tabular-nums" }}>{sessionClock(elapsed)}</span>
+          {hr.connected && hr.bpm != null && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 13, color: P.faint2 }}>
+              <HeartPulse size={12} /> {hr.bpm}
+            </span>
+          )}
+        </span>
+        {/* Una sola salida, arriba a la derecha, y no pregunta nada: la
+            sesión queda guardada tal cual está. */}
         <button onClick={onLeave} aria-label="Salir de la sesión (se guarda sola)"
-          style={{ width: 32, height: 32, borderRadius: 16, background: P.s4, color: P.dim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <X size={15} strokeWidth={2.6} />
+          style={{ width: 36, height: 36, borderRadius: 18, marginLeft: "auto", flexShrink: 0,
+            background: P.s3, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <X size={17} strokeWidth={2.6} />
         </button>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0, justifyContent: "center" }}>
-          <span className="num" style={{ fontSize: 13, fontWeight: 700, color: P.dim, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
-            padding: "6px 10px", borderRadius: 999, background: P.s3 }}>
-            E{blockIdx + 1}/{totalBlocks} · S{Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)}/{block.rows.length}
-          </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
-            padding: "6px 10px", borderRadius: 999, background: P.s3 }}>
-            <Timer size={13} color={P.faint2} />
-            <span className="num" style={{ fontSize: 14, fontWeight: 700, color: P.text, fontVariantNumeric: "tabular-nums" }}>{sessionClock(elapsed)}</span>
-            {hr.connected && hr.bpm != null && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 13, color: P.faint2 }}>
-                <HeartPulse size={12} /> {hr.bpm}
-              </span>
-            )}
-            <span title={pendingWrites ? `Guardando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
-              style={{ width: 6, height: 6, borderRadius: 3, flexShrink: 0,
-                background: pendingWrites ? P.line : (storageOK ? P.ember : "transparent"), border: !pendingWrites && !storageOK ? `1.5px solid ${P.text}` : "none" }} />
-          </span>
-        </div>
-        <button onClick={askExit} aria-label="Opciones de la sesión"
-          style={{ width: 32, height: 32, borderRadius: 16, background: P.s4, color: P.dim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <MoreHorizontal size={17} strokeWidth={2.4} />
-        </button>
-      </Card>
+      </div>
 
       <div>
         <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${blockTitle} — ver la rutina completa`}
           style={{ display: "flex", alignItems: "flex-start", gap: 6, textAlign: "left", width: "100%" }}>
-          <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.025em", lineHeight: 1.14, color: P.text, minWidth: 0, flex: 1,
+          <span style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.03em", lineHeight: 1.12, color: P.text, minWidth: 0, flex: 1,
             display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{blockTitle}</span>
-          {onBrowseRoutine && <ChevronRight size={18} color={P.chevron} strokeWidth={2.6} style={{ flexShrink: 0, marginTop: 5 }} />}
+          {onBrowseRoutine && <ChevronRight size={19} color={P.chevron} strokeWidth={2.6} style={{ flexShrink: 0, marginTop: 8 }} />}
         </button>
         {/* Por dónde va la sesión entera, un tramo por ejercicio. */}
         <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
@@ -5137,16 +5105,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         {/* Lo que hiciste la última vez en este mismo ejercicio, en una
             línea. Es la referencia con la que uno decide cuánto poner
             hoy, y estaba escondida detrás del botón "Historial". */}
-        {(activeTypeTag || refLast) && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, minWidth: 0 }}>
-            {activeTypeTag && (
-              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", flexShrink: 0,
-                padding: "4px 9px", borderRadius: 999, background: P.s3, color: P.dim, whiteSpace: "nowrap" }}>{activeTypeTag}</span>
-            )}
-            {refLast && (
-              <span style={{ fontSize: 12.5, color: P.faint2, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{refLast}</span>
-            )}
-          </div>
+        {refLast && (
+          <div style={{ fontSize: 13.5, color: P.faint2, marginTop: 9, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{refLast}</div>
         )}
         {!block.group && parseTempo(exs[block.ei].notes) && (
           <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
@@ -5158,7 +5118,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           su propio botón grande diciendo qué pasa al tocarlo. */}
       {timer ? restCard : blockDone ? blockDonePanel : (
         <>
-          <Card style={{ padding: "11px 13px 13px" }}>
+          <Card style={{ padding: "14px 14px 16px" }}>
             {block.group && (
               <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2, marginBottom: 8 }}>
                 {GROUP_KINDS[block.kind].label} · Ronda {(block.rows[activeRowIdx].round || 0) + 1} de {block.rounds}
@@ -5166,6 +5126,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             )}
             {renderActiveSet(block.rows[activeRowIdx])}
           </Card>
+          <div>
           <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
             <button onClick={() => goBlock(-1)} disabled={blockIdx === 0} aria-label="Ejercicio anterior"
               style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
@@ -5187,8 +5148,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           </div>
           {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
               y abajo, para que no haga falta preguntarlo. */}
-          <div style={{ fontSize: 12, color: P.faint2, textAlign: "center", marginTop: -3 }}>
+          <div style={{ fontSize: 12, color: P.faint2, textAlign: "center", marginTop: 8 }}>
             {pendingWrites ? "Guardando…" : storageOK ? "Guardado automático" : "Sin guardado — revisa el navegador"}
+          </div>
           </div>
         </>
       )}
@@ -5346,6 +5308,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             <span style={{ fontSize: 14.5, color: P.dim, fontWeight: 600 }}>Unidad de peso</span>
             <UnitToggle />
           </div>
+          <div style={{ height: 1, background: P.line, margin: "2px 0" }} />
+          <button data-keep onClick={() => { setRowMoreFor(null); setExiting(true); }}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
+              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
+            <BarChart3 size={18} /> Cómo va la sesión · finalizar
+          </button>
         </div>
       </Sheet>
       <Sheet open={mediaOpen} onClose={() => setMediaOpen(false)} title="Video y fotos de la sesión">
@@ -16237,6 +16205,12 @@ const App = () => {
   // Cambiar de pestaña o de modo cierra la pantalla de utilidad abierta.
   useEffect(() => { setUtility(null); }, [tab, mode]);
 
+  // Entrenando, Focus Mode es la pantalla ENTERA: sin cabecera de
+  // identidad, sin aviso de guardado y sin barra de pestañas. Entrenando
+  // no se cambia de sección, y cada franja que queda arriba o abajo es
+  // alto que le falta a lo único que importa —la serie que toca—.
+  const enSesion = mode === "alumno" && tab === "entrenar" && !!active;
+
   if (!splashGone) {
     return <SplashScreen exiting={splashExiting} />;
   }
@@ -16256,7 +16230,7 @@ const App = () => {
     <div className={easyMode ? "fj fj-easy" : "fj"} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
-        paddingBottom: "calc(96px + env(safe-area-inset-bottom))" }}>
+        paddingBottom: enSesion ? 0 : "calc(96px + env(safe-area-inset-bottom))" }}>
         {/* Cabecera: identidad como texto a la izquierda (toque rápido:
             cambiar de alumno/coach) y el avatar a la derecha — es el lugar
             donde la gente ya busca su propio ícono de cuenta. Tocarlo abre
@@ -16264,7 +16238,7 @@ const App = () => {
             nombre, cambiar de cuenta) antes de sus grupos de herramientas y
             ajustes — así sí funciona como el perfil que se espera al tocar
             el avatar, no solo un menú suelto. */}
-        {!(mode === "alumno" && tab === "entrenar" && active) && (
+        {!enSesion && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "calc(8px + env(safe-area-inset-top)) 16px 4px" }}>
             <button onClick={() => setReady(false)} style={{ textAlign: "left", minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{currentStudent?.name || "—"}</div>
@@ -16277,7 +16251,7 @@ const App = () => {
             </button>
           </div>
         )}
-        <StorageBanner />
+        {!enSesion && <StorageBanner />}
 
         {/* key={tab}: al cambiar de pestaña, React desmonta el bloque anterior
             y monta uno nuevo con esta key — eso dispara la animación de
@@ -16444,7 +16418,7 @@ const App = () => {
         </div>
       </div>
 
-      <TabBar tabs={tabs} tab={tab} setTab={setTab} />
+      {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode}
         studentName={currentStudent?.name} onSwitchIdentity={() => { setMoreOpen(false); setReady(false); }}
         canManageTeam={myRoleMeta.manageTeam}
