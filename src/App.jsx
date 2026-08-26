@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v175";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v176";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4786,6 +4786,21 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     if (any) patch(() => clone);
   }, []);
 
+  // Un paso atrás, sea serie o ejercicio. `activeRowIdx` es la primera
+  // sin marcar, así que la de antes está hecha por definición: se
+  // desmarca y vuelve a quedar abierta con lo que se había registrado.
+  const filaActual = () => (activeRowIdx === -1 ? block.rows.length : activeRowIdx);
+  const puedeAtras = filaActual() > 0 || blockIdx > 0;
+  const irAtras = () => {
+    const i = filaActual();
+    if (i > 0) {
+      const prev = block.rows[i - 1];
+      if (exs[prev.ei].sets[prev.si].done) onToggleDone(prev.ei, prev.si);
+      return;
+    }
+    if (blockIdx > 0) goBlock(-1);
+  };
+
   const goBlock = (dir) => {
     const next = blockIdx + dir;
     if (next < 0 || next >= blocks.length) return;
@@ -4842,12 +4857,18 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     const ck = restKey(ei, si);
     return (
       <>
-        <div data-cmt style={{ maxHeight: cmtKey === ck ? 130 : 0, opacity: cmtKey === ck ? 1 : 0, overflow: "hidden",
+        <div data-cmt style={{ maxHeight: cmtKey === ck ? 170 : 0, opacity: cmtKey === ck ? 1 : 0, overflow: "hidden",
           transition: `max-height ${DUR_ROW}ms ${EASE_STD}, opacity .16s ease` }}>
-          <textarea ref={cmtKey === ck ? cmtRef : null} rows={2} value={st.comment || ""} placeholder="Comentario de la serie"
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 12 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: P.faint2 }}>Comentario de la serie</span>
+            <button data-keep onClick={() => { clearTimeout(cmtTimer.current); setCmtKey(null); }}
+              style={{ fontSize: 14, fontWeight: 700, color: P.text, padding: "2px 4px",
+                visibility: cmtKey === ck ? "visible" : "hidden", pointerEvents: cmtKey === ck ? "auto" : "none" }}>Listo</button>
+          </div>
+          <textarea ref={cmtKey === ck ? cmtRef : null} rows={2} value={st.comment || ""} placeholder="Lo que quieras anotar de esta serie"
             onChange={(e) => { setVal(ei, si, "comment", e.target.value); touchCmt(); }}
             onFocus={touchCmt} onKeyDown={touchCmt}
-            style={{ width: "100%", marginTop: 10, marginBottom: 4, padding: "8px 10px", fontSize: 15, lineHeight: 1.4, resize: "none", borderRadius: 10,
+            style={{ width: "100%", marginTop: 6, marginBottom: 4, padding: "8px 10px", fontSize: 15, lineHeight: 1.4, resize: "none", borderRadius: 10,
               background: P.s1, border: `1px solid ${P.separatorStrong}`, color: P.text,
               visibility: cmtKey === ck ? "visible" : "hidden", pointerEvents: cmtKey === ck ? "auto" : "none" }} />
         </div>
@@ -4944,8 +4965,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     // 5 fichas al pie de la pantalla, lejos de lo que describen; acá van
     // adentro de la tarjeta, arriba de los números, que es donde se los
     // busca: son cosas que se consultan MIENTRAS se registra la serie.
-    const hayIndicaciones = (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes)
-      || ((plan && plan.instructions) || []).length > 0;
+    const hayIndicaciones = (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes);
     const acciones = [
       ["Ver la técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei), false],
       ["Historial del ejercicio", History, () => setHistEx(block.group ? block.members[0] : block.ei), false],
@@ -4997,6 +5017,39 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     );
   };
 
+  // Un solo pie, siempre en el mismo sitio: Atrás · lo que toca hacer ·
+  // Siguiente. Solo cambia el botón del medio, así que terminar un
+  // ejercicio no hace desaparecer la forma de volver atrás.
+  const pieNav = (centro, onCentro) => (
+    <div>
+      <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
+        <button onClick={irAtras} disabled={!puedeAtras}
+          aria-label={filaActual() > 0 ? "Volver a la serie anterior" : "Volver al ejercicio anterior"}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
+            borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, fontSize: 12.5, fontWeight: 600,
+            color: puedeAtras ? P.text : P.chevron, opacity: puedeAtras ? 1 : .55 }}>
+          <ChevronLeft size={15} strokeWidth={2.6} /> Atrás
+        </button>
+        <button onClick={onCentro}
+          style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "14px 6px",
+            borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 15.5, fontWeight: 600, whiteSpace: "nowrap" }}>
+          {centro}
+        </button>
+        <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} aria-label="Ejercicio siguiente"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
+            borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, fontSize: 12.5, fontWeight: 600,
+            color: blockIdx >= blocks.length - 1 ? P.chevron : P.text, opacity: blockIdx >= blocks.length - 1 ? .55 : 1 }}>
+          Siguiente <ChevronRight size={15} strokeWidth={2.6} />
+        </button>
+      </div>
+      {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
+          y abajo, para que no haga falta preguntarlo. */}
+      <div style={{ fontSize: 12, color: P.faint2, textAlign: "center", marginTop: 8 }}>
+        {pendingWrites ? "Guardando…" : storageOK ? "Guardado automático" : "Sin guardado — revisa el navegador"}
+      </div>
+    </div>
+  );
+
   // El ejercicio quedó completo y no hay descanso corriendo: no se deja
   // al usuario mirando una tarjeta vacía preguntándose qué hacer.
   const blockDonePanel = (
@@ -5012,10 +5065,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             : "Es el último ejercicio de la sesión"}
         </span>
       </Card>
-      <button onClick={() => (blockIdx < blocks.length - 1 ? goBlock(1) : onFinish())}
-        style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
-        {blockIdx < blocks.length - 1 ? "Ir al siguiente ejercicio" : "Finalizar sesión"}
-      </button>
+      {pieNav(blockIdx < blocks.length - 1 ? "Ir al siguiente ejercicio" : "Finalizar sesión",
+        () => (blockIdx < blocks.length - 1 ? goBlock(1) : onFinish()))}
     </>
   );
 
@@ -5126,32 +5177,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             )}
             {renderActiveSet(block.rows[activeRowIdx])}
           </Card>
-          <div>
-          <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
-            <button onClick={() => goBlock(-1)} disabled={blockIdx === 0} aria-label="Ejercicio anterior"
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
-                borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, fontSize: 12.5, fontWeight: 600,
-                color: blockIdx === 0 ? P.chevron : P.text, opacity: blockIdx === 0 ? .55 : 1 }}>
-              <ChevronLeft size={15} strokeWidth={2.6} /> Atrás
-            </button>
-            <button onClick={() => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si)}
-              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "14px 6px",
-                borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 15.5, fontWeight: 600, whiteSpace: "nowrap" }}>
-              Completar serie
-            </button>
-            <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} aria-label="Ejercicio siguiente"
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
-                borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, fontSize: 12.5, fontWeight: 600,
-                color: blockIdx >= blocks.length - 1 ? P.chevron : P.text, opacity: blockIdx >= blocks.length - 1 ? .55 : 1 }}>
-              Siguiente <ChevronRight size={15} strokeWidth={2.6} />
-            </button>
-          </div>
-          {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
-              y abajo, para que no haga falta preguntarlo. */}
-          <div style={{ fontSize: 12, color: P.faint2, textAlign: "center", marginTop: 8 }}>
-            {pendingWrites ? "Guardando…" : storageOK ? "Guardado automático" : "Sin guardado — revisa el navegador"}
-          </div>
-          </div>
+          {pieNav("Completar serie", () => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si))}
         </>
       )}
 
@@ -5337,35 +5363,22 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           )}
         </div>
       </Sheet>
-      <Sheet open={coachNotesOpen} onClose={() => setCoachNotesOpen(false)} title="Indicaciones del coach" tall>
+      <Sheet open={coachNotesOpen} onClose={() => setCoachNotesOpen(false)} title="Indicaciones del coach">
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {(block.group ? block.members : [block.ei]).map((mi) => {
+          {(block.group ? block.members : [block.ei]).filter((mi) => !!exs[mi].notes).map((mi) => {
             const exx = exs[mi];
-            if (!exx.notes && !parseTempo(exx.notes)) return null;
             return (
               <div key={mi} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{exx.name}</div>
+                {block.group && <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{exx.name}</div>}
                 <Card style={{ padding: "14px 16px" }}>
-                  <div style={{ fontSize: 15, color: P.text, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{exx.notes}</div>
+                  <div style={{ fontSize: 15.5, color: P.text, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{exx.notes}</div>
                 </Card>
               </div>
             );
           })}
-          {((plan && plan.instructions) || []).length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Para todo el plan</div>
-              <Card style={{ overflow: "hidden" }}>
-                {plan.instructions.map((it, i) => (
-                  <div key={it.id} style={{ padding: "13px 16px", borderBottom: i < plan.instructions.length - 1 ? `1px solid ${P.line}` : "none" }}>
-                    {it.title && <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{it.title}</div>}
-                    {it.body && <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5, marginTop: 2, whiteSpace: "pre-wrap" }}>{it.body}</div>}
-                  </div>
-                ))}
-              </Card>
-            </div>
-          )}
-          {!(block.group ? block.members : [block.ei]).some((mi) => exs[mi].notes) && !((plan && plan.instructions) || []).length && (
-            <Empty icon={FileText} title="Sin indicaciones" body="Cuando tu coach deje una nota en este ejercicio o en el plan, la vas a ver acá sin salir de la sesión." />
+          {!(block.group ? block.members : [block.ei]).some((mi) => exs[mi].notes) && (
+            <Empty icon={FileText} title="Sin indicaciones en este ejercicio"
+              body="Cuando tu coach deje una nota en este ejercicio la vas a ver acá. Las indicaciones generales del plan están en Mensajes." />
           )}
         </div>
       </Sheet>
