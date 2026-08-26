@@ -2706,6 +2706,33 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
   </button>
 );
 
+// Ficha de KPI sin ícono: etiqueta chica arriba, dato grande, leyenda
+// chica abajo — distinta de `Tile` (que siempre lleva ícono) porque acá
+// el dato ES el ícono. Usada en "Estado de hoy" y equivalentes.
+const KpiTile = ({ top, value, sub, onClick }) => (
+  <button onClick={onClick} style={{ width: "100%", textAlign: "left",
+    background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_TILE, padding: "14px 12px",
+    display: "flex", flexDirection: "column", gap: 3 }}>
+    <span style={{ fontSize: 13, color: P.faint2 }}>{top}</span>
+    <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: P.text, lineHeight: 1.15 }}>{value}</span>
+    {sub != null && <span style={{ fontSize: 13, color: P.faint2, lineHeight: 1.3 }}>{sub}</span>}
+  </button>
+);
+
+// Anillo de progreso circular — 104px, mismo trazo (14px) y mismo
+// cubic-bezier de aparición que el resto de la app. `pct` 0–100.
+const Ring = ({ pct, size = 104, stroke = 14 }) => {
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r;
+  const dash = `${(Math.max(0, Math.min(100, pct)) / 100) * c} ${c}`;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={P.fillTertiary} strokeWidth={stroke} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={P.text} strokeWidth={stroke}
+        strokeLinecap="round" strokeDasharray={dash} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+    </svg>
+  );
+};
+
 // Sección que arranca RESUMIDA y se abre al tocarla, en vez de mostrar
 // todo de entrada — mismo patrón de max-height/opacity que ya usan las
 // demás secciones plegables de la app (nota del coach, comentario de
@@ -6163,7 +6190,11 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         right={d.weekNum ? <span style={{ fontSize: 12.5, color: P.faint, fontWeight: 600 }}>Semana {d.weekNum}/{d.weekTotal}</span> : null} />
       <EventReminderBanner events={plan.events} />
       <NextBookingBanner bookings={bookings} sid={sid} />
-      <WeekStrip plan={plan} history={history} weekNum={d.weekNum} weekTotal={d.weekTotal} onSelectDay={setDayDetail} />
+      {/* La franja semanal (L M X J V S D) se relocaliza a Agenda · Semana
+          — el prototipo de referencia no la muestra en Hoy, y ese es su
+          lugar natural junto al resto de la vista semanal del calendario.
+          `WeekStrip` sigue definido y `dayDetail`/su hoja quedan intactos;
+          se vuelven a montar ahí en la fase de Agenda. */}
       {workout ? (
         <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
@@ -6177,23 +6208,56 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         </Card>
       ) : emptyCard}
 
-      {/* Grilla 2×2: los cuatro atajos del día a día, uno por toque — no
-          "Timer"/"Agenda" (eso vive en Más y en la propia Agenda; acá solo
-          lo que se revisa TODOS los días). El dato de cada ficha es un
-          valor corto (regla de mínimo texto: dato, no frase). */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-        <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
-          value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} />
-        <Tile Icon={Utensils} label="Comidas" onClick={onOpenNutrition}
-          value={mealsTotal ? `${mealsDoneCount} / ${mealsTotal}` : null} />
-        <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} />
-        <Tile Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} />
+      {/* Anillo de adherencia semanal: mismo dato que ya se mostraba en la
+          hoja de detalle (d.adherence), ahora también de un vistazo acá. */}
+      {d.adherence != null && (
+        <Card onClick={() => setStatDetail("adherencia")} style={{ padding: 18, display: "flex", alignItems: "center", gap: 20, cursor: "pointer" }}>
+          <Ring pct={d.adherence} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 15, fontWeight: 600, color: P.text }}>Adherencia semanal</span>
+            <span style={{ fontSize: 13.5, color: P.faint, lineHeight: 1.4 }}>{d.weekSessions.length} de {d.week.filter((w) => w.planned).length || d.week.length} sesiones completadas</span>
+            <span style={{ fontSize: 13, color: P.faint2 }}>Objetivo 100 %</span>
+          </div>
+        </Card>
+      )}
+
+      {/* Estado de hoy: los cuatro datos que se miran todos los días,
+          sin ícono — el número ES el ícono. Tocar cualquiera abre el
+          check-in, que es donde se registran. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Estado de hoy</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+          <KpiTile top="Peso" onClick={() => setCheckinOpen(true)}
+            value={d.lastBw ? kg(d.lastBw.kg) : "—"}
+            sub={d.lastBw ? `kg${d.prevBw ? ` · ${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} esta sem.` : ""}` : "sin registro"} />
+          <KpiTile top="Pasos" onClick={() => setCheckinOpen(true)}
+            value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
+            sub={d.lastSteps ? "meta 12.000" : "sin registro"} />
+          <KpiTile top="Agua" onClick={() => setCheckinOpen(true)}
+            value={d.lastWater ? `${d.lastWater.liters} L` : "—"}
+            sub={d.lastWater ? "meta 5 L" : "sin registro"} />
+          <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
+            value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
+            sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />
+        </div>
       </div>
 
-      {/* Esta semana: solo lo que no tiene otro lugar natural — Racha y
-          Peso corporal. Adherencia/Volumen/Pasos/Agua/Sueño no desaparecen:
-          se reagrupan dentro de Progreso (Fuerza/Cuerpo/Volumen), que es
-          donde ya vive el resto del seguimiento de cuerpo y volumen. */}
+      {/* Acciones rápidas: los cuatro atajos del día a día, uno por
+          toque — no "Timer"/"Agenda" (eso vive en Más y en la propia
+          Agenda; acá solo lo que se revisa TODOS los días). */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Acciones rápidas</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+          <Tile Icon={Dumbbell} label="Entrenar" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
+          <Tile Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} />
+          <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
+            value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} />
+          <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} />
+        </div>
+      </div>
+
+      {/* Esta semana: Racha, Volumen y Comidas — Peso ya se ve arriba en
+          "Estado de hoy" y Adherencia en el anillo, así que no se repiten. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Esta semana</div>
         <Card style={{ overflow: "hidden" }}>
@@ -6202,9 +6266,14 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} día{d.streak !== 1 ? "s" : ""}</span>
             <ChevronRight size={16} color={P.chevron} />
           </button>
-          <button onClick={() => setStatDetail("peso")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-            <span style={{ flex: 1, fontSize: 16 }}>Peso</span>
-            <span style={{ fontSize: 15, color: P.faint2 }}>{d.lastBw ? `${kg(d.lastBw.kg)} kg` : "—"}</span>
+          <button onClick={() => setStatDetail("volumen")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
+            <span style={{ flex: 1, fontSize: 16 }}>Volumen</span>
+            <span style={{ fontSize: 15, color: P.faint2 }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</span>
+            <ChevronRight size={16} color={P.chevron} />
+          </button>
+          <button onClick={onOpenNutrition} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+            <span style={{ flex: 1, fontSize: 16 }}>Comidas de hoy</span>
+            <span style={{ fontSize: 15, color: P.faint2 }}>{mealsTotal ? `${mealsDoneCount} de ${mealsTotal}` : "—"}</span>
             <ChevronRight size={16} color={P.chevron} />
           </button>
         </Card>
