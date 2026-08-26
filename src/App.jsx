@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v166";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v167";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3910,7 +3910,7 @@ const ExHistorySheet = ({ open, onClose, exName, entries, onOpenImg }) => (
           {en.sets.filter((s) => s.done).map((s, j) => (
             <div key={j} style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 15, padding: "3px 0" }}>
               <TypeBadge type={s.type} />
-              <span style={{ fontWeight: 600 }}>{s.weight !== "" ? `${kg(+s.weight)} kg` : "—"} × {s.reps || "—"}</span>
+              <span style={{ fontWeight: 600 }}>{setSummary(s, "kg")}</span>
               {s.rir !== "" && <span style={{ color: P.dim, fontSize: 13.5 }}>RIR {s.rir}</span>}
               {s.drops && s.drops.length > 0 && (
                 <span style={{ color: SET_TYPES.drop.color, fontSize: 13.5 }}>
@@ -6708,7 +6708,7 @@ const SessionDetailSheet = ({ session, onClose, history, onOpenImg }) => (
               {entry.sets.filter((s) => s.done).map((s, j) => (
                 <div key={j} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 14.5, padding: "2px 0" }}>
                   <TypeBadge type={s.type} />
-                  <span style={{ fontWeight: 600 }}>{s.weight !== "" ? `${kg(+s.weight)} kg` : "—"} × {s.reps || "—"}</span>
+                  <span style={{ fontWeight: 600 }}>{setSummary(s, "kg")}</span>
                   {s.rir !== "" && <span style={{ color: P.dim, fontSize: 13 }}>RIR {s.rir}</span>}
                   {s.comment && <span style={{ color: P.ember2, fontSize: 13 }}>“{s.comment}”</span>}
                 </div>
@@ -6998,7 +6998,7 @@ const ExHistorySheetInline = ({ entries, onOpenImg }) => (
         {en.sets.filter((s) => s.done).map((s, j) => (
           <div key={j} style={{ display: "flex", gap: 7, alignItems: "baseline", fontSize: 14.5, padding: "2px 0" }}>
             <TypeBadge type={s.type} />
-            <span style={{ fontWeight: 600 }}>{s.weight !== "" ? `${kg(+s.weight)} kg` : "—"} × {s.reps || "—"}</span>
+            <span style={{ fontWeight: 600 }}>{setSummary(s, "kg")}</span>
             {s.rir !== "" && <span style={{ color: P.dim, fontSize: 13 }}>RIR {s.rir}</span>}
             {s.comment && <span style={{ color: P.ember2, fontSize: 13 }}>“{s.comment}”</span>}
           </div>
@@ -7017,17 +7017,21 @@ const ExHistorySheetInline = ({ entries, onOpenImg }) => (
 /* ============================================================
    Nutrición (vista alumno)
    ============================================================ */
-// Las tres filas de abajo (Agua, Suplementos, Compras) no existían en
-// Nutrición — Agua vivía solo en Progreso·Cuerpo (se enlaza al mismo
-// history.water, no se duplica el dato) y Suplementos/Compras son
-// listas nuevas y chicas, sin tocar el modelo de rutina/plan:
+// Datos que usa esta pantalla, todos aparte del modelo de rutina:
 //   - history.mealChecks: { "<fecha>": { "<mealId>": true } } — qué
-//     comidas ya se comieron hoy.
-//   - plan.nutrition.supplements: [{id,name}] (lo carga el coach en el
-//     editor) + history.supplementChecks con la misma forma que mealChecks.
+//     comidas ya se comieron hoy. De ahí sale el consumido del día,
+//     sumando las kcal de las comidas marcadas (meal.kcal, opcional:
+//     lo carga el coach en el editor de Nutrición).
+//   - plan.nutrition.supplements: [{id,name,dose,when,group}] — la fila
+//     "Suplementos" solo lleva la cuenta y abre la hoja de
+//     Suplementación, que es donde se marcan (con dosis, momento y
+//     adherencia). Antes acá había una mini-lista propia que hacía
+//     media función con menos datos.
 //   - history.shoppingList: [{id,text,done}] — lista propia del alumno,
 //     no depende del coach.
-const NutritionView = ({ plan, n, history, saveHistory }) => {
+//   - history.water: el agua se muestra acá y en Progreso·Cuerpo, pero
+//     es el mismo arreglo: no se duplica el dato.
+const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => {
   // Ciclado de carbohidratos (opcional, ver NutritionEditor): si está
   // activado, se muestran los macros de "hoy" según si hay rutina
   // programada (scheduledDayIdFor ya resuelve semana concreta/tipo y el
@@ -7066,15 +7070,6 @@ const NutritionView = ({ plan, n, history, saveHistory }) => {
   const supplements = n.supplements || [];
   const suppChecks = (history && history.supplementChecks && history.supplementChecks[todayKey]) || {};
   const suppDone = supplements.filter((s) => suppChecks[s.id]).length;
-  const toggleSupp = (id) => {
-    if (!saveHistory) return;
-    const h = structuredClone(history);
-    h.supplementChecks = h.supplementChecks || {};
-    h.supplementChecks[todayKey] = { ...(h.supplementChecks[todayKey] || {}) };
-    if (h.supplementChecks[todayKey][id]) delete h.supplementChecks[todayKey][id];
-    else h.supplementChecks[todayKey][id] = true;
-    saveHistory(h);
-  };
 
   const water = (history && history.water) || [];
   const lastWater = water.length ? water[water.length - 1] : null;
@@ -7176,26 +7171,12 @@ const NutritionView = ({ plan, n, history, saveHistory }) => {
             <button onClick={() => addWater(Math.round(((lastWater ? lastWater.liters : 0) + .25) * 100) / 100)}
               style={{ fontSize: 15, color: P.text, fontWeight: 600 }}>+ 0,25 L</button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: supplements.length > 0 ? `1px solid ${P.line}` : "none" }}>
-            <span style={{ flex: 1, fontSize: 16 }}>Suplementos</span>
+          <button onClick={onOpenSupplements} disabled={!onOpenSupplements}
+            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+            <span style={{ flex: 1, fontSize: 16, color: P.text }}>Suplementos</span>
             <span style={{ fontSize: 15, color: P.faint2 }}>{supplements.length ? `${suppDone} de ${supplements.length}` : "Sin cargar"}</span>
-          </div>
-          {supplements.length > 0 && (
-            <div style={{ padding: "0 16px 10px" }}>
-              {supplements.map((s) => {
-                const done = !!suppChecks[s.id];
-                return (
-                  <button key={s.id} onClick={() => toggleSupp(s.id)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }}>
-                    <span style={{ width: 18, height: 18, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                      background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
-                      {done && <Check size={11} color={PLATE_FG} strokeWidth={3} />}
-                    </span>
-                    <span style={{ fontSize: 14, color: P.dim }}>{s.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+            {onOpenSupplements && <ChevronRight size={16} color={P.chevron} />}
+          </button>
         </Card>
         <Card style={{ overflow: "hidden" }}>
           <button onClick={() => setShopOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
@@ -15417,7 +15398,10 @@ const App = () => {
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             jumpSub={progressJumpSub} onJumpConsumed={() => setProgressJumpSub(null)} />
         )}
-        {mode === "alumno" && tab === "nutricion" && <NutritionView plan={plan} n={plan.nutrition} history={history} saveHistory={saveHistory} />}
+        {mode === "alumno" && tab === "nutricion" && (
+          <NutritionView plan={plan} n={plan.nutrition} history={history} saveHistory={saveHistory}
+            onOpenSupplements={() => setSupplementsOpen(true)} />
+        )}
         {mode === "alumno" && tab === "mas" && (
           <MasTab toast={toast} sid={sid} onOpenUtility={(id) => setUtility(id)} onOpenDevices={() => setDevicesOpen(true)}
             onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
