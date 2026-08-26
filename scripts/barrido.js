@@ -26,7 +26,6 @@ const DIR = process.env.FORJA_OUT || require('os').tmpdir();
 const seed = (theme) => {
   const iso = (d) => new Date(Date.now() - d * 86400000).toISOString();
   localStorage.setItem('forja-theme', theme);
-  localStorage.setItem('forja-landing-seen', '1');
   localStorage.setItem('fjkv:forja-roster', JSON.stringify({ v: 1, students: [
     { id: 's1', name: 'Javier', createdAt: iso(200) }, { id: 's2', name: 'Lucía', createdAt: iso(120) },
   ] }));

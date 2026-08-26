@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v176";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v177";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15312,72 +15312,6 @@ const TabBar = ({ tabs, tab, setTab }) => (
 );
 
 /* ---- Selección de identidad (por dispositivo) ---- */
-// Bandera puramente local (un dispositivo/navegador) para no repetir la
-// landing de marketing una vez que alguien ya la vio. A propósito NO usa
-// sGet/sSet: no es dato del roster ni del plan, así que no puede tocar la
-// sincronización real de la app.
-const LANDING_SEEN_KEY = "forja-landing-seen";
-const getLandingSeen = () => { try { return window.localStorage.getItem(LANDING_SEEN_KEY) === "1"; } catch { return true; } };
-const setLandingSeen = () => { try { window.localStorage.setItem(LANDING_SEEN_KEY, "1"); } catch {} };
-
-// Landing pública: lo primero que ve un dispositivo nuevo, antes del
-// selector "¿Quién entra?". Es solo presentación (hero + preview del
-// Dashboard a modo de ejemplo) — no lee ni escribe roster/plan, así que
-// nunca puede interferir con los datos reales de un alumno o coach.
-const LandingPage = ({ onStart }) => {
-  const preview = [
-    { label: "Atletas activos", value: "32" },
-    { label: "Check-ins", value: "87%" },
-    { label: "Cumplimiento", value: "76%" },
-    { label: "Progreso", value: "+5.6%", color: P.green },
-  ];
-  return (
-    <div className="fj" style={{ minHeight: "100vh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <GlobalStyle />
-      <div style={{ width: "100%", maxWidth: 460 }}>
-        <div style={{ textAlign: "center", marginBottom: 16 }}><Logo size={38} /></div>
-        <div style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: ".14em", textAlign: "center", color: P.faint, fontWeight: 700, margin: "0 0 10px" }}>Pro Training</div>
-        <div style={{ fontSize: 23, fontWeight: 800, textAlign: "center", marginBottom: 10, lineHeight: 1.3 }}>
-          Rutinas, seguimiento y comunicación coach ↔ alumno, todo en un solo lugar.
-        </div>
-        <div style={{ color: P.dim, fontSize: 14.5, textAlign: "center", marginBottom: 22, lineHeight: 1.5 }}>
-          Planifica el entrenamiento, revisa el progreso de cada alumno y mantente en contacto — sin depender de planillas sueltas.
-        </div>
-
-        <Btn kind="ember" onClick={onStart} style={{ width: "100%", padding: "14px 16px", fontSize: 16.5, marginBottom: 10 }}>
-          Empieza gratis
-        </Btn>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: P.dim, fontSize: 13, marginBottom: 26 }}>
-          <Check size={14} color={P.green} /> Cancela cuando quieras
-        </div>
-
-        <div style={{ fontSize: 11.5, color: P.faint, textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 700, textAlign: "center", marginBottom: 10 }}>
-          Así se ve tu Dashboard
-        </div>
-        <Card style={{ padding: 16, marginBottom: 22 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {preview.map((d) => (
-              <div key={d.label} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: "12px 13px" }}>
-                <div style={{ fontSize: 11, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>{d.label}</div>
-                <div className="disp" style={{ fontSize: 20, fontWeight: 800, color: d.color || P.text, marginTop: 3 }}>{d.value}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <button onClick={onStart} style={{ display: "block", width: "100%", textAlign: "center", color: P.faint, fontSize: 13.5, textDecoration: "underline" }}>
-          Ya tengo cuenta, entrar
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// Selector de perfil, rediseñado como grilla de fichas (mismo patrón que
-// "¿quién está viendo?" de cualquier app con varios perfiles en un
-// dispositivo) en vez de una lista de tarjetas apiladas con una oración
-// explicando cada una. Nombre + avatar ya dicen todo lo que hace falta —
-// no necesita una frase debajo de cada ficha para explicarse.
 const GateTile = ({ onClick, avatar, label }) => (
   <button onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 9 }}>
     {avatar}
@@ -15827,7 +15761,6 @@ const App = () => {
     return () => clearTimeout(t);
   }, [loading, splashMinDone, splashGone]);
   const [ready, setReady] = useState(false);
-  const [showLanding, setShowLanding] = useState(() => !getLandingSeen());
   const [roster, setRoster] = useState({ v: ROSTER_VERSION, students: [] });
   const [mode, setMode] = useState("coach");
   const [sid, setSid] = useState(null);
@@ -16226,10 +16159,6 @@ const App = () => {
 
   if (!splashGone) {
     return <SplashScreen exiting={splashExiting} />;
-  }
-
-  if (!ready && showLanding) {
-    return <LandingPage onStart={() => { setLandingSeen(); setShowLanding(false); }} />;
   }
 
   if (!ready) {
