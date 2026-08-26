@@ -10192,7 +10192,7 @@ const DashboardTab = ({ roster, toast }) => {
    mismo propósito (avisar qué conversación necesita atención).
    ============================================================ */
 
-const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent, onOpenCobros }) => {
+const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent, onOpenCobros, onOpenAtletas, onOpenMensajes, onOpenTeam, teamSize }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, sessions, chat, pay }
   const [staleOpen, setStaleOpen] = useState(false);
@@ -10283,40 +10283,27 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
         </span>
       } />
 
-      {/* Cuatro cifras en grilla 2×2: activos, check-in, sin leer, por
-          cobrar. Antes eran 3 en fila; "Por cobrar" reusa exactamente el
-          mismo cálculo de estado de pago que ya usa Cobros. */}
+      {/* Las mismas cuatro cifras que ya había, pero en `KpiTile`, que es
+          la ficha que usa "Estado de hoy" del alumno: una sola ficha de
+          dato en toda la app en vez de una tarjeta a medida por pantalla.
+          Cada una lleva adonde se resuelve. */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
-        <Card style={{ padding: "16px 16px" }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{activeCount}</div>
-          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Atletas</div>
-        </Card>
-        <Card style={{ padding: "16px 16px" }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{checkinPct}%</div>
-          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Check-in</div>
-        </Card>
-        <Card style={{ padding: "16px 16px" }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{pendCount}</div>
-          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Sin leer</div>
-        </Card>
-        <Card style={{ padding: "16px 16px" }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: P.text }}>{dueCount}</div>
-          <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>Por cobrar</div>
-        </Card>
+        <KpiTile top="Atletas" value={String(activeCount)} onClick={onOpenAtletas} />
+        <KpiTile top="Check-in" value={`${checkinPct}%`} sub="últimos 7 días" onClick={onOpenAtletas} />
+        <KpiTile top="Sin leer" value={String(pendCount)} onClick={onOpenMensajes} />
+        <KpiTile top="Por cobrar" value={String(dueCount)} onClick={onOpenCobros} />
       </div>
 
-      {stale.length > 0 && (
-        <button onClick={() => setStaleOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
-          marginTop: 14, padding: "14px 15px", borderRadius: R_TILE, background: P.s1, border: `1.5px solid ${P.text}` }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: P.text }}>{stale.length} sin entrenar</div>
-            <div style={{ fontSize: 13.5, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {stale.slice(0, 4).map((s) => s.name).join(" · ")}{stale.length > 4 ? "…" : ""}
-            </div>
-          </div>
-          <ChevronRight size={17} color={P.faint} />
-        </button>
-      )}
+      {/* "Requiere atención": lo que hay que mirar hoy, en una sola lista,
+          en vez de un único aviso de "sin entrenar" y el resto escondido
+          detrás de las cifras. Las filas sin nada pendiente no se pintan. */}
+      <div style={{ marginTop: 14 }}>
+        <RowGroup label="Requiere atención" rows={[
+          stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
+          dueCount > 0 && { label: `${dueCount} cuota${dueCount !== 1 ? "s" : ""} por vencer`, onClick: onOpenCobros },
+          pendCount > 0 && { label: `${pendCount} mensaje${pendCount !== 1 ? "s" : ""} sin leer`, onClick: onOpenMensajes },
+        ]} />
+      </div>
 
       <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "20px 2px 8px" }}>Hoy</div>
       {activity.length === 0 ? (
@@ -10341,7 +10328,14 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
       <SettingGroup>
         <SettingRow Icon={ClipboardList} label="Nueva rutina" onClick={onNewRoutine} />
         <SettingRow Icon={UserPlus} label="Agregar atleta" onClick={onAddStudent} />
-        <SettingRow Icon={DollarSign} label="Cobrar cuota" onClick={onOpenCobros} last />
+        <SettingRow Icon={DollarSign} label="Cobrar cuota" onClick={onOpenCobros} last={!onOpenTeam} />
+        {onOpenTeam && (
+          <SettingRow Icon={Award} label="Equipo y roles" onClick={onOpenTeam} last
+            right={<span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {teamSize != null && <span style={{ fontSize: 15, color: P.faint2 }}>{teamSize}</span>}
+              <ChevronRight size={17} color={P.faint} strokeWidth={2.4} />
+            </span>} />
+        )}
       </SettingGroup>
 
       <Sheet open={staleOpen} onClose={() => setStaleOpen(false)} title="Sin entrenar" tall>
@@ -13124,7 +13118,7 @@ const Toast = ({ msg }) => !msg ? null : (
 // datos del alumno, así que quedan disponibles para cualquier rol.
 // "chat" también queda para cualquier rol: es la vía directa con el
 // alumno, no algo que tenga sentido restringir por especialidad.
-const ALWAYS_TABS = { timer: "edit", guia: "edit", chat: "edit" };
+const ALWAYS_TABS = { timer: "edit", guia: "edit", chat: "edit", cmas: "edit" };
 const ROLE_META = {
   head_coach:  { label: "Head Coach", short: "Acceso completo + gestiona el equipo", manageTeam: true, tabAccess: null },
   coach_asistente: { label: "Coach asistente", short: "Acceso completo, no gestiona el equipo", manageTeam: false, tabAccess: null },
@@ -13146,7 +13140,7 @@ const ROLE_META = {
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["dashboard", "rutina", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "chat", "timer", "guia"];
+const TABS_COACH_IDS = ["dashboard", "rutina", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "chat", "timer", "guia", "cmas"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -13382,11 +13376,11 @@ const TABS = {
     { id: "atletas", label: "Atletas", Icon: Users, sections: ["actividad", "rankings", "cobros", "leads"] },
     { id: "rutina", label: "Rutinas", Icon: ClipboardList, sections: ["rutina", "borradores", "nutricion", "ia"] },
     { id: "indicaciones", label: "Mensajes", Icon: MessageSquare, sections: ["chat", "indicaciones"] },
-    { id: "agenda", label: "Agenda", Icon: Calendar, sections: ["agenda"] },
+    { id: "cmas", label: "Más", Icon: MoreHorizontal, sections: ["cmas"] },
   ],
 };
 const SECTION_LABELS = {
-  chat: "Chat", indicaciones: "Indicaciones",
+  chat: "Chat", indicaciones: "Indicaciones", cmas: "Más",
   actividad: "Actividad", rankings: "Rankings", cobros: "Cobros", leads: "Leads",
   rutina: "Rutina", borradores: "Borradores", nutricion: "Nutrición", ia: "IA",
 };
@@ -13399,8 +13393,8 @@ const UTILITY_SCREENS = {
 
 // Easy Mode deja solo lo imprescindible en la barra inferior. Todo lo
 // demás sigue existiendo: vuelve al toque con el switch de Interfaz.
-const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "agenda"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "mas"] };
-const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
+const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "cmas"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "mas"] };
+const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", cmas: "Más", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
 
 /* ============================================================
    S2 · Competition Prep (handoff): cuenta atrás a la fecha de
@@ -13995,6 +13989,79 @@ const SupplementsSheet = ({ open, onClose, plan, history, saveHistory, onOpenLab
         </div>
       )}
     </Sheet>
+  );
+};
+
+
+// "Más" del coach. La barra tenía Agenda como quinta pestaña y todo lo
+// demás (equipo, borradores, temporizador, guía, ajustes) repartido entre
+// segmentos de otras pestañas y la hoja del botón de la cabecera — había
+// que saber dónde estaba cada cosa. Ahora hay una pantalla que las junta,
+// igual que "Más" del alumno, y la Agenda entra por acá.
+//
+// `access` es el mapa de permisos del rol (coachTabsForRole): una ficha
+// cuyo destino el rol no puede ni ver, no se dibuja. No se “desactiva”
+// con un candado: si no hay acceso, no existe.
+const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpenTeam, onOpenSettings, onSwitchMode, onOpenCompPrep, onOpenAtlas }) => {
+  const [q, setQ] = useState("");
+  const can = (k) => !!access[k];
+  const groups = [
+    { label: "Agenda y equipo", rows: [
+      can("agenda") && { key: "agenda", Icon: Calendar, label: "Agenda", kw: "turnos disponibilidad calendario", onClick: () => onOpenUtility("agenda") },
+      canManageTeam && { key: "equipo", Icon: Award, label: "Equipo y roles", kw: "coaches permisos nutricionista", onClick: onOpenTeam },
+      can("cobros") && { key: "cobros", Icon: DollarSign, label: "Cobros", kw: "cuotas pagos vencidas", onClick: () => onGoSection("atletas", "cobros") },
+    ] },
+    { label: "Atletas", rows: [
+      can("rankings") && { key: "rankings", Icon: Trophy, label: "Rankings", kw: "tonelaje adherencia tabla", onClick: () => onGoSection("atletas", "rankings") },
+      can("leads") && { key: "leads", Icon: UserPlus, label: "Leads", kw: "prospectos altas nuevos", onClick: () => onGoSection("atletas", "leads") },
+      can("indicaciones") && { key: "indic", Icon: FileText, label: "Indicaciones", kw: "instrucciones generales plan", onClick: () => onGoSection("indicaciones", "indicaciones") },
+    ] },
+    { label: "Herramientas", rows: [
+      can("ia") && { key: "ia", Icon: Sparkles, label: "Coach IA", kw: "asistente progresión volumen", onClick: () => onGoSection("rutina", "ia") },
+      { key: "atlas", Icon: BarChart3, label: "Atlas", kw: "ejercicios buscar biblioteca", onClick: onOpenAtlas },
+      { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva", onClick: () => onOpenUtility("timer") },
+      { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "etiquetas top drop rir", onClick: () => onOpenUtility("guia") },
+      can("borradores") && { key: "borradores", Icon: ClipboardList, label: "Borradores", kw: "plantillas rutinas guardadas", onClick: () => onGoSection("rutina", "borradores") },
+      { key: "prep", Icon: Medal, label: "Competition Prep", kw: "fase categoría peak week", onClick: onOpenCompPrep },
+    ] },
+    { label: "Cuenta", rows: [
+      { key: "config", Icon: Sun, label: "Configuración", kw: "tema apariencia unidades", onClick: onOpenSettings },
+      { key: "cambiar", Icon: Users, label: "Cambiar a Atleta", kw: "modo alumno", onClick: () => onSwitchMode("alumno") },
+    ] },
+  ].map((g) => ({ ...g, rows: g.rows.filter(Boolean) })).filter((g) => g.rows.length > 0);
+
+  const query = q.trim().toLowerCase();
+  const filtered = query
+    ? groups.map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.kw.includes(query)) })).filter((g) => g.rows.length > 0)
+    : groups;
+
+  return (
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
+      <ScreenTitle title="Más" />
+      <div style={{ position: "relative" }}>
+        <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar en FORJA"
+          aria-label="Buscar en FORJA" style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15,
+            background: P.s4, borderRadius: R_TILE, border: "none" }} />
+        {q && (
+          <button onClick={() => setQ("")} aria-label="Borrar búsqueda"
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: P.faint2, padding: 4 }}>
+            <X size={15} />
+          </button>
+        )}
+      </div>
+      {filtered.length === 0 && (
+        <div style={{ textAlign: "center", color: P.faint2, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
+      )}
+      {filtered.map((g) => (
+        <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
+            {g.rows.map((r) => <Tile key={r.key} Icon={r.Icon} label={r.label} onClick={r.onClick} />)}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 };
 
@@ -15169,10 +15236,15 @@ const App = () => {
                 <GlossaryBody showTopButton />
               </div>
             )}
-            {utility === "agenda" && (
+            {utility === "agenda" && (mode === "coach" ? (
+              <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
+                <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings}
+                  availability={availability} onSaveAvailability={saveAvailability} />
+              </ReadOnlyLock>
+            ) : (
               <CalendarTab plan={plan} history={history} onGoTrain={() => { setUtility(null); setTab("entrenar"); }}
                 bookings={bookings.slots} sid={sid} onCancelBooking={(id) => saveBookings(bookings.slots.map((x) => (x.id === id ? { ...x, status: "cancelada" } : x)))} />
-            )}
+            ))}
             {utility === "chat" && <ChatTab sid={sid} role="alumno" />}
           </div>
         )}
@@ -15281,7 +15353,10 @@ const App = () => {
           <DashboardTabMono roster={roster} toast={toast} coachName={myTeamId ? (team.members.find((m) => m.id === myTeamId) || {}).name : "Tú"}
             onNewRoutine={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "rutina" })); }}
             onAddStudent={() => addStudent(false)}
-            onOpenCobros={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "cobros" })); }} />
+            onOpenCobros={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "cobros" })); }}
+            onOpenAtletas={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "actividad" })); }}
+            onOpenMensajes={() => { setTab("indicaciones"); setSection((o) => ({ ...o, indicaciones: "chat" })); }}
+            onOpenTeam={myRoleMeta.manageTeam ? () => setEquipoOpen(true) : null} teamSize={(team.members || []).length} />
         )}
         {mode === "coach" && sub === "actividad" && <AtletasActividadTab roster={roster} toast={toast} />}
         {mode === "coach" && sub === "rankings" && (
@@ -15300,6 +15375,13 @@ const App = () => {
           </ReadOnlyLock>
         )}
         {mode === "coach" && sub === "chat" && <AtletasMensajesTab roster={roster} toast={toast} />}
+        {mode === "coach" && sub === "cmas" && (
+          <CoachMasTab access={roleTabAccess} canManageTeam={myRoleMeta.manageTeam}
+            onGoSection={(t, sec) => { setTab(t); setSection((o) => ({ ...o, [t]: sec })); }}
+            onOpenUtility={setUtility} onOpenTeam={() => setEquipoOpen(true)}
+            onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
+            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)} />
+        )}
         </div>
       </div>
 
