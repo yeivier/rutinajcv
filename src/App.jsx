@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v165";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v166";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7045,6 +7045,14 @@ const NutritionView = ({ plan, n, history, saveHistory }) => {
 
   const mealChecks = (history && history.mealChecks && history.mealChecks[todayKey]) || {};
   const mealsDone = n.meals.filter((m) => mealChecks[m.id]).length;
+  // Calorías del día: se suman las de las comidas YA marcadas. Si el coach
+  // no cargó kcal en ninguna comida no se muestra el contador — un "0 de
+  // 2.600" permanente sería peor que no decir nada.
+  const mealKcal = (m) => (m.kcal === "" || m.kcal == null ? 0 : +m.kcal || 0);
+  const kcalPlanned = n.meals.reduce((a, m) => a + mealKcal(m), 0);
+  const kcalEaten = n.meals.reduce((a, m) => a + (mealChecks[m.id] ? mealKcal(m) : 0), 0);
+  const hasMealKcal = kcalPlanned > 0;
+  const kcalGoal = +(v.kcal || 0) || kcalPlanned;
   const toggleMeal = (mealId) => {
     if (!saveHistory) return;
     const h = structuredClone(history);
@@ -7103,12 +7111,20 @@ const NutritionView = ({ plan, n, history, saveHistory }) => {
           {isTrainDay ? <Dumbbell size={13} /> : <Moon size={13} />} Hoy: día de {isTrainDay ? "entreno" : "descanso"}
         </div>
       )}
+      {/* Lo primero: cuánto llevas hoy, no cuánto te toca en total. El
+          objetivo va de leyenda debajo. Sin kcal cargadas por comida se
+          muestra el objetivo del plan y las comidas hechas, que es lo que
+          la app sí sabe. */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <KpiTile top="Calorías"
+          value={hasMealKcal ? kcalEaten.toLocaleString("es-CL") : (v.kcal ? String(v.kcal) : "—")}
+          sub={hasMealKcal ? `de ${kcalGoal.toLocaleString("es-CL")} kcal` : "objetivo del día"} />
+        <KpiTile top="Agua" value={lastWater ? `${kg(lastWater.liters)} L` : "—"}
+          sub={lastWater ? "registrado hoy" : "sin registrar"} />
+      </div>
+
       {hasMacros && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-            <span style={{ fontSize: 30, fontWeight: 600, letterSpacing: "-.01em", lineHeight: 1.1 }}>{v.kcal || "—"}</span>
-            <span style={{ fontSize: 14, color: P.faint2 }}>kcal / día</span>
-          </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
             {[["Proteína", v.p ? `${v.p} g` : "—"], ["Carbos", v.c ? `${v.c} g` : "—"], ["Grasas", v.f ? `${v.f} g` : "—"]].map(([l, val]) => (
               <Card key={l} style={{ padding: "11px 6px", textAlign: "center" }}>
@@ -7122,7 +7138,10 @@ const NutritionView = ({ plan, n, history, saveHistory }) => {
       {n.notes && <div style={{ fontSize: 14.5, color: P.dim, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: "11px 14px", lineHeight: 1.5 }}>{n.notes}</div>}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Comidas</div>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, padding: "0 16px 0 16px" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Comidas de hoy</span>
+          {n.meals.length > 0 && <span style={{ fontSize: 13, color: P.faint2 }}>{mealsDone} de {n.meals.length}</span>}
+        </div>
         {n.meals.length === 0 ? (
           <Card style={{ padding: 20 }}><Empty icon={Utensils} title="Sin plan de comidas" body="Tu coach aún no carga las comidas del plan." /></Card>
         ) : (
@@ -7136,8 +7155,12 @@ const NutritionView = ({ plan, n, history, saveHistory }) => {
                     background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
                     {done && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
                   </span>
-                  <span style={{ flex: 1, fontSize: 16, color: P.text }}>{m.name}</span>
-                  {m.time && <span style={{ fontSize: 15, color: P.faint2 }}>{m.time}</span>}
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 16, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                  <span style={{ fontSize: 15, color: P.faint2, flexShrink: 0 }}>
+                    {mealKcal(m) > 0
+                      ? `${mealKcal(m).toLocaleString("es-CL")} kcal`
+                      : done ? (m.time || "hecha") : (m.time || "pendiente")}
+                  </span>
                 </button>
               );
             })}
@@ -7149,9 +7172,9 @@ const NutritionView = ({ plan, n, history, saveHistory }) => {
         <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Hoy</div>
         <Card style={{ overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-            <span style={{ flex: 1, fontSize: 16 }}>Agua</span>
+            <span style={{ flex: 1, fontSize: 16 }}>Registrar agua</span>
             <button onClick={() => addWater(Math.round(((lastWater ? lastWater.liters : 0) + .25) * 100) / 100)}
-              style={{ fontSize: 15, color: P.faint2, fontWeight: 600 }}>{lastWater ? `${kg(lastWater.liters)} L` : "Agregar"}</button>
+              style={{ fontSize: 15, color: P.text, fontWeight: 600 }}>+ 0,25 L</button>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: supplements.length > 0 ? `1px solid ${P.line}` : "none" }}>
             <span style={{ flex: 1, fontSize: 16 }}>Suplementos</span>
@@ -9581,8 +9604,16 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
         <Card key={m.id} style={{ padding: 13, marginBottom: 10 }}>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <Inp value={m.name} placeholder="Nombre de la comida" onChange={(e) => mut((x) => (x.meals[mi].name = e.target.value))} />
-            <Inp value={m.time} placeholder="Hora" onChange={(e) => mut((x) => (x.meals[mi].time = e.target.value))} style={{ width: 90 }} />
-            <button onClick={() => mut((x) => x.meals.splice(mi, 1))} style={{ color: P.faint }}><Trash2 size={16} /></button>
+            <Inp value={m.time} placeholder="Hora" onChange={(e) => mut((x) => (x.meals[mi].time = e.target.value))} style={{ width: 78 }} />
+            <button onClick={() => mut((x) => x.meals.splice(mi, 1))} aria-label="Quitar comida" style={{ color: P.faint }}><Trash2 size={16} /></button>
+          </div>
+          {/* Calorías de la comida. Es opcional: sin esto el alumno ve la
+              comida igual, solo que no se le puede decir cuánto lleva
+              consumido del objetivo del día. */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+            <Inp type="number" inputMode="numeric" value={m.kcal === "" || m.kcal == null ? "" : m.kcal} placeholder="kcal de esta comida"
+              onChange={(e) => mut((x) => (x.meals[mi].kcal = e.target.value === "" ? "" : (+e.target.value || 0)))} style={{ width: 150 }} />
+            <span style={{ fontSize: 12.5, color: P.faint }}>opcional · suma al total del día</span>
           </div>
           {m.items.map((it, ii) => (
             <div key={it.id} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
@@ -9597,7 +9628,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
           </div>
         </Card>
       ))}
-      <Btn kind="ember" style={{ width: "100%" }} onClick={() => mut((x) => x.meals.push({ id: uid(), name: `Comida ${n.meals.length + 1}`, time: "", items: [{ id: uid(), food: "", qty: "" }], notes: "" }))}>
+      <Btn kind="ember" style={{ width: "100%" }} onClick={() => mut((x) => x.meals.push({ id: uid(), name: `Comida ${n.meals.length + 1}`, time: "", kcal: "", items: [{ id: uid(), food: "", qty: "" }], notes: "" }))}>
         <Plus size={16} /> Añadir comida
       </Btn>
 
