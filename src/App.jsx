@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v153";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v161";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -9520,6 +9520,43 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
       <Btn kind="ember" style={{ width: "100%" }} onClick={() => mut((x) => x.meals.push({ id: uid(), name: `Comida ${n.meals.length + 1}`, time: "", items: [{ id: uid(), food: "", qty: "" }], notes: "" }))}>
         <Plus size={16} /> Añadir comida
       </Btn>
+
+      {/* Suplementos. El modelo (plan.nutrition.supplements) ya existía y
+          el alumno ya los marcaba en Nutrición, pero no había forma de
+          cargarlos: la lista nacía siempre vacía. Acá se cargan, con dosis
+          y momento, y con el bloque en que los ve el alumno ("Diario" o
+          "Entreno"). Los ítems viejos, que solo tienen nombre, siguen
+          válidos y caen en "Diario". */}
+      <div style={{ marginTop: 26 }}>
+        <div className="mono" style={{ margin: "0 4px 8px" }}>Suplementos</div>
+        {(n.supplements || []).map((sp, si) => (
+          <Card key={sp.id} style={{ padding: 13, marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <Inp value={sp.name} placeholder="Nombre del suplemento" onChange={(e) => mut((x) => (x.supplements[si].name = e.target.value))} />
+              <button onClick={() => mut((x) => x.supplements.splice(si, 1))} aria-label="Quitar suplemento" style={{ color: P.faint }}><Trash2 size={16} /></button>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Inp value={sp.dose || ""} placeholder="Dosis (5 g)" onChange={(e) => mut((x) => (x.supplements[si].dose = e.target.value))} />
+              <Inp value={sp.when || ""} placeholder="Momento (pre entreno)" onChange={(e) => mut((x) => (x.supplements[si].when = e.target.value))} />
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              {SUPP_GROUPS.map(([gid, glabel]) => {
+                const on = (sp.group || "diario") === gid;
+                return (
+                  <button key={gid} onClick={() => mut((x) => (x.supplements[si].group = gid))}
+                    style={{ flex: 1, padding: "8px 6px", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
+                      background: on ? P.s3 : "transparent", color: on ? P.text : P.faint,
+                      border: `1px solid ${on ? P.line : "transparent"}` }}>{glabel}</button>
+                );
+              })}
+            </div>
+          </Card>
+        ))}
+        <Btn kind="line" style={{ width: "100%" }}
+          onClick={() => mut((x) => { x.supplements = [...(x.supplements || []), { id: uid(), name: "", dose: "", when: "", group: "diario" }]; })}>
+          <Plus size={16} /> Añadir suplemento
+        </Btn>
+      </div>
     </div>
   );
 };
@@ -13533,7 +13570,435 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
 // A8 del handoff: grilla de 3 columnas, ficha = icono + nombre (sin
 // frase descriptiva). `kw` es texto SOLO para el buscador — nunca se
 // pinta, es lo único que sobrevive del antiguo `hint`.
-const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas }) => {
+/* ============================================================
+   Analítica de control (laboratorio)
+   ------------------------------------------------------------
+   El prototipo trae los valores escritos a mano con su "· alto"
+   pegado al texto. Acá no: cada marcador declara su unidad y su
+   rango de referencia, y "alto"/"bajo" se calcula. Así el mismo
+   catálogo sirve para pintar la analítica, para contar cuántos
+   marcadores están fuera de rango y para la evolución de uno solo
+   a lo largo de los controles, sin repetir el dato en tres sitios.
+
+   Los rangos son los de laboratorio de adulto: orientativos, y así
+   se dice en pantalla. Quien interpreta es el médico — la app
+   registra y ordena, no diagnostica ni sugiere conductas.
+   ============================================================ */
+// [clave, nombre, unidad, mínimo, máximo]. Sin mínimo/máximo = marcador
+// cualitativo (se guarda el texto tal cual, sin marcar rango).
+const LAB_PANELS = [
+  { label: "Hemograma y fórmula", markers: [
+    ["leucocitos", "Leucocitos", "×10³/µL", 4, 11],
+    ["neutrofilos", "Neutrófilos", "%", 40, 75],
+    ["linfocitos", "Linfocitos", "%", 20, 45],
+    ["monocitos", "Monocitos", "%", 2, 10],
+    ["eosinofilos", "Eosinófilos", "%", 0, 6],
+    ["basofilos", "Basófilos", "%", 0, 2],
+    ["hematies", "Hematíes", "×10⁶/µL", 4.5, 5.5],
+    ["hemoglobina", "Hemoglobina", "g/dL", 13.5, 17],
+    ["hematocrito", "Hematocrito", "%", 40, 50],
+    ["vcm", "VCM", "fL", 80, 100],
+    ["hcm", "HCM", "pg", 27, 33],
+    ["plaquetas", "Plaquetas", "×10³/µL", 150, 400],
+  ]},
+  { label: "Coagulación básica", markers: [
+    ["tp", "Tiempo de protrombina", "s", 10, 13],
+    ["inr", "INR", "", 0.8, 1.2],
+    ["ttpa", "TTPA", "s", 25, 35],
+    ["fibrinogeno", "Fibrinógeno", "mg/dL", 200, 400],
+  ]},
+  { label: "Función renal y metabólica", markers: [
+    ["glucosa", "Glucosa", "mg/dL", 70, 100],
+    ["urea", "Urea", "mg/dL", 15, 45],
+    ["creatinina", "Creatinina", "mg/dL", 0.7, 1.2],
+    ["fg", "Filtrado glomerular", "mL/min", 90, null],
+    ["acidourico", "Ácido úrico", "mg/dL", 3.5, 7.2],
+    ["homocisteina", "Homocisteína", "µmol/L", 5, 15],
+    ["cistatinac", "Cistatina C", "mg/L", 0.6, 1.1],
+  ]},
+  { label: "Iones y minerales", markers: [
+    ["sodio", "Sodio (Na)", "mmol/L", 135, 145],
+    ["potasio", "Potasio (K)", "mmol/L", 3.5, 5.1],
+    ["calcio", "Calcio (Ca)", "mg/dL", 8.6, 10.2],
+    ["fosforo", "Fósforo (P)", "mg/dL", 2.5, 4.5],
+    ["magnesio", "Magnesio (Mg)", "mg/dL", 1.7, 2.4],
+  ]},
+  { label: "Proteínas y lipoproteínas", markers: [
+    ["proteinograma", "Proteinograma", "", null, null],
+    ["apoa", "APO-A", "mg/dL", 110, 180],
+    ["apob", "APO-B", "mg/dL", null, 100],
+    ["lpa", "Lp(a)", "mg/dL", null, 50],
+  ]},
+  { label: "Perfil lipídico", markers: [
+    ["colesterol", "Colesterol total", "mg/dL", null, 200],
+    ["ldl", "LDL", "mg/dL", null, 130],
+    ["hdl", "HDL", "mg/dL", 40, null],
+    ["trigliceridos", "Triglicéridos", "mg/dL", null, 150],
+  ]},
+  { label: "Perfil hepático", markers: [
+    ["got", "GOT / AST", "U/L", null, 40],
+    ["gpt", "GPT / ALT", "U/L", null, 41],
+    ["ggt", "GGT", "U/L", null, 60],
+    ["fosfatasa", "Fosfatasa alcalina", "U/L", 40, 130],
+    ["bilirrubinat", "Bilirrubina total", "mg/dL", null, 1.2],
+    ["bilirrubinad", "Bilirrubina directa", "mg/dL", null, 0.3],
+    ["ldh", "LDH", "U/L", 120, 250],
+  ]},
+  { label: "Inflamación y músculo", markers: [
+    ["pcr", "PCR", "mg/L", null, 5],
+    ["cpk", "CPK", "U/L", null, 200],
+    ["cpkmb", "CPK-mb", "ng/mL", null, 5],
+  ]},
+  { label: "Metabolismo del hierro", markers: [
+    ["hierro", "Hierro (Fe)", "µg/dL", 65, 175],
+    ["ferritina", "Ferritina", "ng/mL", 30, 400],
+    ["ist", "IST", "%", 20, 50],
+  ]},
+  { label: "Perfil hormonal", markers: [
+    ["hba1c", "Hb1Ac", "%", null, 5.7],
+    ["cortisol", "Cortisol", "µg/dL", 6, 23],
+    ["prolactina", "Prolactina", "ng/mL", 4, 15],
+    ["testototal", "Testosterona total", "ng/dL", 300, 1000],
+    ["testolibre", "Testosterona libre", "pg/mL", 9, 30],
+    ["estradiol", "Estradiol", "pg/mL", 10, 40],
+    ["psa", "PSA", "ng/mL", null, 4],
+    ["psalibre", "PSA libre", "ng/mL", null, null],
+    ["tsh", "TSH", "mUI/L", 0.4, 4],
+    ["t3", "T3", "pg/mL", 2.3, 4.2],
+    ["t4", "T4", "ng/dL", 0.8, 1.8],
+    ["gh", "GH", "ng/mL", null, 3],
+    ["igf1", "IGF-1", "ng/mL", 80, 230],
+  ]},
+  { label: "Vitaminas", markers: [
+    ["b12", "Vitamina B12", "pg/mL", 200, 900],
+    ["vitd", "Vitamina D", "ng/mL", 30, 100],
+    ["folico", "Ácido fólico", "ng/mL", 3, 17],
+  ]},
+  { label: "Marcadores cardíacos", markers: [
+    ["troponinat", "Troponina T", "ng/mL", null, 0.01],
+    ["troponinai", "Troponina I", "ng/mL", null, 0.04],
+    ["probnp", "Pro-BNP", "pg/mL", null, 125],
+  ]},
+  { label: "Orina", markers: [
+    ["sedimento", "Sedimento", "", null, null],
+    ["bioquimicao", "Bioquímica", "", null, null],
+    ["microalbuminuria", "Microalbuminuria", "mg/g", null, 30],
+  ]},
+];
+
+// Catálogo aplanado por clave, para no recorrer los 13 paneles cada vez
+// que hay que resolver el nombre o la unidad de un marcador.
+const LAB_BY_KEY = LAB_PANELS.reduce((acc, panel) => {
+  panel.markers.forEach(([key, label, unit, min, max]) => { acc[key] = { key, label, unit, min, max, panel: panel.label }; });
+  return acc;
+}, {});
+
+// "alto" / "bajo" / null. Un marcador sin rango (cualitativo) nunca se
+// marca: no hay nada contra qué compararlo.
+const labFlag = (marker, raw) => {
+  if (!marker || raw == null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : parseFloat(String(raw).replace(",", "."));
+  if (!isFinite(n)) return null;
+  if (marker.min != null && n < marker.min) return "bajo";
+  if (marker.max != null && n > marker.max) return "alto";
+  return null;
+};
+
+// Todos los marcadores fuera de rango de una analítica, en el orden del
+// catálogo. Es la lista de "Requiere atención" y también de dónde sale
+// el conteo de la cabecera.
+const labFlagged = (lab) => {
+  const out = [];
+  if (!lab) return out;
+  LAB_PANELS.forEach((panel) => panel.markers.forEach(([key]) => {
+    const m = LAB_BY_KEY[key], v = (lab.values || {})[key];
+    const flag = labFlag(m, v);
+    if (flag) out.push({ ...m, value: v, flag });
+  }));
+  return out;
+};
+
+const labValueText = (m, v) => {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+  const shown = isFinite(n) ? String(n).replace(".", ",") : String(v);
+  return m.unit ? `${shown} ${m.unit}` : shown;
+};
+
+// Evolución de UN marcador a lo largo de todos los controles cargados.
+const LabMarkerSheet = ({ open, onClose, marker, labs }) => {
+  if (!marker) return null;
+  const series = (labs || [])
+    .map((l) => ({ date: l.date, v: parseFloat(String((l.values || {})[marker.key]).replace(",", ".")) }))
+    .filter((x) => isFinite(x.v));
+  return (
+    <Sheet open={open} onClose={onClose} title={marker.label}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Card style={{ padding: "15px 15px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 13, color: P.faint2 }}>
+            {marker.min != null && marker.max != null ? `Referencia ${String(marker.min).replace(".", ",")}–${String(marker.max).replace(".", ",")}`
+              : marker.max != null ? `Referencia hasta ${String(marker.max).replace(".", ",")}`
+              : marker.min != null ? `Referencia desde ${String(marker.min).replace(".", ",")}`
+              : "Sin rango de referencia"}
+            {marker.unit ? ` ${marker.unit}` : ""}
+          </span>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>
+              {series.length ? String(series[series.length - 1].v).replace(".", ",") : "—"}
+            </span>
+            {marker.unit && <span style={{ fontSize: 15, color: P.faint2 }}>{marker.unit}</span>}
+          </div>
+          {series.length >= 2
+            ? <MiniLineChart points={series.map((x) => ({ v: x.v }))} height={96} />
+            : <div style={{ fontSize: 13.5, color: P.faint2, padding: "12px 0 10px" }}>Con dos controles aparece la curva.</div>}
+        </Card>
+        <RowGroup label="Controles" rows={[...series].reverse().map((x) => {
+          const flag = labFlag(marker, x.v);
+          return { label: fmtDateFull(x.date), value: `${String(x.v).replace(".", ",")}${marker.unit ? ` ${marker.unit}` : ""}${flag ? ` · ${flag}` : ""}`, tone: flag ? P.red : undefined };
+        })} />
+      </div>
+    </Sheet>
+  );
+};
+
+// Alta de una analítica: los 13 paneles con un campo por marcador. No
+// hay campos obligatorios — se carga lo que traiga el informe y el resto
+// queda vacío (no se guarda, así no cuenta como "medido").
+const LabFormSheet = ({ open, onClose, onSave }) => {
+  const [vals, setVals] = useState({});
+  const [date, setDate] = useState(todayISO().slice(0, 10));
+  const [doctor, setDoctor] = useState("");
+  useEffect(() => { if (open) { setVals({}); setDate(todayISO().slice(0, 10)); setDoctor(""); } }, [open]);
+  const filled = Object.keys(vals).filter((k) => vals[k] !== "").length;
+  const save = () => {
+    const values = {};
+    Object.keys(vals).forEach((k) => { if (vals[k] !== "" && vals[k] != null) values[k] = vals[k]; });
+    if (!Object.keys(values).length) return;
+    onSave({ id: uid(), date: new Date(date).toISOString(), requestedBy: doctor.trim(), values });
+  };
+  return (
+    <Sheet open={open} onClose={onClose} title="Nueva analítica" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Fecha de la extracción"
+            style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
+          <input value={doctor} onChange={(e) => setDoctor(e.target.value)} placeholder="Solicitada por"
+            style={{ flex: 1, padding: "11px 12px", borderRadius: 11, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }} />
+        </div>
+        {LAB_PANELS.map((panel) => (
+          <div key={panel.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{panel.label}</div>
+            <Card style={{ overflow: "hidden" }}>
+              {panel.markers.map(([key, label, unit], i) => (
+                <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px",
+                  borderBottom: i < panel.markers.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 15, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+                  <input value={vals[key] || ""} onChange={(e) => setVals((o) => ({ ...o, [key]: e.target.value }))}
+                    inputMode="decimal" aria-label={label} placeholder="—"
+                    style={{ width: 86, padding: "7px 9px", borderRadius: 9, background: P.s3, border: `1px solid ${P.separatorStrong}`,
+                      color: P.text, fontSize: 14.5, textAlign: "right" }} />
+                  {unit && <span style={{ fontSize: 12.5, color: P.faint2, width: 56, flexShrink: 0 }}>{unit}</span>}
+                </div>
+              ))}
+            </Card>
+          </div>
+        ))}
+        <Btn kind="ember" onClick={save} disabled={!filled} style={{ width: "100%" }}>
+          {filled ? `Guardar ${filled} marcador${filled !== 1 ? "es" : ""}` : "Guardar analítica"}
+        </Btn>
+      </div>
+    </Sheet>
+  );
+};
+
+const LabsSheet = ({ open, onClose, history, saveHistory, athlete }) => {
+  const [formOpen, setFormOpen] = useState(false);
+  const [marker, setMarker] = useState(null);
+  const labs = (history && history.labs) || [];
+  const last = labs.length ? labs[labs.length - 1] : null;
+  const prev = labs.length > 1 ? labs[labs.length - 2] : null;
+  const flagged = labFlagged(last);
+  const measured = last ? Object.keys(last.values || {}).filter((k) => LAB_BY_KEY[k] && last.values[k] !== "").length : 0;
+  const saveLab = (lab) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.labs = [...(h.labs || []), lab].sort((a, b) => new Date(a.date) - new Date(b.date));
+    saveHistory(h);
+    setFormOpen(false);
+  };
+  return (
+    <>
+      <Sheet open={open} onClose={onClose} title="Analítica de control" tall>
+        {!last ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Empty icon={Ruler} title="Sin analíticas cargadas" body="Carga el informe de laboratorio y FORJA marca solo qué quedó fuera de rango y cómo evoluciona cada marcador entre controles." />
+            <Btn kind="ember" onClick={() => setFormOpen(true)} style={{ width: "100%" }}>Cargar analítica</Btn>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <RowGroup label={`Extracción del ${fmtDateFull(last.date)}`} rows={[
+              { label: "Marcadores medidos", value: String(measured), tone: P.text },
+              { label: "Fuera de rango", value: String(flagged.length), tone: flagged.length ? P.red : P.text },
+              prev && { label: "Control anterior", value: daysAgoLabel(prev.date) },
+              last.requestedBy ? { label: "Solicitada por", value: last.requestedBy } : null,
+            ]} />
+
+            {flagged.length > 0 && (
+              <RowGroup label="Requiere atención" rows={flagged.map((m) => ({
+                label: m.label, value: `${labValueText(m, m.value)} · ${m.flag}`, tone: P.red,
+                onClick: () => setMarker(m),
+              }))} />
+            )}
+
+            {LAB_PANELS.map((panel) => {
+              const rows = panel.markers
+                .filter(([key]) => (last.values || {})[key] !== undefined && (last.values || {})[key] !== "")
+                .map(([key]) => {
+                  const m = LAB_BY_KEY[key], v = last.values[key], flag = labFlag(m, v);
+                  return { label: m.label, value: `${labValueText(m, v)}${flag ? ` · ${flag}` : ""}`,
+                    tone: flag ? P.red : P.text, onClick: () => setMarker(m) };
+                });
+              return rows.length ? <RowGroup key={panel.label} label={panel.label} rows={rows} /> : null;
+            })}
+
+            <RowGroup label="Seguimiento" rows={[
+              { label: "Subir nueva analítica", onClick: () => setFormOpen(true) },
+              { label: "Controles cargados", value: String(labs.length) },
+              (athlete || {}).doctor ? { label: "Médico tratante", value: athlete.doctor } : null,
+            ]} />
+
+            <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5, padding: "0 4px" }}>
+              Los rangos son de laboratorio de adulto y sirven para ordenar el informe.
+              Quien interpreta los resultados y decide qué hacer es tu médico.
+            </div>
+          </div>
+        )}
+      </Sheet>
+      <LabFormSheet open={formOpen} onClose={() => setFormOpen(false)} onSave={saveLab} />
+      <LabMarkerSheet open={!!marker} onClose={() => setMarker(null)} marker={marker} labs={labs} />
+    </>
+  );
+};
+
+/* ============================================================
+   Suplementación
+   ------------------------------------------------------------
+   El coach carga la lista en el editor de nutrición
+   (plan.nutrition.supplements) y el alumno marca acá lo que va
+   tomando. Cada ítem puede llevar dosis y momento ("5 g", "pre
+   entreno"); los que ya existían sin esos campos siguen andando y
+   caen en el bloque "Diario".
+
+   El "protocolo médico" del prototipo no se registra acá a
+   propósito: FORJA no lleva sustancias ni dosis médicas. Lo que sí
+   lleva es el seguimiento — quién es el médico tratante y cuándo
+   fue y toca el próximo control de laboratorio — y enlaza a la
+   analítica, que es donde ese seguimiento vive de verdad.
+   ============================================================ */
+const SUPP_GROUPS = [["diario", "Diario"], ["entreno", "Entreno"]];
+
+const SupplementsSheet = ({ open, onClose, plan, history, saveHistory, onOpenLabs }) => {
+  const supplements = ((plan.nutrition || {}).supplements) || [];
+  const todayKey = todayISO().slice(0, 10);
+  const checks = (history && history.supplementChecks) || {};
+  const today = checks[todayKey] || {};
+  const toggle = (id) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.supplementChecks = h.supplementChecks || {};
+    h.supplementChecks[todayKey] = { ...(h.supplementChecks[todayKey] || {}) };
+    if (h.supplementChecks[todayKey][id]) delete h.supplementChecks[todayKey][id];
+    else h.supplementChecks[todayKey][id] = true;
+    saveHistory(h);
+  };
+
+  // Adherencia de los últimos 30 días: tomas registradas sobre tomas
+  // posibles. No se cuenta como fallado lo anterior a la primera marca,
+  // así que empezar a usarlo no arranca en 0 % para siempre.
+  const adherencia = (() => {
+    if (!supplements.length) return null;
+    const days = Object.keys(checks).sort();
+    if (!days.length) return null;
+    const from = new Date(days[0]).getTime();
+    let posibles = 0, hechas = 0;
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(Date.now() - i * 86400000);
+      if (d.getTime() < from) break;
+      const key = d.toISOString().slice(0, 10);
+      posibles += supplements.length;
+      hechas += Object.keys(checks[key] || {}).length;
+    }
+    return posibles ? Math.round((hechas / posibles) * 100) : null;
+  })();
+
+  const labs = (history && history.labs) || [];
+  const lastLab = labs.length ? labs[labs.length - 1] : null;
+  const doctor = (plan.athlete || {}).doctor || "";
+  const tomadas = supplements.filter((s) => today[s.id]).length;
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Suplementación" tall>
+      {supplements.length === 0 ? (
+        <Empty icon={Droplet} title="Sin suplementos cargados" body="Cuando tu coach cargue la lista vas a poder ir marcando acá lo que tomas cada día." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <Card style={{ padding: "15px 15px 13px", display: "flex", flexDirection: "column", gap: 2 }}>
+            <span style={{ fontSize: 13, color: P.faint2 }}>Hoy</span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{tomadas} de {supplements.length}</span>
+              <span style={{ flex: 1 }} />
+              {adherencia != null && <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2 }}>{adherencia} % este mes</span>}
+            </div>
+          </Card>
+
+          {SUPP_GROUPS.map(([id, label]) => {
+            const list = supplements.filter((s) => (s.group || "diario") === id);
+            if (!list.length) return null;
+            return (
+              <div key={id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{label}</div>
+                <Card style={{ overflow: "hidden" }}>
+                  {list.map((s, i) => {
+                    const done = !!today[s.id];
+                    const detail = [s.dose, s.when].filter(Boolean).join(" · ");
+                    return (
+                      <button key={s.id} onClick={() => toggle(s.id)}
+                        aria-label={`${s.name}: ${done ? "tomada" : "pendiente"}`}
+                        style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+                          padding: "13px 16px", borderBottom: i < list.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                        <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                          background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
+                          {done && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+                          <span style={{ fontSize: 16, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</span>
+                          {detail && <span style={{ fontSize: 12.5, color: P.faint2 }}>{detail}</span>}
+                        </span>
+                        <span style={{ fontSize: 15, color: P.faint2, flexShrink: 0 }}>{done ? "tomada" : "pendiente"}</span>
+                      </button>
+                    );
+                  })}
+                </Card>
+              </div>
+            );
+          })}
+
+          <RowGroup label="Seguimiento médico" rows={[
+            { label: "Analítica de control", value: lastLab ? daysAgoLabel(lastLab.date) : "sin cargar", onClick: onOpenLabs },
+            doctor ? { label: "Médico tratante", value: doctor } : null,
+          ]} />
+
+          <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5, padding: "0 4px" }}>
+            FORJA registra la adherencia a lo que cargó tu coach. No indica
+            sustancias, dosis ni protocolos médicos: eso lo lleva tu médico.
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+};
+
+const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos }) => {
   const [q, setQ] = useState("");
   const unread = useUnreadChatCount(sid, "alumno");
   const groups = [
@@ -13544,6 +14009,9 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
       { key: "checkin", Icon: Camera, label: "Check-in", kw: "peso recuperación fotos video", onClick: onOpenCheckin },
       { key: "posing", Icon: PersonStanding, label: "Posing", kw: "categoría poses", onClick: onOpenPosing },
       { key: "prep", Icon: Trophy, label: "Competition Prep", kw: "fase categoría peak week", onClick: onOpenCompPrep },
+      { key: "fotos", Icon: Camera, label: "Comparar fotos", kw: "progreso antes después", onClick: onOpenPhotos },
+      { key: "supp", Icon: Droplet, label: "Suplementación", kw: "creatina proteína adherencia tomas", onClick: onOpenSupplements },
+      { key: "labs", Icon: Ruler, label: "Analítica", kw: "laboratorio sangre marcadores control médico", onClick: onOpenLabs },
     ] },
     { label: "Herramientas", rows: [
       { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva cronómetro", onClick: () => onOpenUtility("timer") },
@@ -14098,6 +14566,11 @@ function clampFabPos(p) {
 // iOS — que con un toque lo trae de vuelta al instante. El ajuste de
 // "Más" sigue existiendo como forma alternativa, no se saca nada.
 const AI_FAB_HOLD_MS = 550;
+// El botón vive en z-index 55: por ENCIMA de la barra de pestañas (50),
+// para que siga alcanzable mientras se navega, y por DEBAJO de las hojas
+// (60). Antes estaba en 95 y quedaba flotando sobre cualquier hoja
+// abierta, tapando la última fila —se vio tapando "Médico tratante" en
+// Suplementación y la quinta ficha de accesos en la sesión.
 const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatSignal, toast }) => {
   const [visible, setVisible] = useAiFabVisible();
   const [pos, setPos] = useState(() => clampFabPos(loadFabPos() || { right: 16, bottom: 110 }));
@@ -14175,7 +14648,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
           aria-label="Asistente de IA — mantén pulsado para ocultarlo, arrastra para moverlo, toca para abrirlo"
           title="Asistente de IA"
           style={{ position: "fixed", right: pos.right, bottom: pos.bottom, width: AI_FAB_SIZE, height: AI_FAB_SIZE, borderRadius: AI_FAB_SIZE / 2,
-            zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 55, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
             boxShadow: dragging ? DRAG_LIFT_SHADOW : "0 6px 20px -12px rgba(0,0,0,.25)",
             transform: dragging ? "scale(1.06)" : "scale(1)",
             transition: dragging ? "none" : "transform .15s ease, box-shadow .15s ease",
@@ -14185,7 +14658,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
       ) : (
         <button onClick={() => setVisible(true)} aria-label="Mostrar asistente de IA" title="Mostrar asistente de IA"
           style={{ position: "fixed", right: 0, bottom: pos.bottom, width: 18, height: 48, borderRadius: "14px 0 0 14px",
-            zIndex: 95, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 55, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
             boxShadow: "0 4px 14px -8px rgba(0,0,0,.3)", opacity: 0.9 }}>
           <Sparkles size={12} strokeWidth={2.4} />
         </button>
@@ -14314,6 +14787,9 @@ const App = () => {
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [compPrepOpen, setCompPrepOpen] = useState(false);
   const [atlasOpen, setAtlasOpen] = useState(false);
+  const [supplementsOpen, setSupplementsOpen] = useState(false);
+  const [labsOpen, setLabsOpen] = useState(false);
+  const [photosOpen, setPhotosOpen] = useState(false);
   // Pantalla de utilidad abierta desde "Más" (temporizador, guía, agenda
   // del alumno). Se muestra por encima de la pestaña actual con una
   // cabecera de "volver", en vez de ocupar un lugar en la barra.
@@ -14742,10 +15218,18 @@ const App = () => {
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             onOpenPosing={() => { setTab("hoy"); setAutoOpenPosing(true); }}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
-            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)} />
+            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)}
+            onOpenSupplements={() => setSupplementsOpen(true)} onOpenLabs={() => setLabsOpen(true)}
+            onOpenPhotos={() => setPhotosOpen(true)} />
         )}
         <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} />
         <ExerciseAtlasSheet open={atlasOpen} onClose={() => setAtlasOpen(false)} library={library} plan={plan} />
+        {/* Suplementación abre la analítica sin cerrarse: el seguimiento
+            médico es justamente el puente entre las dos. */}
+        <SupplementsSheet open={supplementsOpen} onClose={() => setSupplementsOpen(false)} plan={plan} history={history}
+          saveHistory={saveHistory} onOpenLabs={() => setLabsOpen(true)} />
+        <LabsSheet open={labsOpen} onClose={() => setLabsOpen(false)} history={history} saveHistory={saveHistory} athlete={plan.athlete} />
+        <PhotoCompareSheet open={photosOpen} onClose={() => setPhotosOpen(false)} photos={history.bodyPhotos || []} />
         {/* Jerarquía: deshacer/rehacer son acciones corrientes (gris de
             sistema) y "Vaciar" es la destructiva, así que va en contorno,
             no en placa negra. Antes las tres eran placa: la acción más
