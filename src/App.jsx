@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v171";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v172";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4981,6 +4981,18 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // está abierta.
   const stats = useMemo(() => sessionStats(active, history.bodyweight), [active, history.bodyweight, now]);
 
+  // Pulso en vivo. Las muestras se acumulan en una ref (no hace falta
+  // re-renderizar por cada latido) y de ahí salen la media y la máxima.
+  const hr = useHeartRate();
+  const hrSamples = useRef([]);
+  useEffect(() => {
+    if (hr.bpm != null && hr.connected) hrSamples.current.push(hr.bpm);
+  }, [hr.bpm, hr.connected]);
+  const hrStats = hrSamples.current.length
+    ? { media: Math.round(hrSamples.current.reduce((a, b) => a + b, 0) / hrSamples.current.length),
+        max: Math.max(...hrSamples.current) }
+    : null;
+
   const askExit = () => setExiting(true);
 
   return (
@@ -5001,6 +5013,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           <span style={{ fontSize: 11, fontWeight: 600, color: P.faint2 }}>{active.dayName}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 17, fontWeight: 600, color: P.text, fontVariantNumeric: "tabular-nums" }}>
             {sessionClock(elapsed)}
+            {hr.connected && hr.bpm != null && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 14, color: P.faint2 }}>
+                <HeartPulse size={13} /> {hr.bpm}
+              </span>
+            )}
             <span title={pendingWrites ? `Guardando (${pendingWrites})` : (storageOK ? (savedAt ? `Guardado ${savedAt}` : "Guardado") : "Sin guardado")}
               style={{ width: 6, height: 6, borderRadius: 3, flexShrink: 0,
                 background: pendingWrites ? P.line : (storageOK ? P.ember : "transparent"), border: !pendingWrites && !storageOK ? `1.5px solid ${P.text}` : "none" }} />
@@ -5171,9 +5188,13 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 app no tiene desde el navegador. En vez de una pantalla
                 vacía que finge, se dice qué falta y se lleva a donde se
                 conectan los dispositivos. */}
-            <RowGroup label="Con un dispositivo conectado" rows={[
-              { label: "Frecuencia cardíaca", value: "Sin pulsómetro", onClick: onOpenDevices },
-              { label: "Calorías medidas", value: "Sin pulsómetro", onClick: onOpenDevices },
+            <RowGroup label={hr.connected ? `Pulsómetro · ${hr.name || "conectado"}` : "Con un dispositivo conectado"} rows={[
+              { label: "Frecuencia cardíaca",
+                value: hr.connected ? (hr.bpm != null ? `${hr.bpm} lpm` : "Conectado") : "Sin pulsómetro",
+                onClick: onOpenDevices },
+              hrStats && { label: "Media de la sesión", value: `${hrStats.media} lpm` },
+              hrStats && { label: "Máxima", value: `${hrStats.max} lpm` },
+              !hr.connected && { label: "Calorías medidas", value: "Sin pulsómetro", onClick: onOpenDevices },
             ]} />
 
             <button onClick={() => { setExiting(false); setSesPane(null); onFinish(); }}
@@ -13867,92 +13888,349 @@ const ReadOnlyLock = ({ active, toast, children }) => (
    solo hace falta reemplazar ese onClick: toda la navegación, las
    fichas por marca y el detalle de qué trae cada una ya quedan listos.
    ============================================================ */
-const DEVICE_CATALOG = [
-  { id: "garmin", name: "Garmin", group: "Relojes y pulseras", Icon: Watch,
-    blurb: "Cualquier reloj Garmin — Fénix, Forerunner, Vívoactive, Instinct o el resto de la línea Garmin Connect.",
-    syncs: ["Pasos", "Frecuencia cardíaca", "Sueño", "Calorías", "Entrenamientos registrados en el reloj"] },
-  { id: "whoop", name: "WHOOP", group: "Relojes y pulseras", Icon: Watch,
-    blurb: "Banda WHOOP — recuperación, tensión (strain) y sueño.",
-    syncs: ["Recuperación", "Tensión (strain)", "Sueño", "Frecuencia cardíaca"] },
-  { id: "applewatch", name: "Apple Watch", group: "Relojes y pulseras", Icon: Watch,
-    blurb: "Se conecta a través de la app Salud del iPhone — no hace falta configurarlo aparte del de abajo.",
-    syncs: ["Pasos", "Frecuencia cardíaca", "Sueño", "Entrenamientos"] },
-  { id: "oura", name: "Oura", group: "Relojes y pulseras", Icon: Watch,
-    blurb: "Anillo Oura — sueño, recuperación y puntaje de disposición (readiness) del día.",
-    syncs: ["Sueño", "Recuperación", "Readiness", "Frecuencia cardíaca en reposo"] },
-  { id: "applehealth", name: "Salud (iPhone)", group: "Apps de salud", Icon: Smartphone,
-    blurb: "La app Salud de Apple junta en un solo lugar los datos de tu iPhone, tu Apple Watch y otras apps compatibles.",
-    syncs: ["Pasos", "Peso", "Sueño", "Frecuencia cardíaca"] },
-  { id: "scale", name: "Báscula inteligente", group: "Básculas", Icon: Scale,
-    blurb: "Cualquier báscula con Bluetooth — el peso (y el % de grasa, si la báscula lo mide) se registra solo, sin escribirlo a mano.",
-    syncs: ["Peso", "% de grasa corporal (si la báscula lo mide)"] },
-  { id: "other", name: "Otro dispositivo Bluetooth", group: "Otros", Icon: Bluetooth,
-    blurb: "Cualquier otra marca con Bluetooth que no esté en la lista — pulsómetros, básculas, bandas y más.",
-    syncs: ["Depende del dispositivo"] },
+/* ============================================================
+   Bluetooth de verdad (Web Bluetooth)
+   ------------------------------------------------------------
+   Qué se puede y qué no, sin rodeos:
+
+   · Pulsómetros y básculas con Bluetooth LE: SÍ. Hablan perfiles
+     estándar (Heart Rate 0x180D, Weight Scale 0x181D), así que se
+     conectan y se leen directo desde el navegador, sin cuenta ni
+     servidor de por medio.
+   · Garmin, WHOOP, Oura, Apple Watch: NO por Bluetooth. Sus relojes
+     no exponen sus datos por BLE a terceros; lo que ofrecen es una API
+     en la nube con OAuth, que necesita credenciales de desarrollador y
+     un servidor que guarde el secreto. Para esos, lo que sí funciona
+     hoy es importar el archivo que cada una deja exportar.
+   · Web Bluetooth NO existe en Safari (ni en iPhone). Es decisión de
+     Apple, no falta nuestra. En iPhone quedan la importación de
+     archivos y la carga a mano.
+
+   La conexión vive en una variable de módulo con suscriptores, igual
+   que el tema y la unidad de peso: así la sesión y la hoja de
+   dispositivos ven el mismo pulso sin pasarse props por media app.
+   ============================================================ */
+const bleSupported = () => typeof navigator !== "undefined" && !!navigator.bluetooth;
+
+let HR_STATE = { device: null, name: "", bpm: null, battery: null, error: "" };
+const hrListeners = new Set();
+const hrEmit = () => hrListeners.forEach((fn) => fn(HR_STATE));
+const hrSet = (patch) => { HR_STATE = { ...HR_STATE, ...patch }; hrEmit(); };
+
+// El pulso llega en un paquete cuyo primer byte dice el formato: bit 0
+// en 0 = un byte, en 1 = dos bytes little-endian.
+const parseHeartRate = (view) => {
+  const flags = view.getUint8(0);
+  return (flags & 0x01) ? view.getUint16(1, true) : view.getUint8(1);
+};
+
+async function hrConnect() {
+  if (!bleSupported()) { hrSet({ error: "Este navegador no tiene Bluetooth. En iPhone, Safari no lo implementa." }); return false; }
+  try {
+    hrSet({ error: "" });
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: ["heart_rate"] }],
+      optionalServices: ["battery_service"],
+    });
+    device.addEventListener("gattserverdisconnected", () => hrSet({ device: null, name: "", bpm: null, battery: null }));
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService("heart_rate");
+    const ch = await svc.getCharacteristic("heart_rate_measurement");
+    ch.addEventListener("characteristicvaluechanged", (e) => {
+      const bpm = parseHeartRate(e.target.value);
+      if (bpm > 0) hrSet({ bpm });
+    });
+    await ch.startNotifications();
+    hrSet({ device, name: device.name || "Pulsómetro" });
+    // La batería es opcional: hay cintas que no la publican.
+    try {
+      const bsvc = await server.getPrimaryService("battery_service");
+      const bch = await bsvc.getCharacteristic("battery_level");
+      hrSet({ battery: (await bch.readValue()).getUint8(0) });
+    } catch { /* sin batería publicada */ }
+    return true;
+  } catch (e) {
+    // Cancelar el diálogo del navegador no es un error que haya que gritar.
+    if (e && e.name === "NotFoundError") { hrSet({ error: "" }); return false; }
+    hrSet({ error: e && e.message ? e.message : "No se pudo conectar." });
+    return false;
+  }
+}
+function hrDisconnect() {
+  try { if (HR_STATE.device && HR_STATE.device.gatt.connected) HR_STATE.device.gatt.disconnect(); } catch { /* ya desconectado */ }
+  hrSet({ device: null, name: "", bpm: null, battery: null });
+}
+function useHeartRate() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    hrListeners.add(fn);
+    return () => hrListeners.delete(fn);
+  }, []);
+  return { ...HR_STATE, connected: !!HR_STATE.device, supported: bleSupported(), connect: hrConnect, disconnect: hrDisconnect };
+}
+
+// Básculas BLE: perfil Weight Scale. El peso viene en unidades de
+// 0,005 kg (o 0,01 lb si el primer bit dice imperial).
+async function scaleRead() {
+  if (!bleSupported()) throw new Error("Este navegador no tiene Bluetooth. En iPhone, Safari no lo implementa.");
+  const device = await navigator.bluetooth.requestDevice({ filters: [{ services: ["weight_scale"] }] });
+  const server = await device.gatt.connect();
+  const svc = await server.getPrimaryService("weight_scale");
+  const ch = await svc.getCharacteristic("weight_measurement");
+  return await new Promise((resolve, reject) => {
+    const to = setTimeout(() => reject(new Error("La báscula no envió ninguna medición. Súbete a ella con la app abierta.")), 30000);
+    ch.addEventListener("characteristicvaluechanged", (e) => {
+      const v = e.target.value, flags = v.getUint8(0), raw = v.getUint16(1, true);
+      clearTimeout(to);
+      const kgVal = (flags & 0x01) ? raw * 0.01 * 0.45359237 : raw * 0.005;
+      try { device.gatt.disconnect(); } catch { /* da igual */ }
+      resolve(Math.round(kgVal * 10) / 10);
+    });
+    ch.startNotifications().catch(reject);
+  });
+}
+
+/* ------------------------------------------------------------
+   Importar el archivo que exportan Garmin, WHOOP, Oura y Salud.
+   Es lo que SÍ funciona hoy en iPhone: ninguna de esas apps deja
+   leer por Bluetooth, pero todas dejan exportar. Se acepta CSV con
+   cabecera; se busca una columna de fecha y una de cada métrica,
+   por nombre, en español o inglés.
+   ------------------------------------------------------------ */
+const IMPORT_FIELDS = [
+  { key: "kg",     store: "bodyweight", field: "kg",     label: "Peso",              alias: ["peso", "weight", "body weight", "weight (kg)", "masa"] },
+  { key: "count",  store: "steps",      field: "count",  label: "Pasos",             alias: ["pasos", "steps", "step count", "total steps"] },
+  { key: "hours",  store: "sleep",      field: "hours",  label: "Sueño",             alias: ["sueño", "sueno", "sleep", "sleep duration", "asleep time", "horas de sueño"] },
+  { key: "liters", store: "water",      field: "liters", label: "Agua",              alias: ["agua", "water", "hidratación"] },
 ];
-const DevicesSheet = ({ open, onClose, toast }) => {
+const DATE_ALIAS = ["fecha", "date", "day", "start", "cycle start time", "timestamp"];
+
+const parseCsv = (texto) => {
+  const lineas = String(texto || "").trim().split(/\r?\n/).filter((l) => l.trim());
+  if (lineas.length < 2) return null;
+  // Separador: el que más aparece en la cabecera de los tres habituales.
+  const cab = lineas[0];
+  const sep = [",", ";", "\t"].sort((a, b) => cab.split(b).length - cab.split(a).length)[0];
+  const corta = (l) => l.split(sep).map((c) => c.trim().replace(/^"|"$/g, ""));
+  const cols = corta(cab).map((c) => c.toLowerCase());
+  const filas = lineas.slice(1).map(corta);
+  return { cols, filas };
+};
+
+// Devuelve { bodyweight: [...], steps: [...] } listo para volcar en
+// history, más un resumen de qué se encontró para poder mostrarlo antes
+// de escribir nada.
+function importFromCsv(texto) {
+  const csv = parseCsv(texto);
+  if (!csv) return { error: "El archivo no parece un CSV con cabecera." };
+  const idxFecha = csv.cols.findIndex((c) => DATE_ALIAS.some((a) => c === a || c.includes(a)));
+  if (idxFecha < 0) return { error: "No encontré ninguna columna de fecha (Fecha, Date, Day…)." };
+  const encontrados = IMPORT_FIELDS
+    .map((f) => ({ ...f, idx: csv.cols.findIndex((c) => f.alias.some((a) => c === a || c.startsWith(a))) }))
+    .filter((f) => f.idx >= 0);
+  if (!encontrados.length) return { error: "No encontré ninguna columna que sepa leer (peso, pasos, sueño o agua)." };
+
+  const out = {}, conteo = {};
+  csv.filas.forEach((fila) => {
+    const d = new Date(fila[idxFecha]);
+    if (Number.isNaN(d.getTime())) return;
+    encontrados.forEach((f) => {
+      const n = parseFloat(String(fila[f.idx] || "").replace(",", "."));
+      if (!isFinite(n) || n <= 0) return;
+      (out[f.store] = out[f.store] || []).push({ date: d.toISOString(), [f.field]: n });
+      conteo[f.label] = (conteo[f.label] || 0) + 1;
+    });
+  });
+  if (!Object.keys(conteo).length) return { error: "Encontré las columnas pero ninguna fila con datos legibles." };
+  return { out, conteo };
+}
+
+// Cómo se conecta cada cosa, de verdad. `via` decide qué botón sale:
+//   ble    → Bluetooth directo desde el navegador (funciona hoy)
+//   import → exportar de la app de la marca e importar el archivo acá
+const DEVICE_CATALOG = [
+  { id: "hr", name: "Pulsómetro Bluetooth", group: "Se conectan ahora", Icon: HeartPulse, via: "ble",
+    blurb: "Cualquier banda o cinta pectoral con Bluetooth LE — Polar, Garmin HRM, Wahoo, Coospo, Magene y las demás. Se conecta directo y el pulso se ve en vivo durante la sesión.",
+    syncs: ["Frecuencia cardíaca en vivo", "Media y máxima de cada sesión", "Batería de la banda"] },
+  { id: "scale", name: "Báscula Bluetooth", group: "Se conectan ahora", Icon: Scale, via: "ble",
+    blurb: "Básculas con el perfil estándar de Bluetooth LE. Te subes con la app abierta y el peso queda registrado sin escribirlo.",
+    syncs: ["Peso corporal"] },
+  { id: "garmin", name: "Garmin", group: "Se importan por archivo", Icon: Watch, via: "import",
+    blurb: "Garmin Connect no deja que otra app lea el reloj por Bluetooth, pero sí exportar tus datos. En Garmin Connect: Configuración → Gestión de datos → Exportar.",
+    syncs: ["Peso", "Pasos", "Sueño"] },
+  { id: "whoop", name: "WHOOP", group: "Se importan por archivo", Icon: Watch, via: "import",
+    blurb: "En la app WHOOP: Perfil → Configuración → Exportar mis datos. Llega un CSV por correo.",
+    syncs: ["Sueño", "Frecuencia cardíaca en reposo"] },
+  { id: "oura", name: "Oura", group: "Se importan por archivo", Icon: Watch, via: "import",
+    blurb: "En la app Oura: Perfil → Exportar datos. También llega por correo.",
+    syncs: ["Sueño", "Frecuencia cardíaca en reposo"] },
+  { id: "applehealth", name: "Salud / Apple Watch", group: "Se importan por archivo", Icon: Smartphone, via: "import",
+    blurb: "En Salud: tu foto arriba a la derecha → Exportar todos los datos. Apple no ofrece ninguna forma de que una web lea Salud directamente.",
+    syncs: ["Peso", "Pasos", "Sueño"] },
+];
+
+const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
   const [detail, setDetail] = useState(null);
+  const [pane, setPane] = useState(null);      // "import"
+  const [texto, setTexto] = useState("");
+  const [previo, setPrevio] = useState(null);
+  const [scaleMsg, setScaleMsg] = useState("");
+  const hr = useHeartRate();
+
+  useEffect(() => { if (!open) { setDetail(null); setPane(null); setTexto(""); setPrevio(null); setScaleMsg(""); } }, [open]);
+
   const groups = useMemo(() => {
     const m = new Map();
     DEVICE_CATALOG.forEach((d) => { if (!m.has(d.group)) m.set(d.group, []); m.get(d.group).push(d); });
     return [...m.entries()];
   }, []);
   const dev = DEVICE_CATALOG.find((d) => d.id === detail);
+
+  const leerBascula = async () => {
+    setScaleMsg("Buscando la báscula…");
+    try {
+      const kgVal = await scaleRead();
+      if (saveHistory) {
+        const h = structuredClone(history);
+        h.bodyweight = [...(h.bodyweight || []), { date: todayISO(), kg: kgVal }];
+        saveHistory(h);
+      }
+      setScaleMsg(`Registrado: ${kg(kgVal)} kg`);
+    } catch (e) {
+      setScaleMsg(e && e.name === "NotFoundError" ? "" : (e && e.message) || "No se pudo leer la báscula.");
+    }
+  };
+
+  const analizar = (t) => { setTexto(t); setPrevio(t.trim() ? importFromCsv(t) : null); };
+  const importar = () => {
+    if (!previo || previo.error || !saveHistory) return;
+    const h = structuredClone(history);
+    Object.keys(previo.out).forEach((store) => {
+      const previas = h[store] || [];
+      const yaHay = new Set(previas.map((x) => (x.date || "").slice(0, 10)));
+      // No se pisan los registros que ya existen para ese día: importar
+      // dos veces el mismo archivo no duplica nada.
+      h[store] = [...previas, ...previo.out[store].filter((x) => !yaHay.has((x.date || "").slice(0, 10)))]
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+    });
+    saveHistory(h);
+    toast && toast("Datos importados");
+    setPane(null); setTexto(""); setPrevio(null);
+  };
+
   return (
     <>
-      <Sheet open={open} onClose={onClose} title="Dispositivos conectados" tall>
-        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5, marginBottom: 18 }}>
-          Conecta tus relojes, básculas y apps de salud para que pasos, sueño, frecuencia cardíaca y peso lleguen solos a FORJA, sin escribirlos a mano.
-        </div>
-        {groups.map(([label, items]) => (
-          <div key={label} style={{ marginBottom: 18 }}>
-            <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>{label}</div>
-            <Card style={{ padding: "2px 14px" }}>
-              {items.map((d, i) => (
-                <React.Fragment key={d.id}>
-                  <button onClick={() => setDetail(d.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "14px 0", textAlign: "left" }}>
-                    <span style={{ width: 38, height: 38, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: P.dim }}>
-                      <d.Icon size={18} />
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 600 }}>{d.name}</div>
-                      <div style={{ fontSize: 12.5, color: P.faint }}>No conectado</div>
-                    </span>
-                    <ChevronRight size={17} color={P.faint} style={{ flexShrink: 0 }} />
-                  </button>
-                  {i < items.length - 1 && <div style={{ height: 1, background: P.line }} />}
-                </React.Fragment>
-              ))}
-            </Card>
+      <Sheet open={open} onClose={onClose} title={pane === "import" ? "Importar datos" : "Dispositivos"} tall>
+        {pane === "import" ? (
+          <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <button onClick={() => setPane(null)} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 15, fontWeight: 600, color: P.text, alignSelf: "flex-start" }}>
+              <ChevronLeft size={17} strokeWidth={2.6} /> Dispositivos
+            </button>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>
+              Pega acá el CSV que exportaste, o elige el archivo. Se leen las columnas de
+              fecha, peso, pasos, sueño y agua; el resto se ignora.
+            </div>
+            <input type="file" accept=".csv,text/csv,text/plain" aria-label="Elegir archivo CSV"
+              onChange={(e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => analizar(String(r.result || "")); r.readAsText(f); }}
+              style={{ fontSize: 14, color: P.dim }} />
+            <Txt value={texto} onChange={(e) => analizar(e.target.value)} rows={6} placeholder={"fecha,peso,pasos\n2026-08-01,78.4,9482"}
+              style={{ borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 13.5, fontFamily: MONO.mono }} />
+            {previo && previo.error && <div style={{ fontSize: 13.5, color: P.red, lineHeight: 1.4 }}>{previo.error}</div>}
+            {previo && !previo.error && (
+              <>
+                <RowGroup label="Encontrado en el archivo" rows={Object.keys(previo.conteo).map((k) => ({ label: k, value: `${previo.conteo[k]} registros` }))} />
+                <Btn kind="ember" onClick={importar} style={{ width: "100%" }}>Importar</Btn>
+                <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5 }}>
+                  Los días que ya tengan un registro tuyo se respetan: importar dos veces el mismo archivo no duplica nada.
+                </div>
+              </>
+            )}
           </div>
-        ))}
-      </Sheet>
-      <Sheet open={!!dev} onClose={() => setDetail(null)} title={dev ? dev.name : ""}>
-        {dev && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <span style={{ width: 52, height: 52, borderRadius: 15, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", color: P.dim, flexShrink: 0 }}>
-                <dev.Icon size={24} />
+        ) : (
+          <div className="paneIn">
+            {/* Estado del pulsómetro arriba: es lo único que se conecta en
+                vivo y lo que cambia mientras entrenas. */}
+            <Card style={{ padding: "14px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ width: 38, height: 38, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                background: hr.connected ? PLATE_GRAD : P.s3, color: hr.connected ? PLATE_FG : P.faint2 }}>
+                <HeartPulse size={19} />
               </span>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 17, fontWeight: 700 }}>{dev.name}</div>
-                <div style={{ fontSize: 13, color: P.faint }}>No conectado</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text }}>
+                  {hr.connected ? (hr.name || "Pulsómetro") : "Pulsómetro"}
+                </div>
+                <div style={{ fontSize: 13, color: P.faint2, marginTop: 1 }}>
+                  {hr.connected
+                    ? `${hr.bpm != null ? `${hr.bpm} lpm` : "Conectado"}${hr.battery != null ? ` · batería ${hr.battery} %` : ""}`
+                    : hr.supported ? "Sin conectar" : "Tu navegador no tiene Bluetooth"}
+                </div>
               </div>
-            </div>
-            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>{dev.blurb}</div>
-            <div>
-              <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Qué va a traer</div>
-              <Card style={{ padding: "12px 14px" }}>
-                {dev.syncs.map((s, i) => (
-                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 14.5, lineHeight: 1.5, marginBottom: i < dev.syncs.length - 1 ? 8 : 0 }}>
-                    <span style={{ color: P.ember2, flexShrink: 0 }}>•</span><span>{s}</span>
-                  </div>
-                ))}
-              </Card>
-            </div>
-            <Btn kind="ember" onClick={() => toast && toast(`La conexión con ${dev.name} llega pronto — te avisamos apenas esté disponible.`)} style={{ width: "100%" }}>
-              <Bluetooth size={15} /> Conectar {dev.name}
-            </Btn>
+              {hr.connected ? (
+                <button onClick={hr.disconnect} style={{ fontSize: 14, fontWeight: 600, color: P.red, flexShrink: 0 }}>Desconectar</button>
+              ) : (
+                <Btn kind="line" small disabled={!hr.supported} onClick={hr.connect} style={{ flexShrink: 0 }}>
+                  <Bluetooth size={14} /> Conectar
+                </Btn>
+              )}
+            </Card>
+            {hr.error && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4, marginBottom: 14 }}>{hr.error}</div>}
+            {!hr.supported && (
+              <div style={{ fontSize: 13, color: P.faint2, lineHeight: 1.5, marginBottom: 16 }}>
+                Safari no implementa Bluetooth en la web, así que en iPhone y iPad no se puede conectar
+                nada por Bluetooth desde el navegador — es decisión de Apple. En Chrome de Android o de
+                computador sí funciona. Mientras tanto, la importación por archivo de acá abajo anda en
+                cualquier dispositivo.
+              </div>
+            )}
+
+            {groups.map(([label, items]) => (
+              <div key={label} style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4, marginBottom: 8 }}>{label}</div>
+                <Card style={{ overflow: "hidden" }}>
+                  {items.map((d, i) => (
+                    <button key={d.id} onClick={() => setDetail(d.id)}
+                      style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px",
+                        borderBottom: i < items.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                      <span style={{ width: 32, height: 32, borderRadius: 10, background: P.s3, color: P.text, flexShrink: 0,
+                        display: "flex", alignItems: "center", justifyContent: "center" }}><d.Icon size={16} strokeWidth={2.2} /></span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 16, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+                      <ChevronRight size={16} color={P.chevron} />
+                    </button>
+                  ))}
+                </Card>
+              </div>
+            ))}
+          </div>
+        )}
+      </Sheet>
+
+      <Sheet open={!!dev} onClose={() => { setDetail(null); setScaleMsg(""); }} title={dev ? dev.name : ""}>
+        {dev && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.55 }}>{dev.blurb}</div>
+            <RowGroup label="Qué trae" rows={dev.syncs.map((x) => ({ label: x }))} />
+            {dev.via === "ble" && dev.id === "hr" && (
+              hr.connected
+                ? <Btn kind="line" onClick={hr.disconnect} style={{ width: "100%" }}>Desconectar {hr.name || "el pulsómetro"}</Btn>
+                : <Btn kind="ember" disabled={!hr.supported} onClick={hr.connect} style={{ width: "100%" }}><Bluetooth size={15} /> Conectar por Bluetooth</Btn>
+            )}
+            {dev.via === "ble" && dev.id === "scale" && (
+              <>
+                <Btn kind="ember" disabled={!bleSupported()} onClick={leerBascula} style={{ width: "100%" }}><Bluetooth size={15} /> Leer el peso</Btn>
+                {scaleMsg && <div style={{ fontSize: 13.5, color: P.dim }}>{scaleMsg}</div>}
+              </>
+            )}
+            {dev.via === "import" && (
+              <Btn kind="ember" onClick={() => { setDetail(null); setPane("import"); }} style={{ width: "100%" }}>
+                <Upload size={15} /> Importar el archivo exportado
+              </Btn>
+            )}
+            {dev.via === "ble" && !bleSupported() && (
+              <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5 }}>
+                Tu navegador no tiene Bluetooth. En iPhone no hay forma: Safari no lo implementa.
+              </div>
+            )}
           </div>
         )}
       </Sheet>
@@ -16075,7 +16353,8 @@ const App = () => {
         onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
         onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
         onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }} />
-      <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast} />
+      <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast}
+        history={history} saveHistory={saveHistory} />
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
         onEnter={(m, id) => { setRosterOpen(false); openIdentity(m, id, roster, myTeamId); }}
         onAdd={() => addStudent(false)} onRename={renameStudent} onRemove={(s) => setConfirmDel(s)} />
