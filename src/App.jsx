@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v167";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v168";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4534,7 +4534,7 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    "···" chico en la fila activa (deshacer/rehacer/borrar/comentario/
    unidad), calcando A3 al pixel.
    ============================================================ */
-const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
+const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
   const [weightUnit] = useWeightUnit();
   const pendingWrites = usePendingWrites();
   const [blockIdx, setBlockIdx] = useState(0);
@@ -4763,7 +4763,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
       : nextBlock
         ? `Sigue: ${nextBlock.group ? nextBlock.members.map((m) => exs[m].name).join(" + ") : exs[nextBlock.ei].name}`
         : "Era la última serie de la sesión";
-    const ctaLabel = nextInBlock ? "Ir a la siguiente serie" : nextBlock ? "Ir al siguiente ejercicio" : "Terminar la sesión";
+    const ctaLabel = nextInBlock ? "Ir a la siguiente serie" : nextBlock ? "Ir al siguiente ejercicio" : "Finalizar sesión";
     restCard = (
       <>
         <Card style={{ padding: "15px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 11 }}>
@@ -4787,7 +4787,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
             </div>
           )}
         </Card>
-        <button onClick={nextBlock || nextInBlock ? finishRest : () => { onDismissRest(); askExit(); }}
+        <button onClick={nextBlock || nextInBlock ? finishRest : () => { onDismissRest(); onFinish(); }}
           style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
           {ctaLabel}
         </button>
@@ -4801,25 +4801,28 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
   // mía" y qué pasaba al marcarla. Entrenando eso sobra: se muestra la
   // serie que toca, se completa, y aparece el descanso diciendo qué
   // sigue. Dónde estás dentro del ejercicio lo dice la tira de puntos.
-  const setDots = (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 4px 8px" }}>
+  // Un tilde por serie: hecha (tilde), en curso (relleno) o pendiente
+  // (vacía). Va entre las dos flechas, que es donde se mira. Las hechas
+  // responden al toque para corregirlas — desmarcarla la vuelve a abrir;
+  // las que todavía no llegaron no hacen nada, así no se saltan series
+  // por accidente.
+  const setTicks = (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, flex: 1, minWidth: 0 }}>
       {block.rows.map((r, i) => {
         const done = !!exs[r.ei].sets[r.si].done;
         const isNow = i === activeRowIdx;
-        // Solo las hechas responden al toque, y solo para corregirlas:
-        // desmarcarla la vuelve a abrir. Las que todavía no llegaron no
-        // hacen nada — no se saltan series por accidente.
         return (
           <button key={`${r.ei}-${r.si}`} disabled={!done}
             onClick={done ? () => onToggleDone(r.ei, r.si) : undefined}
-            aria-label={done ? `Corregir serie ${i + 1}` : `Serie ${i + 1}${isNow ? ", en curso" : ", pendiente"}`}
-            style={{ flex: 1, height: 6, borderRadius: 3, padding: 0,
-              background: done ? P.ember : isNow ? P.text : P.s3 }} />
+            aria-label={done ? `Serie ${i + 1} hecha — tocar para corregirla` : `Serie ${i + 1}${isNow ? ", en curso" : ", pendiente"}`}
+            style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0, padding: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: done ? PLATE_GRAD : isNow ? P.text : "transparent",
+              border: done || isNow ? "none" : `1.5px solid ${P.chevron}` }}>
+            {done && <Check size={13} color={PLATE_FG} strokeWidth={3} />}
+          </button>
         );
       })}
-      <span style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2, flexShrink: 0, marginLeft: 2 }}>
-        {Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)} / {block.rows.length}
-      </span>
     </div>
   );
 
@@ -4881,9 +4884,9 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
             : "Es el último ejercicio de la sesión"}
         </span>
       </Card>
-      <button onClick={() => (blockIdx < blocks.length - 1 ? goBlock(1) : askExit())}
+      <button onClick={() => (blockIdx < blocks.length - 1 ? goBlock(1) : onFinish())}
         style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
-        {blockIdx < blocks.length - 1 ? "Ir al siguiente ejercicio" : "Terminar la sesión"}
+        {blockIdx < blocks.length - 1 ? "Ir al siguiente ejercicio" : "Finalizar sesión"}
       </button>
     </>
   );
@@ -4900,7 +4903,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
           completa. Siempre visible arriba de la pestaña, con la barra de
           navegación de la app debajo — nunca tapa nada. */}
       <Card style={{ padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <button onClick={askExit} aria-label="Salir de la sesión"
+        <button onClick={onLeave} aria-label="Salir de la sesión (se guarda sola)"
           style={{ width: 32, height: 32, borderRadius: 16, background: P.s4, color: P.dim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <X size={15} strokeWidth={2.6} />
         </button>
@@ -4913,27 +4916,28 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
                 background: pendingWrites ? P.line : (storageOK ? P.ember : "transparent"), border: !pendingWrites && !storageOK ? `1.5px solid ${P.text}` : "none" }} />
           </span>
         </div>
-        <button onClick={askExit} style={{ padding: "8px 14px", borderRadius: 16, background: PLATE_GRAD, color: PLATE_FG, fontSize: 14.5, fontWeight: 600, flexShrink: 0 }}>Terminar</button>
+        <button onClick={askExit} aria-label="Opciones de la sesión"
+          style={{ width: 32, height: 32, borderRadius: 16, background: P.s4, color: P.dim, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <MoreHorizontal size={17} strokeWidth={2.4} />
+        </button>
       </Card>
 
       <div>
-        {/* "Anterior" y "Siguiente" dicen lo que hacen y viven en la misma
-            línea que el contador, que es justo lo que numeran. Antes eran
-            dos fichas grises de ancho completo ocupando una fila entera, y
-            la de la derecha decía "Saltar" — que suena a descartar el
-            ejercicio, no a pasar al que viene. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button onClick={() => goBlock(-1)} disabled={blockIdx === 0}
-            style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, fontWeight: 600, flexShrink: 0,
+        {/* Flecha, tildes de las series, flecha. Sin las palabras
+            "Anterior"/"Siguiente" ni el contador de ejercicios: en qué
+            ejercicio vas ya lo dicen las barras de abajo, y lo que uno
+            mira acá es cuántas series lleva. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 30 }}>
+          <button onClick={() => goBlock(-1)} disabled={blockIdx === 0} aria-label="Ejercicio anterior"
+            style={{ width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
               color: blockIdx === 0 ? P.chevron : P.text }}>
-            <ChevronLeft size={15} strokeWidth={2.6} /> Anterior
+            <ChevronLeft size={20} strokeWidth={2.6} />
           </button>
-          <span style={{ flex: 1, textAlign: "center", fontSize: 12.5, fontWeight: 600, color: P.faint2, minWidth: 0,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Ejercicio {blockIdx + 1} de {totalBlocks}</span>
-          <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1}
-            style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, fontWeight: 600, flexShrink: 0,
+          {setTicks}
+          <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} aria-label="Ejercicio siguiente"
+            style={{ width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
               color: blockIdx >= blocks.length - 1 ? P.chevron : P.text }}>
-            Siguiente <ChevronRight size={15} strokeWidth={2.6} />
+            <ChevronRight size={20} strokeWidth={2.6} />
           </button>
         </div>
         <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${blockTitle} — ver la rutina completa`}
@@ -4961,7 +4965,6 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
                 {GROUP_KINDS[block.kind].label} · {block.rounds} {block.rounds === 1 ? "ronda" : "rondas"}
               </div>
             )}
-            {setDots}
             {renderActiveSet(block.rows[activeRowIdx])}
           </Card>
           <button onClick={() => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si)}
@@ -5000,17 +5003,14 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
             display: "flex", flexDirection: "column", gap: 8 }}>
             <Card style={{ overflow: "hidden" }}>
               <div style={{ padding: 16, textAlign: "center", borderBottom: `1px solid ${P.line}` }}>
-                <div style={{ fontSize: 17, fontWeight: 600, color: P.text }}>¿Terminar la sesión?</div>
+                <div style={{ fontSize: 17, fontWeight: 600, color: P.text }}>Sesión en curso</div>
                 <div style={{ fontSize: 13.5, color: P.faint2, marginTop: 3 }}>
                   {doneSets} {doneSets === 1 ? "serie registrada" : "series registradas"} · {Math.floor(elapsed / 60)} min
                 </div>
               </div>
               <button onClick={() => { setExiting(false); onFinish(); }}
                 style={{ width: "100%", padding: 17, textAlign: "center", fontSize: 18, fontWeight: 600, color: P.text, borderBottom: `1px solid ${P.line}` }}>
-                Guardar y terminar
-              </button>
-              <button onClick={() => setExiting(false)} style={{ width: "100%", padding: 17, textAlign: "center", fontSize: 18, color: P.text, borderBottom: `1px solid ${P.line}` }}>
-                Guardar y seguir después
+                Finalizar sesión
               </button>
               <button onClick={() => { setExiting(false); setConfirmDiscard(true); }} style={{ width: "100%", padding: 17, textAlign: "center", fontSize: 18, color: P.red }}>
                 Descartar la sesión
@@ -5183,7 +5183,7 @@ const FocusModeMono = ({ active, history, patch, patchSet, patchEx, onError, onF
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, autoStartDayId, onAutoStartConsumed, onOpenAIChat }) => {
+const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, autoStartDayId, onAutoStartConsumed, onOpenAIChat, onLeave }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
   const [previewDay, setPreviewDay] = useState(null);
@@ -5459,7 +5459,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     <>
       <FocusModeMono active={active} history={history} patch={patch} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
         timer={timer} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
-        onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat}
+        onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
         onBrowseRoutine={() => { setBrowsing(true); setPreviewDay(null); }} />
       {summarySheet}
     </>
@@ -15391,7 +15391,8 @@ const App = () => {
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             autoStartDayId={autoStartDayId} onAutoStartConsumed={() => setAutoStartDayId(null)}
-            onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)} />
+            onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
+            onLeave={() => setTab("hoy")} />
         )}
         {mode === "alumno" && tab === "progreso" && (
           <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
