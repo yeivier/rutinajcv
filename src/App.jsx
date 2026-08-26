@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v169";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v170";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4616,7 +4616,7 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    "···" chico en la fila activa (deshacer/rehacer/borrar/comentario/
    unidad), calcando A3 al pixel.
    ============================================================ */
-const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
+const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
   const [weightUnit] = useWeightUnit();
   const pendingWrites = usePendingWrites();
   const [blockIdx, setBlockIdx] = useState(0);
@@ -4639,6 +4639,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [rowMoreFor, setRowMoreFor] = useState(null);
   const [calcOpen, setCalcOpen] = useState(false);
   const [coachNotesOpen, setCoachNotesOpen] = useState(false);
+  // Qué ficha de la hoja de sesión está abierta (null = la grilla).
+  const [sesPane, setSesPane] = useState(null);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [c1w, setC1w] = useState(""); const [c1r, setC1r] = useState(""); const [c1rir, setC1rir] = useState("");
   const [c2e, setC2e] = useState(""); const [c2r, setC2r] = useState(""); const [c2rir, setC2rir] = useState("");
@@ -4974,6 +4976,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     </>
   );
 
+  // Se recalcula con `now` (el reloj de la sesión, que corre cada
+  // segundo), así la duración y el ritmo van en vivo mientras la hoja
+  // está abierta.
+  const stats = useMemo(() => sessionStats(active, history.bodyweight), [active, history.bodyweight, now]);
+
   const askExit = () => setExiting(true);
 
   return (
@@ -5079,33 +5086,107 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           como en la referencia. "Guardar y seguir después" y "Seguir
           entrenando" hacen lo mismo (cerrar la hoja, la sesión sigue
           activa): son dos maneras de decir "todavía no terminé". */}
-      {exiting && (
-        <>
-          <div className="scrimIn" onClick={() => setExiting(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.32)", zIndex: 80 }} />
-          <div className="sheetIn" style={{ position: "fixed", left: 10, right: 10, bottom: "calc(10px + env(safe-area-inset-bottom))", zIndex: 81,
-            display: "flex", flexDirection: "column", gap: 8 }}>
-            <Card style={{ overflow: "hidden" }}>
-              <div style={{ padding: 16, textAlign: "center", borderBottom: `1px solid ${P.line}` }}>
-                <div style={{ fontSize: 17, fontWeight: 600, color: P.text }}>Sesión en curso</div>
-                <div style={{ fontSize: 13.5, color: P.faint2, marginTop: 3 }}>
-                  {doneSets} {doneSets === 1 ? "serie registrada" : "series registradas"} · {Math.floor(elapsed / 60)} min
+      {/* Todo lo de la sesión, en fichas cuadradas. El "···" ya no es un
+          menú de dos opciones: es donde se mira cómo va la sesión —
+          duración, series, tonelaje, ritmo, calorías y el detalle serie
+          por serie— y desde donde se finaliza o se descarta.
+          Las dos acciones van abajo y separadas de las fichas: en una
+          grilla, "Descartar" se toca sin querer. */}
+      <Sheet open={exiting} onClose={() => { setExiting(false); setSesPane(null); }}
+        title={sesPane ? (sesPane === "segmentos" ? "Serie por serie" : "Calorías") : "Sesión"} tall>
+        {sesPane ? (
+          <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <button onClick={() => setSesPane(null)}
+              style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 15, fontWeight: 600, color: P.text, alignSelf: "flex-start" }}>
+              <ChevronLeft size={17} strokeWidth={2.6} /> Sesión
+            </button>
+            {sesPane === "segmentos" && (
+              stats.segmentos.length === 0 ? (
+                <Empty icon={Timer} title="Todavía no hay series" body="Cuando completes la primera serie vas a ver acá cuánto llevó cada una, incluido el descanso previo." />
+              ) : (
+                <>
+                  <div style={{ fontSize: 13.5, color: P.faint2, lineHeight: 1.5 }}>
+                    Cada fila es el tiempo desde que terminaste la serie anterior hasta que terminaste esta: incluye el descanso.
+                  </div>
+                  <Card style={{ overflow: "hidden" }}>
+                    {stats.segmentos.map((sg, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px",
+                        borderBottom: i < stats.segmentos.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                        <span style={{ fontSize: 13, color: P.faint2, width: 18, flexShrink: 0 }}>{sg.n}</span>
+                        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontSize: 15, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sg.exName}</span>
+                          <span style={{ fontSize: 12.5, color: P.faint2 }}>Serie {sg.serie} · {setSummary(sg.st, weightUnit)}</span>
+                        </span>
+                        <span className="num" style={{ fontSize: 16, fontWeight: 600, color: P.text, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{segClock(sg.sec)}</span>
+                      </div>
+                    ))}
+                  </Card>
+                </>
+              )
+            )}
+            {sesPane === "kcal" && (
+              <>
+                <Card style={{ padding: "18px 16px", display: "flex", flexDirection: "column", gap: 3 }}>
+                  <span style={{ fontSize: 13, color: P.faint2 }}>Estimadas en esta sesión</span>
+                  <span style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+                    <span className="num" style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{stats.kcal}</span>
+                    <span style={{ fontSize: 16, fontWeight: 600, color: P.faint2 }}>kcal</span>
+                  </span>
+                </Card>
+                <RowGroup label="De dónde sale" rows={[
+                  { label: "Duración", value: sessionClock(stats.totalSec) },
+                  { label: "Tu peso", value: stats.kgPeso != null ? `${kg(stats.kgPeso)} kg` : `${PESO_POR_DEFECTO} kg (por defecto)` },
+                  { label: "Intensidad", value: `MET ${String(MET_FUERZA).replace(".", ",")}` },
+                ]} />
+                <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5 }}>
+                  Es una <b style={{ color: P.dim }}>estimación</b>, no una medición: sale de la fórmula MET
+                  (intensidad × peso × tiempo), la misma que usan las tablas de actividad física.
+                  {stats.pesoEstimado && " Como no hay ningún peso tuyo registrado, se usa 75 kg — regístralo en el Check-in y el número se ajusta a ti."}
+                  {" "}Para medirlas de verdad hace falta un pulsómetro.
                 </div>
-              </div>
-              <button onClick={() => { setExiting(false); onFinish(); }}
-                style={{ width: "100%", padding: 17, textAlign: "center", fontSize: 18, fontWeight: 600, color: P.text, borderBottom: `1px solid ${P.line}` }}>
-                Finalizar sesión
-              </button>
-              <button onClick={() => { setExiting(false); setConfirmDiscard(true); }} style={{ width: "100%", padding: 17, textAlign: "center", fontSize: 18, color: P.red }}>
-                Descartar la sesión
-              </button>
-            </Card>
-            <button onClick={() => setExiting(false)} style={{ width: "100%", padding: 17, textAlign: "center", fontSize: 18, fontWeight: 600, color: P.text,
-              background: P.s1, borderRadius: R_CARD }}>
-              Seguir entrenando
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+              <StatSquare top="Duración" value={sessionClock(stats.totalSec)} sub={`${active.dayName}`} />
+              <StatSquare top="Series" value={`${stats.setsDone}`} sub={`de ${stats.setsTotal} · ${stats.ejercicios} ejercicios`} />
+              <StatSquare top="Tonelaje" value={stats.volumen >= 1000 ? `${(stats.volumen / 1000).toFixed(1).replace(".", ",")}` : `${Math.round(stats.volumen)}`}
+                unit={stats.volumen >= 1000 ? "t" : weightUnit} sub={`${stats.reps} repeticiones`} />
+              {/* El ritmo necesita al menos un minuto de sesión para no dar
+                  un número disparatado; hasta entonces la ficha lo dice en
+                  vez de mostrar un guion con una leyenda que lo contradice. */}
+              <StatSquare top="Ritmo" value={stats.seriesPorHora != null ? String(stats.seriesPorHora).replace(".", ",") : "—"}
+                unit={stats.seriesPorHora != null ? "series/h" : ""}
+                sub={stats.seriesPorHora != null
+                  ? (stats.mediaPorSerie != null ? `${segClock(stats.mediaPorSerie)} por serie` : null)
+                  : "Al minuto de empezar"} />
+              <StatSquare top="Serie por serie" value={`${stats.segmentos.length}`} unit="tramos"
+                sub="Ver el detalle" onClick={() => setSesPane("segmentos")} />
+              <StatSquare top="Calorías" value={`${stats.kcal}`} unit="kcal" sub="Estimadas · ver cómo" onClick={() => setSesPane("kcal")} />
+            </div>
+
+            {/* Frecuencia cardíaca, mapa y clima necesitan hardware que la
+                app no tiene desde el navegador. En vez de una pantalla
+                vacía que finge, se dice qué falta y se lleva a donde se
+                conectan los dispositivos. */}
+            <RowGroup label="Con un dispositivo conectado" rows={[
+              { label: "Frecuencia cardíaca", value: "Sin pulsómetro", onClick: onOpenDevices },
+              { label: "Calorías medidas", value: "Sin pulsómetro", onClick: onOpenDevices },
+            ]} />
+
+            <button onClick={() => { setExiting(false); setSesPane(null); onFinish(); }}
+              style={{ width: "100%", padding: "15px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
+              Finalizar sesión
+            </button>
+            <button onClick={() => { setExiting(false); setSesPane(null); setConfirmDiscard(true); }}
+              style={{ width: "100%", padding: "11px 0", textAlign: "center", fontSize: 15.5, fontWeight: 600, color: P.red }}>
+              Descartar la sesión
             </button>
           </div>
-        </>
-      )}
+        )}
+      </Sheet>
 
       <Confirm open={confirmDiscard} danger title="Descartar sesión"
         body="Se borrará todo lo registrado en esta sesión y no quedará en el historial. Esta acción no se puede deshacer."
@@ -5299,7 +5380,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, autoStartDayId, onAutoStartConsumed, onOpenAIChat, onLeave }) => {
+const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, autoStartDayId, onAutoStartConsumed, onOpenAIChat, onLeave, onOpenDevices }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
   const [previewDay, setPreviewDay] = useState(null);
@@ -5548,6 +5629,9 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
       if (willDone) {
         if (st.reps === "" || st.reps == null) { const n = repsTargetNum(st.repsT); if (n != null) st.reps = String(n); }
         if ((st.rir === "" || st.rir == null) && st.rirT !== "" && st.rirT != null) st.rir = String(st.rirT);
+        st.doneAt = new Date().toISOString();
+      } else {
+        delete st.doneAt;
       }
       return a;
     });
@@ -5573,7 +5657,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
 
   return (
     <>
-      <FocusModeMono active={active} history={history} plan={plan} patch={patch} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
+      <FocusModeMono active={active} history={history} plan={plan} patch={patch} onOpenDevices={onOpenDevices} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
         timer={timer} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
         onBrowseRoutine={() => { setBrowsing(true); setPreviewDay(null); }} />
@@ -10917,6 +11001,87 @@ const LeadsTab = ({ onCreateStudent, onManageStudent, toast }) => {
    ============================================================ */
 // Reloj de una sesión larga: agrega la hora cuando pasa de 60 min
 // ("1:12:06"); por debajo se queda en minutos:segundos ("12:06").
+
+/* ============================================================
+   Métricas de la sesión
+   ------------------------------------------------------------
+   Lo que una app de fuerza SÍ puede medir sin sensores: cuánto duró
+   cada serie, cuánto se fue en descanso, cuánto peso se movió y a qué
+   ritmo. Las calorías son una estimación declarada como tal (fórmula
+   MET), no una medición: para medirlas de verdad hace falta pulsómetro,
+   y eso vive en Dispositivos.
+   ============================================================ */
+// MET de entrenamiento de fuerza (compendio de actividad física de
+// Ainsworth): ~5,0 para trabajo con pesas continuo. Se usa uno solo para
+// toda la sesión en vez de inventar uno por ejercicio — más precisión
+// falsa no la haría más cierta.
+const MET_FUERZA = 5.0;
+const PESO_POR_DEFECTO = 75;
+
+const sessionStats = (active, bodyweight) => {
+  const startedAt = new Date(active.startedAt).getTime();
+  const now = Date.now();
+  const totalSec = Math.max(0, Math.round((now - startedAt) / 1000));
+
+  // Un segmento por serie hecha, en el orden en que se completaron: de
+  // cuándo terminó la anterior a cuándo terminó esta.
+  const hechas = [];
+  active.exs.forEach((ex, ei) => ex.sets.forEach((st, si) => {
+    if (st.done && st.doneAt) hechas.push({ ei, si, exName: ex.name, at: new Date(st.doneAt).getTime(), st });
+  }));
+  hechas.sort((a, b) => a.at - b.at);
+  let prev = startedAt;
+  const segmentos = hechas.map((h, i) => {
+    const dur = Math.max(0, Math.round((h.at - prev) / 1000));
+    prev = h.at;
+    return { n: i + 1, exName: h.exName, serie: h.si + 1, sec: dur, st: h.st };
+  });
+
+  let setsDone = 0, setsTotal = 0, volumen = 0, reps = 0;
+  active.exs.forEach((ex) => ex.sets.forEach((st) => {
+    setsTotal += 1;
+    if (!st.done) return;
+    setsDone += 1;
+    volumen += num(st.weight) * num(st.reps);
+    reps += num(st.reps);
+    (st.drops || []).forEach((d) => { volumen += num(d.weight) * num(d.reps); });
+  }));
+
+  const trabajoSec = segmentos.reduce((a, x) => a + x.sec, 0);
+  const kgPeso = (bodyweight || []).length ? bodyweight[bodyweight.length - 1].kg : null;
+  const minutos = totalSec / 60;
+  const kcal = Math.round(MET_FUERZA * 3.5 * (kgPeso || PESO_POR_DEFECTO) / 200 * minutos);
+
+  return {
+    totalSec, segmentos, setsDone, setsTotal, volumen, reps,
+    ejercicios: active.exs.length,
+    // Ritmo: series por hora y media por serie. Es lo que dice si la
+    // sesión se está yendo de largo entre serie y serie.
+    seriesPorHora: totalSec > 60 ? Math.round((setsDone / (totalSec / 3600)) * 10) / 10 : null,
+    mediaPorSerie: setsDone ? Math.round(trabajoSec / setsDone) : null,
+    kcal: minutos >= 1 ? kcal : 0,
+    kgPeso, pesoEstimado: kgPeso == null,
+  };
+};
+
+// mm:ss para las duraciones de segmento (siempre por debajo de la hora).
+const segClock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+// Ficha cuadrada de dato: rótulo chico, número grande, nota abajo. Es la
+// misma forma que "Estado de hoy" y las fichas del check-in.
+const StatSquare = ({ top, value, unit, sub, onClick }) => (
+  <button onClick={onClick} disabled={!onClick}
+    style={{ width: "100%", minHeight: 92, textAlign: "left", background: P.s1, border: `1px solid ${P.frame}`,
+      borderRadius: R_TILE, padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
+    <span style={{ fontSize: 12.5, color: P.faint2 }}>{top}</span>
+    <span style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+      <span className="num" style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: P.text, lineHeight: 1.1 }}>{value}</span>
+      {unit && <span style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>{unit}</span>}
+    </span>
+    {sub != null && <span style={{ fontSize: 12, color: P.faint2, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</span>}
+  </button>
+);
+
 const sessionClock = (s) => {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
   return `${h ? `${h}:${String(m).padStart(2, "0")}` : String(m)}:${String(ss).padStart(2, "0")}`;
@@ -15573,7 +15738,7 @@ const App = () => {
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             autoStartDayId={autoStartDayId} onAutoStartConsumed={() => setAutoStartDayId(null)}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
-            onLeave={() => setTab("hoy")} />
+            onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} />
         )}
         {mode === "alumno" && tab === "progreso" && (
           <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
