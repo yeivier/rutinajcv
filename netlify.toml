@@ -1,5 +1,5 @@
 [build]
-  command = "echo 'Static site ready; no build step required'"
+  command = "node scripts/gen-config.js"
   publish = "."
 
 [build.environment]
@@ -18,6 +18,13 @@
 
 [[headers]]
   for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# config.js dice a qué base apunta el sitio: nunca se cachea, o un
+# despliegue que cambie de base seguiría escribiendo en la vieja.
+[[headers]]
+  for = "/config.js"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
