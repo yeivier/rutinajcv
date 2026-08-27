@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v183";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v184";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1873,7 +1873,7 @@ function compressImage(file, maxDim = 1280, quality = 0.72) {
 }
 
 /* ---------------- Programa del alumno ---------------- */
-const SEED_VERSION = 5;
+const SEED_VERSION = 6;
 const ROSTER_VERSION = 1;
 const TRAINING_B_VIDEOS = [
   "https://youtu.be/PkdWebUdlbE",
@@ -2071,12 +2071,16 @@ function routineCDays() {
   const bo = (reps, rir) => ["backoff", reps, rir];
   const rp = (reps, rir) => ["restpause", reps, rir];
   const dr = (reps, rir) => ["drop", reps, rir];
-  const day = (name, exs) => ({ id: uid(), name, routine: ROUTINE_C, exs });
+  const am = (reps, rir) => ["amrap", reps, rir];
+  // `clave` identifica al día pase lo que pase con su nombre: el coach puede
+  // renombrarlo y una actualización posterior tiene que seguir sabiendo que
+  // ese día ya está, en vez de añadirlo otra vez.
+  const day = (clave, name, exs) => ({ id: uid(), seedKey: clave, name, routine: ROUTINE_C, exs });
   // Marca un tramo de ejercicios como superserie de `rounds` rondas.
   const ss = (rounds, ...exs) => { const g = uid(); exs.forEach((e) => { e.group = g; e.groupRounds = rounds; }); return exs; };
 
   return [
-    day("Pecho + Hombro + Tríceps", [
+    day("C1", "Pecho + Hombro + Tríceps", [
       ex("Contractora pectoral", "Pecho", 45,
         "2X12-10REP RIR2 AMBAS\n1X9-10REP RIR1\n1X16-18REP RIR1-0",
         sets([n("12-10", "2"), n("12-10", "2"), n("9-10", "1"), n("16-18", "1-0")])),
@@ -2114,7 +2118,7 @@ function routineCDays() {
         sets([n("8+8", "0"), n("8+8", "0"), n("8+8", "0")])),
     ]),
 
-    day("Espalda + Hombro (pull)", [
+    day("C2", "Espalda + Hombro (pull)", [
       ex("Peck deck reversa", "Hombro", 45, "2X12-15REP",
         sets([n("12-15", ""), n("12-15", ""), n("15-10", ""), n("15-10", "")])),
       ex("Elevación unilateral hombro polea", "Hombro", 30,
@@ -2138,7 +2142,7 @@ function routineCDays() {
         sets([n("8", ""), n("8", ""), n("6-8", "")])),
     ]),
 
-    day("Brazos + Femoral", [
+    day("C3", "Brazos + Femoral", [
       ...ss(3,
         ex("Overhead tríceps polea baja", "Tríceps", 30,
           "subiendo un poco el peso en cada serie. Notando como la zona se va llenando",
@@ -2163,6 +2167,34 @@ function routineCDays() {
       ex("Peso muerto piernas rígidas mancuernas", "Femoral", 90,
         "Las capturas no traían el detalle de este ejercicio: 4 series, tu entrenador ajusta reps y RIR.",
         sets([n("8-10", "1"), n("8-10", "1"), n("8-10", "1"), n("8-10", "1")])),
+    ]),
+    day("C4", "Espalda + Bíceps", [
+      ex("Pull over polea", "Espalda", 60,
+        "1X 12-15REP TEMPO DINAMICO\n\n" +
+        "1X 8REP MISMO PESO O UN POCO MAS AHORA CON NEGATIVA LENTA EN 3SEG\n\n" +
+        "1X mas peso 5REP NEGATIVA EN 3SEG + DESCANSA5SEG Y 3REP EXTRA MAS DINAMICAS",
+        sets([n("12-15", ""), n("8", ""), rp("5", "")])),
+      ex("Remo bajo discos / remo Dorian o similar", "Espalda", 90,
+        "2-3 series aproximativas a 5-6rep, cogemos posicionamiento y compactación. no nos quemamos!\n" +
+        "------------------------------------\n" +
+        "Semana 1\nTop Set → 1x8RIR2\nBack-off → 1 serie x 10–12 reps @ −15%\n\n" +
+        "Semana 2\nTop Sets → 2X6-8RIR2\nBack-off → 1 serie x 12–14 reps @ −15%",
+        sets([top("8", "2"), bo("10-12", "")])),
+      ex("Curl bayesan mancuernas", "Bíceps", 45,
+        "2X8-10REP TEMPO LENTO\n1X8-10REP TEMPO MAS DINAMICO\n" +
+        "1X 6REP SENTADO + DE PIE AL FALLO PUDIENDO TRAMPEAR ESTRATEGICAMNTE CON LA INHERCIA DEL CUERPO",
+        sets([n("8-10", ""), n("8-10", ""), n("8-10", ""), am("6 + al fallo", "0")])),
+      ex("Remo gironda estrecho", "Espalda", 60,
+        "SEMANA 1 Y 2:\nObjetivo, hacernos con el tempo correcto y sensaciones\n" +
+        "· 1X 8REP NEGATIVA EN 3SEG RIR3\n· 1X 8REP NEGATIVA EN 3SEG RIR2\n" +
+        "· 1X 8-10REP RIR1 TEMPO DINAMICO Y CON RITMO",
+        sets([n("8", "3"), n("8", "2"), n("8-10", "1")])),
+      ex("Tracción unilateral", "Espalda", 90,
+        "Las capturas no traían el detalle de este ejercicio: 2 series de 10-12, tu entrenador ajusta el resto.",
+        sets([n("10-12", ""), n("10-12", "")])),
+      ex("Curl bíceps martillo mancuerna", "Bíceps", 45,
+        "2 series: rest-pause + drop set (rp+dp). Las capturas no traían el detalle fino.",
+        sets([rp("10-12", ""), dr("10-12", "")])),
     ]),
   ];
 }
@@ -17124,6 +17156,20 @@ const App = () => {
         if (!(p.instructions || []).some((i) => i.title === ROUTINE_C_INTRO.title)) {
           p.instructions = [...(p.instructions || []), { id: uid(), ...ROUTINE_C_INTRO }];
         }
+      } else if ((p.days || []).some((day) => day.routine === ROUTINE_C)) {
+        // Días que se sumen a la Rutina C DESPUÉS de que ya estaba cargada.
+        // Se comparan por nombre y solo se añaden los que faltan: los que ya
+        // están se dejan como estén, que el coach pudo haberlos tocado.
+        const plantilla = routineCDays();
+        const suyos = p.days.filter((d) => d.routine === ROUTINE_C);
+        // Los días cargados antes de que existiera `seedKey` no la tienen. Se
+        // la ponemos POR POSICIÓN, no por nombre: la rutina se creó siempre
+        // con los mismos días en el mismo orden, y el coach pudo haberlos
+        // renombrado — que es justo el caso en que el nombre no sirve.
+        suyos.forEach((d, i) => { if (!d.seedKey && i < plantilla.length) d.seedKey = plantilla[i].seedKey; });
+        const claves = new Set(suyos.map((d) => d.seedKey).filter(Boolean));
+        const faltan = plantilla.filter((d) => !claves.has(d.seedKey));
+        if (faltan.length) p.days = [...p.days, ...faltan];
       }
       p.seedVersion = SEED_VERSION;
       await sSet(`forja-plan:${id}`, p);
