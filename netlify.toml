@@ -37,6 +37,14 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+# El catálogo de ejercicios: mismo trato que bundle.js. Se pide con ?v= y
+# su contenido no cambia para un ?v= dado, así que se cachea a largo plazo
+# — son ~890 KB (unos 114 KB comprimidos) que conviene bajar UNA vez.
+[[headers]]
+  for = "/catalogo-ejercicios.json"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
 # El service worker siempre se revalida: si quedara cacheado viejo, una
 # actualización de la app podría no llegar a instalarse nunca.
 [[headers]]
