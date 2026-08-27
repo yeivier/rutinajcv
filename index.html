@@ -26,7 +26,12 @@
 </head>
 <body>
   <div id="root"></div>
-  <script src="/bundle.js?v=178" defer></script>
+  <!-- A qué base apunta ESTE sitio. Lo genera scripts/gen-config.js en
+       cada despliegue desde variables de entorno; si no existe, el bundle
+       usa su base por defecto. Va antes del bundle: los dos con defer,
+       que conserva el orden. -->
+  <script src="/config.js" defer></script>
+  <script src="/bundle.js?v=179" defer></script>
   <script>
     // Registra el service worker que permite abrir la app sin internet
     // (sirve la última copia guardada de index.html/bundle.js cuando no

@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v178";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v179";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1200,10 +1200,11 @@ const PhotoCompareSheet = ({ open, onClose, photos, bodyweight }) => {
    el dispositivo y se encola (PENDING_KEY) para reintentarse sola en
    cuanto vuelva la conexión — así se puede iniciar un entrenamiento y
    registrar series sin internet, y no se pierde nada. */
-const SB_URL = "https://vzenlmcbftopyjzcltxa.supabase.co/rest/v1/forja_kv";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6ZW5sbWNiZnRvcHlqemNsdHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NjQ5NDksImV4cCI6MjA5ODI0MDk0OX0.CWCrsDVuFEsq3QiAYHRYmsRrD6AI2M7o6ofRUQJXUyY";
+const FJ_CFG = (typeof window !== "undefined" && window.FORJA_CONFIG) || {};
+const SB_URL = FJ_CFG.sbUrl || "https://vzenlmcbftopyjzcltxa.supabase.co/rest/v1/forja_kv";
+const SB_KEY = FJ_CFG.sbKey || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6ZW5sbWNiZnRvcHlqemNsdHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NjQ5NDksImV4cCI6MjA5ODI0MDk0OX0.CWCrsDVuFEsq3QiAYHRYmsRrD6AI2M7o6ofRUQJXUyY";
 const SB_H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
-const LS_PREFIX = "fjkv:";
+const LS_PREFIX = FJ_CFG.lsPrefix || "fjkv:";
 const PENDING_KEY = "forja-pending-writes";
 
 const localCache = new Map();   // shared=false → solo esta pestaña (no persiste al recargar)
