@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v179";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v180";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1873,7 +1873,7 @@ function compressImage(file, maxDim = 1280, quality = 0.72) {
 }
 
 /* ---------------- Programa del alumno ---------------- */
-const SEED_VERSION = 4;
+const SEED_VERSION = 5;
 const ROSTER_VERSION = 1;
 const TRAINING_B_VIDEOS = [
   "https://youtu.be/PkdWebUdlbE",
@@ -1892,9 +1892,14 @@ const sets = (arr) => arr.map(([type, repsT, rirT, pct]) => ({ id: uid(), type, 
    Un día sin etiqueta se considera Rutina A. */
 const ROUTINE_A = "A";
 const ROUTINE_B = "B";
+const ROUTINE_C = "C";
+// La Rutina C llega con nombre propio desde el día uno (el coach igual
+// puede renombrarla; esto es solo el valor con el que se carga).
+const ROUTINE_C_NAME = "RUTINA A_V4";
 const ROUTINE_META = {
   A: { note: "Todo lo que ya estaba cargado, tal cual" },
   B: { note: "Empujes · Tirones · Pierna, dos vueltas" },
+  C: { note: "Pecho·Hombro·Tríceps · Pull · Brazos·Femoral (semanas 5 a 9)" },
 };
 const routineOf = (day) => (day && day.routine) || ROUTINE_A;
 // El coach puede renombrar cada rutina (se guarda en `plan.routineNames`,
@@ -2048,6 +2053,120 @@ function routineBDays() {
   ];
 }
 
+const ROUTINE_C_INTRO = {
+  title: "RUTINA A_V4 · Antes de empezar",
+  body: "Recomendable antes de iniciar, movilidad 3min de torso ó tren inferior (según sea la sesión) usando bandas elásticas si procede.\n\nSERIES DE APROXIMACIÓN OBLIGATORIAS: series destinadas a coger sensaciones con el movimiento, la maquina, compactación y calibraje del sistema nervioso, NO se apuran al limite, ve holgado pero que sean reps de calidad.\n\n2 sets aproximativas en primer ejercicio de un grupo en la sesion.\n1 set aproximativa en resto de ejercicios.",
+};
+
+/* Rutina C — «RUTINA A_V4»: transcripción de las capturas del bloque
+   semanas 5 a 9 (Método Josema). Tres sesiones. Las indicaciones de cada
+   ejercicio van tal cual las dejó el entrenador, incluida la progresión
+   semana a semana: FORJA no tiene un campo por semana en el ejercicio, así
+   que el texto entero vive en las notas y las series cargadas son la
+   plantilla de la semana en curso. */
+function routineCDays() {
+  const ex = (name, muscle, rest, notes, s) => ({ id: uid(), name, muscle, rest, superset: "", notes: notes || "", video: "", sets: s });
+  const n = (reps, rir) => ["normal", reps, rir];
+  const top = (reps, rir) => ["top", reps, rir];
+  const bo = (reps, rir) => ["backoff", reps, rir];
+  const rp = (reps, rir) => ["restpause", reps, rir];
+  const dr = (reps, rir) => ["drop", reps, rir];
+  const day = (name, exs) => ({ id: uid(), name, routine: ROUTINE_C, exs });
+  // Marca un tramo de ejercicios como superserie de `rounds` rondas.
+  const ss = (rounds, ...exs) => { const g = uid(); exs.forEach((e) => { e.group = g; e.groupRounds = rounds; }); return exs; };
+
+  return [
+    day("Pecho + Hombro + Tríceps", [
+      ex("Contractora pectoral", "Pecho", 45,
+        "2X12-10REP RIR2 AMBAS\n1X9-10REP RIR1\n1X16-18REP RIR1-0",
+        sets([n("12-10", "2"), n("12-10", "2"), n("9-10", "1"), n("16-18", "1-0")])),
+      ex("Press inclinado Smith (mpw)", "Pecho", 120,
+        "2-3 series aproximativas a 5-6rep: cogemos posicionamiento y compactación, no nos quemamos.\n" +
+        "------------------------------------\n" +
+        "Semana 5 (MAS PESO)\nTop Sets → 1X6RIR2\nBack-off → 1 serie x 8-10 reps @ −12%\n\n" +
+        "Semana 6\nTop Sets → 2X5-6RIR2\nBack-off → 1 serie x 8-10 reps + RP (2-3REP) @ −12%\n\n" +
+        "Semana 7 (MAS PESO)\nTop Sets → 1X6RIR1\nBack-off → 1 serie x 8-10 reps + 2RP (2-3REP) @ −12%\n\n" +
+        "Semana 8\nTop Sets → 2X5-6RIR1\nBack-off → 1 serie x 8-10reps @ −10%\n\n" +
+        "Semana 9 (PESOS SEMANA 1)\nTOP SET → 1X REPS QUE LOGRES A RIR1\nBACKOFF → 1X TRAMO 12-15 @ −15%",
+        sets([top("6", "2"), top("5-6", "2"), bo("8-10", "1")])),
+      ex("Elevación lateral hombro en máquina de placas (a elección)", "Hombro", 30,
+        "6X TRAMO 12-10REP RIR1-0 EN TODAS CON DESCANSOS MINIMOS DE 25-30SEG ENTRE SERIES",
+        sets([n("12-10", "1-0"), n("12-10", "1-0"), n("12-10", "1-0"), n("12-10", "1-0"), n("12-10", "1-0"), n("12-10", "1-0")])),
+      ex("Press pectoral máquina discos plano", "Pecho", 60,
+        "SEMANA 6: (aumentamos UN POCO el peso)\n· 1X6REP RIR2-1 NEGATIVA 3SEG\n· 1X6REP RIR2-1 NEGATIVA 2SEG\n" +
+        "· 1X 8-10REP RIR0 DINAMICAS Y CON RITMO + descansa10seg y reps al fallo\n" +
+        "------------------------------------\n" +
+        "SEMANAS 7 Y 8: (mismo peso)\n· 1X6-8REP RIR1 NEGATIVA EN 3SEG + descansa10seg y reps al fallo\n" +
+        "· 1X 8-10REP RIR0 DINAMICAS Y CON RITMO + baja el peso y reps al fallo\n" +
+        "· 1X 6-8REP RIR0 PAUSA EN ESTIRAMIENTO 3SEG\n" +
+        "------------------------------------\n" +
+        "SEMANA 9: (peso semana 1)\n· 1X 6REP RIR3 NEGATIVA EN 3SEG\n· 1X8-10REP RIR3 TEMPO DINAMICO Y CON RITMO\n· 1X8-10REP RIR2 TEMPO DINAMICO Y CON RITMO",
+        sets([n("6", "2-1"), n("6", "2-1"), rp("8-10", "0")])),
+      ex("Aperturas poleas bajas", "Pecho", 45,
+        "2XTRAMO 14-16REP\n2X MAS PESO TRAMO 10-12REP",
+        sets([n("14-16", ""), n("14-16", ""), n("10-12", ""), n("10-12", "")])),
+      ex("Overhead tríceps polea", "Tríceps", 30,
+        "1X 10REP + DESCANSA10SEG Y 5REP + DESCANSA 10SEG Y 5REP…. ASI HASTA QUE NO LOGRES LAS 5REP\n\n" +
+        "1X 8REP + BAJA PESO Y 8REP\n\n1X 18-20REP DINAMICAS",
+        sets([rp("10", "0"), dr("8", "0"), n("18-20", "0")])),
+      ex("Extensión tríceps supino", "Tríceps", 30,
+        "SUPERSERIE AGARRE SUPINO + AGARRE PRONO 8REP EN CADA POSICION. 3 SERIES",
+        sets([n("8+8", "0"), n("8+8", "0"), n("8+8", "0")])),
+    ]),
+
+    day("Espalda + Hombro (pull)", [
+      ex("Peck deck reversa", "Hombro", 45, "2X12-15REP",
+        sets([n("12-15", ""), n("12-15", ""), n("15-10", ""), n("15-10", "")])),
+      ex("Elevación unilateral hombro polea", "Hombro", 30,
+        "2X12-15REP DINAMICAS SUBIENDO UN POCO EL PESO\n1X UN POCO MAS DE PESO 6-8REP Y CON LA NEGATIVA MUY MUY LENTA",
+        sets([n("12-15", ""), n("12-15", ""), n("6-8", "")])),
+      ...ss(3,
+        ex("Hombro - Remo a mentón", "Hombro", 30, "8-10REP RIR2-1",
+          sets([n("8-10", "2-1"), n("8-10", "2-1"), n("8-10", "2-1")])),
+        ex("Elevación lateral mancuerna", "Hombro", 60,
+          "1X12REP\n1X 8-10rep mas peso",
+          sets([n("12-15", ""), n("12-15", ""), n("12-15", "")])),
+      ),
+      ex("Dominadas", "Espalda", 60,
+        "Semana 5: 3x8rep\nSemana 6: 3x10-12\nSemana 7: 4X8-10\nSemana 8: 4X10-12\nSEMANA 9: 2X10",
+        sets([n("8", ""), n("8", ""), n("8", "")])),
+      ex("Seal row", "Espalda", 90,
+        "SEMANA 5 Y 6:\n2X12-15\n\nSEMANA 7 Y 8: (MAS PESO)\n3X8-10\n\nSEMANA 9: (MISMO PESO)\n3X10-12",
+        sets([n("12-15", ""), n("12-15", ""), n("12-8", "")])),
+      ex("Pullover polea", "Espalda", 60,
+        "2X8REP NEGATIVA MUY LENTA EN 4SEG\n1X 6-8REP AGUANTANDO ESTIRAMIENTO 3SEG ANTES DE SUBIR",
+        sets([n("8", ""), n("8", ""), n("6-8", "")])),
+    ]),
+
+    day("Brazos + Femoral", [
+      ...ss(3,
+        ex("Overhead tríceps polea baja", "Tríceps", 30,
+          "subiendo un poco el peso en cada serie. Notando como la zona se va llenando",
+          sets([n("12-10", ""), n("12-10", ""), n("12-10", "")])),
+        ex("Curl bíceps barra z", "Bíceps", 30,
+          "subiendo un poco el peso en cada serie. Notando como la zona se va llenando\n\n" +
+          "** puedes hacerlo de pie, para combinarlo de forma mas cómoda tras el de triceps sin tener que desplazarte demasiado",
+          sets([n("12-10", ""), n("12-10", ""), n("12-10", "")])),
+      ),
+      ex("Kazz Press mpw tríceps", "Tríceps", 60, "2X10REP RIR1-0",
+        sets([n("10", "1-0"), n("10", "1-0"), n("10", "1-0")])),
+      ...ss(3,
+        ex("Curl bíceps polea baja", "Bíceps", 30, "CONTROLADAS",
+          sets([n("8-10", ""), n("8-10", ""), n("8-10", "")])),
+        ex("Extensión tríceps supino", "Tríceps", 30,
+          "8REP AGARRE SUPINO + 8REP AGARRE PRONO",
+          sets([n("12", ""), n("12", ""), n("12", "")])),
+      ),
+      ex("Femoral unilateral (máquina de pie)", "Femoral", 60,
+        "1x 8-10rep negativa super slow en 4seg\n1x 8-12rep mismo peso tempo mas dinamico y explosivo\n1x mismo peso 8rep + descansa10seg y 4rep extra",
+        sets([n("8-10", ""), n("8-12", ""), rp("8", "")])),
+      ex("Peso muerto piernas rígidas mancuernas", "Femoral", 90,
+        "Las capturas no traían el detalle de este ejercicio: 4 series, tu entrenador ajusta reps y RIR.",
+        sets([n("8-10", "1"), n("8-10", "1"), n("8-10", "1"), n("8-10", "1")])),
+    ]),
+  ];
+}
+
 /* ============================================================
    Mesociclos: el plan puede tener VARIOS mesociclos (fases del año,
    bloques distintos), cada uno con su propio nombre y su propia lista
@@ -2188,7 +2307,9 @@ function seedPlanWithSchedule() {
   const p = seedPlan();
   const [A, B, C, D, E] = p.days.map((d) => d.id);
   p.schedule = { mon: A, tue: B, wed: C, thu: null, fri: D, sat: E, sun: null };
-  p.days = p.days.map((d) => ({ ...d, routine: routineOf(d) })).concat(routineBDays());
+  p.days = p.days.map((d) => ({ ...d, routine: routineOf(d) })).concat(routineBDays(), routineCDays());
+  p.routineNames = { ...(p.routineNames || {}), [ROUTINE_C]: ROUTINE_C_NAME };
+  p.instructions = [...(p.instructions || []), { id: uid(), ...ROUTINE_C_INTRO }];
   return p;
 }
 const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos: [], measurements: [],
@@ -5677,6 +5798,14 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
                 <div style={{ fontWeight: 700, fontSize: 15.5 }}>{e.name}</div>
                 <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2 }}>{e.muscle} · descanso {e.rest}s · {e.sets.length} series</div>
                 {e.superset && <div style={{ fontSize: 12.5, color: P.ember2, marginTop: 3 }}>Superserie con {e.superset}</div>}
+                {/* Bloques de verdad (superserie/triserie/gigante con `group`):
+                    la vista previa los dejaba pasar como ejercicios sueltos, así
+                    que el alumno no sabía que van seguidos hasta entrar a Focus. */}
+                {(() => { const gr = exGroupInfo(d.exs, ei); return gr.kind ? (
+                  <div style={{ fontSize: 12.5, color: P.ember2, marginTop: 3 }}>
+                    {GROUP_KINDS[gr.kind].label} {gr.posLabel} · {gr.rounds} rondas, sin descanso entre ejercicios
+                  </div>
+                ) : null; })()}
                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
                   {e.sets.map((s, si) => (
                     <div key={s.id} style={{ fontSize: 12.5, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 7, padding: "3px 7px" }}>
@@ -15958,6 +16087,15 @@ const App = () => {
       // La Rutina B (documento J2) se añade una sola vez, sin tocar la Rutina A
       if ((p.days || []).length && !p.days.some((day) => day.routine === ROUTINE_B)) {
         p.days = [...p.days, ...routineBDays()];
+      }
+      // La Rutina C («RUTINA A_V4») entra igual: una sola vez, al final, sin
+      // tocar lo que ya estaba cargado.
+      if ((p.days || []).length && !p.days.some((day) => day.routine === ROUTINE_C)) {
+        p.days = [...p.days, ...routineCDays()];
+        p.routineNames = { ...(p.routineNames || {}), [ROUTINE_C]: ROUTINE_C_NAME };
+        if (!(p.instructions || []).some((i) => i.title === ROUTINE_C_INTRO.title)) {
+          p.instructions = [...(p.instructions || []), { id: uid(), ...ROUTINE_C_INTRO }];
+        }
       }
       p.seedVersion = SEED_VERSION;
       await sSet(`forja-plan:${id}`, p);
