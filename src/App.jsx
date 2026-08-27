@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v186";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v187";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1873,7 +1873,7 @@ function compressImage(file, maxDim = 1280, quality = 0.72) {
 }
 
 /* ---------------- Programa del alumno ---------------- */
-const SEED_VERSION = 7;
+const SEED_VERSION = 8;
 const ROSTER_VERSION = 1;
 const TRAINING_B_VIDEOS = [
   "https://youtu.be/PkdWebUdlbE",
@@ -2065,7 +2065,7 @@ const ROUTINE_C_INTRO = {
    que el texto entero vive en las notas y las series cargadas son la
    plantilla de la semana en curso. */
 function routineCDays() {
-  const ex = (name, muscle, rest, notes, s) => ({ id: uid(), name, muscle, rest, superset: "", notes: notes || "", video: "", sets: s });
+  const ex = (name, muscle, rest, notes, s, video) => ({ id: uid(), name, muscle, rest, superset: "", notes: notes || "", video: video || "", sets: s });
   const n = (reps, rir) => ["normal", reps, rir];
   const top = (reps, rir) => ["top", reps, rir];
   const bo = (reps, rir) => ["backoff", reps, rir];
@@ -2173,28 +2173,28 @@ function routineCDays() {
         "1X 12-15REP TEMPO DINAMICO\n\n" +
         "1X 8REP MISMO PESO O UN POCO MAS AHORA CON NEGATIVA LENTA EN 3SEG\n\n" +
         "1X mas peso 5REP NEGATIVA EN 3SEG + DESCANSA5SEG Y 3REP EXTRA MAS DINAMICAS",
-        sets([n("12-15", ""), n("8", ""), rp("5", "")])),
+        sets([n("12-15", ""), n("8", ""), rp("5", "")]), "https://youtu.be/PkdWebUdlbE"),
       ex("Remo bajo discos / remo Dorian o similar", "Espalda", 90,
         "2-3 series aproximativas a 5-6rep, cogemos posicionamiento y compactación. no nos quemamos!\n" +
         "------------------------------------\n" +
         "Semana 1\nTop Set → 1x8RIR2\nBack-off → 1 serie x 10–12 reps @ −15%\n\n" +
         "Semana 2\nTop Sets → 2X6-8RIR2\nBack-off → 1 serie x 12–14 reps @ −15%",
-        sets([top("8", "2"), bo("10-12", "")])),
+        sets([top("8", "2"), bo("10-12", "")]), "https://youtu.be/jUKNrZoG0v4"),
       ex("Curl bayesan mancuernas", "Bíceps", 45,
         "2X8-10REP TEMPO LENTO\n1X8-10REP TEMPO MAS DINAMICO\n" +
         "1X 6REP SENTADO + DE PIE AL FALLO PUDIENDO TRAMPEAR ESTRATEGICAMNTE CON LA INHERCIA DEL CUERPO",
-        sets([n("8-10", ""), n("8-10", ""), n("8-10", ""), am("6 + al fallo", "0")])),
+        sets([n("8-10", ""), n("8-10", ""), n("8-10", ""), am("6 + al fallo", "0")]), "https://youtu.be/ft2qWxrJyYA"),
       ex("Remo gironda estrecho", "Espalda", 60,
         "SEMANA 1 Y 2:\nObjetivo, hacernos con el tempo correcto y sensaciones\n" +
         "· 1X 8REP NEGATIVA EN 3SEG RIR3\n· 1X 8REP NEGATIVA EN 3SEG RIR2\n" +
         "· 1X 8-10REP RIR1 TEMPO DINAMICO Y CON RITMO",
-        sets([n("8", "3"), n("8", "2"), n("8-10", "1")])),
+        sets([n("8", "3"), n("8", "2"), n("8-10", "1")]), "https://youtu.be/5BYEIP_KBY8"),
       ex("Tracción unilateral", "Espalda", 90,
         "Las capturas no traían el detalle de este ejercicio: 2 series de 10-12, tu entrenador ajusta el resto.",
-        sets([n("10-12", ""), n("10-12", "")])),
+        sets([n("10-12", ""), n("10-12", "")]), "https://youtu.be/uMO6qc4wyQw"),
       ex("Curl bíceps martillo mancuerna", "Bíceps", 45,
         "2 series: rest-pause + drop set (rp+dp). Las capturas no traían el detalle fino.",
-        sets([rp("10-12", ""), dr("10-12", "")])),
+        sets([rp("10-12", ""), dr("10-12", "")]), "https://youtu.be/5pEG7Cj0-0Y"),
     ]),
   ];
 }
@@ -17242,6 +17242,18 @@ const App = () => {
         if (faltan.length) p.days = [...p.days, ...faltan];
         faltan.forEach((d) => entregadas.add(d.seedKey));
         p.seedKeysC = [...entregadas];
+        // Videos que se suman a un día YA cargado. Se copian por nombre de
+        // ejercicio y solo donde no hay nada: si el coach puso su propio
+        // link, manda el suyo.
+        const porClave = new Map(plantilla.map((d) => [d.seedKey, d]));
+        p.days.filter((d) => d.routine === ROUTINE_C && porClave.has(d.seedKey)).forEach((d) => {
+          const tpl = porClave.get(d.seedKey);
+          (d.exs || []).forEach((e) => {
+            if (e.video) return;
+            const igual = (tpl.exs || []).find((t) => norma(t.name) === norma(e.name));
+            if (igual && igual.video) e.video = igual.video;
+          });
+        });
       }
       p.seedVersion = SEED_VERSION;
       await sSet(`forja-plan:${id}`, p);
