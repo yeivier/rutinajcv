@@ -136,7 +136,7 @@ const seed = (theme) => {
     await tab('Progreso');
     for (const sg of ['Fuerza', 'Cuerpo', 'Volumen', 'Logros']) { await seg(sg); await check('Progreso · ' + sg); }
     await tab('Más');
-    for (const sh of ['Check-in', 'Posing', 'Competition Prep', 'Comparar fotos', 'Suplementación', 'Analítica', 'Atlas', 'Guía de términos']) await sheet(sh);
+    for (const sh of ['Check-in', 'Posing', 'Competition Prep', 'Comparar fotos', 'Suplementación', 'Analítica', 'Ejercicios', 'Guía de términos']) await sheet(sh);
     await tab('Entrenar'); await check('pestaña Entrenar');
 
     console.log(`--- COACH (${theme}) ---`);
@@ -151,6 +151,15 @@ const seed = (theme) => {
     for (const sg of ['Actividad', 'Rankings', 'Cobros', 'Leads']) { await seg(sg); await check('Atletas · ' + sg); }
     await tab('Rutinas');
     for (const sg of ['Rutina', 'Borradores', 'Nutrición', 'IA']) { await seg(sg); await check('Rutinas · ' + sg); }
+    // Comparador de rutinas: capa a pantalla completa, se cierra con la X
+    await seg('Rutina');
+    {
+      const b = page.getByRole('button', { name: /^Comparar rutinas$/ }).first();
+      if (await b.count()) {
+        await b.click(); await page.waitForTimeout(700); await check('Comparar rutinas');
+        await page.getByRole('button', { name: 'Cerrar' }).first().click(); await page.waitForTimeout(500);
+      } else console.log(`  ? [${theme}] no encontré "Comparar rutinas"`);
+    }
     await tab('Mensajes');
     for (const sg of ['Chat', 'Indicaciones']) { await seg(sg); await check('Mensajes · ' + sg); }
     await tab('Más');
