@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v177";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v178";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2777,10 +2777,23 @@ const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals 
 // tres columnas de ▲/▼ se tocan sin mirar y dejan ver Peso, Reps y RIR
 // de un vistazo, sin que ninguno quede fuera de pantalla. El horizontal
 // se queda donde se rellenan formularios con calma (check-in, ajustes).
-const SetStepperCol = ({ label, caption, value, onChange, step = 1, min = 0, decimals = 1, unit }) => {
-  const fmt = decimals === 0 ? String(value) : String(value).replace(".", ",");
+const SetStepperCol = ({ label, sufijo, caption, value, onChange, step = 1, min = 0, decimals = 1 }) => {
+  // Mientras se escribe manda el texto tal cual se tipeó: si se
+  // reformateara en cada tecla no se podría borrar la casilla ni escribir
+  // "12," para llegar a "12,5". Al salir del campo vuelve a mandar el
+  // valor guardado.
+  const [buf, setBuf] = useState(null);
+  const formateado = decimals === 0 ? String(value) : String(value).replace(".", ",");
+  const mostrado = buf != null ? buf : formateado;
+  const confirmar = (txt) => {
+    const limpio = String(txt).replace(",", ".").replace(/[^\d.]/g, "");
+    if (limpio === "") { onChange(min); return; }
+    const n = +limpio;
+    if (isNaN(n)) return;
+    onChange(Math.max(min, decimals === 0 ? Math.round(n) : Math.round(n * 10) / 10));
+  };
   const arrow = (dir, Icon) => (
-    <button onClick={() => onChange(stepClamp(value, dir * step, min, decimals))}
+    <button onClick={() => { setBuf(null); onChange(stepClamp(value, dir * step, min, decimals)); }}
       aria-label={`${dir > 0 ? "Subir" : "Bajar"} ${label}`}
       style={{ height: 46, flexShrink: 0, width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
         color: P.text, background: "transparent", transition: `background ${DUR_MICRO}ms ease` }}>
@@ -2789,25 +2802,50 @@ const SetStepperCol = ({ label, caption, value, onChange, step = 1, min = 0, dec
   );
   return (
     <div style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: P.faint2, marginBottom: 7 }}>{label}</div>
-      {/* La celda del número crece con la pantalla (con tope, para que en
-          un teléfono alto no quede desproporcionada) y se encoge en uno
-          bajo: así la tarjeta se llena entera, sin aire muerto abajo, sea
-          cual sea el alto del dispositivo. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 7, minWidth: 0 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: P.faint2 }}>{label}</span>
+        {sufijo}
+      </div>
       <div style={{ width: "100%", borderRadius: R_TILE, background: P.s3, overflow: "hidden",
         display: "flex", flexDirection: "column" }}>
         {arrow(1, ChevronUp)}
         <div style={{ height: 1, flexShrink: 0, background: P.s1 }} />
-        <div className="num" style={{ height: 66, display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 31, fontWeight: 600, letterSpacing: "-.02em", color: P.text, fontVariantNumeric: "tabular-nums" }}>
-          {fmt}{unit && <span style={{ fontSize: 15, fontWeight: 600, color: P.faint2, marginLeft: 2 }}>{unit}</span>}
-        </div>
+        {/* Se escribe con el teclado, no solo con las flechas: la casilla
+            ES un campo. Se puede vaciar entera y volver a escribir. */}
+        <input className="num" inputMode="decimal" enterKeyHint="done" value={mostrado}
+          aria-label={`${label}, se puede escribir`}
+          onFocus={(e) => { setBuf(mostrado); setTimeout(() => e.target.select(), 0); }}
+          onChange={(e) => { setBuf(e.target.value); confirmar(e.target.value); }}
+          onBlur={() => setBuf(null)}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+          style={{ height: 66, width: "100%", padding: "0 4px", border: "none", background: "transparent", textAlign: "center",
+            fontSize: 31, fontWeight: 600, letterSpacing: "-.02em", color: P.text, fontVariantNumeric: "tabular-nums",
+            fontFamily: "inherit", outline: "none", borderRadius: 0 }} />
         <div style={{ height: 1, flexShrink: 0, background: P.s1 }} />
         {arrow(-1, ChevronDown)}
       </div>
       <div style={{ fontSize: 12, color: P.faint2, marginTop: 7, textAlign: "center", width: "100%",
         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{caption || "\u00a0"}</div>
     </div>
+  );
+};
+
+// El KG/LB de la sesión, en chico, pegado al rótulo de la columna de
+// peso: es donde se mira el número, así que es donde tiene que estar el
+// botón para cambiar de unidad. Lo guardado sigue siendo SIEMPRE kg — el
+// toggle cambia en qué unidad se escribe y se lee.
+const UnitToggleMini = () => {
+  const [unit, setUnit] = useWeightUnit();
+  return (
+    <button onClick={() => setUnit(unit === "kg" ? "lb" : "kg")}
+      aria-label={`Unidad: ${unit === "kg" ? "kilos" : "libras"}. Tocar para cambiar a ${unit === "kg" ? "libras" : "kilos"}`}
+      style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0,
+        fontSize: 10, fontWeight: 800, letterSpacing: ".03em", padding: "3px 6px", borderRadius: 7,
+        border: `1px solid ${P.separatorStrong}`, background: P.s1 }}>
+      <span style={{ color: unit === "kg" ? P.text : P.chevron }}>KG</span>
+      <span style={{ color: P.chevron }}>/</span>
+      <span style={{ color: unit === "lb" ? P.text : P.chevron }}>LB</span>
+    </button>
   );
 };
 
@@ -4844,6 +4882,24 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     setUndoStack((s) => [...s, a]);
   };
 
+  // Peso: guardado SIEMPRE en kg, escrito y leído en la unidad activa.
+  // `equivalencia` es lo que va debajo de la casilla, en chico: cuánto es
+  // eso en la otra unidad, para no tener que hacer la cuenta de cabeza.
+  const pesoMostrado = (kgGuardado) => {
+    if (kgGuardado === "" || kgGuardado == null) return 0;
+    const n = +kgGuardado;
+    if (isNaN(n)) return 0;
+    return Math.round((weightUnit === "lb" ? kgToLb(n) : n) * 10) / 10;
+  };
+  const pesoAKg = (v) => (weightUnit === "lb" ? Math.round(lbToKg(v) * 100) / 100 : v);
+  const equivalencia = (kgGuardado) => {
+    const n = kgGuardado === "" || kgGuardado == null ? 0 : +kgGuardado;
+    if (isNaN(n) || n === 0) return null;
+    return weightUnit === "lb"
+      ? `${kg(Math.round(n * 10) / 10)} kg`
+      : `${kg(Math.round(kgToLb(n) * 10) / 10)} lb`;
+  };
+
   const restKey = (ei, si) => `${ei}-${si}`;
   const setVal = (ei, si, field, v) => patchSet(ei, si, { [field]: v });
 
@@ -4855,26 +4911,35 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     const st = exx.sets[si];
     if (!st) return null;
     const ck = restKey(ei, si);
+    const abierto = cmtKey === ck;
     return (
       <>
-        <div data-cmt style={{ maxHeight: cmtKey === ck ? 170 : 0, opacity: cmtKey === ck ? 1 : 0, overflow: "hidden",
+        {/* Una sola caja con su borde, su título y su "Listo" adentro:
+            antes el rótulo y el campo iban sueltos, cada uno con su
+            margen, y el conjunto se veía apretado y sin borde propio. */}
+        <div data-cmt style={{ maxHeight: abierto ? 190 : 0, opacity: abierto ? 1 : 0, overflow: "hidden",
           transition: `max-height ${DUR_ROW}ms ${EASE_STD}, opacity .16s ease` }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 12 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: P.faint2 }}>Comentario de la serie</span>
-            <button data-keep onClick={() => { clearTimeout(cmtTimer.current); setCmtKey(null); }}
-              style={{ fontSize: 14, fontWeight: 700, color: P.text, padding: "2px 4px",
-                visibility: cmtKey === ck ? "visible" : "hidden", pointerEvents: cmtKey === ck ? "auto" : "none" }}>Listo</button>
+          <div style={{ marginTop: 14, padding: "12px 13px 13px", borderRadius: R_TILE,
+            background: P.s3, border: `1px solid ${P.line}`,
+            visibility: abierto ? "visible" : "hidden", pointerEvents: abierto ? "auto" : "none" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 9 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>Agregar comentario</span>
+              <button data-keep onClick={() => { clearTimeout(cmtTimer.current); setCmtKey(null); }}
+                style={{ fontSize: 14, fontWeight: 700, color: P.text, padding: "2px 2px", flexShrink: 0 }}>Listo</button>
+            </div>
+            <textarea ref={abierto ? cmtRef : null} rows={2} value={st.comment || ""}
+              placeholder="Lo que quieras anotar de esta serie"
+              onChange={(e) => { setVal(ei, si, "comment", e.target.value); touchCmt(); }}
+              onFocus={touchCmt} onKeyDown={touchCmt}
+              style={{ display: "block", width: "100%", padding: "10px 11px", fontSize: 15, lineHeight: 1.45, resize: "none",
+                borderRadius: 10, background: P.s1, border: `1px solid ${P.separatorStrong}`, color: P.text,
+                fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
           </div>
-          <textarea ref={cmtKey === ck ? cmtRef : null} rows={2} value={st.comment || ""} placeholder="Lo que quieras anotar de esta serie"
-            onChange={(e) => { setVal(ei, si, "comment", e.target.value); touchCmt(); }}
-            onFocus={touchCmt} onKeyDown={touchCmt}
-            style={{ width: "100%", marginTop: 6, marginBottom: 4, padding: "8px 10px", fontSize: 15, lineHeight: 1.4, resize: "none", borderRadius: 10,
-              background: P.s1, border: `1px solid ${P.separatorStrong}`, color: P.text,
-              visibility: cmtKey === ck ? "visible" : "hidden", pointerEvents: cmtKey === ck ? "auto" : "none" }} />
         </div>
-        {st.comment && cmtKey !== ck && (
-          <div data-keep onClick={() => openCmt(ck)} style={{ marginTop: 8, fontSize: 13, color: P.dim, lineHeight: 1.4,
-            background: P.s2, border: `1px solid ${P.line}`, borderRadius: 9, padding: "6px 9px" }}>{st.comment}</div>
+        {st.comment && !abierto && (
+          <button data-keep onClick={() => openCmt(ck)}
+            style={{ display: "block", width: "100%", textAlign: "left", marginTop: 12, fontSize: 13.5, color: P.dim, lineHeight: 1.45,
+              background: P.s3, border: `1px solid ${P.line}`, borderRadius: R_TILE, padding: "10px 12px", boxSizing: "border-box" }}>{st.comment}</button>
         )}
       </>
     );
@@ -4953,7 +5018,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
 
     const lastEntry = lastEntryOf(exx.id);
     const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
-    const prevWeight = lastSet && lastSet.weight !== "" && lastSet.weight != null ? lastSet.weight : null;
 
     // Objetivo y RIR ya viajan como pie de su propia columna; acá queda
     // solo lo que no tiene columna donde caer.
@@ -4999,9 +5063,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         </div>
         <div style={{ height: 1, background: P.fillTertiary, margin: "13px 0 0" }} />
         <div style={{ display: "flex", gap: 10, alignItems: "stretch", paddingTop: 14 }}>
-          <SetStepperCol label="Peso" unit={weightUnit} value={st.weight === "" ? 0 : +st.weight}
-            onChange={(v) => setVal(r.ei, r.si, "weight", String(v))} step={weightUnit === "kg" ? 2.5 : 5} decimals={1}
-            caption={prevWeight != null ? `Última: ${String(prevWeight).replace(".", ",")} ${weightUnit}` : null} />
+          <SetStepperCol label="Peso" sufijo={<UnitToggleMini />} decimals={1}
+            step={weightUnit === "kg" ? 2.5 : 5}
+            value={pesoMostrado(st.weight)}
+            onChange={(v) => setVal(r.ei, r.si, "weight", String(pesoAKg(v)))}
+            caption={equivalencia(st.weight)} />
           <SetStepperCol label="Reps" value={st.reps === "" ? 0 : +st.reps}
             onChange={(v) => setVal(r.ei, r.si, "reps", String(v))} step={1} decimals={0}
             caption={st.repsT ? `${st.repsT} reps` : (lastSet && lastSet.reps !== "" && lastSet.reps != null ? `Última: ${lastSet.reps}` : null)} />
@@ -5118,10 +5184,20 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       {/* Franja de sesión: reemplaza el antiguo encabezado de pantalla
           completa. Siempre visible arriba de la pestaña, con la barra de
           navegación de la app debajo — nunca tapa nada. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span className="num" style={{ fontSize: 13, fontWeight: 700, color: P.dim, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
-          padding: "7px 12px", borderRadius: 999, background: P.s3 }}>
-          E{blockIdx + 1}/{totalBlocks} · S{Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)}/{block.rows.length}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 7 }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
+          padding: "7px 11px", borderRadius: 999, background: P.s3 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: P.faint2 }}>Ejercicio</span>
+          <span className="num" style={{ fontSize: 13.5, fontWeight: 700, color: P.text, fontVariantNumeric: "tabular-nums" }}>
+            {blockIdx + 1}/{totalBlocks}
+          </span>
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
+          padding: "7px 11px", borderRadius: 999, background: P.s3 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: P.faint2 }}>Serie</span>
+          <span className="num" style={{ fontSize: 13.5, fontWeight: 700, color: P.text, fontVariantNumeric: "tabular-nums" }}>
+            {Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)}/{block.rows.length}
+          </span>
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
           padding: "7px 12px", borderRadius: 999, background: P.s3 }}>
@@ -5311,7 +5387,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           <button data-keep onClick={() => { openCmt(restKey(rowMoreFor.ei, rowMoreFor.si)); setRowMoreFor(null); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
               background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
-            <MessageSquare size={18} /> Comentario de esta serie
+            <MessageSquare size={18} /> Agregar comentario
           </button>
           <button data-keep onClick={() => { setRowMoreFor(null); setMediaOpen(true); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
