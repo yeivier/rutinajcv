@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v185";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v186";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1873,7 +1873,7 @@ function compressImage(file, maxDim = 1280, quality = 0.72) {
 }
 
 /* ---------------- Programa del alumno ---------------- */
-const SEED_VERSION = 6;
+const SEED_VERSION = 7;
 const ROSTER_VERSION = 1;
 const TRAINING_B_VIDEOS = [
   "https://youtu.be/PkdWebUdlbE",
@@ -17193,25 +17193,55 @@ const App = () => {
       // La Rutina C («RUTINA A_V4») entra igual: una sola vez, al final, sin
       // tocar lo que ya estaba cargado.
       if ((p.days || []).length && !p.days.some((day) => day.routine === ROUTINE_C)) {
-        p.days = [...p.days, ...routineCDays()];
+        const plantilla = routineCDays();
+        p.days = [...p.days, ...plantilla];
+        p.seedKeysC = plantilla.map((d) => d.seedKey);
         p.routineNames = { ...(p.routineNames || {}), [ROUTINE_C]: ROUTINE_C_NAME };
         if (!(p.instructions || []).some((i) => i.title === ROUTINE_C_INTRO.title)) {
           p.instructions = [...(p.instructions || []), { id: uid(), ...ROUTINE_C_INTRO }];
         }
       } else if ((p.days || []).some((day) => day.routine === ROUTINE_C)) {
         // Días que se sumen a la Rutina C DESPUÉS de que ya estaba cargada.
-        // Se comparan por nombre y solo se añaden los que faltan: los que ya
-        // están se dejan como estén, que el coach pudo haberlos tocado.
         const plantilla = routineCDays();
         const suyos = p.days.filter((d) => d.routine === ROUTINE_C);
-        // Los días cargados antes de que existiera `seedKey` no la tienen. Se
-        // la ponemos POR POSICIÓN, no por nombre: la rutina se creó siempre
-        // con los mismos días en el mismo orden, y el coach pudo haberlos
-        // renombrado — que es justo el caso en que el nombre no sirve.
-        suyos.forEach((d, i) => { if (!d.seedKey && i < plantilla.length) d.seedKey = plantilla[i].seedKey; });
-        const claves = new Set(suyos.map((d) => d.seedKey).filter(Boolean));
-        const faltan = plantilla.filter((d) => !claves.has(d.seedKey));
+        // Los días cargados antes de que existiera `seedKey` no la tienen y
+        // hay que reconocerlos. NO por posición: en cuanto el coach agrega
+        // un día propio, borra uno o los reordena, la posición miente y el
+        // día nuevo se da por presente sin haberse cargado nunca. Tampoco
+        // por nombre a secas: renombrar el día es justo lo que hace el coach.
+        // Se reconocen por sus EJERCICIOS, que es lo que de verdad define la
+        // sesión y lo que nadie reescribe entero.
+        const huella = (d) => new Set((d.exs || []).map((e) => norma(e.name)).filter(Boolean));
+        const parecido = (a, b) => {
+          const A = huella(a), B = huella(b);
+          if (!A.size || !B.size) return 0;
+          let comunes = 0; A.forEach((x) => { if (B.has(x)) comunes++; });
+          return comunes / Math.max(A.size, B.size);
+        };
+        // Un plan sin registro viene de una versión que repartía las claves
+        // por posición y pudo habérselas puesto mal. No se confía en ellas:
+        // se borran y se vuelven a deducir por contenido.
+        if (!p.seedKeysC) suyos.forEach((d) => { delete d.seedKey; });
+        const sinClave = suyos.filter((d) => !d.seedKey);
+        plantilla.forEach((tpl) => {
+          if (suyos.some((d) => d.seedKey === tpl.seedKey)) return;
+          let mejor = null, punt = 0.5;   // menos de la mitad en común: no es el mismo día
+          sinClave.forEach((d) => {
+            if (d.seedKey) return;
+            const s = norma(d.name) === norma(tpl.name) ? 1 : parecido(d, tpl);
+            if (s > punt) { punt = s; mejor = d; }
+          });
+          if (mejor) mejor.seedKey = tpl.seedKey;
+        });
+        // Registro de lo que la app ya entregó alguna vez. Sin él, un día
+        // que el coach borró a propósito volvería a aparecer en cada
+        // actualización: "borrado" y "nunca cargado" se ven igual.
+        const entregadas = new Set(p.seedKeysC || []);
+        suyos.forEach((d) => { if (d.seedKey) entregadas.add(d.seedKey); });
+        const faltan = plantilla.filter((d) => !entregadas.has(d.seedKey));
         if (faltan.length) p.days = [...p.days, ...faltan];
+        faltan.forEach((d) => entregadas.add(d.seedKey));
+        p.seedKeysC = [...entregadas];
       }
       p.seedVersion = SEED_VERSION;
       await sSet(`forja-plan:${id}`, p);
