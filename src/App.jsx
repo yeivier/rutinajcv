@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v182";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v183";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3938,6 +3938,150 @@ const ChatPlusButton = ({ onAttached }) => {
      lectura del alumno.
    - editable=true: además dibuja una insignia con lápiz para subir/reemplazar
      la foto directo desde acá, sin abrir el editor completo del ejercicio. */
+
+/* ============================================================
+   Catálogo de ejercicios (1.324, con imagen y pasos)
+   ------------------------------------------------------------
+   Los datos salen de github.com/yeivier/exercises-dataset y viven en
+   `catalogo-ejercicios.json`, en la raíz del sitio. Son ~890 KB (unos
+   114 KB comprimidos, que es lo que viaja de verdad), así que NO van
+   dentro del bundle: se piden por HTTP la primera vez que alguien abre
+   el catálogo y quedan en memoria para el resto de la sesión.
+
+   Las imágenes NO se copian a este repo. Son © Gym visual y sus términos
+   piden 180×180 y atribución a la vista; se muestran desde el
+   repositorio de origen a través de jsDelivr, apuntando a un commit fijo
+   para que no cambien bajo los pies.
+   ============================================================ */
+const CAT_URL = "/catalogo-ejercicios.json?v=1";
+// Commit fijo del dataset: sin él, un cambio allá movería las imágenes de
+// todos los ejercicios sin que nos enteremos.
+const CAT_REF = "7455efae41b330c265e7cd4b78dfa848e7ce5ebd";
+// Dos orígenes para la misma imagen. jsDelivr es el bueno (CDN pensada
+// justo para esto, con caché); raw.githubusercontent es el respaldo para
+// las redes que bloquean jsDelivr — pasa más de lo que uno cree en redes
+// corporativas y en algunos gimnasios.
+const CAT_HOSTS = [
+  `https://cdn.jsdelivr.net/gh/yeivier/exercises-dataset@${CAT_REF}`,
+  `https://raw.githubusercontent.com/yeivier/exercises-dataset/${CAT_REF}`,
+];
+const CAT_CREDITO = "© Gym visual — gymvisual.com";
+// Cuál de los dos orígenes está respondiendo. Se aprende con la primera
+// imagen que falla y vale para toda la sesión: sin esto, en una red que
+// bloquea jsDelivr CADA miniatura esperaría a que se caiga la conexión
+// antes de probar el respaldo, y la lista se llena de a poco.
+let _catHost = 0;
+// Cuánto se espera a un origen antes de probar el siguiente.
+const CAT_ESPERA = 5000;
+const catHostInicial = () => _catHost;
+const catHostFalla = (h) => { if (h + 1 > _catHost && h + 1 < CAT_HOSTS.length) _catHost = h + 1; };
+const catMedia = (e, carpeta, ext, host = 0) =>
+  (e && e.i && e.m && CAT_HOSTS[host] ? `${CAT_HOSTS[host]}/${carpeta}/${e.i}-${e.m}.${ext}` : "");
+const catImg = (e, host = 0) => catMedia(e, "images", "jpg", host);
+const catGif = (e, host = 0) => catMedia(e, "videos", "gif", host);
+
+let _catDatos = null;
+let _catPromesa = null;
+function cargarCatalogo() {
+  if (_catDatos) return Promise.resolve(_catDatos);
+  if (!_catPromesa) {
+    _catPromesa = fetch(CAT_URL)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((j) => {
+        const lista = (j && j.ejercicios) || [];
+        // El índice de búsqueda se calcula UNA vez: con 1.324 ejercicios,
+        // normalizar en cada tecleo se nota en un teléfono modesto.
+        lista.forEach((e) => { e._b = `${norma(e.n)} ${norma(e.e)} ${norma(e.mu)} ${norma(e.eq)}`; });
+        _catDatos = lista;
+        return lista;
+      })
+      .catch((err) => { _catPromesa = null; throw err; });
+  }
+  return _catPromesa;
+}
+
+// Hook: devuelve { lista, cargando, error } y dispara la carga al montar.
+function useCatalogo(activo = true) {
+  const [estado, setEstado] = useState(() => ({ lista: _catDatos || [], cargando: !_catDatos, error: null }));
+  useEffect(() => {
+    if (!activo || _catDatos) { if (_catDatos) setEstado({ lista: _catDatos, cargando: false, error: null }); return; }
+    let vivo = true;
+    setEstado({ lista: [], cargando: true, error: null });
+    cargarCatalogo()
+      .then((l) => vivo && setEstado({ lista: l, cargando: false, error: null }))
+      .catch((e) => vivo && setEstado({ lista: [], cargando: false, error: e.message || "no se pudo cargar" }));
+    return () => { vivo = false; };
+  }, [activo]);
+  return estado;
+}
+
+// Texto sin tildes ni signos, para buscar y comparar nombres.
+const norma = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+const CAT_PARO = new Set(["de", "del", "la", "el", "los", "las", "con", "en", "a", "al", "y", "o", "un", "una", "por", "para", "sin", "su", "the", "of", "with", "on"]);
+const catTokens = (s) => norma(s).split(" ").filter((w) => w.length > 1 && !CAT_PARO.has(w));
+
+/* Candidatos del catálogo para un nombre escrito por el coach.
+   Puntúa por cuánto se parecen los conjuntos de palabras (Jaccard) y por
+   cuánto del nombre buscado queda cubierto. Devuelve los mejores, con su
+   puntaje, para que sea UNA PERSONA la que confirme: emparejar por
+   nombre acierta bastante, pero cuando falla pone la foto de otro
+   ejercicio, y eso es peor que no poner ninguna. */
+function catSugerencias(nombre, lista, max = 6) {
+  const t = catTokens(nombre);
+  if (!t.length || !lista || !lista.length) return [];
+  const set = new Set(t);
+  const out = [];
+  for (const e of lista) {
+    let mejor = 0;
+    for (const campo of [e.n, e.e]) {
+      const ct = catTokens(campo);
+      if (!ct.length) continue;
+      const cs = new Set(ct);
+      let inter = 0;
+      set.forEach((w) => { if (cs.has(w)) inter++; });
+      if (!inter) continue;
+      const union = set.size + cs.size - inter;
+      const p = (inter / union) * 0.55 + (inter / set.size) * 0.45;
+      if (p > mejor) mejor = p;
+    }
+    if (mejor > 0.25) out.push({ e, p: mejor });
+  }
+  out.sort((a, b) => b.p - a.p);
+  return out.slice(0, max);
+}
+
+// Miniatura del catálogo. Si la imagen no carga (sin conexión, CDN caída)
+// desaparece en vez de dejar el ícono roto del navegador.
+const CatThumb = ({ ex, size = 34, radius = 10, style }) => {
+  const [host, setHost] = useState(catHostInicial);
+  const [lista, setLista] = useState(false);
+  useEffect(() => { setHost(catHostInicial()); setLista(false); }, [ex && ex.i]);
+  // Una red que BLOQUEA jsDelivr no siempre devuelve error: a veces deja la
+  // conexión colgada, y sin este plazo la miniatura se queda en blanco para
+  // siempre en vez de pasar al segundo origen.
+  useEffect(() => {
+    if (lista || host >= CAT_HOSTS.length) return;
+    const t = setTimeout(() => setHost((h) => { catHostFalla(h); return h + 1; }), CAT_ESPERA);
+    return () => clearTimeout(t);
+  }, [host, lista, ex && ex.i]);
+  const src = catImg(ex, host);
+  const falla = host >= CAT_HOSTS.length;
+  if (!src || falla) {
+    return (
+      <span style={{ width: size, height: size, borderRadius: radius, background: P.s3, display: "flex",
+        alignItems: "center", justifyContent: "center", flexShrink: 0, ...style }}>
+        <Dumbbell size={Math.max(12, Math.round(size * 0.45))} color={P.faint2} />
+      </span>
+    );
+  }
+  return (
+    <img src={src} alt="" loading="lazy" onLoad={() => setLista(true)}
+      onError={() => setHost((h) => { catHostFalla(h); return h + 1; })}
+      style={{ width: size, height: size, borderRadius: radius, objectFit: "cover", flexShrink: 0,
+        background: P.s3, border: `1px solid ${P.line}`, ...style }} />
+  );
+};
+
 const ExerciseIconTile = ({ iconAttachId, onChange, size = 30, editable = false }) => {
   const [m, setM] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -3985,6 +4129,20 @@ const ExerciseIconTile = ({ iconAttachId, onChange, size = 30, editable = false 
       )}
     </div>
   );
+};
+
+/* La imagen de un ejercicio de la rutina: primero el icono que subió el
+   coach (una foto suya manda sobre el catálogo) y, si no hay, la del
+   catálogo que tenga enlazada. Sin ninguna de las dos no dibuja nada,
+   igual que antes. */
+const ExerciseThumb = ({ ex, size = 34, radius = 10, style }) => {
+  const { lista } = useCatalogo(!!(ex && ex.catId && !ex.iconAttachId));
+  if (!ex) return null;
+  if (ex.iconAttachId) return <ExerciseIconTile iconAttachId={ex.iconAttachId} size={size} />;
+  if (!ex.catId) return null;
+  const c = (lista || []).find((e) => e.i === ex.catId);
+  if (!c) return null;
+  return <CatThumb ex={c} size={size} radius={radius} style={style} />;
 };
 
 // Dictado de voz para cualquier campo de texto: usa el reconocimiento de voz
@@ -4258,6 +4416,72 @@ function exerciseHistorySummary(ex, history) {
    pantalla — es la de más riesgo, se deja para el final) el toggle no
    aparece y la ficha se ve exactamente igual que siempre.
    ============================================================ */
+/* Los pasos de ejecución del catálogo, para cuando el coach no dejó nota
+   propia. Se avisa de dónde salen: son generales del movimiento, no
+   indicaciones personales del entrenador. */
+const CatalogPasos = ({ catId }) => {
+  const { lista, cargando } = useCatalogo(!!catId);
+  const c = (lista || []).find((e) => e.i === catId);
+  if (cargando) return <div style={{ fontSize: 13.5, color: MONO.inkFaint }}>Cargando la ejecución…</div>;
+  if (!c || !(c.p || []).length) {
+    return <div style={{ fontSize: 13.5, color: MONO.inkFaint }}>Tu coach todavía no dejó indicaciones para este ejercicio.</div>;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {c.p.map((paso, i) => (
+        <div key={i} style={{ display: "flex", gap: 9 }}>
+          <span className="disp" style={{ width: 19, height: 19, borderRadius: 6, flexShrink: 0, fontSize: 11, fontWeight: 700,
+            background: MONO.chipBg, color: MONO.inkFaint, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+          <span style={{ fontSize: 14, color: MONO.inkDim, lineHeight: 1.45 }}>{paso}</span>
+        </div>
+      ))}
+      <div style={{ fontSize: 11.5, color: MONO.inkFaint, marginTop: 2 }}>
+        Ejecución general del catálogo, no una indicación de tu coach.
+      </div>
+    </div>
+  );
+};
+
+/* La animación del catálogo, para mostrarla dentro de la ficha de un
+   ejercicio de la rutina. Arranca con la foto fija (mucho más liviana)
+   y pide el GIF recién cuando alguien lo toca. */
+const CatalogDemo = ({ catId, alto = 150 }) => {
+  const { lista } = useCatalogo(!!catId);
+  const [animado, setAnimado] = useState(false);
+  const [host, setHost] = useState(catHostInicial);
+  useEffect(() => { setAnimado(false); setHost(catHostInicial()); }, [catId]);
+  const c = (lista || []).find((e) => e.i === catId);
+  const roto = host >= CAT_HOSTS.length;
+  if (!c) {
+    return (
+      <div style={{ height: alto, borderRadius: 16, background: "#E8E8EE", border: `1px solid ${MONO.line}`,
+        display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: 12, color: MONO.inkFaint, fontWeight: 600 }}>Cargando la demostración…</span>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+      <button onClick={() => { setAnimado(true); setHost(catHostInicial()); }} disabled={animado || roto}
+        aria-label={animado ? c.n : `Ver ${c.n} en movimiento`}
+        style={{ height: alto, width: alto, borderRadius: 16, overflow: "hidden", background: "#E8E8EE",
+          border: `1px solid ${MONO.line}`, display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+        {roto
+          ? <Dumbbell size={30} color={MONO.inkFaint} />
+          : <img src={animado ? catGif(c, host) : catImg(c, host)} alt={c.n} onError={() => setHost((h) => { catHostFalla(h); return h + 1; })}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+        {!animado && !roto && (
+          <span style={{ position: "absolute", bottom: 7, right: 7, background: "rgba(0,0,0,.62)", color: "#fff",
+            fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "3px 9px", display: "flex", alignItems: "center", gap: 4 }}>
+            <Play size={10} /> Mover
+          </span>
+        )}
+      </button>
+      <span style={{ fontSize: 10, color: MONO.inkFaint }}>{CAT_CREDITO}</span>
+    </div>
+  );
+};
+
 const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, history }) => {
   if (!ex) return null;
   if (history) {
@@ -4276,6 +4500,8 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
               <Video size={28} color={MONO.inkFaint} />
               <span style={{ fontSize: 12, color: MONO.inkDim, fontWeight: 600 }}>Ver demostración en video</span>
             </button>
+          ) : ex.catId ? (
+            <CatalogDemo catId={ex.catId} alto={150} />
           ) : (
             <div style={{ height: 150, borderRadius: 16, background: "#E8E8EE", border: `1px solid ${MONO.line}`,
               display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -4297,6 +4523,11 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
             <MonoLabel>Ejecución</MonoLabel>
             {ex.notes ? (
               <div style={{ fontSize: 14, lineHeight: 1.5, color: MONO.inkDim, whiteSpace: "pre-wrap" }}>{ex.notes}</div>
+            ) : ex.catId ? (
+              /* Sin nota del coach, los pasos del catálogo son mejor que un
+                 cartel vacío — bien marcados como generales, no como algo
+                 que escribió el entrenador para esta persona. */
+              <CatalogPasos catId={ex.catId} />
             ) : (
               <div style={{ fontSize: 13.5, color: MONO.inkFaint }}>Tu coach todavía no dejó indicaciones para este ejercicio.</div>
             )}
@@ -5791,8 +6022,8 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         {d.exs.map((e, ei) => (
           <Card key={e.id} style={{ padding: "12px 13px", marginBottom: 9 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              {e.iconAttachId
-                ? <ExerciseIconTile iconAttachId={e.iconAttachId} size={26} />
+              {e.iconAttachId || e.catId
+                ? <ExerciseThumb ex={e} size={34} radius={9} style={{ marginTop: 1 }} />
                 : <div className="disp" style={{ width: 26, height: 26, borderRadius: 7, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: P.ember2, flexShrink: 0, marginTop: 1 }}>{ei + 1}</div>}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15.5 }}>{e.name}</div>
@@ -8112,11 +8343,19 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
   const [d, setD] = useState(ex);
   const [attachErr, setAttachErr] = useState("");
   const [preview, setPreview] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   useEffect(() => { setD(ex); setAttachErr(""); }, [ex]);
   if (!ex || !d) return null;
   const set = (p) => setD((x) => ({ ...x, ...p }));
   return (
     <Sheet open={!!ex} onClose={onClose} title={ex.isNew ? "Nuevo ejercicio" : "Editar ejercicio"} tall>
+      <Field label="Imagen del catálogo"
+        hint="Sale del catálogo de 1.324 ejercicios. Se ve en la rutina y al entrenar, y trae los pasos de ejecución.">
+        <CatalogLinkRow catId={d.catId} nombre={d.name} onOpen={() => setPickerOpen(true)} />
+      </Field>
+      <CatalogPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} nombre={d.name}
+        actual={d.catId} onElegir={(id) => set({ catId: id || undefined })} />
+
       <Field label="Icono del ejercicio (opcional)" hint="Aparece en la esquina superior izquierda del ejercicio. Podés subir la foto que descargaste desde este chat.">
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <ExerciseIconTile iconAttachId={d.iconAttachId} editable size={44} onChange={(id) => set({ iconAttachId: id })} />
@@ -9277,6 +9516,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
   const [editEx, setEditEx] = useState(null); // {dayId, ex}
   const [del, setDel] = useState(null); // {type:'day'|'ex', dayId, exId, name}
   const [importOpen, setImportOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [catalogoDia, setCatalogoDia] = useState(null);   // día al que se le añade desde el catálogo
   const [copiedEx, setCopiedEx] = useState(null);
   const [copiedDay, setCopiedDay] = useState(null);
   const [copiedBlock, setCopiedBlock] = useState(null); // {kind, size, exs}: bloque de superserie/triserie/gigante
@@ -9571,13 +9812,42 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       </div>
       {/* Comparar rutinas: solo tiene sentido con dos o más cargadas, así que
           la entrada aparece recién ahí. */}
-      {onOpenCompare && groupDaysByRoutine(plan.days, plan.routineNames).length >= 2 && (
-        <button onClick={onOpenCompare}
-          style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 14.5, fontWeight: 600,
-            color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px", marginBottom: 14 }}>
-          <Columns2 size={16} /> Comparar rutinas
-        </button>
-      )}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        {onOpenCompare && groupDaysByRoutine(plan.days, plan.routineNames).length >= 2 && (
+          <button onClick={onOpenCompare}
+            style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 14.5, fontWeight: 600,
+              color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px" }}>
+            <Columns2 size={16} /> Comparar rutinas
+          </button>
+        )}
+        {plan.days.length > 0 && (
+          <button onClick={() => setBulkOpen(true)}
+            style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 14.5, fontWeight: 600,
+              color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px" }}>
+            <Camera size={16} /> Poner imágenes
+          </button>
+        )}
+      </div>
+      {/* Traer un ejercicio del catálogo a un día: llega con nombre, músculo,
+          equipo y su imagen ya enlazada, listo para ajustarle las series. */}
+      <CatalogAddSheet open={!!catalogoDia} onClose={() => setCatalogoDia(null)}
+        onAgregar={(c) => {
+          const dayId = catalogoDia;
+          mut((p) => {
+            const d = p.days.find((x) => x.id === dayId);
+            if (!d) return;
+            d.exs.push({ id: uid(), name: c.n, muscle: c.mu, equipment: c.eq === "Otro" ? "" : c.eq,
+              rest: 90, video: "", superset: "", notes: "", catId: c.i,
+              secondary: (c.s || []).map((m) => ({ muscle: m, pct: 50 })),
+              sets: [1, 2, 3].map(() => ({ id: uid(), type: "normal", repsT: "8-10", rirT: "2" })) });
+          });
+          if (toast) toast(`✓ «${c.n}» agregado`);
+          setCatalogoDia(null);
+        }} />
+      <CatalogBulkSheet open={bulkOpen} onClose={() => setBulkOpen(false)} plan={plan} toast={toast}
+        onAplicar={(cambios) => mut((p) => cambios.forEach(({ di, ei, catId }) => {
+          if (p.days[di] && p.days[di].exs[ei]) p.days[di].exs[ei].catId = catId;
+        }))} />
       {student && student.allowedRoutines && student.allowedRoutines.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, padding: "8px 11px", marginBottom: 14 }}>
           <EyeOff size={14} color={P.ember2} style={{ flexShrink: 0 }} />
@@ -9807,8 +10077,10 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                       borderLeft: gr.kind ? `3px solid ${GROUP_KINDS[gr.kind].color}` : `1px solid ${P.line}`,
                       borderRadius: 11, padding: "9px 10px", marginBottom: gr.linkedToNext ? 2 : 6 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <ExerciseIconTile iconAttachId={e.iconAttachId} editable
-                        onChange={(id) => mut((p) => { p.days[di].exs[ei].iconAttachId = id; })} />
+                      {!e.iconAttachId && e.catId
+                        ? <ExerciseThumb ex={e} size={30} radius={8} />
+                        : <ExerciseIconTile iconAttachId={e.iconAttachId} editable
+                            onChange={(id) => mut((p) => { p.days[di].exs[ei].iconAttachId = id; })} />}
                       {/* flex-basis mínimo (no solo flex:1): sin esto, cuando los 6 botones de
                           acción de la derecha no entraban en una fila angosta, el nombre del
                           ejercicio se achicaba hasta quedar sin espacio y overflowWrap cortaba
@@ -9858,6 +10130,9 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                     <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] } })} style={{ flex: 1, minWidth: 150 }}>
                       <Plus size={15} /> Añadir ejercicio
+                    </Btn>
+                    <Btn kind="ghost" small onClick={() => setCatalogoDia(d.id)} style={{ flex: 1, minWidth: 170 }}>
+                      <Library size={15} /> Buscar en el catálogo
                     </Btn>
                     {copiedEx && (
                       <Btn kind="line" small onClick={() => pasteExercise(d.id)} style={{ flex: 1.25, minWidth: 170 }}>
@@ -14745,19 +15020,370 @@ const CompetitionPrepSheet = ({ open, onClose, plan }) => {
    de Focus Mode (mismo cálculo, dos entradas); "Guía de términos"
    reusa GlossaryBody tal cual ya se usa desde Más → Herramientas.
    ============================================================ */
+
+/* Ficha de un ejercicio del catálogo: la animación, para qué músculos es,
+   con qué equipo y los pasos de ejecución. La animación (GIF) pesa bastante
+   más que la miniatura, así que arranca en la foto fija y se pide recién
+   cuando alguien toca «Ver en movimiento». */
+const CatalogExerciseSheet = ({ ex, open, onClose, onElegir, etiquetaElegir }) => {
+  const [animado, setAnimado] = useState(false);
+  const [host, setHost] = useState(catHostInicial);
+  useEffect(() => { setAnimado(false); setHost(catHostInicial()); }, [ex && ex.i]);
+  if (!ex) return null;
+  const falla = host >= CAT_HOSTS.length;
+  const src = animado ? catGif(ex, host) : catImg(ex, host);
+  return (
+    <Sheet open={open} onClose={onClose} title={ex.n} tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 180, height: 180, borderRadius: R_CARD, overflow: "hidden", background: P.s3,
+            border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {falla
+              ? <Dumbbell size={44} color={P.faint2} />
+              : <img src={src} alt={ex.n} onError={() => setHost((h) => { catHostFalla(h); return h + 1; })} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+          </div>
+          {!falla && !animado && (
+            <button onClick={() => { setAnimado(true); setHost(catHostInicial()); }} style={{ fontSize: 13.5, fontWeight: 600, color: P.text,
+              background: P.s3, borderRadius: R_ROW, padding: "7px 13px", display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Play size={14} /> Ver en movimiento
+            </button>
+          )}
+          <div style={{ fontSize: 10.5, color: P.faint }}>{CAT_CREDITO}</div>
+        </div>
+
+        {ex.e && norma(ex.e) !== norma(ex.n) && (
+          <div style={{ fontSize: 13, color: P.faint, textAlign: "center", marginTop: -4 }}>{ex.e}</div>
+        )}
+
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "center" }}>
+          {[ex.mu, ...(ex.s || [])].filter(Boolean).map((m, i) => (
+            <span key={m + i} style={{ fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "4px 10px",
+              color: i === 0 ? PLATE_FG : P.dim, background: i === 0 ? PLATE_GRAD : P.s3 }}>
+              {m}{i === 0 ? "" : " (secundario)"}
+            </span>
+          ))}
+          {ex.eq && ex.eq !== "Otro" && (
+            <span style={{ fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "4px 10px", color: P.dim, background: P.s3 }}>{ex.eq}</span>
+          )}
+        </div>
+
+        {onElegir && (
+          <Btn kind="ember" onClick={() => onElegir(ex)}>{etiquetaElegir || "Usar este ejercicio"}</Btn>
+        )}
+
+        {(ex.p || []).length > 0 && (
+          <div>
+            <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>Ejecución</div>
+            <Card style={{ overflow: "hidden" }}>
+              {ex.p.map((paso, i) => (
+                <div key={i} style={{ display: "flex", gap: 11, padding: "11px 13px", borderBottom: i === ex.p.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                  <span className="disp" style={{ width: 21, height: 21, borderRadius: 7, flexShrink: 0, fontSize: 12, fontWeight: 700,
+                    background: P.s3, color: P.faint, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+                  <span style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.45 }}>{paso}</span>
+                </div>
+              ))}
+            </Card>
+          </div>
+        )}
+      </div>
+    </Sheet>
+  );
+};
+
+
+
+/* Fila que muestra qué ejercicio del catálogo tiene enlazado uno de la
+   rutina (con su miniatura) y abre el selector para cambiarlo. */
+const CatalogLinkRow = ({ catId, nombre, onOpen }) => {
+  const { lista } = useCatalogo(!!catId);
+  const ex = catId ? (lista || []).find((e) => e.i === catId) : null;
+  return (
+    <button onClick={onOpen} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 11,
+      padding: "9px 11px", background: P.s2, border: `1px solid ${P.line}`, borderRadius: R_ROW }}>
+      {catId
+        ? <CatThumb ex={ex} size={44} />
+        : <span style={{ width: 44, height: 44, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Search size={17} color={P.faint2} />
+          </span>}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14.5, fontWeight: 600, color: catId ? P.text : P.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {catId ? (ex ? ex.n : "Imagen elegida") : "Elegir del catálogo"}
+        </div>
+        <div style={{ fontSize: 12, color: P.faint, marginTop: 1 }}>
+          {catId ? "Toca para cambiarla o quitarla" : `Te propone los parecidos a «${nombre || "este ejercicio"}»`}
+        </div>
+      </div>
+      <ChevronRight size={16} color={P.faint} />
+    </button>
+  );
+};
+
+
+/* Buscar en el catálogo y traer un ejercicio a un día de la rutina. Es la
+   misma búsqueda del catálogo, pero la fila termina en «Agregar» en vez de
+   abrir una ficha. La ficha sigue a un toque, en la miniatura. */
+const CatalogAddSheet = ({ open, onClose, onAgregar }) => {
+  const [q, setQ] = useState("");
+  const [muscle, setMuscle] = useState("Todos");
+  const [ver, setVer] = useState(null);
+  const { lista, cargando, error } = useCatalogo(open);
+  useEffect(() => { if (open) { setQ(""); setMuscle("Todos"); } }, [open]);
+
+  const consulta = norma(q);
+  const resultados = useMemo(() => lista.filter((e) => {
+    if (muscle !== "Todos" && e.mu !== muscle) return false;
+    return !consulta || (e._b || "").includes(consulta);
+  }).slice(0, 60), [lista, consulta, muscle]);
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Añadir del catálogo" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ position: "relative" }}>
+          <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar en español o en inglés"
+            aria-label="Buscar en el catálogo para añadir"
+            style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, border: "none" }} />
+        </div>
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          {["Todos", ...MUSCLES].map((m) => (
+            <button key={m} onClick={() => setMuscle(m)} style={{ flexShrink: 0, padding: "7px 13px", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
+              background: muscle === m ? P.s3 : "transparent", border: `1px solid ${muscle === m ? P.line : "transparent"}`, color: muscle === m ? P.text : P.faint }}>{m}</button>
+          ))}
+        </div>
+
+        {cargando ? (
+          <Card style={{ padding: 26, textAlign: "center", color: P.faint, fontSize: 14 }}>Cargando el catálogo…</Card>
+        ) : error ? (
+          <Card style={{ padding: 20, fontSize: 14, color: P.dim, lineHeight: 1.5 }}>No se pudo cargar el catálogo ({error}).</Card>
+        ) : resultados.length === 0 ? (
+          <Empty icon={Dumbbell} title="Nada con ese filtro" body="Prueba con otra palabra, o con el nombre en inglés." />
+        ) : (
+          <Card style={{ overflow: "hidden" }}>
+            {resultados.map((e, i) => (
+              <div key={e.i} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 12px",
+                borderBottom: i === resultados.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                <button onClick={() => setVer(e)} aria-label={`Ver ${e.n}`}><CatThumb ex={e} size={44} /></button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, color: P.text, lineHeight: 1.25 }}>{e.n}</div>
+                  <div style={{ fontSize: 12, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {e.mu}{e.eq && e.eq !== "Otro" ? ` · ${e.eq}` : ""}
+                  </div>
+                </div>
+                <button onClick={() => onAgregar(e)} aria-label={`Agregar ${e.n} al día`}
+                  style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13.5, fontWeight: 700,
+                    color: PLATE_FG, background: PLATE_GRAD, borderRadius: R_ROW, padding: "7px 12px" }}>
+                  <Plus size={14} /> Agregar
+                </button>
+              </div>
+            ))}
+          </Card>
+        )}
+        <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.5 }}>
+          Llega con músculo, equipo, imagen y pasos de ejecución. Las series las pones tú. Imágenes {CAT_CREDITO}.
+        </div>
+      </div>
+      <CatalogExerciseSheet ex={ver} open={!!ver} onClose={() => setVer(null)}
+        onElegir={(c) => { setVer(null); onAgregar(c); }} etiquetaElegir="Agregar a este día" />
+    </Sheet>
+  );
+};
+
+/* Elegir la imagen de un ejercicio dentro del catálogo.
+   Arranca con los candidatos que salen del nombre escrito por el coach,
+   pero NUNCA los aplica solo: emparejar por texto acierta bastante y,
+   cuando falla, deja la foto de otro movimiento — que en una app de
+   entrenamiento es peor que no tener foto. Decide una persona. */
+const CatalogPickerSheet = ({ open, onClose, nombre, actual, onElegir }) => {
+  const [q, setQ] = useState("");
+  const { lista, cargando, error } = useCatalogo(open);
+  useEffect(() => { if (open) setQ(""); }, [open]);
+
+  const consulta = norma(q);
+  const resultados = useMemo(() => {
+    if (!lista.length) return [];
+    if (consulta) return lista.filter((e) => (e._b || "").includes(consulta)).slice(0, 40);
+    return catSugerencias(nombre || "", lista, 12).map((x) => x.e);
+  }, [lista, consulta, nombre]);
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Imagen del ejercicio" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>
+          {consulta
+            ? `Resultados para «${q}».`
+            : <>Parecidos a <b style={{ color: P.text }}>{nombre || "este ejercicio"}</b>. Revísalos antes de elegir: el
+               parecido es por nombre, así que puede proponer un movimiento distinto.</>}
+        </div>
+        <div style={{ position: "relative" }}>
+          <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar en el catálogo"
+            aria-label="Buscar en el catálogo"
+            style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, border: "none" }} />
+        </div>
+
+        {actual && (
+          <Btn kind="line" small onClick={() => { onElegir(null); onClose(); }}>
+            <Trash2 size={14} /> Quitar la imagen que tiene
+          </Btn>
+        )}
+
+        {cargando ? (
+          <Card style={{ padding: 26, textAlign: "center", color: P.faint, fontSize: 14 }}>Cargando el catálogo…</Card>
+        ) : error ? (
+          <Card style={{ padding: 20, fontSize: 14, color: P.dim, lineHeight: 1.5 }}>
+            No se pudo cargar el catálogo ({error}). Hace falta conexión la primera vez.
+          </Card>
+        ) : resultados.length === 0 ? (
+          <Empty icon={Dumbbell} title="Sin candidatos"
+            body={consulta ? "Prueba con otra palabra, o con el nombre en inglés." : "Busca el ejercicio por su nombre en el buscador de arriba."} />
+        ) : (
+          <Card style={{ overflow: "hidden" }}>
+            {resultados.map((e, i) => (
+              <button key={e.i} onClick={() => { onElegir(e.i); onClose(); }}
+                style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+                  padding: "10px 12px", borderBottom: i === resultados.length - 1 ? "none" : `1px solid ${P.line}`,
+                  background: actual === e.i ? P.s3 : "transparent" }}>
+                <CatThumb ex={e} size={48} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, color: P.text, lineHeight: 1.25 }}>{e.n}</div>
+                  <div style={{ fontSize: 12, color: P.faint, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {e.mu}{e.eq && e.eq !== "Otro" ? ` · ${e.eq}` : ""}{norma(e.e) !== norma(e.n) ? ` · ${e.e}` : ""}
+                  </div>
+                </div>
+                {actual === e.i ? <Check size={17} color={P.text} /> : <ChevronRight size={16} color={P.faint} />}
+              </button>
+            ))}
+          </Card>
+        )}
+        <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.5 }}>Imágenes {CAT_CREDITO}.</div>
+      </div>
+    </Sheet>
+  );
+};
+
+/* Ponerle imagen de una vez a TODOS los ejercicios del plan.
+   Propone el mejor candidato de cada uno y deja marcados solo los que
+   pasan un parecido alto; los dudosos quedan desmarcados a propósito,
+   para que el coach los mire antes de aceptar. Se aplica lo marcado. */
+const CatalogBulkSheet = ({ open, onClose, plan, onAplicar, toast }) => {
+  const { lista, cargando, error } = useCatalogo(open);
+  const [marcados, setMarcados] = useState({});
+  const [verEx, setVerEx] = useState(null);
+
+  const objetivos = useMemo(() => {
+    const out = [];
+    (plan.days || []).forEach((d, di) => (d.exs || []).forEach((e, ei) => {
+      if (e.catId) return;   // ya tiene imagen elegida
+      out.push({ di, ei, ex: e, dia: d.name });
+    }));
+    return out;
+  }, [plan.days]);
+
+  const propuestas = useMemo(() => {
+    if (!lista.length) return [];
+    return objetivos.map((o) => {
+      const s = catSugerencias(o.ex.name, lista, 1)[0];
+      return { ...o, cand: s ? s.e : null, p: s ? s.p : 0 };
+    }).filter((x) => x.cand);
+  }, [objetivos, lista]);
+
+  // Umbral alto para marcar solo: por debajo de esto el emparejamiento por
+  // nombre se equivoca lo bastante seguido como para no confiarle la foto.
+  const SEGURO = 0.72;
+  useEffect(() => {
+    if (!propuestas.length) return;
+    setMarcados(Object.fromEntries(propuestas.map((x) => [`${x.di}-${x.ei}`, x.p >= SEGURO])));
+  }, [propuestas.length]);
+
+  const nMarcados = Object.values(marcados).filter(Boolean).length;
+  const aplicar = () => {
+    const elegidos = propuestas.filter((x) => marcados[`${x.di}-${x.ei}`]);
+    onAplicar(elegidos.map((x) => ({ di: x.di, ei: x.ei, catId: x.cand.i })));
+    if (toast) toast(`✓ ${elegidos.length} ejercicio${elegidos.length !== 1 ? "s" : ""} con imagen`);
+    onClose();
+  };
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Poner imágenes" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>
+          Cada ejercicio del plan con el más parecido del catálogo. Vienen marcados solo los que se
+          parecen mucho: <b style={{ color: P.text }}>revisa los demás antes de aceptar</b>, porque el
+          parecido es por nombre y a veces propone otro movimiento. Toca la miniatura para verlo en grande.
+        </div>
+
+        {cargando ? (
+          <Card style={{ padding: 26, textAlign: "center", color: P.faint, fontSize: 14 }}>Cargando el catálogo…</Card>
+        ) : error ? (
+          <Card style={{ padding: 20, fontSize: 14, color: P.dim, lineHeight: 1.5 }}>No se pudo cargar el catálogo ({error}).</Card>
+        ) : objetivos.length === 0 ? (
+          <Empty icon={Check} title="Ya está todo" body="Todos los ejercicios del plan tienen su imagen elegida." />
+        ) : propuestas.length === 0 ? (
+          <Empty icon={Dumbbell} title="Sin parecidos" body="No encontré nada parecido para los ejercicios del plan. Puedes elegir la imagen uno por uno desde cada ejercicio." />
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn kind="line" small style={{ flex: 1 }}
+                onClick={() => setMarcados(Object.fromEntries(propuestas.map((x) => [`${x.di}-${x.ei}`, true])))}>Marcar todo</Btn>
+              <Btn kind="line" small style={{ flex: 1 }}
+                onClick={() => setMarcados({})}>Desmarcar todo</Btn>
+            </div>
+            <Card style={{ overflow: "hidden" }}>
+              {propuestas.map((x, i) => {
+                const k = `${x.di}-${x.ei}`;
+                const on = !!marcados[k];
+                return (
+                  <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                    borderBottom: i === propuestas.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                    <button onClick={() => setMarcados((m) => ({ ...m, [k]: !on }))}
+                      aria-label={`${on ? "Quitar" : "Poner"} la imagen propuesta a ${x.ex.name}`}
+                      style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                        background: on ? P.text : "transparent", border: `1.5px solid ${on ? P.text : P.separatorStrong}` }}>
+                      {on && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
+                    </button>
+                    <button onClick={() => setVerEx(x.cand)} aria-label={`Ver ${x.cand.n} en grande`}>
+                      <CatThumb ex={x.cand} size={44} />
+                    </button>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.ex.name}</div>
+                      <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        → {x.cand.n}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, flexShrink: 0, borderRadius: 6, padding: "2px 6px",
+                      color: x.p >= SEGURO ? P.text : P.faint, background: x.p >= SEGURO ? P.s3 : "transparent" }}>
+                      {Math.round(x.p * 100)}%
+                    </span>
+                  </div>
+                );
+              })}
+            </Card>
+            <Btn kind="ember" onClick={aplicar} disabled={nMarcados === 0}>
+              Poner {nMarcados} {nMarcados === 1 ? "imagen" : "imágenes"}
+            </Btn>
+          </>
+        )}
+        <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.5 }}>Imágenes {CAT_CREDITO}.</div>
+      </div>
+      <CatalogExerciseSheet ex={verEx} open={!!verEx} onClose={() => setVerEx(null)} />
+    </Sheet>
+  );
+};
+
 const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
   const [q, setQ] = useState("");
   const [muscle, setMuscle] = useState("Todos");
+  const [equipo, setEquipo] = useState("Todo");
+  const [tope, setTope] = useState(60);
   const [openEx, setOpenEx] = useState(null);
+  const [openCat, setOpenCat] = useState(null);
   const [calcOpen, setCalcOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
-  // El Atlas no puede depender solo de "library": muchos coaches nunca la
-  // usan y cargan los ejercicios directo en cada día de la rutina — sin
-  // esto, el Atlas quedaría vacío para la mayoría de los alumnos reales.
-  // Se junta con lo que ya aparece en la rutina actual, sin duplicar por
-  // nombre (mismo criterio que ya usa ActivityTab para "todos los
-  // ejercicios conocidos").
-  const allExercises = useMemo(() => {
+
+  // Lo que ya está cargado en la app (biblioteca del coach + rutina) va
+  // primero: son los ejercicios de esta persona. Debajo, el catálogo
+  // entero, que es de donde salen las imágenes y los pasos.
+  const propios = useMemo(() => {
     const seen = new Map();
     (library || []).forEach((e) => seen.set(e.name.trim().toLowerCase(), e));
     (plan?.days || []).forEach((d) => (d.exs || []).forEach((e) => {
@@ -14766,40 +15392,102 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
     }));
     return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
   }, [library, plan]);
-  const musclesPresent = useMemo(() => ["Todos", ...MUSCLES.filter((m) => allExercises.some((e) => e.muscle === m))], [allExercises]);
-  const filtered = allExercises.filter((e) =>
-    (muscle === "Todos" || e.muscle === muscle) && e.name.toLowerCase().includes(q.trim().toLowerCase()));
+
+  const { lista, cargando, error } = useCatalogo(open);
+  const consulta = norma(q);
+  const filtrar = (arr, campo) => arr.filter((e) => {
+    if (muscle !== "Todos" && e.muscle !== muscle && e.mu !== muscle) return false;
+    if (equipo !== "Todo" && (e.eq || e.equipment) !== equipo) return false;
+    if (!consulta) return true;
+    return campo(e).includes(consulta);
+  });
+  const propiosF = filtrar(propios, (e) => norma(e.name));
+  const catF = filtrar(lista, (e) => e._b || norma(e.n));
+  // Con 1.324 ejercicios no se pintan todos de una: se muestran de a 60 y
+  // el resto entra con «Ver más». Sin esto, la hoja tarda casi un segundo
+  // en abrir en un teléfono modesto.
+  const catVisibles = catF.slice(0, tope);
+
+  const chipFila = (valores, valor, set, etiqueta) => (
+    <div role="group" aria-label={etiqueta} style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+      {valores.map((m) => (
+        <button key={m} onClick={() => { set(m); setTope(60); }} style={{ flexShrink: 0, padding: "7px 13px", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
+          background: valor === m ? P.s3 : "transparent", border: `1px solid ${valor === m ? P.line : "transparent"}`, color: valor === m ? P.text : P.faint }}>{m}</button>
+      ))}
+    </div>
+  );
+
+  const filaCat = (e, i, ultimo) => (
+    <button key={e.i} onClick={() => setOpenCat(e)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+      padding: "10px 12px", borderBottom: ultimo ? "none" : `1px solid ${P.line}` }}>
+      <CatThumb ex={e} size={44} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: P.text, lineHeight: 1.25 }}>{e.n}</div>
+        <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {e.mu}{e.eq && e.eq !== "Otro" ? ` · ${e.eq}` : ""}
+        </div>
+      </div>
+      <ChevronRight size={16} color={P.faint} />
+    </button>
+  );
 
   return (
     <Sheet open={open} onClose={onClose} title="Ejercicios" tall>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ position: "relative" }}>
           <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
-          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar ejercicio" aria-label="Buscar ejercicio"
+          <input type="text" value={q} onChange={(e) => { setQ(e.target.value); setTope(60); }}
+            placeholder="Buscar en español o en inglés" aria-label="Buscar ejercicio"
             style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, border: "none" }} />
         </div>
-        <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-          {musclesPresent.map((m) => (
-            <button key={m} onClick={() => setMuscle(m)} style={{ flexShrink: 0, padding: "7px 13px", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
-              background: muscle === m ? P.s3 : "transparent", border: `1px solid ${muscle === m ? P.line : "transparent"}`, color: muscle === m ? P.text : P.faint }}>{m}</button>
-          ))}
+        {chipFila(["Todos", ...MUSCLES], muscle, setMuscle, "Filtrar por grupo muscular")}
+        {chipFila(["Todo", ...EQUIPMENT], equipo, setEquipo, "Filtrar por equipo")}
+
+        {propiosF.length > 0 && (
+          <>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 2px -2px" }}>
+              En tu rutina y biblioteca
+            </div>
+            <Card style={{ overflow: "hidden" }}>
+              {propiosF.map((e, i) => (
+                <button key={e.id} onClick={() => setOpenEx(e)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+                  padding: "11px 12px", borderBottom: i === propiosF.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                  {e.catId
+                    ? <CatThumb ex={(lista || []).find((c) => c.i === e.catId)} size={38} />
+                    : <span style={{ width: 38, height: 38, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <Dumbbell size={16} color={P.faint2} />
+                      </span>}
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</div>
+                  <div style={{ fontSize: 13, color: P.faint, flexShrink: 0 }}>{e.muscle}</div>
+                  <ChevronRight size={16} color={P.faint} />
+                </button>
+              ))}
+            </Card>
+          </>
+        )}
+
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".05em", margin: "4px 2px -2px" }}>
+          Catálogo{lista.length ? ` · ${catF.length.toLocaleString("es-CL")}` : ""}
         </div>
-        {filtered.length === 0 ? (
-          <Empty icon={Dumbbell} title="Sin ejercicios" body="Tu coach todavía no cargó ejercicios en la biblioteca." />
-        ) : (
-          <Card style={{ overflow: "hidden" }}>
-            {filtered.map((e, i) => (
-              <button key={e.id} onClick={() => setOpenEx(e)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
-                padding: "13px 14px", borderBottom: i === filtered.length - 1 ? "none" : `1px solid ${P.line}` }}>
-                <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Dumbbell size={15} color={P.faint2} />
-                </span>
-                <div style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</div>
-                <div style={{ fontSize: 13.5, color: P.faint, flexShrink: 0 }}>{e.muscle}</div>
-                <ChevronRight size={16} color={P.faint} />
-              </button>
-            ))}
+        {cargando ? (
+          <Card style={{ padding: 26, textAlign: "center", color: P.faint, fontSize: 14 }}>Cargando el catálogo…</Card>
+        ) : error ? (
+          <Card style={{ padding: 20, fontSize: 14, color: P.dim, lineHeight: 1.5 }}>
+            No se pudo cargar el catálogo ({error}). Necesita conexión la primera vez; después queda en memoria.
           </Card>
+        ) : catF.length === 0 ? (
+          <Empty icon={Dumbbell} title="Nada con ese filtro" body="Prueba con otra palabra, u otro grupo muscular o equipo." />
+        ) : (
+          <>
+            <Card style={{ overflow: "hidden" }}>
+              {catVisibles.map((e, i) => filaCat(e, i, i === catVisibles.length - 1))}
+            </Card>
+            {catF.length > catVisibles.length && (
+              <Btn kind="line" small onClick={() => setTope((t) => t + 120)}>
+                Ver más ({(catF.length - catVisibles.length).toLocaleString("es-CL")} restantes)
+              </Btn>
+            )}
+          </>
         )}
 
         <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "6px 2px 0" }}>Herramientas</div>
@@ -14807,8 +15495,15 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
           <SettingRow Icon={Calculator} label="Calculadora de discos" onClick={() => setCalcOpen(true)} />
           <SettingRow Icon={BookOpen} label="Guía de términos" onClick={() => setGuideOpen(true)} last />
         </Card>
+
+        <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.5, padding: "0 2px 4px" }}>
+          Catálogo de 1.324 ejercicios de{" "}
+          <a href="https://github.com/yeivier/exercises-dataset" target="_blank" rel="noreferrer" style={{ color: P.dim, textDecoration: "underline" }}>exercises-dataset</a>{" "}
+          (datos MIT). Imágenes y animaciones {CAT_CREDITO}, mostradas desde el repositorio de origen.
+        </div>
       </div>
 
+      <CatalogExerciseSheet ex={openCat} open={!!openCat} onClose={() => setOpenCat(null)} />
       <ExerciseInfoSheet ex={openEx} open={!!openEx} onClose={() => setOpenEx(null)} />
       <Sheet open={calcOpen} onClose={() => setCalcOpen(false)} title="Calculadora de discos">
         <PlateCalcBody />
