@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v181";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v182";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15283,6 +15283,22 @@ function compareStatsForDays(days, refTable) {
     });
     enEsteDia.forEach((m) => { freq[m] = (freq[m] || 0) + 1; });
   });
+  // Los ejercicios que hay detrás de cada número, para poder verlos por
+  // nombre. Un ejercicio con músculos secundarios marcados aparece también
+  // en esos grupos, con el crédito parcial que le toca.
+  const porMusculoEx = {};
+  const anota = (m, item) => { (porMusculoEx[m] = porMusculoEx[m] || []).push(item); };
+  (days || []).forEach((d) => (d.exs || []).forEach((ex) => {
+    const eff = (ex.sets || []).filter((s) => s.type !== "warmup").length;
+    const m = ex.muscle || "Otro";
+    anota(m, { name: ex.name, sets: eff, dia: d.name, sec: false });
+    (ex.secondary || []).forEach((sec) => {
+      if (!sec || !sec.muscle || sec.muscle === m) return;
+      anota(sec.muscle, { name: ex.name, sets: eff * ((sec.pct != null ? sec.pct : 50) / 100), dia: d.name, sec: true });
+    });
+  }));
+  Object.values(porMusculoEx).forEach((lista) => lista.sort((a, b) => b.sets - a.sets || a.name.localeCompare(b.name, "es")));
+
   const exs = (days || []).reduce((a, d) => a + (d.exs || []).length, 0);
   const efectivas = (days || []).reduce((a, d) =>
     a + (d.exs || []).reduce((b, e) => b + (e.sets || []).filter((s) => s.type !== "warmup").length, 0), 0);
@@ -15296,6 +15312,7 @@ function compareStatsForDays(days, refTable) {
     conRef,
     descanso: descansos.length ? Math.round(descansos.reduce((a, b) => a + b, 0) / descansos.length) : 0,
     porMusculo: Object.fromEntries(rows.map((r) => [r.muscle, r.sets])),
+    porMusculoEx,
   };
 }
 
@@ -15305,9 +15322,13 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
   const groups = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames), [plan.days, plan.routineNames]);
   const [aKey, setAKey] = useState(groups[0] ? groups[0].key : "");
   const [bKey, setBKey] = useState(groups[1] ? groups[1].key : "");
+  // Grupo muscular abierto: al tocarlo se ven los ejercicios que hay detrás
+  // de ese número, con nombre, en las dos rutinas. Sigue siendo una pantalla
+  // sin desplazamiento: reemplaza la tabla, no se agrega debajo.
+  const [detalle, setDetalle] = useState(null);
 
   useEffect(() => {
-    const onEsc = (e) => { if (e.key === "Escape") onClose(); };
+    const onEsc = (e) => { if (e.key === "Escape") setDetalle((d) => { if (d) return null; onClose(); return d; }); };
     window.addEventListener("keydown", onEsc);
     // La pantalla de abajo (la lista de rutinas) sigue siendo larga: sin
     // esto se desplaza por detrás de la capa y el gesto de scroll «no hace
@@ -15349,7 +15370,7 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
 
   const selector = (valor, set, otro, lado) => (
     <select value={valor} aria-label={`Rutina de la ${lado}`}
-      onChange={(e) => { const v = e.target.value; if (v === otro) { lado === "izquierda" ? setBKey(valor) : setAKey(valor); } set(v); }}
+      onChange={(e) => { const v = e.target.value; if (v === otro) { lado === "izquierda" ? setBKey(valor) : setAKey(valor); } set(v); setDetalle(null); }}
       style={{ width: "100%", padding: "9px 10px", fontSize: 14.5, fontWeight: 700, color: P.text,
         background: P.s3, border: "none", borderRadius: R_ROW, appearance: "auto" }}>
       {groups.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
@@ -15392,7 +15413,16 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
         padding: "12px 16px 10px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-.02em" }}>Comparar rutinas</h2>
+        {detalle ? (
+          <button onClick={() => setDetalle(null)} aria-label="Volver a los grupos musculares"
+            style={{ display: "flex", alignItems: "center", gap: 3, minWidth: 0 }}>
+            <ChevronLeft size={19} strokeWidth={2.6} color={P.text} />
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-.02em",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detalle}</h2>
+          </button>
+        ) : (
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-.02em" }}>Comparar rutinas</h2>
+        )}
         <button onClick={onClose} aria-label="Cerrar"
           style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30,
             borderRadius: 15, background: P.s3, color: P.faint, flexShrink: 0 }}>
@@ -15405,6 +15435,75 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
           <Empty icon={Columns2} title="Hacen falta dos rutinas"
             body="La comparación necesita al menos dos rutinas cargadas en el plan. Crea otra desde «Nueva rutina» y vuelve acá." />
         </div>
+      ) : detalle ? (
+        /* Los ejercicios que hay detrás del número de ese grupo, con nombre,
+           uno al lado del otro. Mismo trato que la tabla: las filas se
+           reparten el alto que sobra y no se desplaza nada. */
+        (() => {
+          const listaA = (sA.porMusculoEx[detalle] || []);
+          const listaB = (sB.porMusculoEx[detalle] || []);
+          const n = Math.max(listaA.length, listaB.length, 1);
+          // El nombre completo es lo que se viene a ver acá, así que la
+          // tipografía se ajusta al más largo de la lista y se le dan tres
+          // renglones cuando el alto alcanza. Con muchos ejercicios se
+          // recorta con «…», nunca a costa de que la pantalla se desplace.
+          const largo = Math.max(1, ...listaA.concat(listaB).map((x) => x.name.length));
+          const base = n <= 6 ? 14 : n <= 9 ? 13 : n <= 12 ? 12 : n <= 16 ? 11 : 10;
+          const fEx = Math.max(9.5, largo > 34 ? base - 1.5 : largo > 26 ? base - 0.75 : base);
+          const renglones = n <= 6 ? 3 : n <= 12 ? 2 : 1;
+          const fMeta = n <= 12 ? 10.5 : 9.5;
+          const cabecera = (g, s) => (
+            <div style={{ flex: 1, minWidth: 0, textAlign: "center" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {g ? g.label : ""}
+              </div>
+              <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>
+                {fmtSets(s.porMusculo[detalle] || 0)} series · {(s.porMusculoEx[detalle] || []).length} ejercicios
+              </div>
+            </div>
+          );
+          const celda = (item) => (
+            <div style={{ flex: 1, minWidth: 0, padding: "0 4px" }}>
+              {item ? (
+                <>
+                  <div style={{ fontSize: fEx, fontWeight: 600, color: P.text, lineHeight: 1.25,
+                    display: "-webkit-box", WebkitLineClamp: renglones, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                    {item.name}
+                  </div>
+                  <div style={{ fontSize: fMeta, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {fmtSets(item.sets)} series{item.sec ? " · secundario" : ""} · {item.dia}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: fEx, color: P.textQuaternary }}>—</div>
+              )}
+            </div>
+          );
+          return (
+            <>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px 10px", flexShrink: 0 }}>
+                {cabecera(A, sA)}
+                <div className="mono" style={{ fontSize: 11, color: P.faint, paddingTop: 3, flexShrink: 0 }}>VS</div>
+                {cabecera(B, sB)}
+              </div>
+              <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "0 12px", overflow: "hidden" }}>
+                {Array.from({ length: n }).map((_, i) => (
+                  <div key={i} style={{ flex: "1 1 0", minHeight: 0, display: "flex", alignItems: "center", gap: 8,
+                    overflow: "hidden", borderTop: `1px solid ${P.line}` }}>
+                    {celda(listaA[i])}
+                    <div style={{ width: 1, alignSelf: "stretch", background: P.line, flexShrink: 0 }} />
+                    {celda(listaB[i])}
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: "7px 16px 10px", fontSize: 10.5, color: P.faint, textAlign: "center",
+                lineHeight: 1.35, borderTop: `1px solid ${P.line}`, flexShrink: 0 }}>
+                Ejercicios que suman a {detalle}, ordenados por series. «Secundario» = el ejercicio es de
+                otro grupo y aporta solo una parte.
+              </div>
+            </>
+          );
+        })()
       ) : (
         <>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px 10px", flexShrink: 0 }}>
@@ -15446,23 +15545,26 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
                 </div>
               );
               return (
-                <div key={f.muscle} style={{ flex: "1 1 0", minHeight: 0, display: "flex", alignItems: "center", gap: 7,
-                  borderTop: `1px solid ${P.line}` }}>
+                <button key={f.muscle} onClick={() => setDetalle(f.muscle)}
+                  aria-label={`Ver los ejercicios de ${f.muscle}`}
+                  style={{ flex: "1 1 0", minHeight: 0, display: "flex", alignItems: "center", gap: 7, width: "100%",
+                    textAlign: "left", borderTop: `1px solid ${P.line}` }}>
                   {num(f.a, f.fa, gana !== "b")}
                   {barra(pctA, gana !== "b", false)}
                   <div style={{ width: 92, flexShrink: 0, textAlign: "center", fontSize: fMus, fontWeight: 600, color: P.dim,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.muscle}</div>
                   {barra(pctB, gana !== "a", true)}
                   {num(f.b, f.fb, gana !== "a")}
-                </div>
+                </button>
               );
             })}
           </div>
 
           <div style={{ padding: "7px 16px 10px", fontSize: 10.5, color: P.faint, textAlign: "center",
             lineHeight: 1.35, borderTop: `1px solid ${P.line}`, flexShrink: 0 }}>
-            Series efectivas de una vuelta completa a cada rutina (sin calentamientos). «2×» = en cuántas
-            sesiones se toca ese grupo. «En rango» = grupos dentro del óptimo {enhanced ? "asistido" : "natural"}.
+            <b style={{ color: P.dim }}>Toca un grupo para ver los ejercicios.</b> Series efectivas de una vuelta
+            completa a cada rutina (sin calentamientos). «2×» = en cuántas sesiones se toca ese grupo.
+            «En rango» = dentro del óptimo {enhanced ? "asistido" : "natural"}.
           </div>
         </>
       )}
