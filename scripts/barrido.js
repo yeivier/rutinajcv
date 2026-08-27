@@ -138,6 +138,34 @@ const seed = (theme) => {
     await tab('Más');
     for (const sh of ['Check-in', 'Posing', 'Competition Prep', 'Comparar fotos', 'Suplementación', 'Analítica', 'Ejercicios', 'Guía de términos']) await sheet(sh);
     await tab('Entrenar'); await check('pestaña Entrenar');
+    // Sesión en curso: la hoja de la "✕" es la única salida que ofrece
+    // descartar, así que se recorre y se descarta para dejar la app como
+    // estaba antes de seguir con el resto del barrido.
+    {
+      const ini = page.getByRole('button', { name: /Iniciar entrenamiento|Continuar entrenamiento/i }).first();
+      if (!(await ini.count())) {
+        const rut = page.locator('text=/^Rutina A$/i').first();
+        if (await rut.count()) {
+          await rut.click(); await page.waitForTimeout(500);
+          await page.locator('text="Empuje"').first().click(); await page.waitForTimeout(600);
+        }
+      }
+      const arr = page.getByRole('button', { name: /Iniciar entrenamiento|Continuar entrenamiento/i }).first();
+      if (await arr.count()) {
+        await arr.click(); await page.waitForTimeout(900);
+        await check('sesión en curso');
+        const x = page.getByRole('button', { name: /^Salir de la sesión$/ }).first();
+        if (await x.count()) {
+          await x.click(); await page.waitForTimeout(650); await check('hoja Salir de la sesión');
+          const d = page.getByRole('button', { name: /Descartar la sesión/ }).first();
+          if (await d.count()) {
+            await d.click(); await page.waitForTimeout(600); await check('confirmar descartar sesión');
+            const ok = page.getByRole('button', { name: /^Descartar$/ }).first();
+            if (await ok.count()) { await ok.click(); await page.waitForTimeout(800); }
+          }
+        }
+      } else console.log(`  ? [${theme}] no pude iniciar una sesión para probar la salida`);
+    }
 
     console.log(`--- COACH (${theme}) ---`);
     await page.mouse.click(195, 8); await page.waitForTimeout(400);

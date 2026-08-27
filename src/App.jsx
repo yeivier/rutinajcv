@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v184";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v185";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5079,6 +5079,25 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    "···" chico en la fila activa (deshacer/rehacer/borrar/comentario/
    unidad), calcando A3 al pixel.
    ============================================================ */
+
+/* Una salida de la hoja de la "✕". Cada una dice qué pasa al tocarla,
+   porque "salir", "finalizar" y "descartar" suenan parecido y hacen
+   cosas muy distintas — la última no se puede deshacer. */
+const SalidaRow = ({ icon: Icon, title, body, danger, onClick }) => (
+  <button data-keep onClick={onClick}
+    style={{ display: "flex", alignItems: "flex-start", gap: 12, textAlign: "left", width: "100%",
+      padding: "14px 14px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.line}` }}>
+    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 17,
+      background: P.s2, border: `1px solid ${P.line}`, color: danger ? P.red : P.text, flexShrink: 0 }}>
+      <Icon size={17} />
+    </span>
+    <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
+      <span style={{ fontSize: 15.5, fontWeight: 600, color: danger ? P.red : P.text }}>{title}</span>
+      <span style={{ fontSize: 13, color: P.faint2, lineHeight: 1.4 }}>{body}</span>
+    </span>
+  </button>
+);
+
 const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
   const [weightUnit] = useWeightUnit();
   const pendingWrites = usePendingWrites();
@@ -5090,11 +5109,15 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  // La sesión ya no vive en pantalla completa: vive dentro de la pestaña
-  // Entrenar, con la barra de navegación siempre visible. Tocar la "✕" ya
-  // no pregunta "¿salir de Focus Mode?" (no hay otro modo al que volver)
-  // — abre una hoja con las 4 salidas reales de una sesión en curso.
+  // "Cómo va la sesión": las cifras de la sesión en curso (duración,
+  // series, tonelaje, ritmo, calorías, serie por serie) más finalizar y
+  // descartar. Se llega desde el "···" de la fila activa.
   const [exiting, setExiting] = useState(false);
+  // La hoja de la "✕". Antes la "✕" salía derecho a Inicio, y entonces la
+  // única forma de descartar una sesión era encontrarla tres hojas adentro
+  // del "···" — y durante el descanso, donde el "···" no se dibuja, no
+  // había ninguna. Ahora la "✕" siempre ofrece las cuatro salidas.
+  const [salida, setSalida] = useState(false);
   const [histEx, setHistEx] = useState(null);
   // "···" de la fila activa: deshacer/rehacer, borrar la serie, comentario
   // y unidad — todo lo que en el diseño anterior vivía como 4 íconos
@@ -5594,9 +5617,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             </span>
           )}
         </span>
-        {/* Una sola salida, arriba a la derecha, y no pregunta nada: la
-            sesión queda guardada tal cual está. */}
-        <button onClick={onLeave} aria-label="Salir de la sesión (se guarda sola)"
+        {/* La salida de la sesión, arriba a la derecha y siempre visible
+            —también mientras corre el descanso—. No decide por ti: abre
+            la hoja con las cuatro salidas (seguir, salir, finalizar,
+            descartar), que es el único lugar desde donde se descarta. */}
+        <button onClick={() => setSalida(true)} aria-label="Salir de la sesión"
           style={{ width: 36, height: 36, borderRadius: 18, marginLeft: "auto", flexShrink: 0,
             background: P.s3, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <X size={17} strokeWidth={2.6} />
@@ -5752,6 +5777,23 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             </button>
           </div>
         )}
+      </Sheet>
+
+      {/* Las cuatro salidas de una sesión en curso, en el orden en que se
+          usan: seguir es lo más común y va arriba; descartar es lo que no
+          se puede deshacer y va último, separado y en rojo. */}
+      <Sheet open={salida} onClose={() => setSalida(false)} title="Salir de la sesión">
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <SalidaRow icon={Play} title="Seguir entrenando" body="Volver a la serie que estabas haciendo."
+            onClick={() => setSalida(false)} />
+          <SalidaRow icon={Pause} title="Salir y seguir después" body="La sesión queda abierta y guardada tal cual está. La retomas desde Entrenar."
+            onClick={() => { setSalida(false); onLeave(); }} />
+          <SalidaRow icon={Check} title="Finalizar sesión" body="Se guarda en el historial con lo que lleves registrado."
+            onClick={() => { setSalida(false); onFinish(); }} />
+          <div style={{ height: 1, background: P.line, margin: "4px 0" }} />
+          <SalidaRow icon={Trash2} danger title="Descartar la sesión" body="Se borra todo lo de esta sesión. No queda en el historial."
+            onClick={() => { setSalida(false); setConfirmDiscard(true); }} />
+        </div>
       </Sheet>
 
       <Confirm open={confirmDiscard} danger title="Descartar sesión"
