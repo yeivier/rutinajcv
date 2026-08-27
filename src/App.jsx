@@ -8,7 +8,7 @@ import {
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText,
-  UserPlus, DollarSign, Droplet, Smile
+  UserPlus, DollarSign, Droplet, Smile, Columns2
 } from "lucide-react";
 
 /* ============================================================
@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v180";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v181";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -9270,7 +9270,7 @@ const DraftsPanel = ({ toast, onInfo, roster }) => {
   );
 };
 
-const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent, library, onSaveLibrary }) => {
+const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent, library, onSaveLibrary, onOpenCompare }) => {
   const [easy] = useEasyMode();
   const [view, setView] = useState("dias"); // 'dias' | 'biblioteca'
   const [openDay, setOpenDay] = useState(null);
@@ -9569,6 +9569,15 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           ? "Aquí armas el entrenamiento. Toca una rutina para abrirla y ver sus días."
           : "Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante."}
       </div>
+      {/* Comparar rutinas: solo tiene sentido con dos o más cargadas, así que
+          la entrada aparece recién ahí. */}
+      {onOpenCompare && groupDaysByRoutine(plan.days, plan.routineNames).length >= 2 && (
+        <button onClick={onOpenCompare}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 14.5, fontWeight: 600,
+            color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px", marginBottom: 14 }}>
+          <Columns2 size={16} /> Comparar rutinas
+        </button>
+      )}
       {student && student.allowedRoutines && student.allowedRoutines.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, padding: "8px 11px", marginBottom: 14 }}>
           <EyeOff size={14} color={P.ember2} style={{ flexShrink: 0 }} />
@@ -10084,7 +10093,7 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
 };
 
 const RoutineTabMono = (props) => {
-  const { plan, savePlan, onInfo, student } = props;
+  const { plan, savePlan, onInfo, student, onOpenCompare } = props;
   const [openDayId, setOpenDayId] = useState(null);
   const groups = groupDaysByRoutine(plan.days, plan.routineNames);
 
@@ -10097,6 +10106,13 @@ const RoutineTabMono = (props) => {
   return (
     <div style={{ padding: "10px 20px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
       <ScreenTitle title="Rutina" sub={`${student ? student.name + " · " : ""}toca un día para editarlo`} />
+      {onOpenCompare && groups.length >= 2 && (
+        <button onClick={onOpenCompare} style={{ display: "inline-flex", alignItems: "center", gap: 7, alignSelf: "flex-start",
+          fontSize: 14, fontWeight: 600, color: MONO.ink, background: MONO.surface, border: `1px solid ${MONO.line}`,
+          borderRadius: R_ROW, padding: "8px 12px" }}>
+          <Columns2 size={15} /> Comparar rutinas
+        </button>
+      )}
       {groups.map((g) => (
         <div key={g.key} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <MonoLabel>{g.label}</MonoLabel>
@@ -14755,7 +14771,7 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
     (muscle === "Todos" || e.muscle === muscle) && e.name.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
-    <Sheet open={open} onClose={onClose} title="Atlas" tall>
+    <Sheet open={open} onClose={onClose} title="Ejercicios" tall>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ position: "relative" }}>
           <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
@@ -15241,6 +15257,219 @@ const SupplementsSheet = ({ open, onClose, plan, history, saveHistory, onOpenLab
 };
 
 
+/* ============================================================
+   Comparar dos rutinas, todo en una pantalla
+   ------------------------------------------------------------
+   Pensada para decidir: «¿esta rutina o la otra?». La regla de
+   diseño es una sola y manda sobre todo lo demás — TODO tiene que
+   entrar en la pantalla sin desplazarse. Por eso no es una hoja
+   (las hojas hacen scroll): es una capa a pantalla completa donde
+   la tabla ocupa el alto que sobra y cada fila se reparte ese alto
+   con flex. Si hay más grupos musculares, las filas se achican;
+   nunca aparece una barra de desplazamiento.
+   ============================================================ */
+
+// Series efectivas y frecuencia (en cuántos días se toca) por músculo,
+// para una vuelta completa a los días de una rutina.
+function compareStatsForDays(days, refTable) {
+  const rows = volumeByMuscleForDays(days, refTable);
+  const freq = {};
+  (days || []).forEach((d) => {
+    const enEsteDia = new Set();
+    (d.exs || []).forEach((ex) => {
+      if (!(ex.sets || []).some((s) => s.type !== "warmup")) return;
+      enEsteDia.add(ex.muscle || "Otro");
+      (ex.secondary || []).forEach((sec) => { if (sec && sec.muscle) enEsteDia.add(sec.muscle); });
+    });
+    enEsteDia.forEach((m) => { freq[m] = (freq[m] || 0) + 1; });
+  });
+  const exs = (days || []).reduce((a, d) => a + (d.exs || []).length, 0);
+  const efectivas = (days || []).reduce((a, d) =>
+    a + (d.exs || []).reduce((b, e) => b + (e.sets || []).filter((s) => s.type !== "warmup").length, 0), 0);
+  const descansos = (days || []).flatMap((d) => (d.exs || []).map((e) => +e.rest || 0)).filter((x) => x > 0);
+  const conRef = rows.filter((r) => r.ref).length;
+  return {
+    rows, freq, exs, efectivas,
+    dias: (days || []).length,
+    grupos: rows.length,
+    optimos: rows.filter((r) => r.status === "óptimo").length,
+    conRef,
+    descanso: descansos.length ? Math.round(descansos.reduce((a, b) => a + b, 0) / descansos.length) : 0,
+    porMusculo: Object.fromEntries(rows.map((r) => [r.muscle, r.sets])),
+  };
+}
+
+const RoutineCompareScreen = ({ onClose, plan }) => {
+  const enhanced = (plan.athlete || {}).enhanced === "asistido";
+  const refTable = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
+  const groups = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames), [plan.days, plan.routineNames]);
+  const [aKey, setAKey] = useState(groups[0] ? groups[0].key : "");
+  const [bKey, setBKey] = useState(groups[1] ? groups[1].key : "");
+
+  useEffect(() => {
+    const onEsc = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onEsc);
+    // La pantalla de abajo (la lista de rutinas) sigue siendo larga: sin
+    // esto se desplaza por detrás de la capa y el gesto de scroll «no hace
+    // nada», que es justo lo que la pantalla promete no hacer.
+    const antes = document.body.style.overflow;
+    const antesHtml = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onEsc);
+      document.body.style.overflow = antes;
+      document.documentElement.style.overflow = antesHtml;
+    };
+  }, [onClose]);
+
+  const A = groups.find((g) => g.key === aKey);
+  const B = groups.find((g) => g.key === bKey);
+  const sA = useMemo(() => (A ? compareStatsForDays(A.days, refTable) : null), [A, refTable]);
+  const sB = useMemo(() => (B ? compareStatsForDays(B.days, refTable) : null), [B, refTable]);
+
+  // Un solo listado de músculos: los que aparecen en cualquiera de las dos,
+  // ordenados por el volumen más alto de las dos para que arriba quede
+  // siempre lo que más pesa en la comparación.
+  const filas = useMemo(() => {
+    if (!sA || !sB) return [];
+    const nombres = Array.from(new Set([...Object.keys(sA.porMusculo), ...Object.keys(sB.porMusculo)]));
+    return nombres
+      .map((m) => ({ muscle: m, a: sA.porMusculo[m] || 0, b: sB.porMusculo[m] || 0, fa: sA.freq[m] || 0, fb: sB.freq[m] || 0 }))
+      .sort((x, y) => Math.max(y.a, y.b) - Math.max(x.a, x.b) || x.muscle.localeCompare(y.muscle));
+  }, [sA, sB]);
+  const tope = Math.max(1, ...filas.map((f) => Math.max(f.a, f.b)));
+
+  // Tipografía y barras según cuántas filas hay: con pocas se ve grande y
+  // aireado, con muchas se compacta lo justo para que igual entren todas.
+  const nf = filas.length;
+  const fMus = nf <= 8 ? 13.5 : nf <= 10 ? 13 : nf <= 12 ? 12.5 : 11.5;
+  const fNum = nf <= 8 ? 18 : nf <= 10 ? 17 : nf <= 12 ? 16 : 15;
+  const hBar = nf <= 8 ? 10 : nf <= 12 ? 8 : 7;
+
+  const selector = (valor, set, otro, lado) => (
+    <select value={valor} aria-label={`Rutina de la ${lado}`}
+      onChange={(e) => { const v = e.target.value; if (v === otro) { lado === "izquierda" ? setBKey(valor) : setAKey(valor); } set(v); }}
+      style={{ width: "100%", padding: "9px 10px", fontSize: 14.5, fontWeight: 700, color: P.text,
+        background: P.s3, border: "none", borderRadius: R_ROW, appearance: "auto" }}>
+      {groups.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+    </select>
+  );
+
+  const celdaDato = (valor, etiqueta, gana) => (
+    <div style={{ flex: 1, minWidth: 0, textAlign: "center" }}>
+      <div className="disp" style={{ fontSize: 17, fontWeight: 700, color: gana ? P.text : P.faint2, lineHeight: 1.1 }}>{valor}</div>
+      <div style={{ fontSize: 10, color: P.faint, textTransform: "uppercase", letterSpacing: ".05em", marginTop: 2,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{etiqueta}</div>
+    </div>
+  );
+
+  const bloqueDatos = (s, otro, lado) => (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+      {selector(lado === "izquierda" ? aKey : bKey, lado === "izquierda" ? setAKey : setBKey, lado === "izquierda" ? bKey : aKey, lado)}
+      <div style={{ display: "flex", gap: 4 }}>
+        {celdaDato(s.dias, "días", s.dias >= otro.dias)}
+        {celdaDato(s.exs, "ejerc.", s.exs >= otro.exs)}
+        {celdaDato(fmtSets(s.efectivas), "series", s.efectivas >= otro.efectivas)}
+      </div>
+      <div style={{ fontSize: 11, color: P.faint, textAlign: "center", lineHeight: 1.3 }}>
+        {/* Espacios duros: sin ellos el salto de línea parte "3 series/sesión"
+            justo después del número y la línea queda ilegible. */}
+        {`${s.optimos}/${s.conRef} en rango`}
+        {` · ${s.dias ? fmtSets(Math.round((s.efectivas / s.dias) * 10) / 10) : 0}\u00A0series/sesión`}
+        {s.descanso ? ` · ${s.descanso}\u00A0s` : ""}
+      </div>
+    </div>
+  );
+
+  const suficientes = groups.length >= 2 && !!sA && !!sB;
+
+  return (
+    <div className="scrimIn" style={{ position: "fixed", inset: 0, zIndex: 70, background: P.bg,
+      display: "flex", flexDirection: "column", overflow: "hidden",
+      paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)",
+      paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+        padding: "12px 16px 10px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-.02em" }}>Comparar rutinas</h2>
+        <button onClick={onClose} aria-label="Cerrar"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30,
+            borderRadius: 15, background: P.s3, color: P.faint, flexShrink: 0 }}>
+          <X size={17} strokeWidth={2.5} />
+        </button>
+      </div>
+
+      {!suficientes ? (
+        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <Empty icon={Columns2} title="Hacen falta dos rutinas"
+            body="La comparación necesita al menos dos rutinas cargadas en el plan. Crea otra desde «Nueva rutina» y vuelve acá." />
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px 10px", flexShrink: 0 }}>
+            {bloqueDatos(sA, sB, "izquierda")}
+            <div className="mono" style={{ fontSize: 11, color: P.faint, paddingTop: 11, flexShrink: 0 }}>VS</div>
+            {bloqueDatos(sB, sA, "derecha")}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 16px 6px", flexShrink: 0 }}>
+            <div style={{ flex: 1, height: 1, background: P.line }} />
+            <div style={{ fontSize: 10.5, color: P.faint, textTransform: "uppercase", letterSpacing: ".07em", fontWeight: 700 }}>
+              Series por grupo muscular
+            </div>
+            <div style={{ flex: 1, height: 1, background: P.line }} />
+          </div>
+
+          {/* La tabla: se queda con todo el alto que sobra y cada fila toma
+              su parte con flex, así que entran todas sin desplazarse. */}
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "0 12px", overflow: "hidden" }}>
+            {filas.map((f) => {
+              const gana = f.a === f.b ? null : f.a > f.b ? "a" : "b";
+              const pctA = (f.a / tope) * 100, pctB = (f.b / tope) * 100;
+              const num = (v, freq, activo) => (
+                <div style={{ width: 44, flexShrink: 0, textAlign: "center" }}>
+                  <div className="disp" style={{ fontSize: fNum, fontWeight: 700, lineHeight: 1.05, color: activo ? P.text : P.textQuaternary }}>
+                    {v ? fmtSets(v) : "—"}
+                  </div>
+                  {freq > 0 && nf <= 12 && (
+                    <div style={{ fontSize: 9.5, color: P.faint, lineHeight: 1.2, marginTop: 1 }}>{freq}×</div>
+                  )}
+                </div>
+              );
+              const barra = (pct, activo, alaDerecha) => (
+                <div style={{ flex: 1, minWidth: 0, height: hBar, background: P.fillTertiary, borderRadius: hBar / 2,
+                  display: "flex", justifyContent: alaDerecha ? "flex-start" : "flex-end", overflow: "hidden" }}>
+                  <div style={{ width: `${Math.max(pct > 0 ? 3 : 0, pct)}%`, height: "100%",
+                    background: activo ? P.text : P.textQuaternary, borderRadius: hBar / 2,
+                    transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
+                </div>
+              );
+              return (
+                <div key={f.muscle} style={{ flex: "1 1 0", minHeight: 0, display: "flex", alignItems: "center", gap: 7,
+                  borderTop: `1px solid ${P.line}` }}>
+                  {num(f.a, f.fa, gana !== "b")}
+                  {barra(pctA, gana !== "b", false)}
+                  <div style={{ width: 92, flexShrink: 0, textAlign: "center", fontSize: fMus, fontWeight: 600, color: P.dim,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.muscle}</div>
+                  {barra(pctB, gana !== "a", true)}
+                  {num(f.b, f.fb, gana !== "a")}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ padding: "7px 16px 10px", fontSize: 10.5, color: P.faint, textAlign: "center",
+            lineHeight: 1.35, borderTop: `1px solid ${P.line}`, flexShrink: 0 }}>
+            Series efectivas de una vuelta completa a cada rutina (sin calentamientos). «2×» = en cuántas
+            sesiones se toca ese grupo. «En rango» = grupos dentro del óptimo {enhanced ? "asistido" : "natural"}.
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 // "Más" del coach. La barra tenía Agenda como quinta pestaña y todo lo
 // demás (equipo, borradores, temporizador, guía, ajustes) repartido entre
 // segmentos de otras pestañas y la hoja del botón de la cabecera — había
@@ -15250,7 +15479,7 @@ const SupplementsSheet = ({ open, onClose, plan, history, saveHistory, onOpenLab
 // `access` es el mapa de permisos del rol (coachTabsForRole): una ficha
 // cuyo destino el rol no puede ni ver, no se dibuja. No se “desactiva”
 // con un candado: si no hay acceso, no existe.
-const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpenTeam, onOpenSettings, onSwitchMode, onOpenCompPrep, onOpenAtlas }) => {
+const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpenTeam, onOpenSettings, onSwitchMode, onOpenCompPrep, onOpenAtlas, onOpenCompare }) => {
   const [q, setQ] = useState("");
   const can = (k) => !!access[k];
   const groups = [
@@ -15266,7 +15495,8 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
     ] },
     { label: "Herramientas", rows: [
       can("ia") && { key: "ia", Icon: Sparkles, label: "Coach IA", kw: "asistente progresión volumen", onClick: () => onGoSection("rutina", "ia") },
-      { key: "atlas", Icon: BarChart3, label: "Atlas", kw: "ejercicios buscar biblioteca", onClick: onOpenAtlas },
+      { key: "atlas", Icon: Library, label: "Ejercicios", kw: "atlas biblioteca buscar catálogo movimientos", onClick: onOpenAtlas },
+      { key: "comparar", Icon: Columns2, label: "Comparar rutinas", kw: "versus volumen series grupo muscular diferencia", onClick: onOpenCompare },
       { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva", onClick: () => onOpenUtility("timer") },
       { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "etiquetas top drop rir", onClick: () => onOpenUtility("guia") },
       can("borradores") && { key: "borradores", Icon: ClipboardList, label: "Borradores", kw: "plantillas rutinas guardadas", onClick: () => onGoSection("rutina", "borradores") },
@@ -15331,7 +15561,7 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
     { label: "Herramientas", rows: [
       { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva cronómetro", onClick: () => onOpenUtility("timer") },
       { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "qué significa etiqueta rutina", onClick: () => onOpenUtility("guia") },
-      { key: "atlas", Icon: BarChart3, label: "Atlas", kw: "ejercicios buscar", onClick: onOpenAtlas },
+      { key: "atlas", Icon: Library, label: "Ejercicios", kw: "atlas biblioteca buscar catálogo movimientos", onClick: onOpenAtlas },
       { key: "ia", Icon: Sparkles, label: "Coach IA", kw: "asistente entrenamiento", onClick: onOpenAIChat },
       { key: "dispositivos", Icon: Watch, label: "Dispositivos", kw: "relojes básculas salud", onClick: onOpenDevices },
       { key: "agenda", Icon: Calendar, label: "Agenda", kw: "turnos reservas", onClick: () => onOpenUtility("agenda") },
@@ -16035,6 +16265,7 @@ const App = () => {
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [compPrepOpen, setCompPrepOpen] = useState(false);
   const [atlasOpen, setAtlasOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   const [supplementsOpen, setSupplementsOpen] = useState(false);
   const [labsOpen, setLabsOpen] = useState(false);
   const [photosOpen, setPhotosOpen] = useState(false);
@@ -16514,7 +16745,7 @@ const App = () => {
           <ReadOnlyLock active={roleTabAccess.rutina === "view"} toast={toast}>
             <RoutineTabRouter plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history}
               student={currentStudent} onUpdateStudent={(patch) => currentStudent && updateStudent(currentStudent.id, patch)}
-              library={library} onSaveLibrary={saveLibrary} />
+              library={library} onSaveLibrary={saveLibrary} onOpenCompare={() => setCompareOpen(true)} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && sub === "borradores" && (
@@ -16570,11 +16801,13 @@ const App = () => {
             onGoSection={(t, sec) => { setTab(t); setSection((o) => ({ ...o, [t]: sec })); }}
             onOpenUtility={setUtility} onOpenTeam={() => setEquipoOpen(true)}
             onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
-            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)} />
+            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)}
+            onOpenCompare={() => setCompareOpen(true)} />
         )}
         </div>
       </div>
 
+      {compareOpen && <RoutineCompareScreen onClose={() => setCompareOpen(false)} plan={plan} />}
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode}
         studentName={currentStudent?.name} onSwitchIdentity={() => { setMoreOpen(false); setReady(false); }}
