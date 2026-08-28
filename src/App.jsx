@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v190";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v192";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2736,18 +2736,19 @@ const GlobalStyle = () => {
        precargados, y entrenando no había forma de saber si se había
        avanzado, retrocedido o no había pasado nada. El sentido del
        desplazamiento dice hacia dónde se fue. */
-    @keyframes fjPasoAdel { from { transform: translateX(22px); opacity: 0; } to { transform: none; opacity: 1; } }
-    @keyframes fjPasoAtras { from { transform: translateX(-22px); opacity: 0; } to { transform: none; opacity: 1; } }
-    .fj .pasoAdel  { animation: fjPasoAdel ${DUR_PUSH}ms ${EASE_STD}; }
-    .fj .pasoAtras { animation: fjPasoAtras ${DUR_PUSH}ms ${EASE_STD}; }
+    @keyframes fjPasoAdel { from { transform: translateX(14px); opacity: .35; } to { transform: none; opacity: 1; } }
+    @keyframes fjPasoAtras { from { transform: translateX(-14px); opacity: .35; } to { transform: none; opacity: 1; } }
+    .fj .pasoAdel  { animation: fjPasoAdel ${DUR_PASO}ms ${EASE_STD}; }
+    .fj .pasoAtras { animation: fjPasoAtras ${DUR_PASO}ms ${EASE_STD}; }
     /* Cambiar de EJERCICIO es un salto mayor que cambiar de serie, así
-       que se nota más: además del desplazamiento, entra desde abajo. */
-    @keyframes fjSaltoEj { from { transform: translateY(16px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
-    .fj .saltoEj { animation: fjSaltoEj ${DUR_PUSH}ms ${EASE_STD}; }
+       que se nota más: además del desplazamiento, entra desde abajo.
+       Un pelo más largo que el paso de serie, pero solo un pelo. */
+    @keyframes fjSaltoEj { from { transform: translateY(12px) scale(.99); opacity: .3; } to { transform: none; opacity: 1; } }
+    .fj .saltoEj { animation: fjSaltoEj ${DUR_PASO + 60}ms ${EASE_STD}; }
     /* La serie recién registrada se ilumina un momento en la tira: es el
        acuse de recibo de que quedó guardada con esos números. */
-    @keyframes fjAcuse { 0% { transform: scale(.82); } 55% { transform: scale(1.06); } 100% { transform: scale(1); } }
-    .fj .acuse { animation: fjAcuse 420ms ${EASE_STD}; }
+    @keyframes fjAcuse { 0% { transform: scale(.88); } 55% { transform: scale(1.05); } 100% { transform: scale(1); } }
+    .fj .acuse { animation: fjAcuse 260ms ${EASE_STD}; }
     /* Splash de arranque (6 · Movimiento del handoff, "Splash → app" =
        1.200 ms en tres tiempos): 0-260ms la marca aparece (opacidad 0→1,
        escala .94→1); 260-700ms el nombre entra letra por letra con 40ms
@@ -2819,6 +2820,11 @@ const DUR_MICRO = 140; // check, interruptor
 const DUR_ROW = 200;   // fila, tarjeta, chip — también el cross-fade de pestaña
 const DUR_PUSH = 320;  // push de pantalla (fila → detalle)
 const DUR_SHEET = 420; // hoja modal
+// Paso de serie/ejercicio dentro de la sesión. Va aparte —y bastante más
+// corto— que DUR_PUSH: entrenando se toca "Siguiente" o "Atrás" varias
+// veces seguidas y 320 ms se sienten lentos, además de encadenarse unos
+// con otros. Lo justo para que el movimiento se lea y nada más.
+const DUR_PASO = 150;
 // Efecto "3D" de la ficha que se está arrastrando: se agranda, se levanta
 // (translateY negativo) y una sombra profunda + anillo verde neón la separan
 // del resto, como si se despegara de la pantalla hacia el usuario. El marco
@@ -10027,14 +10033,14 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           ? "Aquí armas el entrenamiento. Toca una rutina para abrirla y ver sus días."
           : "Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante."}
       </div>
-      {/* Comparar rutinas: solo tiene sentido con dos o más cargadas, así que
-          la entrada aparece recién ahí. */}
+      {/* Comparar: sirve con dos rutinas o con dos sesiones dentro de una
+          sola, así que la entrada aparece en cualquiera de los dos casos. */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-        {onOpenCompare && groupDaysByRoutine(plan.days, plan.routineNames).length >= 2 && (
+        {onOpenCompare && (groupDaysByRoutine(plan.days, plan.routineNames).length >= 2 || (plan.days || []).length >= 2) && (
           <button onClick={onOpenCompare}
             style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 14.5, fontWeight: 600,
               color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px" }}>
-            <Columns2 size={16} /> Comparar rutinas
+            <Columns2 size={16} /> Comparar
           </button>
         )}
         {plan.days.length > 0 && (
@@ -10598,11 +10604,11 @@ const RoutineTabMono = (props) => {
   return (
     <div style={{ padding: "10px 20px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
       <ScreenTitle title="Rutina" sub={`${student ? student.name + " · " : ""}toca un día para editarlo`} />
-      {onOpenCompare && groups.length >= 2 && (
+      {onOpenCompare && (groups.length >= 2 || (plan.days || []).length >= 2) && (
         <button onClick={onOpenCompare} style={{ display: "inline-flex", alignItems: "center", gap: 7, alignSelf: "flex-start",
           fontSize: 14, fontWeight: 600, color: MONO.ink, background: MONO.surface, border: `1px solid ${MONO.line}`,
           borderRadius: R_ROW, padding: "8px 12px" }}>
-          <Columns2 size={15} /> Comparar rutinas
+          <Columns2 size={15} /> Comparar
         </button>
       )}
       {groups.map((g) => (
@@ -16279,8 +16285,26 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
   const enhanced = (plan.athlete || {}).enhanced === "asistido";
   const refTable = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
   const groups = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames), [plan.days, plan.routineNames]);
-  const [aKey, setAKey] = useState(groups[0] ? groups[0].key : "");
-  const [bKey, setBKey] = useState(groups[1] ? groups[1].key : "");
+  // Se compara una RUTINA entera o una SESIÓN suelta, indistintamente: el
+  // cálculo ya trabaja sobre una lista de días, así que una sesión es esa
+  // misma lista con un solo día. Las claves llevan prefijo para que un
+  // día y una rutina no puedan chocar.
+  const opciones = useMemo(() => [
+    ...groups.map((g) => ({ key: `r:${g.key}`, label: g.label, sub: `${g.days.length} sesiones`, days: g.days, tipo: "rutina" })),
+    ...(plan.days || []).map((d) => ({
+      key: `d:${d.id}`, label: d.name,
+      sub: routineLabel(routineOf(d), plan.routineNames),
+      days: [d], tipo: "sesion",
+    })),
+  ], [groups, plan.days, plan.routineNames]);
+  // Por defecto, las dos primeras rutinas (lo de siempre). Si solo hay
+  // una rutina, se arranca comparando sus dos primeras sesiones, que es
+  // justo el caso en que antes la pantalla no servía para nada.
+  const [aKey, setAKey] = useState(opciones[0] ? opciones[0].key : "");
+  const [bKey, setBKey] = useState(() => {
+    const segundaRutina = opciones.find((o, i) => i > 0 && o.tipo === "rutina");
+    return (segundaRutina || opciones[1] || opciones[0] || {}).key || "";
+  });
   // Grupo muscular abierto: al tocarlo se ven los ejercicios que hay detrás
   // de ese número, con nombre, en las dos rutinas. Sigue siendo una pantalla
   // sin desplazamiento: reemplaza la tabla, no se agrega debajo.
@@ -16303,8 +16327,8 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
     };
   }, [onClose]);
 
-  const A = groups.find((g) => g.key === aKey);
-  const B = groups.find((g) => g.key === bKey);
+  const A = opciones.find((g) => g.key === aKey);
+  const B = opciones.find((g) => g.key === bKey);
   const sA = useMemo(() => (A ? compareStatsForDays(A.days, refTable) : null), [A, refTable]);
   const sB = useMemo(() => (B ? compareStatsForDays(B.days, refTable) : null), [B, refTable]);
 
@@ -16327,12 +16351,21 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
   const fNum = nf <= 8 ? 18 : nf <= 10 ? 17 : nf <= 12 ? 16 : 15;
   const hBar = nf <= 8 ? 10 : nf <= 12 ? 8 : 7;
 
+  // Dos grupos en el desplegable, para que se vea de un vistazo que se
+  // puede comparar tanto una rutina entera como una sesión suelta.
   const selector = (valor, set, otro, lado) => (
-    <select value={valor} aria-label={`Rutina de la ${lado}`}
+    <select value={valor} aria-label={`Qué comparar a la ${lado}`}
       onChange={(e) => { const v = e.target.value; if (v === otro) { lado === "izquierda" ? setBKey(valor) : setAKey(valor); } set(v); setDetalle(null); }}
       style={{ width: "100%", padding: "9px 10px", fontSize: 14.5, fontWeight: 700, color: P.text,
         background: P.s3, border: "none", borderRadius: R_ROW, appearance: "auto" }}>
-      {groups.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+      <optgroup label="Rutinas completas">
+        {opciones.filter((o) => o.tipo === "rutina").map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+      </optgroup>
+      <optgroup label="Sesiones sueltas">
+        {opciones.filter((o) => o.tipo === "sesion").map((o) => (
+          <option key={o.key} value={o.key}>{o.sub} · {o.label}</option>
+        ))}
+      </optgroup>
     </select>
   );
 
@@ -16362,7 +16395,9 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
     </div>
   );
 
-  const suficientes = groups.length >= 2 && !!sA && !!sB;
+  // Con dos sesiones ya alcanza: una sola rutina de dos días se puede
+  // comparar consigo misma día contra día.
+  const suficientes = opciones.length >= 2 && !!sA && !!sB;
 
   return (
     <div className="scrimIn" style={{ position: "fixed", inset: 0, zIndex: 70, background: P.bg,
@@ -16380,7 +16415,7 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detalle}</h2>
           </button>
         ) : (
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-.02em" }}>Comparar rutinas</h2>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-.02em" }}>Comparar</h2>
         )}
         <button onClick={onClose} aria-label="Cerrar"
           style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30,
@@ -16391,8 +16426,8 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
 
       {!suficientes ? (
         <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <Empty icon={Columns2} title="Hacen falta dos rutinas"
-            body="La comparación necesita al menos dos rutinas cargadas en el plan. Crea otra desde «Nueva rutina» y vuelve acá." />
+          <Empty icon={Columns2} title="Hace falta algo con qué comparar"
+            body="Se necesitan al menos dos cosas en el plan: dos rutinas, o dos sesiones dentro de una. Agrega un día o una rutina y vuelve acá." />
         </div>
       ) : detalle ? (
         /* Los ejercicios que hay detrás del número de ese grupo, con nombre,
@@ -16416,6 +16451,11 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
               <div style={{ fontSize: 14, fontWeight: 700, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {g ? g.label : ""}
               </div>
+              {/* De qué rutina sale la sesión: dos días pueden llamarse
+                  parecido y sin esto no se sabe cuál es cuál. */}
+              {g && g.tipo === "sesion" && (
+                <div style={{ fontSize: 10.5, color: P.faint2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.sub}</div>
+              )}
               <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>
                 {fmtSets(s.porMusculo[detalle] || 0)} series · {(s.porMusculoEx[detalle] || []).length} ejercicios
               </div>
@@ -16557,7 +16597,7 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
     { label: "Herramientas", rows: [
       can("ia") && { key: "ia", Icon: Sparkles, label: "Coach IA", kw: "asistente progresión volumen", onClick: () => onGoSection("rutina", "ia") },
       { key: "atlas", Icon: Library, label: "Ejercicios", kw: "atlas biblioteca buscar catálogo movimientos", onClick: onOpenAtlas },
-      { key: "comparar", Icon: Columns2, label: "Comparar rutinas", kw: "versus volumen series grupo muscular diferencia", onClick: onOpenCompare },
+      { key: "comparar", Icon: Columns2, label: "Comparar rutinas o sesiones", kw: "versus volumen series grupo muscular diferencia dia entrenamiento", onClick: onOpenCompare },
       { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva", onClick: () => onOpenUtility("timer") },
       { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "etiquetas top drop rir", onClick: () => onOpenUtility("guia") },
       can("borradores") && { key: "borradores", Icon: ClipboardList, label: "Borradores", kw: "plantillas rutinas guardadas", onClick: () => onGoSection("rutina", "borradores") },

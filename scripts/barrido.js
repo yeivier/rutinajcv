@@ -182,17 +182,17 @@ const seed = (theme) => {
     // Comparador de rutinas: capa a pantalla completa, se cierra con la X
     await seg('Rutina');
     {
-      const b = page.getByRole('button', { name: /^Comparar rutinas$/ }).first();
+      const b = page.getByRole('button', { name: /^Comparar$/ }).first();
       if (await b.count()) {
-        await b.click(); await page.waitForTimeout(700); await check('Comparar rutinas');
+        await b.click(); await page.waitForTimeout(700); await check('Comparar');
         // Detalle: los ejercicios que hay detrás del número de un grupo
         const grupo = page.getByRole('button', { name: /^Ver los ejercicios de / }).first();
         if (await grupo.count()) {
-          await grupo.click(); await page.waitForTimeout(600); await check('Comparar rutinas · ejercicios del grupo');
+          await grupo.click(); await page.waitForTimeout(600); await check('Comparar · ejercicios del grupo');
           await page.getByRole('button', { name: 'Volver a los grupos musculares' }).first().click(); await page.waitForTimeout(400);
         }
         await page.getByRole('button', { name: 'Cerrar' }).first().click(); await page.waitForTimeout(500);
-      } else console.log(`  ? [${theme}] no encontré "Comparar rutinas"`);
+      } else console.log(`  ? [${theme}] no encontré "Comparar"`);
     }
     await tab('Mensajes');
     for (const sg of ['Chat', 'Indicaciones']) { await seg(sg); await check('Mensajes · ' + sg); }
