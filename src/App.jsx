@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v193";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v194";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1846,77 +1846,20 @@ function beep() {
 }
 
 /* ============================================================
-   Aviso de fin de descanso con la pantalla apagada
+   Fin del descanso: sin sonido ni vibración
    ------------------------------------------------------------
-   Descansando, el móvil se guarda en el bolsillo y se bloquea. Ahí el
-   navegador CONGELA los temporizadores de JavaScript: el `setInterval`
-   que cuenta los segundos deja de correr y el aviso no llega nunca —
-   aparecía recién al desbloquear. Dos medidas:
+   El aviso sonoro y la vibración al terminar el descanso se quitaron a
+   pedido del coach: entrenando molestan más de lo que ayudan. El único
+   aviso es visual —el cronómetro en pantalla—, y por eso la sesión pide
+   `wakeLock`: si la pantalla se apagara, no quedaría ningún aviso.
 
-   1. El pitido se programa en el reloj del AudioContext en el momento en
-      que arranca el descanso, no cuando un contador llega a cero. Ese
-      reloj no depende de los temporizadores congelados.
-   2. Un tono mudo en bucle mantiene viva la sesión de audio mientras se
-      descansa: sin él, iOS la suspende al pasar a segundo plano y el
-      sonido programado tampoco suena.
+   Nota para quien venga a "arreglar" la vibración: `navigator.vibrate`
+   no existe en Safari de iPhone, así que desde una web no hay forma de
+   vibrar ahí de todos modos. En Android sí, pero acá no se usa.
 
-   Sobre VIBRAR: `navigator.vibrate` está y se usa, pero Safari de iPhone
-   no implementa la API de vibración — desde una web no hay manera de
-   hacer vibrar un iPhone, ni con la pantalla encendida. En Android
-   funciona. Por eso, además, la sesión pide `wakeLock` para que la
-   pantalla no se apague sola (ver `usePantallaDespierta`).
+   `beep()` sigue existiendo, pero solo para el Temporizador y el
+   intervalos de las herramientas, donde el pitido ES la función.
    ============================================================ */
-let _audio = null;
-let _alarma = [];
-let _mudo = null;
-const audioCtx = () => {
-  if (!_audio) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return null;
-    _audio = new AC();
-  }
-  return _audio;
-};
-// Se llama desde el toque que inicia el descanso: iOS solo deja crear o
-// reanudar el audio dentro de un gesto del usuario.
-function prepararAudio() {
-  try { const c = audioCtx(); if (c && c.state === "suspended") c.resume(); } catch {}
-}
-function cancelarAlarma() {
-  _alarma.forEach((o) => { try { o.stop(); } catch {} });
-  _alarma = [];
-  if (_mudo) { try { _mudo.stop(); } catch {} _mudo = null; }
-}
-// Devuelve true si quedó programada: quien llame sabe así que no tiene
-// que hacer sonar nada por su cuenta al llegar a cero.
-function armarAlarma(segundos) {
-  cancelarAlarma();
-  const ctx = audioCtx();
-  if (!ctx) return false;
-  try {
-    if (ctx.state === "suspended") ctx.resume();
-    const t0 = ctx.currentTime + Math.max(0, segundos);
-    const mudo = ctx.createOscillator();
-    const gm = ctx.createGain();
-    gm.gain.value = 0.0001;            // inaudible, pero mantiene la sesión viva
-    mudo.connect(gm); gm.connect(ctx.destination);
-    mudo.start();
-    mudo.stop(t0 + 1.2);
-    _mudo = mudo;
-    [0, 0.25, 0.5].forEach((d) => {
-      const o = ctx.createOscillator(); const g = ctx.createGain();
-      o.connect(g); g.connect(ctx.destination);
-      o.frequency.value = 880; o.type = "sine";
-      g.gain.setValueAtTime(0.001, t0 + d);
-      g.gain.exponentialRampToValueAtTime(0.3, t0 + d + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.001, t0 + d + 0.18);
-      o.start(t0 + d); o.stop(t0 + d + 0.2);
-      _alarma.push(o);
-    });
-    return true;
-  } catch { return false; }
-}
-const vibrar = (patron) => { try { navigator.vibrate && navigator.vibrate(patron); } catch {} };
 
 // Mantiene la pantalla encendida mientras dura la sesión. Es lo único
 // que evita de verdad el caso "no me avisó porque estaba bloqueado": si
@@ -4805,11 +4748,7 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
 const InlineRest = ({ timer, onAdjust, onDismiss }) => {
   const [, force] = useState(0);
   useEffect(() => { const iv = setInterval(() => force((x) => x + 1), 300); return () => clearInterval(iv); }, []);
-  const firedRef = useRef(false);
   const left = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
-  useEffect(() => {
-    if (left <= 0 && !firedRef.current) { firedRef.current = true; beep(); }
-  }, [left]);
   const frac = timer.total ? Math.min(1, Math.max(0, 1 - left / timer.total)) : 0;
   const over = left <= 0;
   const col = over ? P.green : P.ember;
@@ -5287,26 +5226,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // Mientras dure la sesión, la pantalla no se apaga sola.
   usePantallaDespierta(true);
 
-  // El pitido se programa al ARRANCAR el descanso (y se reprograma si se
-  // ajusta con ±15 s), no cuando el contador llega a cero: con el móvil
-  // bloqueado ese contador no corre. Ver el bloque de `armarAlarma`.
-  const alarmaOk = useRef(false);
-  useEffect(() => {
-    if (!timer) { cancelarAlarma(); alarmaOk.current = false; return; }
-    alarmaOk.current = armarAlarma((timer.endsAt - Date.now()) / 1000);
-  }, [timer && timer.endsAt]);
-  useEffect(() => () => cancelarAlarma(), []);
-
   useEffect(() => {
     if (!timer) { restFiredRef.current = false; return; }
     const left = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
     if (left > 0 || restFiredRef.current) return;
     restFiredRef.current = true;
-    // El sonido ya quedó programado al arrancar el descanso; acá solo se
-    // vibra. Si no se pudo programar (sin audio en el navegador), suena
-    // ahora, que es mejor que no sonar.
-    vibrar([220, 90, 220]);
-    if (!alarmaOk.current) beep();
     // Se avanza solo. Si el bloque quedó completo, además pasa al
     // ejercicio siguiente; si era el último, se queda en el panel de
     // "Ejercicio completo", que ya ofrece terminar la sesión.
@@ -6499,10 +6423,6 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   };
   const startRest = (ei, si) => {
     const rest = restOf(ei, si) || 90;
-    // Acá seguimos dentro del toque que completó la serie, que es lo
-    // único que deja a iOS crear o reanudar el audio. Si se hiciera más
-    // tarde, el pitido del final quedaría mudo.
-    prepararAudio();
     setTimer({ exIdx: ei, setIdx: si, endsAt: Date.now() + rest * 1000, total: rest });
   };
   const adjustRest = (d) => setTimer((t) => {
