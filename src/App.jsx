@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v188";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v189";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6006,10 +6006,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, autoStartDayId, onAutoStartConsumed, onOpenAIChat, onLeave, onOpenDevices }) => {
+const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, onOpenAIChat, onLeave, onOpenDevices }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
   const [previewDay, setPreviewDay] = useState(null);
+  // Ficha del ejercicio abierta desde la vista previa del día.
+  const [fichaEx, setFichaEx] = useState(null);
   const [browsing, setBrowsing] = useState(false);   // ver la rutina aunque haya sesión abierta
   const [confirmSwitch, setConfirmSwitch] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
@@ -6049,19 +6051,19 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     setPreviewDay(null); setBrowsing(false);
   };
 
-  // "Entrenar ahora" desde Hoy ya no debe aterrizar en el selector de
-  // rutinas — eso son tres toques (rutina → día → «Iniciar entrenamiento»)
-  // para algo que Hoy ya decidió por el alumno. Hoy manda el id del día
-  // sugerido; acá se arranca esa sesión directo, como si el alumno
-  // hubiera hecho los tres toques él mismo. Si ya había una sesión en
-  // curso, `active` manda y esto no hace nada — nunca pisa una sesión a
-  // mitad de camino.
+  // "Entrenar" desde Hoy abre la VISTA PREVIA del día que toca: todos los
+  // ejercicios con sus series, sus indicaciones y su ficha, y recién ahí
+  // el botón que crea la sesión. Antes creaba la sesión de una y dejaba
+  // al alumno dentro de Focus Mode sin haber visto qué le tocaba, con los
+  // cronómetros ya corriendo. Se salta el selector de rutinas (eso Hoy ya
+  // lo decidió), no el repaso. Si ya había una sesión en curso, `active`
+  // manda y esto no hace nada — nunca pisa una sesión a mitad de camino.
   useEffect(() => {
-    if (!autoStartDayId || active) { if (autoStartDayId) onAutoStartConsumed && onAutoStartConsumed(); return; }
-    const day = (plan.days || []).find((d) => d.id === autoStartDayId);
-    if (day) startSession(day);
+    if (!abrirDiaId || active) { if (abrirDiaId) onAutoStartConsumed && onAutoStartConsumed(); return; }
+    const day = (plan.days || []).find((d) => d.id === abrirDiaId);
+    if (day) { setBrowsing(false); setPreviewDay(day); }
     onAutoStartConsumed && onAutoStartConsumed();
-  }, [autoStartDayId]);
+  }, [abrirDiaId]);
 
   const listMode = !active || browsing;
 
@@ -6114,8 +6116,12 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
           </div>
         )}
         {d.exs.map((e, ei) => (
-          <Card key={e.id} style={{ padding: "12px 13px", marginBottom: 9 }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <Card key={e.id} style={{ padding: 0, marginBottom: 9, overflow: "hidden" }}>
+            {/* Toda la ficha a un toque: video de técnica, historial y los
+                pasos del catálogo. Antes esto solo se alcanzaba con la
+                sesión ya empezada. */}
+            <button onClick={() => setFichaEx(e)} aria-label={`${e.name} — ver la ficha`}
+              style={{ width: "100%", textAlign: "left", display: "flex", gap: 10, alignItems: "flex-start", padding: "12px 13px" }}>
               {e.iconAttachId || e.catId
                 ? <ExerciseThumb ex={e} size={34} radius={9} style={{ marginTop: 1 }} />
                 : <div className="disp" style={{ width: 26, height: 26, borderRadius: 7, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: P.ember2, flexShrink: 0, marginTop: 1 }}>{ei + 1}</div>}
@@ -6140,7 +6146,8 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
                 </div>
                 {e.notes && <div style={{ fontSize: 13.5, color: P.dim, marginTop: 7, lineHeight: 1.4, fontStyle: "italic" }}>{e.notes}</div>}
               </div>
-            </div>
+              <ChevronRight size={17} color={P.chevron} strokeWidth={2.4} style={{ flexShrink: 0, marginTop: 2 }} />
+            </button>
           </Card>
         ))}
         {/* Espaciador: la barra de acciones es sticky con fondo opaco y podría
@@ -6168,6 +6175,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
           body={`Se descartará «${active ? active.dayName : ""}» con todo lo que lleves registrado y empezará «${confirmSwitch ? confirmSwitch.name : ""}». Esta acción no se puede deshacer.`}
           okLabel="Descartar y empezar" onCancel={() => setConfirmSwitch(null)}
           onOk={() => { const day = confirmSwitch; setConfirmSwitch(null); discardSession(); startSession(day); }} />
+        <ExerciseInfoSheet ex={fichaEx} open={!!fichaEx} onClose={() => setFichaEx(null)} onError={toast} history={history} />
       </div>
     );
   }
@@ -6894,7 +6902,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   // vuelve a "Hoy" y deja marcado "ábrete al montar" — se consume una
   // sola vez y se avisa al padre para que no se reabra sola la próxima
   // vez que se entre a "Hoy" por las buenas (mismo patrón que ya usa
-  // "Entrenar ahora" con `autoStartDayId`).
+  // "Entrenar" con `abrirDiaId`).
   useEffect(() => {
     if (!autoOpenCheckin) return;
     setCheckinOpen(true);
@@ -17186,7 +17194,7 @@ const App = () => {
   // su sheet cuando cambia, sin que a ella le importe de dónde vino.
   const [aiChatOpenSignal, setAiChatOpenSignal] = useState(0);
   // "Check-in" y "Posing" desde la pestaña "Más": mismo patrón que
-  // `autoStartDayId` (abajo) — una bandera que se consume una sola vez
+  // `abrirDiaId` (abajo) — una bandera que se consume una sola vez
   // apenas "Hoy" vuelve a montarse, y no un contador tipo señal (esas
   // hojas se desmontan al salir de "Hoy", así que un número seguiría
   // "sin consumir" para el próximo montaje normal de la pestaña).
@@ -17217,7 +17225,7 @@ const App = () => {
   // pantalla distinta — TrainTab lo consume una vez y avisa para que
   // vuelva a null (si no, reabrir la pestaña Entrenar más tarde
   // arrancaría la sesión de nuevo sin que nadie lo pidiera).
-  const [autoStartDayId, setAutoStartDayId] = useState(null);
+  const [abrirDiaId, setAbrirDiaId] = useState(null);
   const [routineView, setRoutineView] = useRoutineView();
   // El gesto para ocultar/mostrar el botón de IA (antes: tres toques
   // seguidos en cualquier parte de la pantalla) se mudó adentro de AIFab
@@ -17678,7 +17686,7 @@ const App = () => {
         <div key={`${tab}-${sub || ""}`} className="tabIn" style={{ display: utility ? "none" : undefined }}>
         {mode === "alumno" && tab === "hoy" && (
           <TodayTabMono plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory} toast={toast}
-            goTrain={(dayId) => { if (dayId) setAutoStartDayId(dayId); setTab("entrenar"); }}
+            goTrain={(dayId) => { if (dayId) setAbrirDiaId(dayId); setTab("entrenar"); }}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             bookings={bookings.slots} sid={sid}
             onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => setTab("nutricion")} onOpenCoach={() => setUtility("chat")}
@@ -17692,7 +17700,7 @@ const App = () => {
           <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive}
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
-            autoStartDayId={autoStartDayId} onAutoStartConsumed={() => setAutoStartDayId(null)}
+            abrirDiaId={abrirDiaId} onAutoStartConsumed={() => setAbrirDiaId(null)}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
             onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} />
         )}
