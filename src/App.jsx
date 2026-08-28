@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v191";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v192";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2736,18 +2736,19 @@ const GlobalStyle = () => {
        precargados, y entrenando no había forma de saber si se había
        avanzado, retrocedido o no había pasado nada. El sentido del
        desplazamiento dice hacia dónde se fue. */
-    @keyframes fjPasoAdel { from { transform: translateX(22px); opacity: 0; } to { transform: none; opacity: 1; } }
-    @keyframes fjPasoAtras { from { transform: translateX(-22px); opacity: 0; } to { transform: none; opacity: 1; } }
-    .fj .pasoAdel  { animation: fjPasoAdel ${DUR_PUSH}ms ${EASE_STD}; }
-    .fj .pasoAtras { animation: fjPasoAtras ${DUR_PUSH}ms ${EASE_STD}; }
+    @keyframes fjPasoAdel { from { transform: translateX(14px); opacity: .35; } to { transform: none; opacity: 1; } }
+    @keyframes fjPasoAtras { from { transform: translateX(-14px); opacity: .35; } to { transform: none; opacity: 1; } }
+    .fj .pasoAdel  { animation: fjPasoAdel ${DUR_PASO}ms ${EASE_STD}; }
+    .fj .pasoAtras { animation: fjPasoAtras ${DUR_PASO}ms ${EASE_STD}; }
     /* Cambiar de EJERCICIO es un salto mayor que cambiar de serie, así
-       que se nota más: además del desplazamiento, entra desde abajo. */
-    @keyframes fjSaltoEj { from { transform: translateY(16px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
-    .fj .saltoEj { animation: fjSaltoEj ${DUR_PUSH}ms ${EASE_STD}; }
+       que se nota más: además del desplazamiento, entra desde abajo.
+       Un pelo más largo que el paso de serie, pero solo un pelo. */
+    @keyframes fjSaltoEj { from { transform: translateY(12px) scale(.99); opacity: .3; } to { transform: none; opacity: 1; } }
+    .fj .saltoEj { animation: fjSaltoEj ${DUR_PASO + 60}ms ${EASE_STD}; }
     /* La serie recién registrada se ilumina un momento en la tira: es el
        acuse de recibo de que quedó guardada con esos números. */
-    @keyframes fjAcuse { 0% { transform: scale(.82); } 55% { transform: scale(1.06); } 100% { transform: scale(1); } }
-    .fj .acuse { animation: fjAcuse 420ms ${EASE_STD}; }
+    @keyframes fjAcuse { 0% { transform: scale(.88); } 55% { transform: scale(1.05); } 100% { transform: scale(1); } }
+    .fj .acuse { animation: fjAcuse 260ms ${EASE_STD}; }
     /* Splash de arranque (6 · Movimiento del handoff, "Splash → app" =
        1.200 ms en tres tiempos): 0-260ms la marca aparece (opacidad 0→1,
        escala .94→1); 260-700ms el nombre entra letra por letra con 40ms
@@ -2819,6 +2820,11 @@ const DUR_MICRO = 140; // check, interruptor
 const DUR_ROW = 200;   // fila, tarjeta, chip — también el cross-fade de pestaña
 const DUR_PUSH = 320;  // push de pantalla (fila → detalle)
 const DUR_SHEET = 420; // hoja modal
+// Paso de serie/ejercicio dentro de la sesión. Va aparte —y bastante más
+// corto— que DUR_PUSH: entrenando se toca "Siguiente" o "Atrás" varias
+// veces seguidas y 320 ms se sienten lentos, además de encadenarse unos
+// con otros. Lo justo para que el movimiento se lea y nada más.
+const DUR_PASO = 150;
 // Efecto "3D" de la ficha que se está arrastrando: se agranda, se levanta
 // (translateY negativo) y una sombra profunda + anillo verde neón la separan
 // del resto, como si se despegara de la pantalla hacia el usuario. El marco
