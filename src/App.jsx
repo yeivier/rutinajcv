@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v194";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v195";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -16466,7 +16466,13 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
         ) : (
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-.02em" }}>Comparar</h2>
         )}
-        <button onClick={onClose} aria-label="Cerrar"
+        {/* Dentro del detalle de un grupo, la ✕ cierra EL DETALLE, no la
+            comparación entera: mirar los ejercicios de un músculo y volver
+            es el gesto normal, y salirse hasta la pantalla principal
+            obligaba a rehacer todo el camino. Mismo comportamiento que la
+            tecla Escape, que ya cerraba de a una capa. */}
+        <button onClick={() => (detalle ? setDetalle(null) : onClose())}
+          aria-label={detalle ? "Volver a la comparación" : "Cerrar"}
           style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30,
             borderRadius: 15, background: P.s3, color: P.faint, flexShrink: 0 }}>
           <X size={17} strokeWidth={2.5} />
