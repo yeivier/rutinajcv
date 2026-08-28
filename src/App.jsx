@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v189";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v190";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2730,6 +2730,24 @@ const GlobalStyle = () => {
        esto es solo para el contenido de la pestaña activa. */
     @keyframes fjTabFade { from { opacity: 0; } to { opacity: 1; } }
     .fj .tabIn { animation: fjTabFade ${DUR_ROW}ms ${EASE_STD}; }
+
+    /* Sesión: pasar de serie o de ejercicio tiene que VERSE. Antes el
+       contenido se reemplazaba de golpe, con los mismos números
+       precargados, y entrenando no había forma de saber si se había
+       avanzado, retrocedido o no había pasado nada. El sentido del
+       desplazamiento dice hacia dónde se fue. */
+    @keyframes fjPasoAdel { from { transform: translateX(22px); opacity: 0; } to { transform: none; opacity: 1; } }
+    @keyframes fjPasoAtras { from { transform: translateX(-22px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .fj .pasoAdel  { animation: fjPasoAdel ${DUR_PUSH}ms ${EASE_STD}; }
+    .fj .pasoAtras { animation: fjPasoAtras ${DUR_PUSH}ms ${EASE_STD}; }
+    /* Cambiar de EJERCICIO es un salto mayor que cambiar de serie, así
+       que se nota más: además del desplazamiento, entra desde abajo. */
+    @keyframes fjSaltoEj { from { transform: translateY(16px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
+    .fj .saltoEj { animation: fjSaltoEj ${DUR_PUSH}ms ${EASE_STD}; }
+    /* La serie recién registrada se ilumina un momento en la tira: es el
+       acuse de recibo de que quedó guardada con esos números. */
+    @keyframes fjAcuse { 0% { transform: scale(.82); } 55% { transform: scale(1.06); } 100% { transform: scale(1); } }
+    .fj .acuse { animation: fjAcuse 420ms ${EASE_STD}; }
     /* Splash de arranque (6 · Movimiento del handoff, "Splash → app" =
        1.200 ms en tres tiempos): 0-260ms la marca aparece (opacidad 0→1,
        escala .94→1); 260-700ms el nombre entra letra por letra con 40ms
@@ -5122,6 +5140,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [weightUnit] = useWeightUnit();
   const pendingWrites = usePendingWrites();
   const [blockIdx, setBlockIdx] = useState(0);
+  // Posición anterior dentro de la sesión, para saber si se avanzó o se
+  // retrocedió y animar en consecuencia (ver más abajo).
+  const posRef = useRef({ pos: "", clase: "", acuse: -1, n: 0 });
   const [now, setNow] = useState(Date.now());
   const [ficha, setFicha] = useState(null);
   const [viewImg, setViewImg] = useState(null);
@@ -5219,6 +5240,25 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // al salir del descanso.
   const activeRowIdx = block.rows.findIndex((r) => !exs[r.ei].sets[r.si].done);
   const blockDone = activeRowIdx === -1;
+  // Hacia dónde fue el último movimiento, para animar en ese sentido. Se
+  // compara contra la posición anterior en cada render: si el ejercicio
+  // cambió manda el salto de ejercicio; si no, adelante o atrás según la
+  // serie. `acuse` marca la serie recién registrada para iluminarla.
+  const posActual = `${blockIdx}:${activeRowIdx}`;
+  if (posRef.current.pos !== posActual) {
+    const [bAnt, fAnt] = posRef.current.pos.split(":").map(Number);
+    const fAhora = activeRowIdx === -1 ? block.rows.length : activeRowIdx;
+    const fAntes = fAnt === -1 ? Number.MAX_SAFE_INTEGER : fAnt;
+    posRef.current = {
+      pos: posActual,
+      clase: bAnt !== blockIdx ? "saltoEj" : fAhora >= fAntes ? "pasoAdel" : "pasoAtras",
+      // Solo se acusa recibo al AVANZAR dentro del mismo ejercicio: al
+      // retroceder no se registró nada, se desmarcó.
+      acuse: bAnt === blockIdx && fAhora > fAntes ? fAntes : -1,
+      n: posRef.current.n + 1,
+    };
+  }
+  const paso = posRef.current;
   const blockTitle = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
   // Lo que hace el descanso al llegar a cero: si el ejercicio quedó
   // completo, saltar al siguiente; si no, no hay nada que hacer más que
@@ -5265,6 +5305,16 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       return;
     }
     if (blockIdx > 0) goBlock(-1);
+  };
+
+  // Volver a una serie concreta tocándola en la tira. Solo hay que
+  // desmarcar ESA: `activeRowIdx` es la primera sin marcar, así que
+  // desmarcar la 1 con la 2 hecha ya deja la 1 en curso. Lo registrado
+  // en las demás no se toca — desmarcar no borra los números.
+  const volverASerie = (i) => {
+    const r = block.rows[i];
+    if (!r) return;
+    if (exs[r.ei].sets[r.si].done) { onDismissRest(); onToggleDone(r.ei, r.si); }
   };
 
   const goBlock = (dir) => {
@@ -5326,6 +5376,19 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     return weightUnit === "lb"
       ? `${kg(Math.round(n * 10) / 10)} kg`
       : `${kg(Math.round(kgToLb(n) * 10) / 10)} lb`;
+  };
+
+  // Lo que quedó registrado en una serie, ya en la unidad que el alumno
+  // está viendo. `setSummary` toma el peso guardado —siempre en kilos— y
+  // le pega la etiqueta de la unidad activa: entrenando en libras decía
+  // "60 lb" para 60 kg. Se convierte antes de mostrarlo.
+  const resumenSerie = (st) => {
+    const n = st.weight === "" || st.weight == null ? 0 : pesoMostrado(st.weight);
+    const w = n ? `${kg(n)} ${weightUnit}` : null;
+    const r = st.reps !== "" && st.reps != null ? String(st.reps) : null;
+    if (w && r) return `${w} × ${r}`;
+    if (r) return `${r} reps`;
+    return w || "sin registrar";
   };
 
   const restKey = (ei, si) => `${ei}-${si}`;
@@ -5420,7 +5483,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, color: P.faint2 }}>Acabas de registrar</div>
-                <div style={{ fontSize: 15, fontWeight: 600 }}>{setSummary(justSet, weightUnit)}</div>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>{resumenSerie(justSet)}</div>
               </div>
               <button onClick={onDismissRest} style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>Corregir</button>
             </div>
@@ -5510,6 +5573,48 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       </div>
     );
   };
+
+  /* La tira de series del ejercicio en curso. Es lo que faltaba: hasta
+     ahora la pantalla mostraba SOLO la serie activa, con los números ya
+     precargados de la anterior, así que al completar una no cambiaba
+     nada visible y era imposible saber si había quedado registrada ni
+     por cuál ibas. Acá cada serie dice en qué estado está:
+       hecha      → tinta llena, ✓ y LO QUE SE GUARDÓ (12,5 × 10)
+       en curso   → borde marcado y el objetivo
+       pendiente  → apagada
+     Tocar una serie hecha vuelve a ella para corregirla, que es mucho
+     más directo que apretar «Atrás» varias veces a ciegas. */
+  const tiraSeries = (() => {
+    if (block.rows.length < 2) return null;
+    const idxActiva = activeRowIdx === -1 ? block.rows.length : activeRowIdx;
+    return (
+      <div role="list" aria-label="Series de este ejercicio"
+        style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
+        {block.rows.map((r, i) => {
+          const st = exs[r.ei].sets[r.si];
+          const hecha = st.done;
+          const activa = i === idxActiva;
+          const resumen = hecha ? resumenSerie(st) : (st.repsT ? `${st.repsT}` : "—");
+          return (
+            <button key={`${r.ei}-${r.si}`} role="listitem" disabled={!hecha}
+              className={paso.acuse === i ? "acuse" : undefined}
+              onClick={() => { if (hecha) volverASerie(i); }}
+              aria-label={`Serie ${i + 1}${hecha ? `, hecha: ${resumen}. Tocar para corregirla` : activa ? ", en curso" : ", pendiente"}`}
+              aria-current={activa ? "step" : undefined}
+              style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999,
+                background: hecha ? PLATE_GRAD : activa ? P.s1 : "transparent",
+                border: `1.5px solid ${hecha ? "transparent" : activa ? P.text : P.separatorStrong}`,
+                color: hecha ? PLATE_FG : activa ? P.text : P.faint2,
+                fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap",
+                transition: `background ${DUR_ROW}ms ${EASE_STD}, border-color ${DUR_ROW}ms ${EASE_STD}` }}>
+              {hecha ? <Check size={13} strokeWidth={3} /> : <span style={{ opacity: activa ? 1 : .8 }}>S{i + 1}</span>}
+              <span style={{ fontWeight: hecha ? 600 : 500 }}>{resumen}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  })();
 
   // Un solo pie, siempre en el mismo sitio: Atrás · lo que toca hacer ·
   // Siguiente. Solo cambia el botón del medio, así que terminar un
@@ -5623,7 +5728,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         <span style={{ display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
           padding: "7px 11px", borderRadius: 999, background: P.s3 }}>
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: P.faint2 }}>Serie</span>
-          <span className="num" style={{ fontSize: 13.5, fontWeight: 700, color: P.text, fontVariantNumeric: "tabular-nums" }}>
+          {/* La `key` hace que el número se vuelva a montar al cambiar de
+              serie y repita el pulso: si no, cambiaba un dígito en una
+              esquina y no lo veía nadie. */}
+          <span key={`s${paso.n}`} className="num acuse" style={{ fontSize: 13.5, fontWeight: 700, color: P.text, fontVariantNumeric: "tabular-nums" }}>
             {Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)}/{block.rows.length}
           </span>
         </span>
@@ -5668,13 +5776,20 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         {!block.group && parseTempo(exs[block.ei].notes) && (
           <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
         )}
+        {/* Las series del ejercicio, con lo que quedó guardado en cada
+            una. Va acá arriba, fija, para que se vea igual mientras
+            registras y mientras descansas. */}
+        {tiraSeries && <div style={{ marginTop: 11 }}>{tiraSeries}</div>}
       </div>
 
       {/* Una sola cosa en pantalla a la vez: o descansas, o registras la
           serie que toca, o el ejercicio ya está hecho. Cada estado trae
-          su propio botón grande diciendo qué pasa al tocarlo. */}
+          su propio botón grande diciendo qué pasa al tocarlo.
+          La `key` fuerza que el bloque se vuelva a montar en cada paso:
+          sin eso React reaprovecha los nodos, la animación no se
+          reproduce y el cambio de serie pasa desapercibido. */}
       {timer ? restCard : blockDone ? blockDonePanel : (
-        <>
+        <div key={paso.n} className={paso.clase}>
           <Card style={{ padding: "14px 14px 16px" }}>
             {block.group && (
               <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2, marginBottom: 8 }}>
@@ -5684,7 +5799,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             {renderActiveSet(block.rows[activeRowIdx])}
           </Card>
           {pieNav("Completar serie", () => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si))}
-        </>
+        </div>
       )}
 
 
@@ -5722,7 +5837,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                         <span style={{ fontSize: 13, color: P.faint2, width: 18, flexShrink: 0 }}>{sg.n}</span>
                         <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
                           <span style={{ fontSize: 15, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sg.exName}</span>
-                          <span style={{ fontSize: 12.5, color: P.faint2 }}>Serie {sg.serie} · {setSummary(sg.st, weightUnit)}</span>
+                          <span style={{ fontSize: 12.5, color: P.faint2 }}>Serie {sg.serie} · {resumenSerie(sg.st)}</span>
                         </span>
                         <span className="num" style={{ fontSize: 16, fontWeight: 600, color: P.text, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{segClock(sg.sec)}</span>
                       </div>
