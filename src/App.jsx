@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v186";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v188";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1873,7 +1873,7 @@ function compressImage(file, maxDim = 1280, quality = 0.72) {
 }
 
 /* ---------------- Programa del alumno ---------------- */
-const SEED_VERSION = 7;
+const SEED_VERSION = 8;
 const ROSTER_VERSION = 1;
 const TRAINING_B_VIDEOS = [
   "https://youtu.be/PkdWebUdlbE",
@@ -2065,7 +2065,7 @@ const ROUTINE_C_INTRO = {
    que el texto entero vive en las notas y las series cargadas son la
    plantilla de la semana en curso. */
 function routineCDays() {
-  const ex = (name, muscle, rest, notes, s) => ({ id: uid(), name, muscle, rest, superset: "", notes: notes || "", video: "", sets: s });
+  const ex = (name, muscle, rest, notes, s, video) => ({ id: uid(), name, muscle, rest, superset: "", notes: notes || "", video: video || "", sets: s });
   const n = (reps, rir) => ["normal", reps, rir];
   const top = (reps, rir) => ["top", reps, rir];
   const bo = (reps, rir) => ["backoff", reps, rir];
@@ -2173,28 +2173,28 @@ function routineCDays() {
         "1X 12-15REP TEMPO DINAMICO\n\n" +
         "1X 8REP MISMO PESO O UN POCO MAS AHORA CON NEGATIVA LENTA EN 3SEG\n\n" +
         "1X mas peso 5REP NEGATIVA EN 3SEG + DESCANSA5SEG Y 3REP EXTRA MAS DINAMICAS",
-        sets([n("12-15", ""), n("8", ""), rp("5", "")])),
+        sets([n("12-15", ""), n("8", ""), rp("5", "")]), "https://youtu.be/PkdWebUdlbE"),
       ex("Remo bajo discos / remo Dorian o similar", "Espalda", 90,
         "2-3 series aproximativas a 5-6rep, cogemos posicionamiento y compactación. no nos quemamos!\n" +
         "------------------------------------\n" +
         "Semana 1\nTop Set → 1x8RIR2\nBack-off → 1 serie x 10–12 reps @ −15%\n\n" +
         "Semana 2\nTop Sets → 2X6-8RIR2\nBack-off → 1 serie x 12–14 reps @ −15%",
-        sets([top("8", "2"), bo("10-12", "")])),
+        sets([top("8", "2"), bo("10-12", "")]), "https://youtu.be/jUKNrZoG0v4"),
       ex("Curl bayesan mancuernas", "Bíceps", 45,
         "2X8-10REP TEMPO LENTO\n1X8-10REP TEMPO MAS DINAMICO\n" +
         "1X 6REP SENTADO + DE PIE AL FALLO PUDIENDO TRAMPEAR ESTRATEGICAMNTE CON LA INHERCIA DEL CUERPO",
-        sets([n("8-10", ""), n("8-10", ""), n("8-10", ""), am("6 + al fallo", "0")])),
+        sets([n("8-10", ""), n("8-10", ""), n("8-10", ""), am("6 + al fallo", "0")]), "https://youtu.be/ft2qWxrJyYA"),
       ex("Remo gironda estrecho", "Espalda", 60,
         "SEMANA 1 Y 2:\nObjetivo, hacernos con el tempo correcto y sensaciones\n" +
         "· 1X 8REP NEGATIVA EN 3SEG RIR3\n· 1X 8REP NEGATIVA EN 3SEG RIR2\n" +
         "· 1X 8-10REP RIR1 TEMPO DINAMICO Y CON RITMO",
-        sets([n("8", "3"), n("8", "2"), n("8-10", "1")])),
+        sets([n("8", "3"), n("8", "2"), n("8-10", "1")]), "https://youtu.be/5BYEIP_KBY8"),
       ex("Tracción unilateral", "Espalda", 90,
         "Las capturas no traían el detalle de este ejercicio: 2 series de 10-12, tu entrenador ajusta el resto.",
-        sets([n("10-12", ""), n("10-12", "")])),
+        sets([n("10-12", ""), n("10-12", "")]), "https://youtu.be/uMO6qc4wyQw"),
       ex("Curl bíceps martillo mancuerna", "Bíceps", 45,
         "2 series: rest-pause + drop set (rp+dp). Las capturas no traían el detalle fino.",
-        sets([rp("10-12", ""), dr("10-12", "")])),
+        sets([rp("10-12", ""), dr("10-12", "")]), "https://youtu.be/5pEG7Cj0-0Y"),
     ]),
   ];
 }
@@ -4023,7 +4023,13 @@ function cargarCatalogo() {
         const lista = (j && j.ejercicios) || [];
         // El índice de búsqueda se calcula UNA vez: con 1.324 ejercicios,
         // normalizar en cada tecleo se nota en un teléfono modesto.
-        lista.forEach((e) => { e._b = `${norma(e.n)} ${norma(e.e)} ${norma(e.mu)} ${norma(e.eq)}`; });
+        // Va el nombre en español Y en inglés, el músculo principal, los
+        // secundarios y el equipo. Con espacios a los lados para poder
+        // buscar por comienzo de palabra (ver `catCoincide`).
+        lista.forEach((e) => {
+          e._b = ` ${norma(e.n)} ${norma(e.e)} ${norma(e.mu)} ${norma((e.s || []).join(" "))} ${norma(e.eq)} `.replace(/\s+/g, " ");
+          e._b = ` ${e._b.trim()} `;
+        });
         _catDatos = lista;
         return lista;
       })
@@ -4049,6 +4055,20 @@ function useCatalogo(activo = true) {
 
 // Texto sin tildes ni signos, para buscar y comparar nombres.
 const norma = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+// Buscar por PALABRAS, no por subcadena. Buscando "press banca" el
+// usuario espera encontrar «Press DE banca», y "cable row" tiene que
+// traer lo mismo que "row cable" — con subcadena las tres daban cero.
+// Cada palabra escrita tiene que aparecer al comienzo de alguna palabra
+// del índice, así "banc" ya encuentra "banca" mientras se escribe.
+const catPalabras = (q) => norma(q).split(" ").filter(Boolean);
+const catCoincide = (indice, palabras) => palabras.every((w) => (indice || "").includes(" " + w));
+// Índice de un ejercicio de la app (no del catálogo). Si está enlazado a
+// una ficha del catálogo se le suma su índice, y así el ejercicio propio
+// también se encuentra escribiendo el nombre en inglés.
+const catIndicePropio = (e, ficha) =>
+  ` ${norma(e.name)} ${norma(e.muscle)} ${norma(e.equipment)} ${norma(((e.secondary || []).map((s) => s.muscle)).join(" "))} `
+    .replace(/\s+/g, " ") + (ficha && ficha._b ? ficha._b : "");
+
 const CAT_PARO = new Set(["de", "del", "la", "el", "los", "las", "con", "en", "a", "al", "y", "o", "un", "una", "por", "para", "sin", "su", "the", "of", "with", "on"]);
 const catTokens = (s) => norma(s).split(" ").filter((w) => w.length > 1 && !CAT_PARO.has(w));
 
@@ -15203,11 +15223,11 @@ const CatalogAddSheet = ({ open, onClose, onAgregar }) => {
   const { lista, cargando, error } = useCatalogo(open);
   useEffect(() => { if (open) { setQ(""); setMuscle("Todos"); } }, [open]);
 
-  const consulta = norma(q);
+  const palabras = catPalabras(q);
   const resultados = useMemo(() => lista.filter((e) => {
     if (muscle !== "Todos" && e.mu !== muscle) return false;
-    return !consulta || (e._b || "").includes(consulta);
-  }).slice(0, 60), [lista, consulta, muscle]);
+    return catCoincide(e._b, palabras);
+  }).slice(0, 60), [lista, q, muscle]);
 
   return (
     <Sheet open={open} onClose={onClose} title="Añadir del catálogo" tall>
@@ -15272,18 +15292,18 @@ const CatalogPickerSheet = ({ open, onClose, nombre, actual, onElegir }) => {
   const { lista, cargando, error } = useCatalogo(open);
   useEffect(() => { if (open) setQ(""); }, [open]);
 
-  const consulta = norma(q);
+  const palabras = catPalabras(q);
   const resultados = useMemo(() => {
     if (!lista.length) return [];
-    if (consulta) return lista.filter((e) => (e._b || "").includes(consulta)).slice(0, 40);
+    if (palabras.length) return lista.filter((e) => catCoincide(e._b, palabras)).slice(0, 40);
     return catSugerencias(nombre || "", lista, 12).map((x) => x.e);
-  }, [lista, consulta, nombre]);
+  }, [lista, q, nombre]);
 
   return (
     <Sheet open={open} onClose={onClose} title="Imagen del ejercicio" tall>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>
-          {consulta
+          {palabras.length
             ? `Resultados para «${q}».`
             : <>Parecidos a <b style={{ color: P.text }}>{nombre || "este ejercicio"}</b>. Revísalos antes de elegir: el
                parecido es por nombre, así que puede proponer un movimiento distinto.</>}
@@ -15309,7 +15329,7 @@ const CatalogPickerSheet = ({ open, onClose, nombre, actual, onElegir }) => {
           </Card>
         ) : resultados.length === 0 ? (
           <Empty icon={Dumbbell} title="Sin candidatos"
-            body={consulta ? "Prueba con otra palabra, o con el nombre en inglés." : "Busca el ejercicio por su nombre en el buscador de arriba."} />
+            body={palabras.length ? "Prueba con otra palabra, o con el nombre en inglés." : "Busca el ejercicio por su nombre en el buscador de arriba."} />
         ) : (
           <Card style={{ overflow: "hidden" }}>
             {resultados.map((e, i) => (
@@ -15446,8 +15466,15 @@ const CatalogBulkSheet = ({ open, onClose, plan, onAplicar, toast }) => {
 
 const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
   const [q, setQ] = useState("");
-  const [muscle, setMuscle] = useState("Todos");
-  const [equipo, setEquipo] = useState("Todo");
+  // Los filtros son de selección múltiple: un coach busca "pecho o
+  // hombro" con "mancuernas o polea", no un solo grupo a la vez. Lista
+  // vacía = sin filtrar.
+  const [musculos, setMusculos] = useState([]);
+  const [equipos, setEquipos] = useState([]);
+  // Casi todos los ejercicios trabajan más de un músculo. Con esto,
+  // filtrar por Bíceps también trae aquellos donde el bíceps entra como
+  // secundario — que es media rutina de espalda.
+  const [conSec, setConSec] = useState(false);
   const [tope, setTope] = useState(60);
   const [openEx, setOpenEx] = useState(null);
   const [openCat, setOpenCat] = useState(null);
@@ -15468,26 +15495,50 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
   }, [library, plan]);
 
   const { lista, cargando, error } = useCatalogo(open);
-  const consulta = norma(q);
-  const filtrar = (arr, campo) => arr.filter((e) => {
-    if (muscle !== "Todos" && e.muscle !== muscle && e.mu !== muscle) return false;
-    if (equipo !== "Todo" && (e.eq || e.equipment) !== equipo) return false;
-    if (!consulta) return true;
-    return campo(e).includes(consulta);
+  const palabras = catPalabras(q);
+  // Índice de los ejercicios propios, con el del catálogo pegado cuando
+  // están enlazados: así "bench press" encuentra tu «Press de banca».
+  const propiosIdx = useMemo(() => {
+    const porId = new Map((lista || []).map((c) => [c.i, c]));
+    return new Map(propios.map((e) => [e, catIndicePropio(e, e.catId ? porId.get(e.catId) : null)]));
+  }, [propios, lista]);
+
+  const filtrar = (arr, principal, secundarios, equipoDe, indiceDe) => arr.filter((e) => {
+    if (musculos.length) {
+      const propio = musculos.includes(principal(e));
+      const deApoyo = conSec && secundarios(e).some((s) => musculos.includes(s));
+      if (!propio && !deApoyo) return false;
+    }
+    if (equipos.length && !equipos.includes(equipoDe(e))) return false;
+    return catCoincide(indiceDe(e), palabras);
   });
-  const propiosF = filtrar(propios, (e) => norma(e.name));
-  const catF = filtrar(lista, (e) => e._b || norma(e.n));
+  const propiosF = filtrar(propios,
+    (e) => e.muscle, (e) => (e.secondary || []).map((s) => s.muscle), (e) => e.equipment,
+    (e) => propiosIdx.get(e) || "");
+  const catF = filtrar(lista,
+    (e) => e.mu, (e) => e.s || [], (e) => e.eq,
+    (e) => e._b || "");
+  const hayFiltro = musculos.length > 0 || equipos.length > 0 || q.trim() !== "";
+  const limpiar = () => { setQ(""); setMusculos([]); setEquipos([]); setConSec(false); setTope(60); };
   // Con 1.324 ejercicios no se pintan todos de una: se muestran de a 60 y
   // el resto entra con «Ver más». Sin esto, la hoja tarda casi un segundo
   // en abrir en un teléfono modesto.
   const catVisibles = catF.slice(0, tope);
 
-  const chipFila = (valores, valor, set, etiqueta) => (
+  const chipEstilo = (on) => ({ flexShrink: 0, padding: "7px 13px", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
+    background: on ? P.s3 : "transparent", border: `1px solid ${on ? P.line : "transparent"}`, color: on ? P.text : P.faint });
+  // Se pueden marcar varios: cada chip suma o quita. El primero ("Todos")
+  // es el que limpia, y queda marcado justo cuando no hay ninguno.
+  const chipFila = (valores, sel, set, etiqueta, todos) => (
     <div role="group" aria-label={etiqueta} style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-      {valores.map((m) => (
-        <button key={m} onClick={() => { set(m); setTope(60); }} style={{ flexShrink: 0, padding: "7px 13px", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
-          background: valor === m ? P.s3 : "transparent", border: `1px solid ${valor === m ? P.line : "transparent"}`, color: valor === m ? P.text : P.faint }}>{m}</button>
-      ))}
+      <button onClick={() => { set([]); setTope(60); }} aria-pressed={sel.length === 0} style={chipEstilo(sel.length === 0)}>{todos}</button>
+      {valores.map((m) => {
+        const on = sel.includes(m);
+        return (
+          <button key={m} aria-pressed={on} style={chipEstilo(on)}
+            onClick={() => { set(on ? sel.filter((x) => x !== m) : [...sel, m]); setTope(60); }}>{m}</button>
+        );
+      })}
     </div>
   );
 
@@ -15514,8 +15565,24 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
             placeholder="Buscar en español o en inglés" aria-label="Buscar ejercicio"
             style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, border: "none" }} />
         </div>
-        {chipFila(["Todos", ...MUSCLES], muscle, setMuscle, "Filtrar por grupo muscular")}
-        {chipFila(["Todo", ...EQUIPMENT], equipo, setEquipo, "Filtrar por equipo")}
+        {chipFila(MUSCLES, musculos, setMusculos, "Filtrar por grupo muscular", "Todos")}
+        {chipFila(EQUIPMENT, equipos, setEquipos, "Filtrar por equipo", "Todo")}
+        {/* Solo tiene sentido con algún músculo marcado: sin filtro de
+            músculo no hay nada que ampliar. */}
+        {(musculos.length > 0 || hayFiltro) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {musculos.length > 0 && (
+              <button onClick={() => { setConSec((v) => !v); setTope(60); }} aria-pressed={conSec} style={chipEstilo(conSec)}>
+                {conSec ? "✓ " : ""}Incluir secundarios
+              </button>
+            )}
+            {hayFiltro && (
+              <button onClick={limpiar} style={{ padding: "7px 4px", fontSize: 13.5, fontWeight: 600, color: P.faint2, textDecoration: "underline" }}>
+                Limpiar
+              </button>
+            )}
+          </div>
+        )}
 
         {propiosF.length > 0 && (
           <>
@@ -17242,6 +17309,18 @@ const App = () => {
         if (faltan.length) p.days = [...p.days, ...faltan];
         faltan.forEach((d) => entregadas.add(d.seedKey));
         p.seedKeysC = [...entregadas];
+        // Videos que se suman a un día YA cargado. Se copian por nombre de
+        // ejercicio y solo donde no hay nada: si el coach puso su propio
+        // link, manda el suyo.
+        const porClave = new Map(plantilla.map((d) => [d.seedKey, d]));
+        p.days.filter((d) => d.routine === ROUTINE_C && porClave.has(d.seedKey)).forEach((d) => {
+          const tpl = porClave.get(d.seedKey);
+          (d.exs || []).forEach((e) => {
+            if (e.video) return;
+            const igual = (tpl.exs || []).find((t) => norma(t.name) === norma(e.name));
+            if (igual && igual.video) e.video = igual.video;
+          });
+        });
       }
       p.seedVersion = SEED_VERSION;
       await sSet(`forja-plan:${id}`, p);
