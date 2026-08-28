@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v192";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v193";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1843,6 +1843,101 @@ function beep() {
     });
   } catch {}
   try { navigator.vibrate && navigator.vibrate([220, 90, 220]); } catch {}
+}
+
+/* ============================================================
+   Aviso de fin de descanso con la pantalla apagada
+   ------------------------------------------------------------
+   Descansando, el móvil se guarda en el bolsillo y se bloquea. Ahí el
+   navegador CONGELA los temporizadores de JavaScript: el `setInterval`
+   que cuenta los segundos deja de correr y el aviso no llega nunca —
+   aparecía recién al desbloquear. Dos medidas:
+
+   1. El pitido se programa en el reloj del AudioContext en el momento en
+      que arranca el descanso, no cuando un contador llega a cero. Ese
+      reloj no depende de los temporizadores congelados.
+   2. Un tono mudo en bucle mantiene viva la sesión de audio mientras se
+      descansa: sin él, iOS la suspende al pasar a segundo plano y el
+      sonido programado tampoco suena.
+
+   Sobre VIBRAR: `navigator.vibrate` está y se usa, pero Safari de iPhone
+   no implementa la API de vibración — desde una web no hay manera de
+   hacer vibrar un iPhone, ni con la pantalla encendida. En Android
+   funciona. Por eso, además, la sesión pide `wakeLock` para que la
+   pantalla no se apague sola (ver `usePantallaDespierta`).
+   ============================================================ */
+let _audio = null;
+let _alarma = [];
+let _mudo = null;
+const audioCtx = () => {
+  if (!_audio) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    _audio = new AC();
+  }
+  return _audio;
+};
+// Se llama desde el toque que inicia el descanso: iOS solo deja crear o
+// reanudar el audio dentro de un gesto del usuario.
+function prepararAudio() {
+  try { const c = audioCtx(); if (c && c.state === "suspended") c.resume(); } catch {}
+}
+function cancelarAlarma() {
+  _alarma.forEach((o) => { try { o.stop(); } catch {} });
+  _alarma = [];
+  if (_mudo) { try { _mudo.stop(); } catch {} _mudo = null; }
+}
+// Devuelve true si quedó programada: quien llame sabe así que no tiene
+// que hacer sonar nada por su cuenta al llegar a cero.
+function armarAlarma(segundos) {
+  cancelarAlarma();
+  const ctx = audioCtx();
+  if (!ctx) return false;
+  try {
+    if (ctx.state === "suspended") ctx.resume();
+    const t0 = ctx.currentTime + Math.max(0, segundos);
+    const mudo = ctx.createOscillator();
+    const gm = ctx.createGain();
+    gm.gain.value = 0.0001;            // inaudible, pero mantiene la sesión viva
+    mudo.connect(gm); gm.connect(ctx.destination);
+    mudo.start();
+    mudo.stop(t0 + 1.2);
+    _mudo = mudo;
+    [0, 0.25, 0.5].forEach((d) => {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = 880; o.type = "sine";
+      g.gain.setValueAtTime(0.001, t0 + d);
+      g.gain.exponentialRampToValueAtTime(0.3, t0 + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + d + 0.18);
+      o.start(t0 + d); o.stop(t0 + d + 0.2);
+      _alarma.push(o);
+    });
+    return true;
+  } catch { return false; }
+}
+const vibrar = (patron) => { try { navigator.vibrate && navigator.vibrate(patron); } catch {} };
+
+// Mantiene la pantalla encendida mientras dura la sesión. Es lo único
+// que evita de verdad el caso "no me avisó porque estaba bloqueado": si
+// la pantalla no se apaga, el navegador no congela nada. El permiso se
+// pierde al pasar a segundo plano, así que se vuelve a pedir al volver.
+function usePantallaDespierta(activo) {
+  useEffect(() => {
+    if (!activo || !navigator.wakeLock) return;
+    let lock = null, vivo = true;
+    const pedir = async () => {
+      try { lock = await navigator.wakeLock.request("screen"); } catch {}
+    };
+    const alVolver = () => { if (vivo && document.visibilityState === "visible") pedir(); };
+    pedir();
+    document.addEventListener("visibilitychange", alVolver);
+    return () => {
+      vivo = false;
+      document.removeEventListener("visibilitychange", alVolver);
+      try { lock && lock.release(); } catch {}
+    };
+  }, [activo]);
 }
 
 function compressImage(file, maxDim = 1280, quality = 0.72) {
@@ -5189,12 +5284,29 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
 
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
   useEffect(() => () => clearTimeout(cmtTimer.current), []);
+  // Mientras dure la sesión, la pantalla no se apaga sola.
+  usePantallaDespierta(true);
+
+  // El pitido se programa al ARRANCAR el descanso (y se reprograma si se
+  // ajusta con ±15 s), no cuando el contador llega a cero: con el móvil
+  // bloqueado ese contador no corre. Ver el bloque de `armarAlarma`.
+  const alarmaOk = useRef(false);
+  useEffect(() => {
+    if (!timer) { cancelarAlarma(); alarmaOk.current = false; return; }
+    alarmaOk.current = armarAlarma((timer.endsAt - Date.now()) / 1000);
+  }, [timer && timer.endsAt]);
+  useEffect(() => () => cancelarAlarma(), []);
+
   useEffect(() => {
     if (!timer) { restFiredRef.current = false; return; }
     const left = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
     if (left > 0 || restFiredRef.current) return;
     restFiredRef.current = true;
-    beep();
+    // El sonido ya quedó programado al arrancar el descanso; acá solo se
+    // vibra. Si no se pudo programar (sin audio en el navegador), suena
+    // ahora, que es mejor que no sonar.
+    vibrar([220, 90, 220]);
+    if (!alarmaOk.current) beep();
     // Se avanza solo. Si el bloque quedó completo, además pasa al
     // ejercicio siguiente; si era el último, se queda en el panel de
     // "Ejercicio completo", que ya ofrece terminar la sesión.
@@ -5622,9 +5734,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     );
   })();
 
-  // Un solo pie, siempre en el mismo sitio: Atrás · lo que toca hacer ·
-  // Siguiente. Solo cambia el botón del medio, así que terminar un
-  // ejercicio no hace desaparecer la forma de volver atrás.
+  // Dos botones y nada más: Atrás y Siguiente. Antes eran tres —«Atrás»,
+  // «Completar serie» y un «Siguiente» que saltaba de EJERCICIO— y ahí
+  // estaba la trampa: uno toca «Siguiente» esperando ir a la serie que
+  // sigue y se saltaba las que faltaban del ejercicio, sin registrarlas.
+  // Ahora «Siguiente» hace exactamente lo que dice: guarda esta serie y
+  // pasa a lo que viene, sea la próxima serie o el próximo ejercicio.
+  // Saltar un ejercicio entero sigue siendo posible, pero desde el «···»,
+  // que es donde vive lo que no es el camino normal.
   const pieNav = (centro, onCentro) => (
     <div>
       <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
@@ -5639,12 +5756,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "14px 6px",
             borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 15.5, fontWeight: 600, whiteSpace: "nowrap" }}>
           {centro}
-        </button>
-        <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} aria-label="Ejercicio siguiente"
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
-            borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, fontSize: 12.5, fontWeight: 600,
-            color: blockIdx >= blocks.length - 1 ? P.chevron : P.text, opacity: blockIdx >= blocks.length - 1 ? .55 : 1 }}>
-          Siguiente <ChevronRight size={15} strokeWidth={2.6} />
         </button>
       </div>
       {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
@@ -5804,7 +5915,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             )}
             {renderActiveSet(block.rows[activeRowIdx])}
           </Card>
-          {pieNav("Completar serie", () => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si))}
+          {/* La última serie del ejercicio lo dice, para que no sorprenda
+              que el toque siguiente cambie de ejercicio. */}
+          {pieNav(activeRowIdx === block.rows.length - 1 ? "Siguiente ejercicio" : "Siguiente serie",
+            () => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si))}
         </div>
       )}
 
@@ -5978,6 +6092,17 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             <span style={{ fontSize: 14.5, color: P.dim, fontWeight: 600 }}>Unidad de peso</span>
             <UnitToggle />
           </div>
+          <div style={{ height: 1, background: P.line, margin: "2px 0" }} />
+          {/* Saltarse un ejercicio entero deja series sin registrar, así que
+              ya no vive en el pie —donde se tocaba sin querer creyendo que
+              iba a la serie siguiente— sino acá, dicho con todas las letras. */}
+          <button data-keep disabled={blockIdx >= blocks.length - 1}
+            onClick={() => { setRowMoreFor(null); goBlock(1); }}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
+              background: P.s3, border: `1px solid ${P.line}`, fontSize: 15, fontWeight: 600,
+              color: blockIdx >= blocks.length - 1 ? P.faint2 : P.text, opacity: blockIdx >= blocks.length - 1 ? .55 : 1 }}>
+            <ChevronRight size={18} /> Saltar al siguiente ejercicio
+          </button>
           <div style={{ height: 1, background: P.line, margin: "2px 0" }} />
           <button data-keep onClick={() => { setRowMoreFor(null); setExiting(true); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
@@ -6374,6 +6499,10 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   };
   const startRest = (ei, si) => {
     const rest = restOf(ei, si) || 90;
+    // Acá seguimos dentro del toque que completó la serie, que es lo
+    // único que deja a iOS crear o reanudar el audio. Si se hiciera más
+    // tarde, el pitido del final quedaría mudo.
+    prepararAudio();
     setTimer({ exIdx: ei, setIdx: si, endsAt: Date.now() + rest * 1000, total: rest });
   };
   const adjustRest = (d) => setTimer((t) => {
