@@ -153,6 +153,9 @@ const seed = (theme) => {
       const arr = page.getByRole('button', { name: /Iniciar entrenamiento|Continuar entrenamiento/i }).first();
       if (await arr.count()) {
         await arr.click(); await page.waitForTimeout(900);
+        // Desde v197 la sesión pregunta primero en qué gimnasio se entrena.
+        const gym = page.getByRole('button', { name: /Sportlife Pie Andino/ }).first();
+        if (await gym.count()) { await check('elegir gimnasio'); await gym.click(); await page.waitForTimeout(1100); }
         await check('sesión en curso');
         const x = page.getByRole('button', { name: /^Salir de la sesión$/ }).first();
         if (await x.count()) {
