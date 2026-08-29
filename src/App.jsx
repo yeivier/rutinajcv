@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v199";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v200";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5171,32 +5171,24 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    ============================================================ */
 
 /* ============================================================
-   FocusModeMono — Focus Mode (A3/A4 del handoff "Forja MVP"): la
-   sesión en vivo real, la pantalla más usada de la app y la única que
-   escribe series mientras el alumno entrena. Reescrita para la regla
-   central de A3: "la serie activa está abierta dentro de la lista,
-   entre la hecha y la pendiente" — nada de pantalla-por-serie ni de
-   deslizar/tocar tercios para navegar. Los bloques (un ejercicio suelto,
-   o una superserie/triserie/gigante) siguen siendo "una pantalla a la
-   vez" (el texto "Ejercicio N de M" + la barra segmentada), pero DENTRO
-   de un bloque ya no hay páginas: hay una sola tarjeta con todas sus
-   series como filas, y `activeRowIdx` (la primera fila sin marcar) se
-   deriva del propio dato en cada render — no hay estado de "página"
-   que mantener sincronizado, así que terminar un descanso simplemente
-   deja ver la fila que ya corresponde, sola.
+   FocusModeMono — la sesión en vivo: la pantalla más usada de la app y
+   la única que escribe series mientras el alumno entrena.
+
+   Toda la sesión en UNA página que se desplaza: una tarjeta por ejercicio
+   (o por superserie/triserie/gigante), una debajo de la otra, cada una con
+   sus series como filas, su descanso y sus accesos. No hay "ejercicio
+   actual" ni botones de «Siguiente»/«Atrás»: se rellena lo que toca, se
+   marca, y se sigue bajando. Antes era un ejercicio por pantalla y había
+   que adivinar qué venía; peor, para corregir algo ya registrado había
+   que deshacer el camino entero.
 
    Se mantiene sin tocar (mismos hooks, mismo dueño del estado): el
-   temporizador de descanso (`timer`/`onAdjustRest`/`onDismissRest`,
-   propiedad de TrainTab, no de acá), `patch`/`patchSet`/`patchEx`,
-   deshacer/rehacer, el comentario por serie, las hojas de Ficha/
-   Historial/Calculadoras, pantalla completa al entrar, y la
-   confirmación de salida. Lo que se fue: el carrusel de páginas
-   (`pageIdx`/`go`/`tapNav`/gestos de deslizar), la vista previa de la
-   barra al mantener pulsado, y los cuatro íconos dentro de la tarjeta
-   (Historial/Nota/Calculadora/Más) — sus funciones se reparten ahora
-   entre los 4 chips de abajo (Técnica/Historial/Discos/Coach IA) y un
-   "···" chico en la fila activa (deshacer/rehacer/borrar/comentario/
-   unidad), calcando A3 al pixel.
+   temporizador de descanso (`timer`/`onAdjustRest`/`onDismissRest`/
+   `onStartRest`, propiedad de TrainTab, no de acá), `patch`/`patchSet`/
+   `patchEx`, deshacer/rehacer, el comentario por serie, las hojas de
+   Ficha/Historial/Calculadoras, y la hoja de salida con sus cuatro
+   salidas. El descanso pasó de un valor único a uno por ejercicio
+   (`restSel` es ahora un mapa), porque ahora hay varios en pantalla.
    ============================================================ */
 
 /* Dónde se entrena hoy. Se pregunta UNA vez, al empezar la sesión, y
@@ -5293,13 +5285,10 @@ const SalidaRow = ({ icon: Icon, title, body, danger, onClick }) => (
 const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat }) => {
   const [weightUnit] = useWeightUnit();
   const pendingWrites = usePendingWrites();
-  const [blockIdx, setBlockIdx] = useState(0);
-  // Posición anterior dentro de la sesión, para saber si se avanzó o se
-  // retrocedió y animar en consecuencia (ver más abajo).
-  const posRef = useRef({ pos: "", clase: "", acuse: -1, n: 0 });
-  // Duración elegida para el próximo descanso. Arranca en la del propio
-  // ejercicio y se puede cambiar sin tocar la rutina.
-  const [restSel, setRestSel] = useState(90);
+  // Duración elegida para el próximo descanso, POR EJERCICIO: cada uno
+  // arranca en la que trae del plan y se puede cambiar sin tocar la rutina.
+  // Antes era un solo valor porque solo había un ejercicio en pantalla.
+  const [restSel, setRestSel] = useState({});
   const [now, setNow] = useState(Date.now());
   const [ficha, setFicha] = useState(null);
   const [viewImg, setViewImg] = useState(null);
@@ -5322,7 +5311,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // sueltos en la tarjeta y ahora se junta en una sola hoja chica.
   const [rowMoreFor, setRowMoreFor] = useState(null);
   const [calcOpen, setCalcOpen] = useState(false);
-  const [coachNotesOpen, setCoachNotesOpen] = useState(false);
+  // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
+  const [coachNotesOpen, setCoachNotesOpen] = useState(null);
   // Qué ficha de la hoja de sesión está abierta (null = la grilla).
   const [sesPane, setSesPane] = useState(null);
   const [mediaOpen, setMediaOpen] = useState(false);
@@ -5334,9 +5324,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const cmtRef = useRef(null);
   const didPrefill = useRef(false);
   const restFiredRef = useRef(false);
-  // Qué hacer cuando el descanso llega a cero. Se guarda en una ref
-  // porque depende del bloque activo, que se calcula más abajo.
-  const autoNextRef = useRef(null);
 
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
   useEffect(() => () => clearTimeout(cmtTimer.current), []);
@@ -5348,11 +5335,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     const left = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
     if (left > 0 || restFiredRef.current) return;
     restFiredRef.current = true;
-    // Se avanza solo. Si el bloque quedó completo, además pasa al
-    // ejercicio siguiente; si era el último, se queda en el panel de
-    // "Ejercicio completo", que ya ofrece terminar la sesión.
+    // Se acabó el descanso: se cierra el reloj y ya está. No hay a dónde
+    // "avanzar" — la serie que toca ya está a la vista, más abajo.
     onDismissRest();
-    if (autoNextRef.current) autoNextRef.current();
   }, [timer, now]);
 
   const exs = active.exs;
@@ -5388,48 +5373,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     return out.length ? out : [{ group: false, ei: 0, rows: [{ ei: 0, si: 0 }] }];
   }, [exs]);
 
-  const block = blocks[Math.min(blockIdx, blocks.length - 1)];
-  const totalBlocks = blocks.length;
   const totalSets = exs.reduce((a, e) => a + e.sets.length, 0);
   const doneSets = exs.reduce((a, e) => a + e.sets.filter((s) => s.done).length, 0);
   const elapsed = Math.max(0, Math.floor((now - new Date(active.startedAt).getTime()) / 1000));
-  // La fila activa se DERIVA del dato (primera sin marcar), no se
-  // guarda como estado: así, apenas `onToggleDone` marca una serie, la
-  // siguiente se abre sola en el próximo render — nada que sincronizar
-  // al salir del descanso.
-  const activeRowIdx = block.rows.findIndex((r) => !exs[r.ei].sets[r.si].done);
-  const blockDone = activeRowIdx === -1;
-  // Hacia dónde fue el último movimiento, para animar en ese sentido. Se
-  // compara contra la posición anterior en cada render: si el ejercicio
-  // cambió manda el salto de ejercicio; si no, adelante o atrás según la
-  // serie. `acuse` marca la serie recién registrada para iluminarla.
-  const posActual = `${blockIdx}:${activeRowIdx}`;
-  if (posRef.current.pos !== posActual) {
-    const [bAnt, fAnt] = posRef.current.pos.split(":").map(Number);
-    const fAhora = activeRowIdx === -1 ? block.rows.length : activeRowIdx;
-    const fAntes = fAnt === -1 ? Number.MAX_SAFE_INTEGER : fAnt;
-    posRef.current = {
-      pos: posActual,
-      clase: bAnt !== blockIdx ? "saltoEj" : fAhora >= fAntes ? "pasoAdel" : "pasoAtras",
-      // Solo se acusa recibo al AVANZAR dentro del mismo ejercicio: al
-      // retroceder no se registró nada, se desmarcó.
-      acuse: bAnt === blockIdx && fAhora > fAntes ? fAntes : -1,
-      n: posRef.current.n + 1,
-    };
-  }
-  const paso = posRef.current;
-  const blockTitle = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
-  // El descanso que trae el ejercicio: es el valor al que vuelve el "↺".
-  const descansoDelBloque = (block.group ? exs[block.members[0]].rest : exs[block.ei].rest) || 90;
-  // Al cambiar de ejercicio, el descanso propuesto vuelve a ser el suyo.
-  useEffect(() => { setRestSel(descansoDelBloque); }, [blockIdx, descansoDelBloque]);
-  // Lo que hace el descanso al llegar a cero: si el ejercicio quedó
-  // completo, saltar al siguiente; si no, no hay nada que hacer más que
-  // cerrar el reloj (la serie que toca ya aparece sola).
-  autoNextRef.current = () => {
-    if (blockDone && blockIdx < blocks.length - 1) setBlockIdx(blockIdx + 1);
-  };
-
   useEffect(() => {
     if (didPrefill.current) return;
     didPrefill.current = true;
@@ -5454,28 +5400,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     });
     if (any) patch(() => clone);
   }, []);
-
-  // Un paso atrás, sea serie o ejercicio. `activeRowIdx` es la primera
-  // sin marcar, así que la de antes está hecha por definición: se
-  // desmarca y vuelve a quedar abierta con lo que se había registrado.
-  const filaActual = () => (activeRowIdx === -1 ? block.rows.length : activeRowIdx);
-  const puedeAtras = filaActual() > 0 || blockIdx > 0;
-  const irAtras = () => {
-    const i = filaActual();
-    if (i > 0) {
-      const prev = block.rows[i - 1];
-      if (exs[prev.ei].sets[prev.si].done) onToggleDone(prev.ei, prev.si);
-      return;
-    }
-    if (blockIdx > 0) goBlock(-1);
-  };
-
-  const goBlock = (dir) => {
-    const next = blockIdx + dir;
-    if (next < 0 || next >= blocks.length) return;
-    setCmtKey(null);
-    setBlockIdx(next);
-  };
 
   const openCmt = (ck) => {
     setCmtKey(ck);
@@ -5594,40 +5518,71 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // mía" y qué pasaba al marcarla. Entrenando eso sobra: se muestra la
   // serie que toca, se completa, y aparece el descanso diciendo qué
   // sigue. Dónde estás dentro del ejercicio lo dice la tira de puntos.
-  /* El ejercicio entero en una tabla: una fila por serie, con su consigna
-     y sus tres casillas. Antes se mostraba UNA serie por pantalla, y para
-     saber qué tocaba en la siguiente había que completar la actual. Así
-     se ve el ejercicio completo de un vistazo, se puede rellenar en el
-     orden que sea y corregir una serie anterior sin navegar. */
-  const tablaEjercicio = (() => {
+  /* Un ejercicio = una tarjeta, y TODAS las tarjetas están en la página,
+     una debajo de la otra. Antes se mostraba un ejercicio por vez y se
+     pasaba con «Siguiente»/«Atrás»: había que adivinar qué venía y no se
+     podía volver a corregir algo sin deshacer el camino. Ahora la sesión
+     entera se despliega hacia abajo, en orden, y se rellena donde haga
+     falta — no hay «siguiente» que tocar ni sitio donde perderse. */
+  const tablaDe = (block, bi) => {
     const consignas = block.group ? null : consignasPorSerie(exs[block.ei]);
+    const titulo = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
     const objetivo = (() => {
       const st = block.rows.map((r) => exs[r.ei].sets[r.si]);
       const reps = [...new Set(st.map((x) => x.repsT).filter(Boolean))];
       return reps.length === 1 ? `${st.length} × ${reps[0]}` : `${st.length} series`;
     })();
     const descanso = block.group ? exs[block.members[0]].rest : exs[block.ei].rest;
-    const idxActiva = activeRowIdx === -1 ? -1 : activeRowIdx;
+    // La primera serie sin marcar DE ESTE ejercicio: es la que se resalta.
+    // Se deriva del dato en cada render, así marcar una serie abre la
+    // siguiente sola, sin estado de "página" que sincronizar.
+    const idxActiva = block.rows.findIndex((r) => !exs[r.ei].sets[r.si].done);
+    // Las indicaciones del coach, a la vista. Cuando el texto se puede
+    // repartir serie por serie (`consignas`) cada fila lleva la suya; si
+    // no, va entero acá arriba en vez de esconderse tras un botón.
+    const indicaciones = consignas ? null : (block.group ? block.members : [block.ei])
+      .filter((mi) => !!exs[mi].notes)
+      .map((mi) => (block.group ? `${exs[mi].name}: ${exs[mi].notes}` : exs[mi].notes)).join("\n\n");
+    // Lo que se registró la última vez en este mismo ejercicio: es la
+    // referencia con la que se decide cuánto poner hoy.
+    const ultimaVez = (() => {
+      const entry = lastEntryOf(exs[block.group ? block.members[0] : block.ei].id);
+      if (!entry) return null;
+      const st = (entry.sets || [])[0];
+      if (!st) return null;
+      return `Última vez ${fmtDate(entry.date)} · ${setSummary(st, weightUnit)}`;
+    })();
+    const tempo = !block.group ? parseTempo(exs[block.ei].notes) : null;
 
     return (
       <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: R_CARD, padding: "14px 14px 4px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 11 }}>
           <span className="disp" style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: SES.accSoft, border: `1px solid ${SES.accLine}`, fontSize: 17, fontWeight: 700, color: SES.acc }}>{blockIdx + 1}</span>
+            background: SES.accSoft, border: `1px solid ${SES.accLine}`, fontSize: 17, fontWeight: 700, color: SES.acc }}>{bi + 1}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="disp" style={{ fontSize: 19, fontWeight: 700, color: SES.ink, lineHeight: 1.15, textTransform: "uppercase", letterSpacing: "-.01em" }}>{blockTitle}</div>
+            <div className="disp" style={{ fontSize: 19, fontWeight: 700, color: SES.ink, lineHeight: 1.15, textTransform: "uppercase", letterSpacing: "-.01em" }}>{titulo}</div>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 9 }}>
               <span className="mono" style={{ fontSize: 12, color: SES.dim, padding: "5px 11px", borderRadius: 9, background: SES.campo, border: `1px solid ${SES.line}` }}>Objetivo {objetivo}</span>
               {descanso ? <span className="mono" style={{ fontSize: 12, color: SES.acc, padding: "5px 11px", borderRadius: 9, background: SES.accSoft, border: `1px solid ${SES.accLine}` }}>Descanso {descanso}&quot;</span> : null}
               {block.group && <span className="mono" style={{ fontSize: 12, color: SES.dim, padding: "5px 11px", borderRadius: 9, background: SES.campo, border: `1px solid ${SES.line}` }}>{GROUP_KINDS[block.kind].label} · {block.rounds} rondas</span>}
             </div>
           </div>
-          <button onClick={() => setFicha(block.group ? block.members[0] : block.ei)} aria-label="Ver la técnica"
+          <button onClick={() => setFicha(block.group ? block.members[0] : block.ei)} aria-label={`Ver la técnica de ${titulo}`}
             style={{ width: 38, height: 38, borderRadius: 19, flexShrink: 0, background: "transparent", border: `1px solid ${SES.line}`,
               color: SES.ink, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Play size={16} />
           </button>
         </div>
+
+        {indicaciones && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 9, marginTop: 13, padding: "11px 12px", borderRadius: R_TILE,
+            background: SES.accSoft, border: `1px solid ${SES.accLine}` }}>
+            <Info size={15} color={SES.acc} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ fontSize: 13.5, color: SES.ink, lineHeight: 1.5, whiteSpace: "pre-wrap", minWidth: 0 }}>{indicaciones}</div>
+          </div>
+        )}
+        {tempo && <div style={{ marginTop: 11 }}><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
+        {ultimaVez && <div style={{ fontSize: 12.5, color: SES.faint, marginTop: 11 }}>{ultimaVez}</div>}
 
         {/* Cabecera de columnas: sin ella, tres casillas iguales no dicen
             cuál es cuál hasta que se tocan. */}
@@ -5648,6 +5603,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           const consigna = consignas ? consignas[i] : null;
           const pie = [st.repsT ? `${st.repsT} reps` : null, st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null]
             .filter(Boolean).join(" · ");
+          // Con la sesión entera en pantalla hay muchas "serie 1": el
+          // nombre accesible lleva el ejercicio, si no son todas iguales
+          // para quien navega por voz o lector de pantalla.
+          const dónde = `${block.group ? `ronda ${(r.round || 0) + 1}` : `serie ${i + 1}`} de ${exx.name}`;
           return (
             <div key={`${r.ei}-${r.si}`}
               style={{ padding: "13px 0", borderBottom: i < block.rows.length - 1 ? `1px solid ${SES.line}` : "none" }}>
@@ -5666,17 +5625,17 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 {block.group && <div style={{ fontSize: 12, color: SES.faint, marginTop: 3 }}>{exx.name}</div>}
                 <div style={{ fontSize: 12.5, color: SES.dim, marginTop: 5, lineHeight: 1.4 }}>{consigna || pie || "—"}</div>
               </div>
-              <NumCell aria={`Peso de la serie ${i + 1}`} placeholder={weightUnit}
+              <NumCell aria={`Peso de la ${dónde}`} placeholder={weightUnit}
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight)).replace(".", ",")}
                 onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v))))} />
-              <NumCell aria={`Repeticiones de la serie ${i + 1}`} placeholder="reps"
+              <NumCell aria={`Repeticiones de la ${dónde}`} placeholder="reps"
                 valor={st.reps == null ? "" : String(st.reps)}
                 onCommit={(v) => setVal(r.ei, r.si, "reps", v)} />
-              <NumCell aria={`RIR de la serie ${i + 1}`} placeholder="RIR"
+              <NumCell aria={`RIR de la ${dónde}`} placeholder="RIR"
                 valor={st.rir == null ? "" : String(st.rir)}
                 onCommit={(v) => setVal(r.ei, r.si, "rir", v)} />
               <button onClick={() => onToggleDone(r.ei, r.si)}
-                aria-label={st.done ? `Desmarcar la serie ${i + 1}` : `Marcar la serie ${i + 1} como hecha`}
+                aria-label={st.done ? `Desmarcar la ${dónde}` : `Marcar la ${dónde} como hecha`}
                 aria-pressed={st.done}
                 style={{ width: 36, height: 40, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                   background: st.done ? SES.acc : SES.campo, color: st.done ? SES.accInk : SES.faint,
@@ -5693,28 +5652,36 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         })}
       </div>
     );
-  })();
+  };
 
-  /* El descanso, siempre visible y siempre en el mismo sitio: corriendo
-     muestra la cuenta atrás, parado deja elegir la duración y arrancarlo
-     a mano. Antes solo aparecía al completar una serie, y no había forma
-     de cronometrar un descanso por tu cuenta. */
-  const bloqueDescanso = (() => {
-    const corriendo = !!timer;
-    const left = corriendo ? Math.max(0, Math.ceil((timer.endsAt - now) / 1000)) : restSel;
+  /* El descanso de ESE ejercicio, debajo de su tabla. Cada ejercicio tiene
+     el suyo (con la duración que trae del plan), y el que está corriendo
+     es el del ejercicio al que pertenece la serie que lo arrancó. */
+  const descansoDe = (block, bi) => {
+    const propio = (block.group ? exs[block.members[0]].rest : exs[block.ei].rest) || 90;
+    const corriendo = !!timer && block.rows.some((r) => r.ei === timer.exIdx);
+    const sel = restSel[bi] != null ? restSel[bi] : propio;
+    const left = corriendo ? Math.max(0, Math.ceil((timer.endsAt - now) / 1000)) : sel;
+    const nombre = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
+    const poner = (v) => setRestSel((m) => ({ ...m, [bi]: v }));
+    const arrancar = () => {
+      const r = block.rows[Math.max(0, block.rows.findIndex((x) => !exs[x.ei].sets[x.si].done))] || block.rows[0];
+      onStartRest(sel, r.ei, r.si);
+    };
     return (
       <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: R_CARD, padding: 13, display: "flex", flexDirection: "column", gap: 9 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
             minWidth: 104, padding: "12px 10px", borderRadius: R_TILE, background: SES.campo, border: `1px solid ${SES.line}` }}>
-            <span className="disp" style={{ fontSize: 30, fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums", color: SES.ink }}>{fmtClock(left)}</span>
+            <span className="disp" style={{ fontSize: 30, fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums", color: corriendo ? SES.acc : SES.ink }}>{fmtClock(left)}</span>
             <span className="mono" style={{ fontSize: 10, color: SES.faint, marginTop: 5, letterSpacing: ".08em" }}>descanso</span>
           </div>
           <div style={{ flex: 1, minWidth: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
             {[30, 45, 60, 90].map((sg) => {
-              const on = !corriendo && restSel === sg;
+              const on = !corriendo && sel === sg;
               return (
-                <button key={sg} className="mono" aria-label={`Descanso de ${sg} segundos`} onClick={() => { setRestSel(sg); if (corriendo) onDismissRest(); }}
+                <button key={sg} className="mono" aria-label={`Descanso de ${sg} segundos en ${nombre}`}
+                  onClick={() => { poner(sg); if (corriendo) onDismissRest(); }}
                   style={{ padding: "10px 0", borderRadius: 10, fontSize: 13, fontWeight: 700,
                     background: on ? SES.accSoft : SES.campo,
                     border: `1px solid ${on ? SES.accLine : SES.line}`, color: on ? SES.acc : SES.dim }}>{sg}&quot;</button>
@@ -5723,55 +5690,57 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           </div>
         </div>
         <div style={{ display: "flex", gap: 7 }}>
-          <button className="mono" aria-label="Quitar 15 segundos al descanso" onClick={() => (corriendo ? onAdjustRest(-15) : setRestSel((v) => Math.max(5, v - 15)))}
+          <button className="mono" aria-label={`Quitar 15 segundos al descanso de ${nombre}`}
+            onClick={() => (corriendo ? onAdjustRest(-15) : poner(Math.max(5, sel - 15)))}
             style={{ flex: 1, padding: "12px 0", borderRadius: R_TILE, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 14, fontWeight: 700 }}>−15</button>
-          <button className="mono" aria-label={corriendo ? "Detener el descanso" : "Iniciar el descanso"} onClick={() => (corriendo ? onDismissRest() : onStartRest && onStartRest(restSel))}
+          <button className="mono" aria-label={corriendo ? `Detener el descanso de ${nombre}` : `Iniciar el descanso de ${nombre}`}
+            onClick={() => (corriendo ? onDismissRest() : arrancar())}
             style={{ flex: 2, padding: "12px 0", borderRadius: R_TILE, background: SES.acc, color: SES.accInk, fontSize: 15, fontWeight: 700 }}>
             {corriendo ? "Detener" : "Iniciar"}
           </button>
-          <button className="mono" aria-label="Sumar 15 segundos al descanso" onClick={() => (corriendo ? onAdjustRest(15) : setRestSel((v) => v + 15))}
+          <button className="mono" aria-label={`Sumar 15 segundos al descanso de ${nombre}`}
+            onClick={() => (corriendo ? onAdjustRest(15) : poner(sel + 15))}
             style={{ flex: 1, padding: "12px 0", borderRadius: R_TILE, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 14, fontWeight: 700 }}>+15</button>
-          <button onClick={() => { onDismissRest(); setRestSel(descansoDelBloque); }} aria-label="Volver al descanso del ejercicio"
+          <button onClick={() => { if (corriendo) onDismissRest(); poner(propio); }} aria-label={`Volver al descanso que trae ${nombre}`}
             style={{ flexShrink: 0, width: 48, padding: "12px 0", borderRadius: R_TILE, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <RotateCcw size={16} />
           </button>
         </div>
       </div>
     );
-  })();
+  };
 
-  // Dos botones y nada más: Atrás y Siguiente. Antes eran tres —«Atrás»,
-  // «Completar serie» y un «Siguiente» que saltaba de EJERCICIO— y ahí
-  // estaba la trampa: uno toca «Siguiente» esperando ir a la serie que
-  // sigue y se saltaba las que faltaban del ejercicio, sin registrarlas.
-  // Ahora «Siguiente» hace exactamente lo que dice: guarda esta serie y
-  // pasa a lo que viene, sea la próxima serie o el próximo ejercicio.
-  // Saltar un ejercicio entero sigue siendo posible, pero desde el «···»,
-  // que es donde vive lo que no es el camino normal.
-  const pieNav = (centro, onCentro) => (
-    <div>
-      <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
-        <button onClick={irAtras} disabled={!puedeAtras}
-          aria-label={filaActual() > 0 ? "Volver a la serie anterior" : "Volver al ejercicio anterior"}
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 11px",
-            borderRadius: R_TILE, background: SES.campo, border: `1px solid ${SES.line}`, fontSize: 12.5, fontWeight: 700,
-            color: puedeAtras ? SES.ink : SES.faint, opacity: puedeAtras ? 1 : .5 }}>
-          <ChevronLeft size={15} strokeWidth={2.6} /> Atrás
-        </button>
-        <button onClick={onCentro} className="disp"
-          style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "15px 6px",
-            borderRadius: R_TILE, background: SES.acc, color: SES.accInk, fontSize: 15.5, fontWeight: 700, whiteSpace: "nowrap",
-            textTransform: "uppercase", letterSpacing: ".01em" }}>
-          {centro}
+  /* Lo que se consulta sin soltar la mancuerna, para ESE ejercicio. */
+  const accionesDe = (block, bi) => {
+    const primero = block.group ? block.members[0] : block.ei;
+    const nombre = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
+    const fila = block.rows[Math.max(0, block.rows.findIndex((r) => !exs[r.ei].sets[r.si].done))] || block.rows[0];
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+        {[["Ver la técnica", Video, () => setFicha(primero), false],
+          ["Historial del ejercicio", History, () => setHistEx(primero), false],
+          ["Indicaciones del coach", FileText, () => setCoachNotesOpen(bi),
+            (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes)],
+          ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
+          ["Más opciones de esta serie", MoreHorizontal, () => setRowMoreFor({ ei: fila.ei, si: fila.si }), false],
+        ].map(([lbl, Icon, onClick, marcado]) => (
+          <button key={lbl} onClick={onClick} aria-label={`${lbl} — ${nombre}${marcado ? " (hay indicaciones)" : ""}`} title={lbl}
+            style={{ width: 38, height: 38, borderRadius: 19, flexShrink: 0,
+              background: marcado ? SES.accSoft : SES.campo, color: marcado ? SES.acc : SES.dim,
+              border: `1px solid ${marcado ? SES.accLine : SES.line}`,
+              display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon size={16} strokeWidth={2.2} />
+          </button>
+        ))}
+        <button onClick={() => setCalcOpen(true)} className="disp" aria-label={`Calcular RM — ${nombre}`}
+          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7, padding: "10px 14px", borderRadius: 999,
+            background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 12.5, fontWeight: 700,
+            whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: ".04em" }}>
+          <Calculator size={15} color={SES.acc} /> Calcular RM
         </button>
       </div>
-      {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
-          y abajo, para que no haga falta preguntarlo. */}
-      <div className="mono" style={{ fontSize: 11, color: SES.faint, textAlign: "center", marginTop: 10, letterSpacing: ".05em" }}>
-        {pendingWrites ? "Guardando…" : storageOK ? "Guardado automático" : "Sin guardado — revisa el navegador"}
-      </div>
-    </div>
-  );
+    );
+  };
 
   // Se recalcula con `now` (el reloj de la sesión, que corre cada
   // segundo), así la duración y el ritmo van en vivo mientras la hoja
@@ -5790,60 +5759,20 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         max: Math.max(...hrSamples.current) }
     : null;
 
-  // Referencia de la vez anterior, en una línea: fecha + lo que se
-  // registró en la misma serie. Sale del historial del ejercicio activo;
-  // si nunca se hizo, no se muestra nada en vez de un "—" vacío.
-  const refLast = (() => {
-    if (blockDone || timer) return null;
-    const row = block.rows[activeRowIdx];
-    if (!row) return null;
-    const entry = lastEntryOf(exs[row.ei].id);
-    if (!entry) return null;
-    const st = (entry.sets || [])[row.si] || (entry.sets || [])[0];
-    if (!st) return null;
-    const bits = [fmtDate(entry.date), setSummary(st, weightUnit)];
-    if (st.rir !== "" && st.rir != null) bits.push(`RIR ${st.rir}`);
-    return bits.join(" · ");
-  })();
-  // El tipo de la serie que toca (calentamiento, de trabajo, top set,
-  // drop set…): cambia cómo se ejecuta, así que se nombra siempre y en
-  // el mismo sitio, antes de mirar los números.
-
-
   return (
     <div style={{ minHeight: "100vh", minHeight: "100dvh", background: SES.bg, color: SES.ink, position: "relative",
       padding: `calc(10px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom))`,
-      display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 12 }}>
-      {/* Sin título "Entrenar" con la sesión abierta: la franja de abajo
-          ya dice qué se está entrenando, y esos 44 px son los que hacían
-          falta para que todo quepa sin desplazarse. */}
+      display: "flex", flexDirection: "column", gap: 12 }}>
 
       {/* La sesión vive dentro del ancho máximo de la app, así que sin esto
           el fondo claro asoma a los lados. Pinta el viewport entero por
           detrás, sin tocar el flujo. */}
       <div aria-hidden style={{ position: "fixed", inset: 0, background: SES.bg, zIndex: -1 }} />
 
-      {/* Franja de sesión: reemplaza el antiguo encabezado de pantalla
-          completa. Siempre visible arriba de la pestaña, con la barra de
-          navegación de la app debajo — nunca tapa nada. */}
+      {/* Cabecera: cuánto llevas, cuánto falta y la salida. Ya no dice
+          "ejercicio 2 de 7" porque no hay una página actual: están todos
+          abajo, en orden. */}
       <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 7 }}>
-        <span className="mono" style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-          padding: "7px 11px", borderRadius: 999, background: SES.campo, border: `1px solid ${SES.line}` }}>
-          <span style={{ fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint }}>Ejercicio</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: SES.ink, fontVariantNumeric: "tabular-nums" }}>
-            {blockIdx + 1}/{totalBlocks}
-          </span>
-        </span>
-        <span className="mono" style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-          padding: "7px 11px", borderRadius: 999, background: SES.campo, border: `1px solid ${SES.line}` }}>
-          <span style={{ fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint }}>Serie</span>
-          {/* La `key` hace que el número se vuelva a montar al cambiar de
-              serie y repita el pulso: si no, cambiaba un dígito en una
-              esquina y no lo veía nadie. */}
-          <span key={`s${paso.n}`} className="acuse" style={{ fontSize: 13, fontWeight: 700, color: SES.acc, fontVariantNumeric: "tabular-nums" }}>
-            {Math.min(activeRowIdx === -1 ? block.rows.length : activeRowIdx + 1, block.rows.length)}/{block.rows.length}
-          </span>
-        </span>
         <span className="mono" style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
           padding: "7px 12px", borderRadius: 999, background: SES.campo, border: `1px solid ${SES.line}` }}>
           <Timer size={13} color={SES.faint} />
@@ -5853,6 +5782,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               <HeartPulse size={12} /> {hr.bpm}
             </span>
           )}
+        </span>
+        <span className="mono" style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+          padding: "7px 11px", borderRadius: 999, background: SES.campo, border: `1px solid ${SES.line}` }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: SES.acc, fontVariantNumeric: "tabular-nums" }}>{doneSets}/{totalSets}</span>
+          <span style={{ fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint }}>series</span>
         </span>
         {/* La salida de la sesión, arriba a la derecha y siempre visible
             —también mientras corre el descanso—. No decide por ti: abre
@@ -5866,64 +5800,72 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       </div>
 
       <div>
-        <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${blockTitle} — ver la rutina completa`}
+        <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${active.dayName} — ver la rutina completa`}
           style={{ display: "flex", alignItems: "flex-start", gap: 6, textAlign: "left", width: "100%" }}>
           <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint, minWidth: 0, flex: 1,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</span>
           {onBrowseRoutine && <ChevronRight size={16} color={SES.faint} strokeWidth={2.6} style={{ flexShrink: 0 }} />}
         </button>
-        {/* Por dónde va la sesión entera, un tramo por ejercicio. */}
-        <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
-          {blocks.map((_, i) => <i key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i < blockIdx ? SES.acc : i === blockIdx ? SES.ink : SES.line }} />)}
+        {/* Cuánto de la sesión llevas hecho, en una barra. Antes era un
+            tramo por ejercicio marcando en cuál estabas; ya no hace falta
+            porque están todos a la vista. */}
+        <div style={{ height: 3, borderRadius: 2, background: SES.line, marginTop: 8, overflow: "hidden" }}>
+          <i style={{ display: "block", height: "100%", borderRadius: 2, background: SES.acc,
+            width: `${totalSets ? Math.round((doneSets / totalSets) * 100) : 0}%`,
+            transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
         </div>
-        {/* Lo que hiciste la última vez en este mismo ejercicio, en una
-            línea. Es la referencia con la que uno decide cuánto poner
-            hoy, y estaba escondida detrás del botón "Historial". */}
-        {refLast && (
-          <div style={{ fontSize: 12.5, color: SES.faint, marginTop: 8, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{refLast}</div>
-        )}
-        {!block.group && parseTempo(exs[block.ei].notes) && (
-          <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
-        )}
       </div>
 
-      {/* El ejercicio completo, el descanso y el pie. Ya no hay tres
-          estados excluyentes (registrar / descansar / ejercicio hecho):
-          la tabla siempre está, el descanso vive debajo, y el pie dice
-          qué falta. Se ve todo lo que toca sin tener que avanzar. */}
-      <div key={paso.n} className={paso.clase} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {tablaEjercicio}
-        {bloqueDescanso}
-        {/* Lo que se consulta sin soltar la mancuerna. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          {[["Ver la técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei), false],
-            ["Historial del ejercicio", History, () => setHistEx(block.group ? block.members[0] : block.ei), false],
-            ["Indicaciones del coach", FileText, () => setCoachNotesOpen(true),
-              (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes)],
-            ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
-            ["Más opciones de esta serie", MoreHorizontal, () => setRowMoreFor({ ei: block.rows[Math.max(0, activeRowIdx)].ei, si: block.rows[Math.max(0, activeRowIdx)].si }), false],
-          ].map(([lbl, Icon, onClick, marcado]) => (
-            <button key={lbl} onClick={onClick} aria-label={marcado ? `${lbl} — hay indicaciones` : lbl} title={lbl}
-              style={{ width: 38, height: 38, borderRadius: 19, flexShrink: 0,
-                background: marcado ? SES.accSoft : SES.campo, color: marcado ? SES.acc : SES.dim,
-                border: `1px solid ${marcado ? SES.accLine : SES.line}`,
-                display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Icon size={16} strokeWidth={2.2} />
-            </button>
-          ))}
-          <button onClick={() => setCalcOpen(true)} className="disp"
-            style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7, padding: "10px 14px", borderRadius: 999,
-              background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 12.5, fontWeight: 700,
-              whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: ".04em" }}>
-            <Calculator size={15} color={SES.acc} /> Calcular RM
-          </button>
+      {/* La sesión entera, ejercicio por ejercicio, hacia abajo. Cada uno
+          con su tabla de series, su descanso y sus accesos — nada de
+          «Siguiente»: se rellena lo que toca y se sigue bajando. */}
+      {blocks.map((b, bi) => (
+        <div key={bi} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {tablaDe(b, bi)}
+          {descansoDe(b, bi)}
+          {accionesDe(b, bi)}
         </div>
-        {blockDone
-          ? pieNav(blockIdx < blocks.length - 1 ? "Siguiente ejercicio" : "Finalizar sesión",
-              () => (blockIdx < blocks.length - 1 ? goBlock(1) : onFinish()))
-          : pieNav(activeRowIdx === block.rows.length - 1 ? "Siguiente ejercicio" : "Siguiente serie",
-              () => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si))}
+      ))}
+
+      {/* El final de la sesión está donde termina la sesión: abajo del
+          todo, después del último ejercicio. */}
+      <div style={{ marginTop: 4 }}>
+        <button onClick={() => setSalida(true)} className="disp"
+          style={{ width: "100%", padding: "16px 6px", borderRadius: R_TILE,
+            background: doneSets ? SES.acc : SES.campo, color: doneSets ? SES.accInk : SES.dim,
+            border: `1px solid ${doneSets ? SES.acc : SES.line}`,
+            fontSize: 15.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".01em" }}>
+          Terminar sesión
+        </button>
+        {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
+            y abajo, para que no haga falta preguntarlo. */}
+        <div className="mono" style={{ fontSize: 11, color: SES.faint, textAlign: "center", marginTop: 10, letterSpacing: ".05em" }}>
+          {pendingWrites ? "Guardando…" : storageOK ? "Guardado automático" : "Sin guardado — revisa el navegador"}
+        </div>
       </div>
+
+      {/* Con la sesión entera desplegada, el descanso que arrancaste se va
+          de pantalla en cuanto bajas. Esta barra lo trae contigo mientras
+          corre, y desaparece sola al terminar. */}
+      {timer && (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 40,
+          padding: `10px 16px calc(10px + env(safe-area-inset-bottom))`,
+          background: SES.card, borderTop: `1px solid ${SES.line}`,
+          display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="disp" style={{ fontSize: 24, fontWeight: 700, color: SES.acc, fontVariantNumeric: "tabular-nums", minWidth: 66 }}>
+            {fmtClock(Math.max(0, Math.ceil((timer.endsAt - now) / 1000)))}
+          </span>
+          <span className="mono" style={{ fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint, flex: 1, minWidth: 0 }}>descanso</span>
+          <button className="mono" aria-label="Quitar 15 segundos al descanso en curso" onClick={() => onAdjustRest(-15)}
+            style={{ padding: "9px 12px", borderRadius: 10, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 13, fontWeight: 700 }}>−15</button>
+          <button className="mono" aria-label="Sumar 15 segundos al descanso en curso" onClick={() => onAdjustRest(15)}
+            style={{ padding: "9px 12px", borderRadius: 10, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 13, fontWeight: 700 }}>+15</button>
+          <button className="mono" aria-label="Detener el descanso en curso" onClick={onDismissRest}
+            style={{ padding: "9px 14px", borderRadius: 10, background: SES.acc, color: SES.accInk, fontSize: 13, fontWeight: 700 }}>Detener</button>
+        </div>
+      )}
+      {/* Que la barra del descanso no tape el final de la lista. */}
+      {timer && <div aria-hidden style={{ height: 56 }} />}
 
       {/* Salir de la sesión: hoja de 4 salidas (no un solo diálogo de
           confirmación) — la "✕" y "Terminar" abren la misma hoja, tal
@@ -6095,17 +6037,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             <UnitToggle />
           </div>
           <div style={{ height: 1, background: P.line, margin: "2px 0" }} />
-          {/* Saltarse un ejercicio entero deja series sin registrar, así que
-              ya no vive en el pie —donde se tocaba sin querer creyendo que
-              iba a la serie siguiente— sino acá, dicho con todas las letras. */}
-          <button data-keep disabled={blockIdx >= blocks.length - 1}
-            onClick={() => { setRowMoreFor(null); goBlock(1); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
-              background: P.s3, border: `1px solid ${P.line}`, fontSize: 15, fontWeight: 600,
-              color: blockIdx >= blocks.length - 1 ? P.faint2 : P.text, opacity: blockIdx >= blocks.length - 1 ? .55 : 1 }}>
-            <ChevronRight size={18} /> Saltar al siguiente ejercicio
-          </button>
-          <div style={{ height: 1, background: P.line, margin: "2px 0" }} />
           <button data-keep onClick={() => { setRowMoreFor(null); setExiting(true); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
               background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
@@ -6134,7 +6065,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           )}
         </div>
       </Sheet>
-      <Sheet open={coachNotesOpen} onClose={() => setCoachNotesOpen(false)} title="Indicaciones del coach">
+      <Sheet open={coachNotesOpen != null} onClose={() => setCoachNotesOpen(null)} title="Indicaciones del coach">
+        {(() => {
+        const block = blocks[Math.min(coachNotesOpen || 0, blocks.length - 1)];
+        return (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {(block.group ? block.members : [block.ei]).filter((mi) => !!exs[mi].notes).map((mi) => {
             const exx = exs[mi];
@@ -6152,6 +6086,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               body="Cuando tu coach deje una nota en este ejercicio la vas a ver acá. Las indicaciones generales del plan están en Mensajes." />
           )}
         </div>
+        );
+        })()}
       </Sheet>
 
       <Sheet open={calcOpen} onClose={() => setCalcOpen(false)} title="Calculadoras" tall>
@@ -6242,7 +6178,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Discos</div>
                 <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>Discos por barra</div>
-                <PlateCalcBody initial={(() => { if (workW != null) return workW; const ar = block.rows[activeRowIdx]; const w = ar ? num(exs[ar.ei].sets[ar.si].weight) : 0; return w > 0 ? w : null; })()} />
+                <PlateCalcBody initial={(() => {
+                  if (workW != null) return workW;
+                  // Sin un ejercicio "actual" (están todos en pantalla), se
+                  // parte del último peso que se registró en la sesión.
+                  let w = 0;
+                  exs.forEach((ex) => ex.sets.forEach((st) => { const n = num(st.weight); if (n > 0) w = n; }));
+                  return w > 0 ? w : null;
+                })()} />
               </Card>
               <div style={{ fontSize: 12, color: P.faint2, lineHeight: 1.5 }}>e1RM es una estimación basada en peso, repeticiones y RIR (fórmula de Epley ajustada). No reemplaza un test real.</div>
             </div>
@@ -6478,7 +6421,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g); }} />
       <FocusModeMono active={active} history={history} plan={plan} patch={patch} onOpenDevices={onOpenDevices} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
         timer={timer} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
-        onStartRest={(seg) => { setTimer({ exIdx: 0, setIdx: 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
+        onStartRest={(seg, ei, si) => { setTimer({ exIdx: ei || 0, setIdx: si || 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
         onBrowseRoutine={() => setBrowsing(true)} />
       {summarySheet}
