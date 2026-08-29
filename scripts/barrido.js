@@ -142,30 +142,32 @@ const seed = (theme) => {
     // descartar, así que se recorre y se descarta para dejar la app como
     // estaba antes de seguir con el resto del barrido.
     {
-      const ini = page.getByRole('button', { name: /Iniciar entrenamiento|Continuar entrenamiento/i }).first();
-      if (!(await ini.count())) {
-        const rut = page.locator('text=/^Rutina A$/i').first();
-        if (await rut.count()) {
-          await rut.click(); await page.waitForTimeout(500);
-          await page.locator('text="Empuje"').first().click(); await page.waitForTimeout(600);
+      // Desde v198 no hay pantalla intermedia: tocar el día pregunta el
+      // gimnasio y arranca. Con sesión abierta, "Continuar entrenamiento".
+      const cont = page.getByRole('button', { name: /Continuar entrenamiento/i }).first();
+      if (await cont.count()) { await cont.click(); await page.waitForTimeout(900); }
+      else {
+        let dia = page.locator('text="Empuje"').first();
+        if (!(await dia.count())) {
+          const rut = page.locator('button', { hasText: 'Rutina A' }).first();
+          if (await rut.count()) { await rut.click(); await page.waitForTimeout(600); }
+          dia = page.locator('text="Empuje"').first();
+        }
+        if (await dia.count()) {
+          await dia.click(); await page.waitForTimeout(900);
+          const gym = page.getByRole('button', { name: /Sportlife Pie Andino/ }).first();
+          if (await gym.count()) { await check('elegir gimnasio'); await gym.click(); await page.waitForTimeout(1200); }
         }
       }
-      const arr = page.getByRole('button', { name: /Iniciar entrenamiento|Continuar entrenamiento/i }).first();
-      if (await arr.count()) {
-        await arr.click(); await page.waitForTimeout(900);
-        // Desde v197 la sesión pregunta primero en qué gimnasio se entrena.
-        const gym = page.getByRole('button', { name: /Sportlife Pie Andino/ }).first();
-        if (await gym.count()) { await check('elegir gimnasio'); await gym.click(); await page.waitForTimeout(1100); }
+      if (await page.getByRole('button', { name: /^Salir de la sesión$/ }).count()) {
         await check('sesión en curso');
         const x = page.getByRole('button', { name: /^Salir de la sesión$/ }).first();
-        if (await x.count()) {
-          await x.click(); await page.waitForTimeout(650); await check('hoja Salir de la sesión');
-          const d = page.getByRole('button', { name: /Descartar la sesión/ }).first();
-          if (await d.count()) {
-            await d.click(); await page.waitForTimeout(600); await check('confirmar descartar sesión');
-            const ok = page.getByRole('button', { name: /^Descartar$/ }).first();
-            if (await ok.count()) { await ok.click(); await page.waitForTimeout(800); }
-          }
+        await x.click(); await page.waitForTimeout(650); await check('hoja Salir de la sesión');
+        const d = page.getByRole('button', { name: /Descartar la sesión/ }).first();
+        if (await d.count()) {
+          await d.click(); await page.waitForTimeout(600); await check('confirmar descartar sesión');
+          const ok = page.getByRole('button', { name: /^Descartar$/ }).first();
+          if (await ok.count()) { await ok.click(); await page.waitForTimeout(800); }
         }
       } else console.log(`  ? [${theme}] no pude iniciar una sesión para probar la salida`);
     }
