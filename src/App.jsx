@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v192";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v196";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1843,6 +1843,44 @@ function beep() {
     });
   } catch {}
   try { navigator.vibrate && navigator.vibrate([220, 90, 220]); } catch {}
+}
+
+/* ============================================================
+   Fin del descanso: sin sonido ni vibración
+   ------------------------------------------------------------
+   El aviso sonoro y la vibración al terminar el descanso se quitaron a
+   pedido del coach: entrenando molestan más de lo que ayudan. El único
+   aviso es visual —el cronómetro en pantalla—, y por eso la sesión pide
+   `wakeLock`: si la pantalla se apagara, no quedaría ningún aviso.
+
+   Nota para quien venga a "arreglar" la vibración: `navigator.vibrate`
+   no existe en Safari de iPhone, así que desde una web no hay forma de
+   vibrar ahí de todos modos. En Android sí, pero acá no se usa.
+
+   `beep()` sigue existiendo, pero solo para el Temporizador y el
+   intervalos de las herramientas, donde el pitido ES la función.
+   ============================================================ */
+
+// Mantiene la pantalla encendida mientras dura la sesión. Es lo único
+// que evita de verdad el caso "no me avisó porque estaba bloqueado": si
+// la pantalla no se apaga, el navegador no congela nada. El permiso se
+// pierde al pasar a segundo plano, así que se vuelve a pedir al volver.
+function usePantallaDespierta(activo) {
+  useEffect(() => {
+    if (!activo || !navigator.wakeLock) return;
+    let lock = null, vivo = true;
+    const pedir = async () => {
+      try { lock = await navigator.wakeLock.request("screen"); } catch {}
+    };
+    const alVolver = () => { if (vivo && document.visibilityState === "visible") pedir(); };
+    pedir();
+    document.addEventListener("visibilitychange", alVolver);
+    return () => {
+      vivo = false;
+      document.removeEventListener("visibilitychange", alVolver);
+      try { lock && lock.release(); } catch {}
+    };
+  }, [activo]);
 }
 
 function compressImage(file, maxDim = 1280, quality = 0.72) {
@@ -4710,11 +4748,7 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
 const InlineRest = ({ timer, onAdjust, onDismiss }) => {
   const [, force] = useState(0);
   useEffect(() => { const iv = setInterval(() => force((x) => x + 1), 300); return () => clearInterval(iv); }, []);
-  const firedRef = useRef(false);
   const left = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
-  useEffect(() => {
-    if (left <= 0 && !firedRef.current) { firedRef.current = true; beep(); }
-  }, [left]);
   const frac = timer.total ? Math.min(1, Math.max(0, 1 - left / timer.total)) : 0;
   const over = left <= 0;
   const col = over ? P.green : P.ember;
@@ -5189,12 +5223,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
 
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
   useEffect(() => () => clearTimeout(cmtTimer.current), []);
+  // Mientras dure la sesión, la pantalla no se apaga sola.
+  usePantallaDespierta(true);
+
   useEffect(() => {
     if (!timer) { restFiredRef.current = false; return; }
     const left = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
     if (left > 0 || restFiredRef.current) return;
     restFiredRef.current = true;
-    beep();
     // Se avanza solo. Si el bloque quedó completo, además pasa al
     // ejercicio siguiente; si era el último, se queda en el panel de
     // "Ejercicio completo", que ya ofrece terminar la sesión.
@@ -5622,9 +5658,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     );
   })();
 
-  // Un solo pie, siempre en el mismo sitio: Atrás · lo que toca hacer ·
-  // Siguiente. Solo cambia el botón del medio, así que terminar un
-  // ejercicio no hace desaparecer la forma de volver atrás.
+  // Dos botones y nada más: Atrás y Siguiente. Antes eran tres —«Atrás»,
+  // «Completar serie» y un «Siguiente» que saltaba de EJERCICIO— y ahí
+  // estaba la trampa: uno toca «Siguiente» esperando ir a la serie que
+  // sigue y se saltaba las que faltaban del ejercicio, sin registrarlas.
+  // Ahora «Siguiente» hace exactamente lo que dice: guarda esta serie y
+  // pasa a lo que viene, sea la próxima serie o el próximo ejercicio.
+  // Saltar un ejercicio entero sigue siendo posible, pero desde el «···»,
+  // que es donde vive lo que no es el camino normal.
   const pieNav = (centro, onCentro) => (
     <div>
       <div style={{ display: "flex", alignItems: "stretch", gap: 8 }}>
@@ -5639,12 +5680,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "14px 6px",
             borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 15.5, fontWeight: 600, whiteSpace: "nowrap" }}>
           {centro}
-        </button>
-        <button onClick={() => goBlock(1)} disabled={blockIdx >= blocks.length - 1} aria-label="Ejercicio siguiente"
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexShrink: 0, padding: "0 9px",
-            borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, fontSize: 12.5, fontWeight: 600,
-            color: blockIdx >= blocks.length - 1 ? P.chevron : P.text, opacity: blockIdx >= blocks.length - 1 ? .55 : 1 }}>
-          Siguiente <ChevronRight size={15} strokeWidth={2.6} />
         </button>
       </div>
       {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
@@ -5804,7 +5839,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             )}
             {renderActiveSet(block.rows[activeRowIdx])}
           </Card>
-          {pieNav("Completar serie", () => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si))}
+          {/* La última serie del ejercicio lo dice, para que no sorprenda
+              que el toque siguiente cambie de ejercicio. */}
+          {pieNav(activeRowIdx === block.rows.length - 1 ? "Siguiente ejercicio" : "Siguiente serie",
+            () => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si))}
         </div>
       )}
 
@@ -5978,6 +6016,17 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             <span style={{ fontSize: 14.5, color: P.dim, fontWeight: 600 }}>Unidad de peso</span>
             <UnitToggle />
           </div>
+          <div style={{ height: 1, background: P.line, margin: "2px 0" }} />
+          {/* Saltarse un ejercicio entero deja series sin registrar, así que
+              ya no vive en el pie —donde se tocaba sin querer creyendo que
+              iba a la serie siguiente— sino acá, dicho con todas las letras. */}
+          <button data-keep disabled={blockIdx >= blocks.length - 1}
+            onClick={() => { setRowMoreFor(null); goBlock(1); }}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
+              background: P.s3, border: `1px solid ${P.line}`, fontSize: 15, fontWeight: 600,
+              color: blockIdx >= blocks.length - 1 ? P.faint2 : P.text, opacity: blockIdx >= blocks.length - 1 ? .55 : 1 }}>
+            <ChevronRight size={18} /> Saltar al siguiente ejercicio
+          </button>
           <div style={{ height: 1, background: P.line, margin: "2px 0" }} />
           <button data-keep onClick={() => { setRowMoreFor(null); setExiting(true); }}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
@@ -9549,6 +9598,28 @@ const LibraryPanel = ({ plan, history, library, onSaveLibrary, onInfo, toast, on
 // reutiliza para otro alumno.
 const DRAFTS_KEY = "forja-drafts";
 const draftPlanKey = (id) => `forja-draft-plan:${id}`;
+
+/* Las tres rutinas del plan, además, como borradores reutilizables.
+   Vivían solo dentro del plan del alumno: para reusar una con otro
+   atleta había que copiarla día por día. Como borrador se abren en el
+   mismo editor y se mandan a quien sea con «Enviar».
+
+   Se entregan UNA sola vez y queda anotado en el índice (`seedsDone`):
+   sin ese registro, un borrador que el coach borra a propósito volvería
+   a aparecer en cada arranque — «borrado» y «nunca entregado» se ven
+   igual. Misma lección que la siembra de días de la Rutina C. */
+const DRAFT_SEEDS = [
+  { key: "A", nombre: "Rutina A", dias: () => seedPlan().days.map((d) => ({ ...d, routine: ROUTINE_A })),
+    notas: () => seedPlan().instructions || [] },
+  { key: "B", nombre: "Rutina B", dias: routineBDays, notas: () => [] },
+  { key: "C", nombre: ROUTINE_C_NAME, dias: routineCDays, notas: () => [{ id: uid(), ...ROUTINE_C_INTRO }] },
+];
+const planDeBorrador = (semilla) => {
+  const p = emptyPlan();
+  p.days = semilla.dias();
+  p.instructions = semilla.notas();
+  return p;
+};
 const planStats = (p) => {
   const days = (p.days || []).length;
   const exs = (p.days || []).reduce((a, d) => a + (d.exs || []).length, 0);
@@ -9562,15 +9633,42 @@ const DraftsPanel = ({ toast, onInfo, roster }) => {
   const [confirmDel, setConfirmDel] = useState(null);
   const [sendStep, setSendStep] = useState(null); // {step:'group'} | {step:'student', group}
   const saveTimer = useRef(null);
+  // Qué borradores de fábrica ya se entregaron (ver DRAFT_SEEDS).
+  const seedsRef = useRef([]);
 
   useEffect(() => {
     (async () => {
       const idx = await sGet(DRAFTS_KEY);
-      setDrafts(idx && Array.isArray(idx.drafts) ? idx.drafts : []);
+      const lista = idx && Array.isArray(idx.drafts) ? idx.drafts : [];
+      // Lo ya entregado alguna vez. Los borradores creados antes de que
+      // existiera el registro se reconocen por su `seedKey`, para no
+      // duplicarlos en el primer arranque con esta versión.
+      const hechas = new Set([
+        ...((idx && idx.seedsDone) || []),
+        ...lista.map((d) => d.seedKey).filter(Boolean),
+      ]);
+      seedsRef.current = [...hechas];
+      const faltan = DRAFT_SEEDS.filter((s) => !hechas.has(s.key));
+      if (!faltan.length) { setDrafts(lista); return; }
+      const nuevos = [];
+      for (const s of faltan) {
+        const id = uid();
+        const p = planDeBorrador(s);
+        await sSet(draftPlanKey(id), p);
+        const now = todayISO();
+        nuevos.push({ id, seedKey: s.key, name: s.nombre, createdAt: now, updatedAt: now, ...planStats(p) });
+        hechas.add(s.key);
+      }
+      const next = [...lista, ...nuevos];
+      setDrafts(next);
+      seedsRef.current = [...hechas];
+      sSet(DRAFTS_KEY, { v: 1, drafts: next, seedsDone: seedsRef.current });
     })();
   }, []);
 
-  const saveIndex = (list) => { setDrafts(list); sSet(DRAFTS_KEY, { v: 1, drafts: list }); };
+  // Cada escritura del índice arrastra el registro de lo entregado: si se
+  // perdiera, los borradores de fábrica volverían a sembrarse.
+  const saveIndex = (list) => { setDrafts(list); sSet(DRAFTS_KEY, { v: 1, drafts: list, seedsDone: seedsRef.current }); };
 
   const createDraft = async () => {
     const name = (typeof window !== "undefined" && window.prompt ? window.prompt("Nombre del borrador:", `Borrador ${(drafts || []).length + 1}`) : "") || "";
@@ -9600,7 +9698,7 @@ const DraftsPanel = ({ toast, onInfo, roster }) => {
       sSet(draftPlanKey(openId), p);
       setDrafts((list) => {
         const next = (list || []).map((d) => (d.id === openId ? { ...d, updatedAt: todayISO(), ...planStats(p) } : d));
-        sSet(DRAFTS_KEY, { v: 1, drafts: next });
+        sSet(DRAFTS_KEY, { v: 1, drafts: next, seedsDone: seedsRef.current });
         return next;
       });
     }, 500);
@@ -16417,7 +16515,13 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
         ) : (
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: "-.02em" }}>Comparar</h2>
         )}
-        <button onClick={onClose} aria-label="Cerrar"
+        {/* Dentro del detalle de un grupo, la ✕ cierra EL DETALLE, no la
+            comparación entera: mirar los ejercicios de un músculo y volver
+            es el gesto normal, y salirse hasta la pantalla principal
+            obligaba a rehacer todo el camino. Mismo comportamiento que la
+            tecla Escape, que ya cerraba de a una capa. */}
+        <button onClick={() => (detalle ? setDetalle(null) : onClose())}
+          aria-label={detalle ? "Volver a la comparación" : "Cerrar"}
           style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30,
             borderRadius: 15, background: P.s3, color: P.faint, flexShrink: 0 }}>
           <X size={17} strokeWidth={2.5} />
