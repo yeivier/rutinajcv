@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v200";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v201";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -140,6 +140,31 @@ let PLATE_FG = LIGHT_THEME.plateFg;
 let PLATE_DIM = LIGHT_THEME.plateDim;
 let PLATE_BORDER = LIGHT_THEME.plateBorder;
 
+// Paleta de la SESIÓN (entrenar): investigada, no inventada — Strong,
+// Setgraph y el resto de la categoría ganan por tocar-y-escribir sin
+// sorpresas, así que la sesión ya NO tiene un look propio fijo (antes era
+// siempre oscura, a propósito, "para que se vea igual siempre"). Sigue el
+// mismo claro/oscuro que el resto de FORJA — un alumno entrenando de
+// noche quiere lo oscuro, no una pantalla que decide por él — con UN solo
+// acento real (verde) en vez del monocromo del resto de la app: es la
+// única pantalla donde "tocado/hecho" necesita distinguirse de un vistazo,
+// sin leer.
+const teColors = (isLight) => (isLight ? {
+  bg: "#FAFAF8", card: "#FFFFFF", campo: "#F4F4F2", line: "#E4E2DC",
+  ink: "#111214", dim: "#5C6067", faint: "#8B8F96",
+  acc: "#0F8A4B", accInk: "#FFFFFF",
+  accLine: "rgba(15,138,75,.30)", accSoft: "#E8F5EC",
+} : {
+  bg: "#0F1012", card: "#191B1E", campo: "#1E2023", line: "#2B2E33",
+  ink: "#F2F2F0", dim: "#AFB4BB", faint: "#7A7F86",
+  acc: "#2FCB78", accInk: "#062114",
+  accLine: "rgba(47,203,120,.34)", accSoft: "rgba(47,203,120,.12)",
+});
+// Objeto MUTABLE, mismo patrón que `P`: `applyTheme()` le pisa las
+// propiedades en cada cambio de tema, y todo lo que lee `SES.xxx` en cada
+// render (nunca lo guarda en un closure) se actualiza solo.
+const SES = teColors(true);
+
 // THEME_MODE es la PREFERENCIA ("light" | "dark" | "auto"); la paleta que
 // de verdad se aplica ("light" | "dark") se resuelve aparte cuando la
 // preferencia es "auto", siguiendo prefers-color-scheme del sistema. Antes
@@ -153,6 +178,7 @@ function applyTheme(mode) {
   const resolved = resolveTheme(mode);
   const t = resolved === "light" ? LIGHT_THEME : DARK_THEME;
   Object.assign(P, t.P);
+  Object.assign(SES, teColors(resolved === "light"));
   PLATE_GRAD = t.plateGrad; PLATE_FG = t.plateFg; PLATE_DIM = t.plateDim; PLATE_BORDER = t.plateBorder;
   THEME_MODE = mode;
   try { window.localStorage.setItem("forja-theme", mode); } catch {}
@@ -5183,13 +5209,21 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    que deshacer el camino entero.
 
    Se mantiene sin tocar (mismos hooks, mismo dueño del estado): el
-   temporizador de descanso (`timer`/`onAdjustRest`/`onDismissRest`/
-   `onStartRest`, propiedad de TrainTab, no de acá), `patch`/`patchSet`/
-   `patchEx`, deshacer/rehacer, el comentario por serie, las hojas de
-   Ficha/Historial/Calculadoras, y la hoja de salida con sus cuatro
-   salidas. El descanso pasó de un valor único a uno por ejercicio
-   (`restSel` es ahora un mapa), porque ahora hay varios en pantalla.
-   ============================================================ */
+   temporizador de descanso (`timer`/`onAdjustRest`/`onDismissRest`,
+   propiedad de TrainTab, no de acá — arranca solo al marcar una serie),
+   `patch`/`patchSet`/`patchEx`, deshacer/rehacer, el comentario por
+   serie, las hojas de Ficha/Historial/Calculadoras, y la hoja de salida
+   con sus cuatro salidas.
+
+   El estilo (v201): investigado, no inventado — Strong y Setgraph ganan
+   por tocar-y-escribir sin sorpresas, no por un color o un gesto nuevo.
+   `SES` (la paleta de acá abajo) sigue el claro/oscuro del resto de la
+   app en vez de ser siempre oscura, y usa un solo acento (verde) SOLO
+   para lo ya hecho — nada de escalas de color que decodificar. La
+   tarjeta de descanso con presets manuales se sacó: el descanso ya
+   arranca solo al marcar la serie (`toggleDone` en TrainTab), y mientras
+   corre lo muestra la barra fija de abajo — tener las dos cosas a la vez
+   era ruido, no ayuda. */
 
 /* Dónde se entrena hoy. Se pregunta UNA vez, al empezar la sesión, y
    queda con ella: después el historial se puede leer por sede. El último
@@ -5282,13 +5316,9 @@ const SalidaRow = ({ icon: Icon, title, body, danger, onClick }) => (
   </button>
 );
 
-const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat }) => {
+const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
   const [weightUnit] = useWeightUnit();
   const pendingWrites = usePendingWrites();
-  // Duración elegida para el próximo descanso, POR EJERCICIO: cada uno
-  // arranca en la que trae del plan y se puede cambiar sin tocar la rutina.
-  // Antes era un solo valor porque solo había un ejercicio en pantalla.
-  const [restSel, setRestSel] = useState({});
   const [now, setNow] = useState(Date.now());
   const [ficha, setFicha] = useState(null);
   const [viewImg, setViewImg] = useState(null);
@@ -5555,50 +5585,45 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     const tempo = !block.group ? parseTempo(exs[block.ei].notes) : null;
 
     return (
-      <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: R_CARD, padding: "14px 14px 4px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 11 }}>
-          <span className="disp" style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: SES.accSoft, border: `1px solid ${SES.accLine}`, fontSize: 17, fontWeight: 700, color: SES.acc }}>{bi + 1}</span>
+      <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: 12, padding: "13px 13px 4px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+          <span style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            background: SES.campo, fontSize: 12.5, fontWeight: 700, color: SES.dim, marginTop: 1 }}>{bi + 1}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="disp" style={{ fontSize: 19, fontWeight: 700, color: SES.ink, lineHeight: 1.15, textTransform: "uppercase", letterSpacing: "-.01em" }}>{titulo}</div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 9 }}>
-              <span className="mono" style={{ fontSize: 12, color: SES.dim, padding: "5px 11px", borderRadius: 9, background: SES.campo, border: `1px solid ${SES.line}` }}>Objetivo {objetivo}</span>
-              {descanso ? <span className="mono" style={{ fontSize: 12, color: SES.acc, padding: "5px 11px", borderRadius: 9, background: SES.accSoft, border: `1px solid ${SES.accLine}` }}>Descanso {descanso}&quot;</span> : null}
-              {block.group && <span className="mono" style={{ fontSize: 12, color: SES.dim, padding: "5px 11px", borderRadius: 9, background: SES.campo, border: `1px solid ${SES.line}` }}>{GROUP_KINDS[block.kind].label} · {block.rounds} rondas</span>}
+            <div style={{ fontSize: 15.5, fontWeight: 700, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.01em" }}>{titulo}</div>
+            <div className="mono" style={{ fontSize: 11, color: SES.faint, marginTop: 3 }}>
+              Objetivo {objetivo}{descanso ? ` · descanso ${descanso} s` : ""}
+              {block.group ? ` · ${GROUP_KINDS[block.kind].label.toLowerCase()} · ${block.rounds} rondas` : ""}
             </div>
           </div>
           <button onClick={() => setFicha(block.group ? block.members[0] : block.ei)} aria-label={`Ver la técnica de ${titulo}`}
-            style={{ width: 38, height: 38, borderRadius: 19, flexShrink: 0, background: "transparent", border: `1px solid ${SES.line}`,
-              color: SES.ink, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Play size={16} />
+            style={{ width: 26, height: 26, borderRadius: 13, flexShrink: 0, background: SES.campo, border: "none",
+              color: SES.dim, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Play size={11} fill="currentColor" />
           </button>
         </div>
 
         {indicaciones && (
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 9, marginTop: 13, padding: "11px 12px", borderRadius: R_TILE,
-            background: SES.accSoft, border: `1px solid ${SES.accLine}` }}>
-            <Info size={15} color={SES.acc} style={{ flexShrink: 0, marginTop: 2 }} />
-            <div style={{ fontSize: 13.5, color: SES.ink, lineHeight: 1.5, whiteSpace: "pre-wrap", minWidth: 0 }}>{indicaciones}</div>
-          </div>
+          <div style={{ fontSize: 12.5, color: SES.dim, lineHeight: 1.45, marginTop: 9, padding: "8px 10px",
+            background: SES.campo, borderRadius: 8, whiteSpace: "pre-wrap" }}>{indicaciones}</div>
         )}
-        {tempo && <div style={{ marginTop: 11 }}><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
-        {ultimaVez && <div style={{ fontSize: 12.5, color: SES.faint, marginTop: 11 }}>{ultimaVez}</div>}
+        {tempo && <div style={{ marginTop: 9 }}><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
+        {ultimaVez && <div style={{ fontSize: 12, color: SES.faint, marginTop: 9 }}>{ultimaVez}</div>}
 
         {/* Cabecera de columnas: sin ella, tres casillas iguales no dicen
             cuál es cuál hasta que se tocan. */}
-        <div className="mono" style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 15, paddingBottom: 8, borderBottom: `1px solid ${SES.line}` }}>
-          <span style={{ flex: 1, minWidth: 0, fontSize: 10.5, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint }}>Serie / consigna</span>
-          <span style={{ width: 48, textAlign: "center", fontSize: 10, letterSpacing: ".06em", textTransform: "uppercase", color: SES.faint }}>{weightUnit}</span>
+        <div className="mono" style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 12, paddingBottom: 6, borderBottom: `1px solid ${SES.line}` }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 9.5, letterSpacing: ".07em", textTransform: "uppercase", color: SES.faint }}>Serie</span>
+          <span style={{ width: 48, textAlign: "center", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: SES.faint }}>{weightUnit}</span>
           {["Reps", "RIR"].map((l) => (
-            <span key={l} style={{ width: 48, textAlign: "center", fontSize: 10, letterSpacing: ".06em", textTransform: "uppercase", color: SES.faint }}>{l}</span>
+            <span key={l} style={{ width: 48, textAlign: "center", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: SES.faint }}>{l}</span>
           ))}
-          <span style={{ width: 36, textAlign: "center", fontSize: 11, color: SES.faint }}>✓</span>
+          <span style={{ width: 34, textAlign: "center", fontSize: 10, color: SES.faint }}>✓</span>
         </div>
 
         {block.rows.map((r, i) => {
           const exx = exs[r.ei];
           const st = exx.sets[r.si];
-          const activa = i === idxActiva;
           const tipo = (SET_TYPES[st.type] || SET_TYPES.normal).short;
           const consigna = consignas ? consignas[i] : null;
           const pie = [st.repsT ? `${st.repsT} reps` : null, st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null]
@@ -5609,21 +5634,19 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           const dónde = `${block.group ? `ronda ${(r.round || 0) + 1}` : `serie ${i + 1}`} de ${exx.name}`;
           return (
             <div key={`${r.ei}-${r.si}`}
-              style={{ padding: "13px 0", borderBottom: i < block.rows.length - 1 ? `1px solid ${SES.line}` : "none" }}>
+              style={{ padding: "10px 0", borderBottom: i < block.rows.length - 1 ? `1px solid ${SES.line}` : "none" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 5 }}>
               <div style={{ flex: 1, minWidth: 0, paddingRight: 6 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                  <span style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0,
-                    background: st.done ? SES.acc : activa ? SES.ink : SES.faint }} />
-                  <span className="disp" style={{ fontSize: 14.5, fontWeight: 700, color: st.done ? SES.acc : SES.ink, textTransform: "uppercase", letterSpacing: ".01em", whiteSpace: "nowrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: st.done ? SES.acc : SES.ink }}>
                     {block.group ? `Ronda ${(r.round || 0) + 1}` : `Serie ${i + 1}`}
                   </span>
                   {tipo && st.type !== "normal" && (
-                    <span className="mono" style={{ fontSize: 9.5, letterSpacing: ".06em", color: SES.acc, border: `1px solid ${SES.accLine}`, borderRadius: 999, padding: "1px 6px" }}>{tipo}</span>
+                    <span className="mono" style={{ fontSize: 9.5, letterSpacing: ".05em", color: SES.dim, background: SES.campo, borderRadius: 5, padding: "1px 6px" }}>{tipo}</span>
                   )}
                 </div>
-                {block.group && <div style={{ fontSize: 12, color: SES.faint, marginTop: 3 }}>{exx.name}</div>}
-                <div style={{ fontSize: 12.5, color: SES.dim, marginTop: 5, lineHeight: 1.4 }}>{consigna || pie || "—"}</div>
+                {block.group && <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2 }}>{exx.name}</div>}
+                <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{consigna || pie || "—"}</div>
               </div>
               <NumCell aria={`Peso de la ${dónde}`} placeholder={weightUnit}
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight)).replace(".", ",")}
@@ -5637,11 +5660,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               <button onClick={() => onToggleDone(r.ei, r.si)}
                 aria-label={st.done ? `Desmarcar la ${dónde}` : `Marcar la ${dónde} como hecha`}
                 aria-pressed={st.done}
-                style={{ width: 36, height: 40, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: st.done ? SES.acc : SES.campo, color: st.done ? SES.accInk : SES.faint,
-                  border: `1px solid ${st.done ? SES.acc : SES.line}`,
+                style={{ width: 34, height: 38, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: st.done ? SES.acc : SES.campo, color: st.done ? SES.accInk : SES.faint, border: "none",
                   transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
-                <Check size={18} strokeWidth={3} />
+                <Check size={16} strokeWidth={3} />
               </button>
             </div>
             {/* El comentario de ESTA serie, debajo de su fila. Se abre desde
@@ -5654,89 +5676,33 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     );
   };
 
-  /* El descanso de ESE ejercicio, debajo de su tabla. Cada ejercicio tiene
-     el suyo (con la duración que trae del plan), y el que está corriendo
-     es el del ejercicio al que pertenece la serie que lo arrancó. */
-  const descansoDe = (block, bi) => {
-    const propio = (block.group ? exs[block.members[0]].rest : exs[block.ei].rest) || 90;
-    const corriendo = !!timer && block.rows.some((r) => r.ei === timer.exIdx);
-    const sel = restSel[bi] != null ? restSel[bi] : propio;
-    const left = corriendo ? Math.max(0, Math.ceil((timer.endsAt - now) / 1000)) : sel;
-    const nombre = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
-    const poner = (v) => setRestSel((m) => ({ ...m, [bi]: v }));
-    const arrancar = () => {
-      const r = block.rows[Math.max(0, block.rows.findIndex((x) => !exs[x.ei].sets[x.si].done))] || block.rows[0];
-      onStartRest(sel, r.ei, r.si);
-    };
-    return (
-      <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: R_CARD, padding: 13, display: "flex", flexDirection: "column", gap: 9 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            minWidth: 104, padding: "12px 10px", borderRadius: R_TILE, background: SES.campo, border: `1px solid ${SES.line}` }}>
-            <span className="disp" style={{ fontSize: 30, fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums", color: corriendo ? SES.acc : SES.ink }}>{fmtClock(left)}</span>
-            <span className="mono" style={{ fontSize: 10, color: SES.faint, marginTop: 5, letterSpacing: ".08em" }}>descanso</span>
-          </div>
-          <div style={{ flex: 1, minWidth: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
-            {[30, 45, 60, 90].map((sg) => {
-              const on = !corriendo && sel === sg;
-              return (
-                <button key={sg} className="mono" aria-label={`Descanso de ${sg} segundos en ${nombre}`}
-                  onClick={() => { poner(sg); if (corriendo) onDismissRest(); }}
-                  style={{ padding: "10px 0", borderRadius: 10, fontSize: 13, fontWeight: 700,
-                    background: on ? SES.accSoft : SES.campo,
-                    border: `1px solid ${on ? SES.accLine : SES.line}`, color: on ? SES.acc : SES.dim }}>{sg}&quot;</button>
-              );
-            })}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 7 }}>
-          <button className="mono" aria-label={`Quitar 15 segundos al descanso de ${nombre}`}
-            onClick={() => (corriendo ? onAdjustRest(-15) : poner(Math.max(5, sel - 15)))}
-            style={{ flex: 1, padding: "12px 0", borderRadius: R_TILE, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 14, fontWeight: 700 }}>−15</button>
-          <button className="mono" aria-label={corriendo ? `Detener el descanso de ${nombre}` : `Iniciar el descanso de ${nombre}`}
-            onClick={() => (corriendo ? onDismissRest() : arrancar())}
-            style={{ flex: 2, padding: "12px 0", borderRadius: R_TILE, background: SES.acc, color: SES.accInk, fontSize: 15, fontWeight: 700 }}>
-            {corriendo ? "Detener" : "Iniciar"}
-          </button>
-          <button className="mono" aria-label={`Sumar 15 segundos al descanso de ${nombre}`}
-            onClick={() => (corriendo ? onAdjustRest(15) : poner(sel + 15))}
-            style={{ flex: 1, padding: "12px 0", borderRadius: R_TILE, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 14, fontWeight: 700 }}>+15</button>
-          <button onClick={() => { if (corriendo) onDismissRest(); poner(propio); }} aria-label={`Volver al descanso que trae ${nombre}`}
-            style={{ flexShrink: 0, width: 48, padding: "12px 0", borderRadius: R_TILE, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <RotateCcw size={16} />
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  /* Lo que se consulta sin soltar la mancuerna, para ESE ejercicio. */
+  /* Lo que se consulta sin soltar la mancuerna, para ESE ejercicio. Antes
+     era una fila de chips grandes en mono/mayúscula; investigado el
+     estándar de la categoría (Strong, Setgraph) esto es soporte, no lo
+     principal — se aplana a íconos chicos y planos. */
   const accionesDe = (block, bi) => {
     const primero = block.group ? block.members[0] : block.ei;
     const nombre = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
     const fila = block.rows[Math.max(0, block.rows.findIndex((r) => !exs[r.ei].sets[r.si].done))] || block.rows[0];
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-        {[["Ver la técnica", Video, () => setFicha(primero), false],
-          ["Historial del ejercicio", History, () => setHistEx(primero), false],
+      <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 2px" }}>
+        {[["Historial del ejercicio", History, () => setHistEx(primero), false],
           ["Indicaciones del coach", FileText, () => setCoachNotesOpen(bi),
             (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes)],
           ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
           ["Más opciones de esta serie", MoreHorizontal, () => setRowMoreFor({ ei: fila.ei, si: fila.si }), false],
         ].map(([lbl, Icon, onClick, marcado]) => (
           <button key={lbl} onClick={onClick} aria-label={`${lbl} — ${nombre}${marcado ? " (hay indicaciones)" : ""}`} title={lbl}
-            style={{ width: 38, height: 38, borderRadius: 19, flexShrink: 0,
-              background: marcado ? SES.accSoft : SES.campo, color: marcado ? SES.acc : SES.dim,
-              border: `1px solid ${marcado ? SES.accLine : SES.line}`,
+            style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: "transparent",
+              color: marcado ? SES.acc : SES.faint, border: "none",
               display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon size={16} strokeWidth={2.2} />
+            <Icon size={15} strokeWidth={2} />
           </button>
         ))}
-        <button onClick={() => setCalcOpen(true)} className="disp" aria-label={`Calcular RM — ${nombre}`}
-          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7, padding: "10px 14px", borderRadius: 999,
-            background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 12.5, fontWeight: 700,
-            whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: ".04em" }}>
-          <Calculator size={15} color={SES.acc} /> Calcular RM
+        <button onClick={() => setCalcOpen(true)} aria-label={`Calcular RM — ${nombre}`}
+          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, padding: "5px 4px",
+            background: "transparent", border: "none", color: SES.faint, fontSize: 12, fontWeight: 500 }}>
+          <Calculator size={13} /> Calcular RM
         </button>
       </div>
     );
@@ -5802,7 +5768,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       <div>
         <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${active.dayName} — ver la rutina completa`}
           style={{ display: "flex", alignItems: "flex-start", gap: 6, textAlign: "left", width: "100%" }}>
-          <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint, minWidth: 0, flex: 1,
+          <span style={{ fontSize: 16, fontWeight: 700, color: SES.ink, minWidth: 0, flex: 1,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</span>
           {onBrowseRoutine && <ChevronRight size={16} color={SES.faint} strokeWidth={2.6} style={{ flexShrink: 0 }} />}
         </button>
@@ -5820,9 +5786,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           con su tabla de series, su descanso y sus accesos — nada de
           «Siguiente»: se rellena lo que toca y se sigue bajando. */}
       {blocks.map((b, bi) => (
-        <div key={bi} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div key={bi} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {tablaDe(b, bi)}
-          {descansoDe(b, bi)}
           {accionesDe(b, bi)}
         </div>
       ))}
@@ -5830,12 +5795,15 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       {/* El final de la sesión está donde termina la sesión: abajo del
           todo, después del último ejercicio. */}
       <div style={{ marginTop: 4 }}>
-        <button onClick={() => setSalida(true)} className="disp"
-          style={{ width: "100%", padding: "16px 6px", borderRadius: R_TILE,
-            background: doneSets ? SES.acc : SES.campo, color: doneSets ? SES.accInk : SES.dim,
-            border: `1px solid ${doneSets ? SES.acc : SES.line}`,
-            fontSize: 15.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".01em" }}>
-          Terminar sesión
+        {/* Verde solo cuando la sesión quedó completa — mientras se está
+            entrenando es un botón gris más, no compite con la serie
+            activa por la atención. */}
+        <button onClick={() => setSalida(true)}
+          style={{ width: "100%", padding: "15px 6px", borderRadius: R_TILE,
+            background: doneSets === totalSets ? SES.acc : SES.campo, color: doneSets === totalSets ? SES.accInk : SES.dim,
+            border: `1px solid ${doneSets === totalSets ? SES.acc : SES.line}`,
+            fontSize: 15, fontWeight: 700 }}>
+          {doneSets === 0 ? "Terminar sesión" : doneSets === totalSets ? "Terminar sesión · completa" : `Terminar sesión · ${doneSets} de ${totalSets}`}
         </button>
         {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
             y abajo, para que no haga falta preguntarlo. */}
@@ -6442,26 +6410,8 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
 // clara fija aparte: se leen del tema activo (P), que ahora ES el sistema
 // del diseño. Así esas pantallas siguen el modo claro/oscuro como el resto
 // de la app en vez de quedarse en blanco cuando se cambia a oscuro.
-/* Paleta de la SESIÓN. Es la única pantalla de FORJA con vida propia y a
-   propósito: entrenando conviene contraste alto —el móvil se mira de
-   reojo, con el brazo cansado y a veces a contraluz— y que el ojo vaya
-   directo a lo accionable. Un solo acento verde: lo que se puede tocar
-   ahora. Todo lo demás es tinta sobre negro.
-   No depende del tema claro/oscuro del resto de la app: la sesión se ve
-   igual siempre, que es lo que se quiere de una pantalla de trabajo. */
-const SES = {
-  bg:      "#0B0B0C",
-  card:    "#141416",
-  campo:   "#1C1C1F",   // casillas y botones secundarios
-  line:    "#26262B",
-  ink:     "#F4F4F2",
-  dim:     "#A3A39F",
-  faint:   "#6C6C69",
-  acc:     "#4ADE80",
-  accInk:  "#07120B",   // texto sobre el acento
-  accLine: "rgba(74,222,128,.45)",
-  accSoft: "rgba(74,222,128,.12)",
-};
+// `SES` (paleta de la sesión) se movió arriba, junto a `P`: ahora sigue
+// el claro/oscuro del resto de FORJA en vez de ser siempre oscura.
 
 const MONO = {
   get bg() { return P.bg; },
@@ -11109,15 +11059,31 @@ const AtletasActividadTab = ({ roster, toast }) => {
       {filtered.length === 0 ? (
         <Empty icon={Users} title="Sin resultados" body="Prueba con otro nombre." />
       ) : (
+        // La adherencia va primero y en grande: es lo que dice, sin abrir
+        // a nadie, quién necesita un mensaje hoy. Investigado contra
+        // TrueCoach/TrainHeroic, que ya hacen esto — el hueco real no es
+        // esta lista, es que un coach de a pocos alumnos no tiene una
+        // app así del tamaño de la suya.
         <Card style={{ overflow: "hidden" }}>
           {filtered.map((r, i) => (
             <button key={r.id} onClick={() => openDetail(r)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
-              padding: "13px 14px", borderBottom: i === filtered.length - 1 ? "none" : `1px solid ${P.line}` }}>
-              <span className="disp" style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Users size={15} color={P.faint2} />
+              padding: "12px 14px", borderBottom: i === filtered.length - 1 ? "none" : `1px solid ${P.line}` }}>
+              <span style={{ width: 34, height: 34, borderRadius: 17, background: P.s3, border: `1px solid ${P.line}`,
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 13.5, fontWeight: 700, color: P.faint }}>
+                {(r.name || "?").trim().charAt(0).toUpperCase()}
               </span>
-              <div style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, color: P.text }}>{r.name}</div>
-              <div style={{ fontSize: 14, color: P.faint, flexShrink: 0 }}>{lastLabel(r.lastDays)}{r.pct != null ? ` · ${r.pct}%` : ""}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: P.text }}>{r.name}</div>
+                <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>última {lastLabel(r.lastDays).toLowerCase()}</div>
+              </div>
+              {/* `SES.acc` (el mismo verde de la sesión, ahora acorde al
+                  tema claro/oscuro) en vez de `P.green` — ese token quedó
+                  monocromo a propósito en el resto de la app; acá SÍ hace
+                  falta un color real para leer la adherencia de un vistazo. */}
+              {r.pct != null && (
+                <span style={{ fontSize: 15, fontWeight: 700, flexShrink: 0, fontVariantNumeric: "tabular-nums",
+                  color: r.pct >= 70 ? SES.acc : P.faint }}>{r.pct}%</span>
+              )}
               <ChevronRight size={16} color={P.faint} />
             </button>
           ))}
