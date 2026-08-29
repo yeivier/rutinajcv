@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v195";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v196";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -9598,6 +9598,28 @@ const LibraryPanel = ({ plan, history, library, onSaveLibrary, onInfo, toast, on
 // reutiliza para otro alumno.
 const DRAFTS_KEY = "forja-drafts";
 const draftPlanKey = (id) => `forja-draft-plan:${id}`;
+
+/* Las tres rutinas del plan, además, como borradores reutilizables.
+   Vivían solo dentro del plan del alumno: para reusar una con otro
+   atleta había que copiarla día por día. Como borrador se abren en el
+   mismo editor y se mandan a quien sea con «Enviar».
+
+   Se entregan UNA sola vez y queda anotado en el índice (`seedsDone`):
+   sin ese registro, un borrador que el coach borra a propósito volvería
+   a aparecer en cada arranque — «borrado» y «nunca entregado» se ven
+   igual. Misma lección que la siembra de días de la Rutina C. */
+const DRAFT_SEEDS = [
+  { key: "A", nombre: "Rutina A", dias: () => seedPlan().days.map((d) => ({ ...d, routine: ROUTINE_A })),
+    notas: () => seedPlan().instructions || [] },
+  { key: "B", nombre: "Rutina B", dias: routineBDays, notas: () => [] },
+  { key: "C", nombre: ROUTINE_C_NAME, dias: routineCDays, notas: () => [{ id: uid(), ...ROUTINE_C_INTRO }] },
+];
+const planDeBorrador = (semilla) => {
+  const p = emptyPlan();
+  p.days = semilla.dias();
+  p.instructions = semilla.notas();
+  return p;
+};
 const planStats = (p) => {
   const days = (p.days || []).length;
   const exs = (p.days || []).reduce((a, d) => a + (d.exs || []).length, 0);
@@ -9611,15 +9633,42 @@ const DraftsPanel = ({ toast, onInfo, roster }) => {
   const [confirmDel, setConfirmDel] = useState(null);
   const [sendStep, setSendStep] = useState(null); // {step:'group'} | {step:'student', group}
   const saveTimer = useRef(null);
+  // Qué borradores de fábrica ya se entregaron (ver DRAFT_SEEDS).
+  const seedsRef = useRef([]);
 
   useEffect(() => {
     (async () => {
       const idx = await sGet(DRAFTS_KEY);
-      setDrafts(idx && Array.isArray(idx.drafts) ? idx.drafts : []);
+      const lista = idx && Array.isArray(idx.drafts) ? idx.drafts : [];
+      // Lo ya entregado alguna vez. Los borradores creados antes de que
+      // existiera el registro se reconocen por su `seedKey`, para no
+      // duplicarlos en el primer arranque con esta versión.
+      const hechas = new Set([
+        ...((idx && idx.seedsDone) || []),
+        ...lista.map((d) => d.seedKey).filter(Boolean),
+      ]);
+      seedsRef.current = [...hechas];
+      const faltan = DRAFT_SEEDS.filter((s) => !hechas.has(s.key));
+      if (!faltan.length) { setDrafts(lista); return; }
+      const nuevos = [];
+      for (const s of faltan) {
+        const id = uid();
+        const p = planDeBorrador(s);
+        await sSet(draftPlanKey(id), p);
+        const now = todayISO();
+        nuevos.push({ id, seedKey: s.key, name: s.nombre, createdAt: now, updatedAt: now, ...planStats(p) });
+        hechas.add(s.key);
+      }
+      const next = [...lista, ...nuevos];
+      setDrafts(next);
+      seedsRef.current = [...hechas];
+      sSet(DRAFTS_KEY, { v: 1, drafts: next, seedsDone: seedsRef.current });
     })();
   }, []);
 
-  const saveIndex = (list) => { setDrafts(list); sSet(DRAFTS_KEY, { v: 1, drafts: list }); };
+  // Cada escritura del índice arrastra el registro de lo entregado: si se
+  // perdiera, los borradores de fábrica volverían a sembrarse.
+  const saveIndex = (list) => { setDrafts(list); sSet(DRAFTS_KEY, { v: 1, drafts: list, seedsDone: seedsRef.current }); };
 
   const createDraft = async () => {
     const name = (typeof window !== "undefined" && window.prompt ? window.prompt("Nombre del borrador:", `Borrador ${(drafts || []).length + 1}`) : "") || "";
@@ -9649,7 +9698,7 @@ const DraftsPanel = ({ toast, onInfo, roster }) => {
       sSet(draftPlanKey(openId), p);
       setDrafts((list) => {
         const next = (list || []).map((d) => (d.id === openId ? { ...d, updatedAt: todayISO(), ...planStats(p) } : d));
-        sSet(DRAFTS_KEY, { v: 1, drafts: next });
+        sSet(DRAFTS_KEY, { v: 1, drafts: next, seedsDone: seedsRef.current });
         return next;
       });
     }, 500);
