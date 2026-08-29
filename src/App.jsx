@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v197";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v198";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6245,7 +6245,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
 const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, onOpenAIChat, onLeave, onOpenDevices }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
-  const [previewDay, setPreviewDay] = useState(null);
   // Ficha del ejercicio abierta desde la vista previa del día.
   const [fichaEx, setFichaEx] = useState(null);
   const [browsing, setBrowsing] = useState(false);   // ver la rutina aunque haya sesión abierta
@@ -6288,7 +6287,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         }) })),
     };
     setActive(snap); saveActive(snap);
-    setPreviewDay(null); setBrowsing(false);
+    setBrowsing(false);
   };
 
   // "Entrenar" desde Hoy abre la VISTA PREVIA del día que toca: todos los
@@ -6301,7 +6300,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   useEffect(() => {
     if (!abrirDiaId || active) { if (abrirDiaId) onAutoStartConsumed && onAutoStartConsumed(); return; }
     const day = (plan.days || []).find((d) => d.id === abrirDiaId);
-    if (day) { setBrowsing(false); setPreviewDay(null); setPidiendoGym(day); }
+    if (day) { setBrowsing(false); setPidiendoGym(day); }
     onAutoStartConsumed && onAutoStartConsumed();
   }, [abrirDiaId]);
 
@@ -6334,105 +6333,16 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     </Sheet>
   );
 
-  if (listMode && previewDay) {
-    const d = previewDay;
-    const totalSeries = d.exs.reduce((a, e) => a + e.sets.length, 0);
-    return (
-      <div style={{ padding: "16px 16px 30px" }}>
-        <button onClick={() => setPreviewDay(null)} style={{ display: "flex", alignItems: "center", gap: 6, color: P.faint, fontSize: 14.5, marginBottom: 12, padding: "4px 0" }}>
-          <ChevronLeft size={17} /> Volver a la lista
-        </button>
-        <div style={{ fontSize: 12.5, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 3 }}>{routineLabel(routineOf(d), plan.routineNames)}</div>
-        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "0 0 4px" }}>{d.name}</h1>
-        <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>{d.exs.length} ejercicios · {totalSeries} series efectivas. Aún no se ha creado sesión: revisa lo que toca y arranca cuando estés listo.</div>
-        {currentMesociclo(plan) && currentMesociclo(plan).weeks.length > 1 && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 12, padding: "6px 11px", borderRadius: 9,
-            background: currentWeek(plan).deload ? "rgba(255,255,255,.12)" : `${P.blue}14`,
-            border: `1px solid ${currentWeek(plan).deload ? "rgba(255,255,255,.45)" : `${P.blue}44`}` }}>
-            <Calendar size={14} color={currentWeek(plan).deload ? P.green : P.blue} />
-            <span style={{ fontSize: 13.5, color: P.dim }}>
-              {currentWeek(plan).name}{currentWeek(plan).deload ? " · semana de descarga" : ""} — reps y RIR de esta semana
-            </span>
-          </div>
-        )}
-        {d.exs.map((e, ei) => (
-          <Card key={e.id} style={{ padding: 0, marginBottom: 9, overflow: "hidden" }}>
-            {/* Toda la ficha a un toque: video de técnica, historial y los
-                pasos del catálogo. Antes esto solo se alcanzaba con la
-                sesión ya empezada. */}
-            <button onClick={() => setFichaEx(e)} aria-label={`${e.name} — ver la ficha`}
-              style={{ width: "100%", textAlign: "left", display: "flex", gap: 10, alignItems: "flex-start", padding: "12px 13px" }}>
-              {e.iconAttachId || e.catId
-                ? <ExerciseThumb ex={e} size={34} radius={9} style={{ marginTop: 1 }} />
-                : <div className="disp" style={{ width: 26, height: 26, borderRadius: 7, background: P.s3, border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: P.ember2, flexShrink: 0, marginTop: 1 }}>{ei + 1}</div>}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 15.5 }}>{e.name}</div>
-                <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2 }}>{e.muscle} · descanso {e.rest}s · {e.sets.length} series</div>
-                {e.superset && <div style={{ fontSize: 12.5, color: P.ember2, marginTop: 3 }}>Superserie con {e.superset}</div>}
-                {/* Bloques de verdad (superserie/triserie/gigante con `group`):
-                    la vista previa los dejaba pasar como ejercicios sueltos, así
-                    que el alumno no sabía que van seguidos hasta entrar a Focus. */}
-                {(() => { const gr = exGroupInfo(d.exs, ei); return gr.kind ? (
-                  <div style={{ fontSize: 12.5, color: P.ember2, marginTop: 3 }}>
-                    {GROUP_KINDS[gr.kind].label} {gr.posLabel} · {gr.rounds} rondas, sin descanso entre ejercicios
-                  </div>
-                ) : null; })()}
-                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
-                  {e.sets.map((s, si) => (
-                    <div key={s.id} style={{ fontSize: 12.5, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 7, padding: "3px 7px" }}>
-                      S{si + 1}: {s.repsT} reps{s.rirT !== "" ? ` · RIR ${s.rirT}` : ""}
-                    </div>
-                  ))}
-                </div>
-                {e.notes && <div style={{ fontSize: 13.5, color: P.dim, marginTop: 7, lineHeight: 1.4, fontStyle: "italic" }}>{e.notes}</div>}
-              </div>
-              <ChevronRight size={17} color={P.chevron} strokeWidth={2.4} style={{ flexShrink: 0, marginTop: 2 }} />
-            </button>
-          </Card>
-        ))}
-        {/* Espaciador: la barra de acciones es sticky con fondo opaco y podría
-            tapar el último ejercicio si no dejamos hueco extra al final. */}
-        <div style={{ height: 180 }} aria-hidden />
-        <div style={{ position: "sticky", bottom: 96, marginTop: 18, display: "flex", gap: 8,
-          background: P.bg, padding: "10px 0 4px", boxShadow: `0 -14px 18px -8px ${P.bg}`, zIndex: 3 }}>
-          {active ? (
-            <>
-              <Btn kind="line" onClick={() => { setPreviewDay(null); setBrowsing(false); }} style={{ flex: 1 }}>
-                <ChevronLeft size={16} /> Volver a mi sesión
-              </Btn>
-              <Btn kind="ember" onClick={() => setConfirmSwitch(d)} style={{ flex: 2 }}>
-                <Play size={16} /> Empezar esta
-              </Btn>
-            </>
-          ) : (
-            <div style={{ display: "flex", gap: 8, width: "100%" }}>
-              <Btn kind="line" onClick={() => setPreviewDay(null)} style={{ flex: 1 }}><X size={16} /> Salir sin iniciar</Btn>
-              <Btn kind="ember" onClick={() => setPidiendoGym(d)} style={{ flex: 2 }}><Play size={16} /> Iniciar entrenamiento</Btn>
-            </div>
-          )}
-        </div>
-        <Confirm open={!!confirmSwitch} danger title="Ya tienes una sesión en curso"
-          body={`Se descartará «${active ? active.dayName : ""}» con todo lo que lleves registrado y empezará «${confirmSwitch ? confirmSwitch.name : ""}». Esta acción no se puede deshacer.`}
-          okLabel="Descartar y empezar" onCancel={() => setConfirmSwitch(null)}
-          onOk={() => { const day = confirmSwitch; setConfirmSwitch(null); discardSession(); setPidiendoGym(day); }} />
-        <ExerciseInfoSheet ex={fichaEx} open={!!fichaEx} onClose={() => setFichaEx(null)} onError={toast} history={history} />
-        <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
-          onClose={() => setPidiendoGym(null)}
-          onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g); }} />
-      </div>
-    );
-  }
-
   if (listMode) {
     return (
       <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
         <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Entrenar</h1>
-        <div style={{ color: P.dim, fontSize: 15, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego un día para ver los ejercicios. Solo cuando aprietes «Iniciar entrenamiento» se creará la sesión y empezarán los cronómetros.</div>
+        <div style={{ color: P.dim, fontSize: 15, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego el día que quieras hacer. Te pregunta en qué gimnasio entrenas y empieza.</div>
         {active && (
           <Card style={{ padding: 16, marginBottom: 14, borderColor: P.text, borderWidth: 1.5 }}>
             <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 3 }}>Sesión en curso: {active.dayName}</div>
             <div style={{ fontSize: 13.5, color: P.dim, marginBottom: 10 }}>Estás mirando la rutina. Tu registro sigue guardado tal como lo dejaste.</div>
-            <Btn kind="ember" small onClick={() => { setPreviewDay(null); setBrowsing(false); }} style={{ width: "100%" }}>
+            <Btn kind="ember" small onClick={() => setBrowsing(false)} style={{ width: "100%" }}>
               <Play size={15} /> Volver a mi sesión
             </Btn>
           </Card>
@@ -6462,7 +6372,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
                     const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
                     return (
                       <Card key={d.id} style={{ marginBottom: 10, background: P.s2 }}>
-                        <button onClick={() => setPreviewDay(d)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+                        <button onClick={() => (active ? setConfirmSwitch(d) : setPidiendoGym(d))} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
                           <div style={{ width: 36, height: 36, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
                             background: P.s3, color: P.faint, fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
                           <div style={{ flex: 1 }}>
@@ -6485,6 +6395,12 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
           onClose={() => setPidiendoGym(null)}
           onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g); }} />
+        {/* Empezar otro día con una sesión abierta descarta lo registrado,
+            así que se avisa antes de preguntar siquiera el gimnasio. */}
+        <Confirm open={!!confirmSwitch} danger title="Ya tienes una sesión en curso"
+          body={`Se descartará «${active ? active.dayName : ""}» con todo lo que lleves registrado y empezará «${confirmSwitch ? confirmSwitch.name : ""}». Esta acción no se puede deshacer.`}
+          okLabel="Descartar y empezar" onCancel={() => setConfirmSwitch(null)}
+          onOk={() => { const day = confirmSwitch; setConfirmSwitch(null); discardSession(); setPidiendoGym(day); }} />
         {summarySheet}
       </div>
     );
@@ -6552,7 +6468,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         timer={timer} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
         onStartRest={(seg) => { setTimer({ exIdx: 0, setIdx: 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
-        onBrowseRoutine={() => { setBrowsing(true); setPreviewDay(null); }} />
+        onBrowseRoutine={() => setBrowsing(true)} />
       {summarySheet}
     </>
   );
