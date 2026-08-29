@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v196";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v197";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -328,6 +328,13 @@ const SET_TYPES = {
 const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Trapecio","Otro"];
 // Equipo usado por un ejercicio de la biblioteca — sirve para filtrar la búsqueda.
 const EQUIPMENT = ["Barra","Barra EZ","Mancuernas","Máquina","Polea","Smith","Peso corporal","Kettlebell","Banda elástica","Otro"];
+
+// Dónde se entrena. Los cuatro habituales vienen de fábrica; cualquier
+// otro se escribe al empezar y queda guardado para volver a elegirlo con
+// un toque. Es dato del dispositivo, no del plan: el alumno cambia de
+// sede, la rutina no.
+const GIMNASIOS = ["Sportlife Pie Andino", "W Fitness El Alba", "Youtopia Trapenses", "Youtopia Vitacura"];
+const GYM_KEY = "forja-gimnasios";
 // Porcentaje de crédito que se le puede asignar a un músculo secundario
 // (el ejercicio también lo trabaja, pero no es el músculo principal).
 const SECONDARY_PCTS = [25, 50, 75];
@@ -2993,6 +3000,40 @@ const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals 
 // tres columnas de ▲/▼ se tocan sin mirar y dejan ver Peso, Reps y RIR
 // de un vistazo, sin que ninguno quede fuera de pantalla. El horizontal
 // se queda donde se rellenan formularios con calma (check-in, ajustes).
+/* Celda numérica de la tabla de series. Guarda su propio texto mientras
+   tiene el foco: si se leyera siempre del dato, escribir "12," se
+   convertiría en "12" a mitad de tecleo y la coma se perdería. */
+const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 54 }) => {
+  const [txt, setTxt] = useState(valor);
+  const foco = useRef(false);
+  useEffect(() => { if (!foco.current) setTxt(valor); }, [valor]);
+  return (
+    <input type="text" inputMode="decimal" value={txt} placeholder={placeholder} aria-label={aria}
+      onFocus={() => { foco.current = true; }}
+      onBlur={() => { foco.current = false; setTxt(valor); }}
+      onChange={(e) => { setTxt(e.target.value); onCommit(e.target.value.replace(",", ".")); }}
+      style={{ width: ancho, padding: "9px 4px", textAlign: "center", fontSize: 14.5, fontWeight: 700,
+        color: P.text, background: P.s3, border: `1px solid ${P.line}`, borderRadius: 10,
+        fontFamily: "inherit", outline: "none", boxSizing: "border-box", minWidth: 0 }} />
+  );
+};
+
+/* Una consigna por serie. El coach escribe las indicaciones del ejercicio
+   como un texto con un párrafo por serie ("1X 12-15REP TEMPO DINAMICO",
+   "1X 8REP...", …). Cuando la cuenta de párrafos coincide con la de
+   series, cada uno se muestra en SU fila, que es donde sirve: leer un
+   bloque de seis líneas antes de empezar no dice qué toca en la serie 2.
+   Si no coinciden, no se inventa nada y el texto sigue completo en
+   «Indicaciones del coach». */
+const consignasPorSerie = (ex) => {
+  const t = (ex && ex.notes ? String(ex.notes) : "").trim();
+  const n = ((ex && ex.sets) || []).length;
+  if (!t || n < 2) return null;
+  let partes = t.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
+  if (partes.length !== n) partes = t.split("\n").map((x) => x.trim()).filter(Boolean);
+  return partes.length === n ? partes : null;
+};
+
 const SetStepperCol = ({ label, sufijo, caption, value, onChange, step = 1, min = 0, decimals = 1 }) => {
   // Mientras se escribe manda el texto tal cual se tipeó: si se
   // reformateara en cada tecla no se podría borrar la casilla ni escribir
@@ -5158,6 +5199,79 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    unidad), calcando A3 al pixel.
    ============================================================ */
 
+/* Dónde se entrena hoy. Se pregunta UNA vez, al empezar la sesión, y
+   queda con ella: después el historial se puede leer por sede. El último
+   elegido va primero y preseleccionado, porque lo normal es repetir
+   gimnasio; escribir uno nuevo lo agrega a la lista para la próxima. */
+const GymPickerSheet = ({ open, onClose, onElegir, dayName }) => {
+  const [lista, setLista] = useState(GIMNASIOS);
+  const [ultimo, setUltimo] = useState("");
+  const [otro, setOtro] = useState("");
+  const [escribiendo, setEscribiendo] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setOtro(""); setEscribiendo(false);
+    (async () => {
+      const g = await sGet(GYM_KEY, false);
+      const propios = (g && Array.isArray(g.propios) ? g.propios : []).filter(Boolean);
+      setLista([...GIMNASIOS, ...propios.filter((x) => !GIMNASIOS.includes(x))]);
+      setUltimo((g && g.ultimo) || "");
+    })();
+  }, [open]);
+
+  const elegir = async (nombre) => {
+    const n = (nombre || "").trim();
+    if (!n) return;
+    const g = (await sGet(GYM_KEY, false)) || {};
+    const propios = (Array.isArray(g.propios) ? g.propios : []).filter(Boolean);
+    const nuevos = GIMNASIOS.includes(n) || propios.includes(n) ? propios : [...propios, n];
+    await sSet(GYM_KEY, { propios: nuevos, ultimo: n }, false);
+    onElegir(n);
+  };
+
+  // El último usado arriba: es el que se va a elegir casi siempre.
+  const ordenados = ultimo ? [ultimo, ...lista.filter((x) => x !== ultimo)] : lista;
+
+  return (
+    <Sheet open={open} onClose={onClose} title="¿Dónde entrenas hoy?" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+        {dayName && (
+          <div style={{ fontSize: 13.5, color: P.faint2, marginBottom: 2 }}>
+            Queda guardado con la sesión «{dayName}», para poder ver después qué entrenaste en cada sede.
+          </div>
+        )}
+        {ordenados.map((g) => (
+          <button key={g} data-keep onClick={() => elegir(g)}
+            style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", width: "100%",
+              padding: "14px 14px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${g === ultimo ? P.text : P.line}` }}>
+            <Home size={17} color={P.faint2} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, color: P.text }}>{g}</span>
+            {g === ultimo && <span style={{ fontSize: 12, color: P.faint2, flexShrink: 0 }}>el último</span>}
+          </button>
+        ))}
+        <div style={{ height: 1, background: P.line, margin: "3px 0" }} />
+        {escribiendo ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            <Inp autoFocus value={otro} placeholder="Nombre del gimnasio" onChange={(e) => setOtro(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") elegir(otro); }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn kind="line" onClick={() => setEscribiendo(false)} style={{ flex: 1 }}>Cancelar</Btn>
+              <Btn kind="ember" onClick={() => elegir(otro)} disabled={!otro.trim()} style={{ flex: 2 }}>Entrenar aquí</Btn>
+            </div>
+          </div>
+        ) : (
+          <button data-keep onClick={() => setEscribiendo(true)}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderRadius: R_TILE,
+              background: "transparent", border: `1px dashed ${P.separatorStrong}`, color: P.text, fontSize: 15.5, fontWeight: 600 }}>
+            <Plus size={17} /> Otro gimnasio
+          </button>
+        )}
+      </div>
+    </Sheet>
+  );
+};
+
 /* Una salida de la hoja de la "✕". Cada una dice qué pasa al tocarla,
    porque "salir", "finalizar" y "descartar" suenan parecido y hacen
    cosas muy distintas — la última no se puede deshacer. */
@@ -5176,13 +5290,16 @@ const SalidaRow = ({ icon: Icon, title, body, danger, onClick }) => (
   </button>
 );
 
-const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
+const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat }) => {
   const [weightUnit] = useWeightUnit();
   const pendingWrites = usePendingWrites();
   const [blockIdx, setBlockIdx] = useState(0);
   // Posición anterior dentro de la sesión, para saber si se avanzó o se
   // retrocedió y animar en consecuencia (ver más abajo).
   const posRef = useRef({ pos: "", clase: "", acuse: -1, n: 0 });
+  // Duración elegida para el próximo descanso. Arranca en la del propio
+  // ejercicio y se puede cambiar sin tocar la rutina.
+  const [restSel, setRestSel] = useState(90);
   const [now, setNow] = useState(Date.now());
   const [ficha, setFicha] = useState(null);
   const [viewImg, setViewImg] = useState(null);
@@ -5302,6 +5419,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   }
   const paso = posRef.current;
   const blockTitle = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
+  // El descanso que trae el ejercicio: es el valor al que vuelve el "↺".
+  const descansoDelBloque = (block.group ? exs[block.members[0]].rest : exs[block.ei].rest) || 90;
+  // Al cambiar de ejercicio, el descanso propuesto vuelve a ser el suyo.
+  useEffect(() => { setRestSel(descansoDelBloque); }, [blockIdx, descansoDelBloque]);
   // Lo que hace el descanso al llegar a cero: si el ejercicio quedó
   // completo, saltar al siguiente; si no, no hay nada que hacer más que
   // cerrar el reloj (la serie que toca ya aparece sola).
@@ -5349,16 +5470,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     if (blockIdx > 0) goBlock(-1);
   };
 
-  // Volver a una serie concreta tocándola en la tira. Solo hay que
-  // desmarcar ESA: `activeRowIdx` es la primera sin marcar, así que
-  // desmarcar la 1 con la 2 hecha ya deja la 1 en curso. Lo registrado
-  // en las demás no se toca — desmarcar no borra los números.
-  const volverASerie = (i) => {
-    const r = block.rows[i];
-    if (!r) return;
-    if (exs[r.ei].sets[r.si].done) { onDismissRest(); onToggleDone(r.ei, r.si); }
-  };
-
   const goBlock = (dir) => {
     const next = blockIdx + dir;
     if (next < 0 || next >= blocks.length) return;
@@ -5403,8 +5514,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   };
 
   // Peso: guardado SIEMPRE en kg, escrito y leído en la unidad activa.
-  // `equivalencia` es lo que va debajo de la casilla, en chico: cuánto es
-  // eso en la otra unidad, para no tener que hacer la cuenta de cabeza.
   const pesoMostrado = (kgGuardado) => {
     if (kgGuardado === "" || kgGuardado == null) return 0;
     const n = +kgGuardado;
@@ -5412,14 +5521,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     return Math.round((weightUnit === "lb" ? kgToLb(n) : n) * 10) / 10;
   };
   const pesoAKg = (v) => (weightUnit === "lb" ? Math.round(lbToKg(v) * 100) / 100 : v);
-  const equivalencia = (kgGuardado) => {
-    const n = kgGuardado === "" || kgGuardado == null ? 0 : +kgGuardado;
-    if (isNaN(n) || n === 0) return null;
-    return weightUnit === "lb"
-      ? `${kg(Math.round(n * 10) / 10)} kg`
-      : `${kg(Math.round(kgToLb(n) * 10) / 10)} lb`;
-  };
-
   // Lo que quedó registrado en una serie, ya en la unidad que el alumno
   // está viendo. `setSummary` toma el peso guardado —siempre en kilos— y
   // le pega la etiqueta de la unidad activa: entrenando en libras decía
@@ -5487,174 +5588,151 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // tarjeta de la serie en vez de sumarse debajo. Entrenando no se
   // decide entre dos cosas a la vez: o estás registrando una serie o
   // estás descansando, y el botón grande dice cuál es el paso siguiente.
-  let restCard = null;
-  if (timer) {
-    const left = Math.max(0, Math.ceil((timer.endsAt - now) / 1000));
-    const justEx = exs[timer.exIdx];
-    const justSet = justEx ? justEx.sets[timer.setIdx] : null;
-    // Qué sigue: se lee directo de activeRowIdx/blockDone — ya reflejan
-    // el estado post-serie-completada, no hay página que recalcular.
-    const nextInBlock = !blockDone ? block.rows[activeRowIdx] : null;
-    const nextBlock = blockDone && blockIdx < blocks.length - 1 ? blocks[blockIdx + 1] : null;
-    const finishRest = () => {
-      onDismissRest();
-      if (blockDone) { if (blockIdx < blocks.length - 1) setBlockIdx(blockIdx + 1); }
-    };
-    // Qué viene después, en una línea, para que el botón grande no sea
-    // un salto a ciegas.
-    const nextLabel = nextInBlock
-      ? `Próxima: Serie ${activeRowIdx + 1}${exs[nextInBlock.ei].sets[nextInBlock.si].repsT ? ` · ${exs[nextInBlock.ei].sets[nextInBlock.si].repsT} reps` : ""}`
-      : nextBlock
-        ? `Sigue: ${nextBlock.group ? nextBlock.members.map((m) => exs[m].name).join(" + ") : exs[nextBlock.ei].name}`
-        : "Era la última serie de la sesión";
-    const ctaLabel = nextInBlock ? "Ir a la siguiente serie" : nextBlock ? "Ir al siguiente ejercicio" : "Finalizar sesión";
-    restCard = (
-      <>
-        <Card style={{ padding: "22px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint2 }}>Descanso</span>
-          <span className="num" style={{ fontSize: 52, fontWeight: 600, letterSpacing: "-.03em", lineHeight: 1, fontVariantNumeric: "tabular-nums", color: P.text }}>{fmtClock(left)}</span>
-          <div style={{ fontSize: 14, color: P.faint2, textAlign: "center" }}>{nextLabel}</div>
-          <div style={{ display: "flex", gap: 9, width: "100%" }}>
-            <button onClick={() => onAdjustRest(-15)} style={{ flex: 1, padding: "13px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>−15 s</button>
-            <button onClick={() => onAdjustRest(15)} style={{ flex: 1, padding: "13px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 15, fontWeight: 600 }}>+15 s</button>
-          </div>
-          {justSet && (
-            <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, paddingTop: 2 }}>
-              <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Check size={14} color={PLATE_FG} strokeWidth={3} />
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, color: P.faint2 }}>Acabas de registrar</div>
-                <div style={{ fontSize: 15, fontWeight: 600 }}>{resumenSerie(justSet)}</div>
-              </div>
-              <button onClick={onDismissRest} style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>Corregir</button>
-            </div>
-          )}
-        </Card>
-        <button onClick={nextBlock || nextInBlock ? finishRest : () => { onDismissRest(); onFinish(); }}
-          style={{ width: "100%", padding: "14px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 18, fontWeight: 600 }}>
-          {ctaLabel}
-        </button>
-      </>
-    );
-  }
-
   // UNA serie a la vez. Antes la tarjeta listaba las tres o cuatro
   // series del ejercicio (hechas colapsadas, la activa abierta, las
   // pendientes en gris) y había que buscar con la vista cuál era "la
   // mía" y qué pasaba al marcarla. Entrenando eso sobra: se muestra la
   // serie que toca, se completa, y aparece el descanso diciendo qué
   // sigue. Dónde estás dentro del ejercicio lo dice la tira de puntos.
-  const renderActiveSet = (r) => {
-    const exx = exs[r.ei];
-    const st = exx.sets[r.si];
-
-    const lastEntry = lastEntryOf(exx.id);
-    const lastSet = lastEntry ? (lastEntry.sets || [])[r.si] : null;
-
-    // Objetivo y RIR ya viajan como pie de su propia columna; acá queda
-    // solo lo que no tiene columna donde caer.
-    const extraBits = [];
-    if (PCT_TYPES.includes(st.type) && st.pct != null && st.pct !== "") extraBits.push(`${st.pct}% del top set`);
-
-    // Los cuatro accesos del ejercicio (técnica, historial, indicaciones,
-    // Coach IA) más el "···" de la serie. Antes vivían en una grilla de
-    // 5 fichas al pie de la pantalla, lejos de lo que describen; acá van
-    // adentro de la tarjeta, arriba de los números, que es donde se los
-    // busca: son cosas que se consultan MIENTRAS se registra la serie.
-    const hayIndicaciones = (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes);
-    const acciones = [
-      ["Ver la técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei), false],
-      ["Historial del ejercicio", History, () => setHistEx(block.group ? block.members[0] : block.ei), false],
-      ["Indicaciones del coach", FileText, () => setCoachNotesOpen(true), hayIndicaciones],
-      ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
-      ["Más opciones de esta serie", MoreHorizontal, () => setRowMoreFor({ ei: r.ei, si: r.si }), false],
-    ];
+  /* El ejercicio entero en una tabla: una fila por serie, con su consigna
+     y sus tres casillas. Antes se mostraba UNA serie por pantalla, y para
+     saber qué tocaba en la siguiente había que completar la actual. Así
+     se ve el ejercicio completo de un vistazo, se puede rellenar en el
+     orden que sea y corregir una serie anterior sin navegar. */
+  const tablaEjercicio = (() => {
+    const consignas = block.group ? null : consignasPorSerie(exs[block.ei]);
+    const objetivo = (() => {
+      const st = block.rows.map((r) => exs[r.ei].sets[r.si]);
+      const reps = [...new Set(st.map((x) => x.repsT).filter(Boolean))];
+      return reps.length === 1 ? `${st.length} × ${reps[0]}` : `${st.length} series`;
+    })();
+    const descanso = block.group ? exs[block.members[0]].rest : exs[block.ei].rest;
+    const idxActiva = activeRowIdx === -1 ? -1 : activeRowIdx;
 
     return (
-      <div>
-        {block.group && (
-          <div style={{ fontSize: 17, fontWeight: 600, color: P.text, marginBottom: 10,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exx.name}</div>
-        )}
-        {/* Todo lo que se consulta sin soltar la mancuerna, a la
-            izquierda; la sigla del tipo de serie a la derecha. Por qué
-            serie vas ya lo dice el "S1/3" de arriba. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          {acciones.map(([lbl, Icon, onClick, marcado]) => (
-            <button key={lbl} onClick={onClick} aria-label={marcado ? `${lbl} — hay indicaciones` : lbl} title={lbl}
-              style={{ width: 36, height: 36, borderRadius: 18, flexShrink: 0,
-                background: marcado ? PLATE_GRAD : P.s3, color: marcado ? PLATE_FG : P.text,
-                display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Icon size={16} strokeWidth={2.2} />
-            </button>
+      <Card style={{ padding: "13px 13px 6px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <span className="disp" style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            background: P.s3, border: `1px solid ${P.separatorStrong}`, fontSize: 15, fontWeight: 700, color: P.text }}>{blockIdx + 1}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 17.5, fontWeight: 700, color: P.text, lineHeight: 1.2 }}>{blockTitle}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: P.faint2, padding: "4px 9px", borderRadius: 999, background: P.s3 }}>Objetivo {objetivo}</span>
+              {descanso ? <span style={{ fontSize: 12, fontWeight: 600, color: P.text, padding: "4px 9px", borderRadius: 999, background: P.s3, border: `1px solid ${P.separatorStrong}` }}>Descanso {descanso}s</span> : null}
+              {block.group && <span style={{ fontSize: 12, fontWeight: 600, color: P.text, padding: "4px 9px", borderRadius: 999, background: P.s3 }}>{GROUP_KINDS[block.kind].label} · {block.rounds} rondas</span>}
+            </div>
+          </div>
+          <button onClick={() => setFicha(block.group ? block.members[0] : block.ei)} aria-label="Ver la técnica"
+            style={{ width: 34, height: 34, borderRadius: 17, flexShrink: 0, background: P.s3, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Play size={15} />
+          </button>
+        </div>
+
+        {/* Cabecera de columnas: sin ella, tres casillas iguales no dicen
+            cuál es cuál hasta que se tocan. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 13, paddingBottom: 6, borderBottom: `1px solid ${P.line}` }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>Serie</span>
+          <span style={{ width: 54, textAlign: "center", fontSize: 10.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: P.faint2 }}>{weightUnit}</span>
+          {["Reps", "RIR"].map((l) => (
+            <span key={l} style={{ width: 54, textAlign: "center", fontSize: 10.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: P.faint2 }}>{l}</span>
           ))}
-          <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 12, fontWeight: 700, letterSpacing: ".05em",
-            padding: "7px 14px", borderRadius: 999, border: `1.5px solid ${P.separatorStrong}`, color: P.text, whiteSpace: "nowrap" }}>
-            {(SET_TYPES[st.type] || SET_TYPES.normal).short}
-          </span>
+          <span style={{ width: 36, textAlign: "center", fontSize: 11, color: P.faint2 }}>✓</span>
         </div>
-        <div style={{ height: 1, background: P.fillTertiary, margin: "13px 0 0" }} />
-        <div style={{ display: "flex", gap: 10, alignItems: "stretch", paddingTop: 14 }}>
-          <SetStepperCol label="Peso" sufijo={<UnitToggleMini />} decimals={1}
-            step={weightUnit === "kg" ? 2.5 : 5}
-            value={pesoMostrado(st.weight)}
-            onChange={(v) => setVal(r.ei, r.si, "weight", String(pesoAKg(v)))}
-            caption={equivalencia(st.weight)} />
-          <SetStepperCol label="Reps" value={st.reps === "" ? 0 : +st.reps}
-            onChange={(v) => setVal(r.ei, r.si, "reps", String(v))} step={1} decimals={0}
-            caption={st.repsT ? `${st.repsT} reps` : (lastSet && lastSet.reps !== "" && lastSet.reps != null ? `Última: ${lastSet.reps}` : null)} />
-          <SetStepperCol label="RIR" value={st.rir === "" ? 0 : +st.rir}
-            onChange={(v) => setVal(r.ei, r.si, "rir", String(v))} step={1} decimals={0}
-            caption={st.rirT !== "" && st.rirT != null ? `Objetivo ${st.rirT}` : (lastSet && lastSet.rir !== "" && lastSet.rir != null ? `Última: ${lastSet.rir}` : null)} />
-        </div>
-        {extraBits.length > 0 && (
-          <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 8, textAlign: "center" }}>{extraBits.join(" · ")}</div>
-        )}
-        {renderCommentBlock(r.ei, r.si)}
-      </div>
-    );
-  };
 
-  /* La tira de series del ejercicio en curso. Es lo que faltaba: hasta
-     ahora la pantalla mostraba SOLO la serie activa, con los números ya
-     precargados de la anterior, así que al completar una no cambiaba
-     nada visible y era imposible saber si había quedado registrada ni
-     por cuál ibas. Acá cada serie dice en qué estado está:
-       hecha      → tinta llena, ✓ y LO QUE SE GUARDÓ (12,5 × 10)
-       en curso   → borde marcado y el objetivo
-       pendiente  → apagada
-     Tocar una serie hecha vuelve a ella para corregirla, que es mucho
-     más directo que apretar «Atrás» varias veces a ciegas. */
-  const tiraSeries = (() => {
-    if (block.rows.length < 2) return null;
-    const idxActiva = activeRowIdx === -1 ? block.rows.length : activeRowIdx;
-    return (
-      <div role="list" aria-label="Series de este ejercicio"
-        style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
         {block.rows.map((r, i) => {
-          const st = exs[r.ei].sets[r.si];
-          const hecha = st.done;
+          const exx = exs[r.ei];
+          const st = exx.sets[r.si];
           const activa = i === idxActiva;
-          const resumen = hecha ? resumenSerie(st) : (st.repsT ? `${st.repsT}` : "—");
+          const tipo = (SET_TYPES[st.type] || SET_TYPES.normal).short;
+          const consigna = consignas ? consignas[i] : null;
+          const pie = [st.repsT ? `${st.repsT} reps` : null, st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null]
+            .filter(Boolean).join(" · ");
           return (
-            <button key={`${r.ei}-${r.si}`} role="listitem" disabled={!hecha}
-              className={paso.acuse === i ? "acuse" : undefined}
-              onClick={() => { if (hecha) volverASerie(i); }}
-              aria-label={`Serie ${i + 1}${hecha ? `, hecha: ${resumen}. Tocar para corregirla` : activa ? ", en curso" : ", pendiente"}`}
-              aria-current={activa ? "step" : undefined}
-              style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999,
-                background: hecha ? PLATE_GRAD : activa ? P.s1 : "transparent",
-                border: `1.5px solid ${hecha ? "transparent" : activa ? P.text : P.separatorStrong}`,
-                color: hecha ? PLATE_FG : activa ? P.text : P.faint2,
-                fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap",
-                transition: `background ${DUR_ROW}ms ${EASE_STD}, border-color ${DUR_ROW}ms ${EASE_STD}` }}>
-              {hecha ? <Check size={13} strokeWidth={3} /> : <span style={{ opacity: activa ? 1 : .8 }}>S{i + 1}</span>}
-              <span style={{ fontWeight: hecha ? 600 : 500 }}>{resumen}</span>
-            </button>
+            <div key={`${r.ei}-${r.si}`}
+              style={{ padding: "11px 0", borderBottom: i < block.rows.length - 1 ? `1px solid ${P.line}` : "none" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 4, opacity: st.done ? .62 : 1 }}>
+              <div style={{ flex: 1, minWidth: 0, paddingRight: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: 3, flexShrink: 0,
+                    background: st.done ? P.text : activa ? P.text : P.separatorStrong }} />
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>
+                    {block.group ? `R${(r.round || 0) + 1}` : `Serie ${i + 1}`}
+                  </span>
+                  {tipo && st.type !== "normal" && (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".04em", color: P.faint2, border: `1px solid ${P.separatorStrong}`, borderRadius: 999, padding: "1px 5px" }}>{tipo}</span>
+                  )}
+                </div>
+                {block.group && <div style={{ fontSize: 11.5, color: P.faint2, marginTop: 2 }}>{exx.name}</div>}
+                <div style={{ fontSize: 11.5, color: P.faint2, marginTop: 3, lineHeight: 1.35 }}>{consigna || pie || "—"}</div>
+              </div>
+              <NumCell aria={`Peso de la serie ${i + 1}`} placeholder={weightUnit}
+                valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight)).replace(".", ",")}
+                onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v))))} />
+              <NumCell aria={`Repeticiones de la serie ${i + 1}`} placeholder="reps"
+                valor={st.reps == null ? "" : String(st.reps)}
+                onCommit={(v) => setVal(r.ei, r.si, "reps", v)} />
+              <NumCell aria={`RIR de la serie ${i + 1}`} placeholder="RIR"
+                valor={st.rir == null ? "" : String(st.rir)}
+                onCommit={(v) => setVal(r.ei, r.si, "rir", v)} />
+              <button onClick={() => onToggleDone(r.ei, r.si)}
+                aria-label={st.done ? `Desmarcar la serie ${i + 1}` : `Marcar la serie ${i + 1} como hecha`}
+                aria-pressed={st.done}
+                style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: st.done ? PLATE_GRAD : P.s3, color: st.done ? PLATE_FG : P.faint2,
+                  border: `1px solid ${st.done ? "transparent" : P.line}`,
+                  transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
+                <Check size={17} strokeWidth={3} />
+              </button>
+            </div>
+            {/* El comentario de ESTA serie, debajo de su fila. Se abre desde
+                el «···»; sin esto, ese botón no dibujaba nada. */}
+            {renderCommentBlock(r.ei, r.si)}
+            </div>
           );
         })}
-      </div>
+      </Card>
+    );
+  })();
+
+  /* El descanso, siempre visible y siempre en el mismo sitio: corriendo
+     muestra la cuenta atrás, parado deja elegir la duración y arrancarlo
+     a mano. Antes solo aparecía al completar una serie, y no había forma
+     de cronometrar un descanso por tu cuenta. */
+  const bloqueDescanso = (() => {
+    const corriendo = !!timer;
+    const left = corriendo ? Math.max(0, Math.ceil((timer.endsAt - now) / 1000)) : restSel;
+    return (
+      <Card style={{ padding: "12px 12px", display: "flex", flexDirection: "column", gap: 9 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            minWidth: 92, padding: "8px 10px", borderRadius: R_TILE, background: P.s3 }}>
+            <span className="num" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums", color: P.text }}>{fmtClock(left)}</span>
+            <span style={{ fontSize: 10.5, color: P.faint2, marginTop: 3 }}>descanso</span>
+          </div>
+          <div style={{ flex: 1, minWidth: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {[30, 45, 60, 90].map((s) => (
+              <button key={s} onClick={() => { setRestSel(s); if (corriendo) onDismissRest(); }}
+                style={{ padding: "8px 0", borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  background: !corriendo && restSel === s ? P.s3 : "transparent",
+                  border: `1px solid ${!corriendo && restSel === s ? P.text : P.separatorStrong}`, color: P.text }}>{s}s</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => (corriendo ? onAdjustRest(-15) : setRestSel((v) => Math.max(5, v - 15)))}
+            style={{ flex: 1, padding: "11px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 14, fontWeight: 700 }}>−15</button>
+          <button onClick={() => (corriendo ? onDismissRest() : onStartRest && onStartRest(restSel))}
+            style={{ flex: 2, padding: "11px 0", borderRadius: R_TILE, background: PLATE_GRAD, color: PLATE_FG, fontSize: 15, fontWeight: 700 }}>
+            {corriendo ? "Detener" : "Iniciar"}
+          </button>
+          <button onClick={() => (corriendo ? onAdjustRest(15) : setRestSel((v) => v + 15))}
+            style={{ flex: 1, padding: "11px 0", borderRadius: R_TILE, background: P.s3, color: P.text, fontSize: 14, fontWeight: 700 }}>+15</button>
+          <button onClick={() => { onDismissRest(); setRestSel(descansoDelBloque); }} aria-label="Volver al descanso del ejercicio"
+            style={{ flexShrink: 0, width: 44, padding: "11px 0", borderRadius: R_TILE, background: P.s3, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <RotateCcw size={16} />
+          </button>
+        </div>
+      </Card>
     );
   })();
 
@@ -5688,26 +5766,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         {pendingWrites ? "Guardando…" : storageOK ? "Guardado automático" : "Sin guardado — revisa el navegador"}
       </div>
     </div>
-  );
-
-  // El ejercicio quedó completo y no hay descanso corriendo: no se deja
-  // al usuario mirando una tarjeta vacía preguntándose qué hacer.
-  const blockDonePanel = (
-    <>
-      <Card style={{ padding: "22px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 9 }}>
-        <span style={{ width: 44, height: 44, borderRadius: 22, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Check size={24} color={PLATE_FG} strokeWidth={3} />
-        </span>
-        <span style={{ fontSize: 18, fontWeight: 600, color: P.text }}>Ejercicio completo</span>
-        <span style={{ fontSize: 14, color: P.faint2, textAlign: "center" }}>
-          {blockIdx < blocks.length - 1
-            ? `Sigue: ${blocks[blockIdx + 1].group ? blocks[blockIdx + 1].members.map((m) => exs[m].name).join(" + ") : exs[blocks[blockIdx + 1].ei].name}`
-            : "Es el último ejercicio de la sesión"}
-        </span>
-      </Card>
-      {pieNav(blockIdx < blocks.length - 1 ? "Ir al siguiente ejercicio" : "Finalizar sesión",
-        () => (blockIdx < blocks.length - 1 ? goBlock(1) : onFinish()))}
-    </>
   );
 
   // Se recalcula con `now` (el reloj de la sesión, que corre cada
@@ -5817,35 +5875,43 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         {!block.group && parseTempo(exs[block.ei].notes) && (
           <div style={{ marginTop: 8 }}><TempoBadge tempo={parseTempo(exs[block.ei].notes)} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>
         )}
-        {/* Las series del ejercicio, con lo que quedó guardado en cada
-            una. Va acá arriba, fija, para que se vea igual mientras
-            registras y mientras descansas. */}
-        {tiraSeries && <div style={{ marginTop: 11 }}>{tiraSeries}</div>}
       </div>
 
-      {/* Una sola cosa en pantalla a la vez: o descansas, o registras la
-          serie que toca, o el ejercicio ya está hecho. Cada estado trae
-          su propio botón grande diciendo qué pasa al tocarlo.
-          La `key` fuerza que el bloque se vuelva a montar en cada paso:
-          sin eso React reaprovecha los nodos, la animación no se
-          reproduce y el cambio de serie pasa desapercibido. */}
-      {timer ? restCard : blockDone ? blockDonePanel : (
-        <div key={paso.n} className={paso.clase}>
-          <Card style={{ padding: "14px 14px 16px" }}>
-            {block.group && (
-              <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2, marginBottom: 8 }}>
-                {GROUP_KINDS[block.kind].label} · Ronda {(block.rows[activeRowIdx].round || 0) + 1} de {block.rounds}
-              </div>
-            )}
-            {renderActiveSet(block.rows[activeRowIdx])}
-          </Card>
-          {/* La última serie del ejercicio lo dice, para que no sorprenda
-              que el toque siguiente cambie de ejercicio. */}
-          {pieNav(activeRowIdx === block.rows.length - 1 ? "Siguiente ejercicio" : "Siguiente serie",
-            () => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si))}
+      {/* El ejercicio completo, el descanso y el pie. Ya no hay tres
+          estados excluyentes (registrar / descansar / ejercicio hecho):
+          la tabla siempre está, el descanso vive debajo, y el pie dice
+          qué falta. Se ve todo lo que toca sin tener que avanzar. */}
+      <div key={paso.n} className={paso.clase} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {tablaEjercicio}
+        {bloqueDescanso}
+        {/* Lo que se consulta sin soltar la mancuerna. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          {[["Ver la técnica", Video, () => setFicha(block.group ? block.members[0] : block.ei), false],
+            ["Historial del ejercicio", History, () => setHistEx(block.group ? block.members[0] : block.ei), false],
+            ["Indicaciones del coach", FileText, () => setCoachNotesOpen(true),
+              (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes)],
+            ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
+            ["Más opciones de esta serie", MoreHorizontal, () => setRowMoreFor({ ei: block.rows[Math.max(0, activeRowIdx)].ei, si: block.rows[Math.max(0, activeRowIdx)].si }), false],
+          ].map(([lbl, Icon, onClick, marcado]) => (
+            <button key={lbl} onClick={onClick} aria-label={marcado ? `${lbl} — hay indicaciones` : lbl} title={lbl}
+              style={{ width: 36, height: 36, borderRadius: 18, flexShrink: 0,
+                background: marcado ? PLATE_GRAD : P.s3, color: marcado ? PLATE_FG : P.text,
+                display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon size={16} strokeWidth={2.2} />
+            </button>
+          ))}
+          <button onClick={() => setCalcOpen(true)}
+            style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, padding: "9px 12px", borderRadius: 999,
+              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>
+            <Calculator size={15} /> Calcular RM
+          </button>
         </div>
-      )}
-
+        {blockDone
+          ? pieNav(blockIdx < blocks.length - 1 ? "Siguiente ejercicio" : "Finalizar sesión",
+              () => (blockIdx < blocks.length - 1 ? goBlock(1) : onFinish()))
+          : pieNav(activeRowIdx === block.rows.length - 1 ? "Siguiente ejercicio" : "Siguiente serie",
+              () => onToggleDone(block.rows[activeRowIdx].ei, block.rows[activeRowIdx].si))}
+      </div>
 
       {/* Salir de la sesión: hoja de 4 salidas (no un solo diálogo de
           confirmación) — la "✕" y "Terminar" abren la misma hoja, tal
@@ -6183,6 +6249,9 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   // Ficha del ejercicio abierta desde la vista previa del día.
   const [fichaEx, setFichaEx] = useState(null);
   const [browsing, setBrowsing] = useState(false);   // ver la rutina aunque haya sesión abierta
+  // Día esperando a que se elija gimnasio. La sesión no se crea hasta que
+  // se elige: así el registro nunca queda sin sede.
+  const [pidiendoGym, setPidiendoGym] = useState(null);
   const [confirmSwitch, setConfirmSwitch] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
   const [, tick] = useState(0);
@@ -6201,7 +6270,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     setOpenRoutines((o) => (o.includes(activeRoutine) ? o : [...o, activeRoutine]));
   }, [activeRoutine]);
 
-  const startSession = (day) => {
+  const startSession = (day, gym) => {
     // Las reps y el RIR salen de la semana en curso del mesociclo; si esa
     // semana no fija nada para el ejercicio, se usan los del propio ejercicio.
     // `week` es null cuando el coach eligió «Sin mesociclo»: entonces la sesión
@@ -6210,6 +6279,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     const snap = {
       id: uid(), dayId: day.id, dayName: day.name, startedAt: todayISO(),
       weekId: week ? week.id : null, weekName: week ? week.name : "", deload: !!(week && week.deload),
+      gym: gym || "",
       attachIds: [],
       exs: (day.exs || []).map((ex) => ({ ...ex, comment: "", attachIds: [],
         sets: (ex.sets || []).map((s, si) => {
@@ -6231,7 +6301,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   useEffect(() => {
     if (!abrirDiaId || active) { if (abrirDiaId) onAutoStartConsumed && onAutoStartConsumed(); return; }
     const day = (plan.days || []).find((d) => d.id === abrirDiaId);
-    if (day) { setBrowsing(false); setPreviewDay(day); }
+    if (day) { setBrowsing(false); setPreviewDay(null); setPidiendoGym(day); }
     onAutoStartConsumed && onAutoStartConsumed();
   }, [abrirDiaId]);
 
@@ -6337,15 +6407,18 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
           ) : (
             <div style={{ display: "flex", gap: 8, width: "100%" }}>
               <Btn kind="line" onClick={() => setPreviewDay(null)} style={{ flex: 1 }}><X size={16} /> Salir sin iniciar</Btn>
-              <Btn kind="ember" onClick={() => startSession(d)} style={{ flex: 2 }}><Play size={16} /> Iniciar entrenamiento</Btn>
+              <Btn kind="ember" onClick={() => setPidiendoGym(d)} style={{ flex: 2 }}><Play size={16} /> Iniciar entrenamiento</Btn>
             </div>
           )}
         </div>
         <Confirm open={!!confirmSwitch} danger title="Ya tienes una sesión en curso"
           body={`Se descartará «${active ? active.dayName : ""}» con todo lo que lleves registrado y empezará «${confirmSwitch ? confirmSwitch.name : ""}». Esta acción no se puede deshacer.`}
           okLabel="Descartar y empezar" onCancel={() => setConfirmSwitch(null)}
-          onOk={() => { const day = confirmSwitch; setConfirmSwitch(null); discardSession(); startSession(day); }} />
+          onOk={() => { const day = confirmSwitch; setConfirmSwitch(null); discardSession(); setPidiendoGym(day); }} />
         <ExerciseInfoSheet ex={fichaEx} open={!!fichaEx} onClose={() => setFichaEx(null)} onError={toast} history={history} />
+        <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
+          onClose={() => setPidiendoGym(null)}
+          onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g); }} />
       </div>
     );
   }
@@ -6409,6 +6482,9 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             </Card>
           );
         })}
+        <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
+          onClose={() => setPidiendoGym(null)}
+          onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g); }} />
         {summarySheet}
       </div>
     );
@@ -6469,8 +6545,12 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
 
   return (
     <>
+      <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
+        onClose={() => setPidiendoGym(null)}
+        onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g); }} />
       <FocusModeMono active={active} history={history} plan={plan} patch={patch} onOpenDevices={onOpenDevices} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
         timer={timer} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
+        onStartRest={(seg) => { setTimer({ exIdx: 0, setIdx: 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
         onBrowseRoutine={() => { setBrowsing(true); setPreviewDay(null); }} />
       {summarySheet}
@@ -11193,6 +11273,8 @@ const ActivityTab = ({ plan, history }) => {
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.dayName}</div>
               <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>{fmtDateFull(s.date)} · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg</div>
+              {/* Dónde se entrenó. Es lo que permite leer el historial por sede. */}
+              {s.gym && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}><Home size={12} /> {s.gym}</div>}
             </div>
             {s.hasComments && <MessageSquare size={15} color={P.ember2} />}
             {(s.prs || []).length > 0 && <Award size={15} color={P.ember2} />}
@@ -17770,7 +17852,7 @@ const App = () => {
       recordedExs.push({ exId: ex.id, name: ex.name });
     });
     if ((a.attachIds || []).length > 0) hasComments = true;
-    h.sessions.push({ id: a.id, date, dayId: a.dayId, dayName: a.dayName, durationMin, volume, setsDone, setsTotal, prs, hasComments, exs: recordedExs, attachIds: a.attachIds || [] });
+    h.sessions.push({ id: a.id, date, dayId: a.dayId, dayName: a.dayName, gym: a.gym || "", durationMin, volume, setsDone, setsTotal, prs, hasComments, exs: recordedExs, attachIds: a.attachIds || [] });
     setHistory(h);
     sSet(`forja-history:${sidRef.current}`, h).then(() => force((x) => x + 1));
     activeRef.current = null; setActive(null); setSavedAt("");
