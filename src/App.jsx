@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v201";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v203";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8154,14 +8154,18 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           {recentPRs.length > 0 && (
             <Collapsible title="Récords recientes" summary={`${recentPRs.length}`}>
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {/* La insignia "PR" y el valor van en el mismo verde que usa
+                    la sesión para "lo que ya hiciste" (v201/v202) — un
+                    récord es, sin ambigüedad, algo bueno: es donde el
+                    acento único de la app tiene sentido usarse acá también. */}
                 {recentPRs.map((pr, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 13, background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE, padding: "14px 15px" }}>
-                    <span style={{ width: 32, height: 32, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: P.text, flexShrink: 0 }}>PR</span>
+                    <span style={{ width: 32, height: 32, borderRadius: 10, background: SES.accSoft, border: `1px solid ${SES.accLine}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: SES.acc, flexShrink: 0 }}>PR</span>
                     <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
                       <span style={{ fontSize: 14.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.name}</span>
                       <span style={{ fontSize: 12.5, color: P.faint2 }}>{daysAgoLabel(pr.date)}</span>
                     </div>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: P.text, flexShrink: 0 }}>{pr.value}</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: SES.acc, flexShrink: 0 }}>{pr.value}</span>
                   </div>
                 ))}
               </div>
@@ -8190,7 +8194,10 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           <RowGroup label="Cuerpo" rows={[
             { label: "Medidas", value: lastMeasure ? daysAgoLabel(lastMeasure.date) : "—", onClick: () => setMeasureOpen(true) },
             { label: "Fotos", value: photos.length ? String(photos.length) : "—", onClick: () => setCompareOpen(true) },
-            { label: "Adherencia", value: adherence == null ? "—" : `${Math.round(adherence)}%` },
+            // Mismo criterio que la lista de Atletas del coach (v201):
+            // verde solo cuando es buena (≥70%), gris el resto — nunca en
+            // rojo de alarma. El mismo dato se lee igual en los dos lados.
+            { label: "Adherencia", value: adherence == null ? "—" : `${Math.round(adherence)}%`, tone: adherence != null && adherence >= 70 ? SES.acc : undefined },
           ]} />
         </>
       )}
@@ -9752,6 +9759,95 @@ const DraftsPanel = ({ toast, onInfo, roster }) => {
   );
 };
 
+/* ============================================================
+   La rutina como partitura — el mesociclo entero en una pantalla.
+   Hoy el editor es una lista de días, cada uno con su lista de
+   ejercicios: para ver "cómo viene la carga esta semana" hay que abrir
+   uno por uno. Acá las semanas del mesociclo activo son columnas y los
+   días de la semana filas; cada casilla es cuántas series tiene ESE día
+   (el número no cambia semana a semana en este modelo de datos — lo que
+   varía por semana son reps/RIR objetivo, en `ex.weekly`, no la cantidad
+   de series — así que el valor real que aporta esta vista es comparar
+   la carga ENTRE días de un vistazo, y ver de un vistazo qué semana es
+   la de descarga y cuál es "hoy"). Solo lectura: para editar se sigue
+   usando el editor de siempre. */
+const MesoPartitura = ({ plan }) => {
+  const meso = currentMesociclo(plan);
+  const DIAS = [["mon", "Lun"], ["tue", "Mar"], ["wed", "Mié"], ["thu", "Jue"], ["fri", "Vie"], ["sat", "Sáb"], ["sun", "Dom"]];
+  const filas = DIAS.map(([dk, label]) => {
+    const dayId = plan.schedule ? plan.schedule[dk] : null;
+    const day = dayId ? plan.days.find((d) => d.id === dayId) : null;
+    const series = day ? day.exs.reduce((a, e) => a + e.sets.length, 0) : 0;
+    return { dk, label, day, series };
+  });
+  const maxSeries = Math.max(1, ...filas.map((f) => f.series));
+  const semanas = meso ? meso.weeks : [];
+  const semanaActualIdx = meso ? Math.min(meso.current || 0, semanas.length - 1) : -1;
+
+  if (!plan.days.length) {
+    return <Empty icon={Calendar} title="Todavía no hay rutina" body="Agrega días en «Días» y después vuelve acá para ver cómo se reparte la carga semana a semana." />;
+  }
+
+  return (
+    <div style={{ marginBottom: 26 }}>
+      <div style={{ fontSize: 13.5, color: P.faint2, lineHeight: 1.5, marginBottom: 14 }}>
+        {meso ? <>«{meso.name}» · {semanas.length} semana{semanas.length !== 1 ? "s" : ""}</> : "Este alumno entrena sin mesociclo asignado."}
+        {" — "}el número es cuántas series tiene ese día; el color, cuánta carga relativa a los demás días.
+      </div>
+      <Card style={{ padding: 0, overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: semanas.length ? 60 + semanas.length * 46 : 200 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "10px 10px 8px 14px", fontSize: 11.5, fontWeight: 600, color: P.faint, position: "sticky", left: 0, background: P.s1 }}>Día</th>
+                {semanas.map((w, wi) => (
+                  <th key={w.id} style={{ padding: "10px 4px 8px", fontSize: 11, fontWeight: 600,
+                    color: wi === semanaActualIdx ? P.text : P.faint, textAlign: "center", minWidth: 42 }}>
+                    {wi + 1}{w.deload ? "·D" : ""}
+                  </th>
+                ))}
+                {!semanas.length && <th style={{ padding: "10px 12px 8px", fontSize: 11.5, color: P.faint, textAlign: "center" }}>Series</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((f) => (
+                <tr key={f.dk} style={{ borderTop: `1px solid ${P.line}` }}>
+                  <td style={{ padding: "8px 10px 8px 14px", position: "sticky", left: 0, background: P.s1 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: f.day ? P.text : P.faint }}>{f.label}</div>
+                    <div style={{ fontSize: 10.5, color: P.faint2, marginTop: 1, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {f.day ? f.day.name : "Libre"}
+                    </div>
+                  </td>
+                  {(semanas.length ? semanas : [null]).map((w, wi) => {
+                    const esHoy = w && wi === semanaActualIdx;
+                    const opac = f.series ? 0.16 + 0.7 * (f.series / maxSeries) : 0;
+                    return (
+                      <td key={w ? w.id : "u"} style={{ padding: "6px 4px" }}>
+                        {f.day ? (
+                          <div style={{ height: 30, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: 11.5, fontWeight: 700, fontVariantNumeric: "tabular-nums",
+                            background: SES.acc, opacity: opac, color: SES.accInk,
+                            border: esHoy ? `1.5px solid ${SES.acc}` : "none",
+                            ...(w && w.deload ? { border: `1px dashed ${P.faint}`, background: "transparent", opacity: 1, color: P.faint } : {}) }}>
+                            {f.series}
+                          </div>
+                        ) : <div style={{ height: 30 }} />}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <div className="mono" style={{ fontSize: 10.5, color: P.faint2, marginTop: 10, letterSpacing: ".03em" }}>
+        {semanaActualIdx >= 0 && `Semana ${semanaActualIdx + 1} = la actual · `}punteado = semana de descarga
+      </div>
+    </div>
+  );
+};
+
 const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent, library, onSaveLibrary, onOpenCompare }) => {
   const [easy] = useEasyMode();
   const [view, setView] = useState("dias"); // 'dias' | 'biblioteca'
@@ -10108,10 +10204,12 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       {!easy && (
         <SectionSwitch style={{ marginBottom: 22 }} value={view} onChange={setView}
           items={[{ id: "dias", label: "Días" },
+                  { id: "partitura", label: "Partitura" },
                   { id: "biblioteca", label: `Biblioteca${(library || []).length > 0 ? ` (${library.length})` : ""}` }]} />
       )}
 
       {!easy && view === "biblioteca" && <LibraryPanel plan={plan} history={history} library={library} onSaveLibrary={onSaveLibrary} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
+      {!easy && view === "partitura" && <MesoPartitura plan={plan} />}
 
       {(easy || view === "dias") && (<>
 
