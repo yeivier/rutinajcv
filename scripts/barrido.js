@@ -184,6 +184,13 @@ const seed = (theme) => {
     for (const sg of ['Actividad', 'Rankings', 'Cobros', 'Leads']) { await seg(sg); await check('Atletas · ' + sg); }
     await tab('Rutinas');
     for (const sg of ['Rutina', 'Borradores', 'Nutrición', 'IA']) { await seg(sg); await check('Rutinas · ' + sg); }
+    // Dentro de «Rutina» hay un segundo toggle (Días/Partitura/Biblioteca):
+    // v202 agrega «Partitura», el mesociclo entero en una tabla.
+    await seg('Rutina');
+    {
+      const p = page.getByRole('button', { name: 'Partitura', exact: true }).first();
+      if (await p.count()) { await p.click(); await page.waitForTimeout(600); await check('Rutina · Partitura'); }
+    }
     // Comparador de rutinas: capa a pantalla completa, se cierra con la X
     await seg('Rutina');
     {
