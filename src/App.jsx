@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v203";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v204";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2744,14 +2744,15 @@ const GlobalStyle = () => {
     @keyframes fjSpin { to { transform: rotate(360deg); } }
     .fj-spin { animation: fjSpin .85s linear infinite; }
     .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
       color: ${P.text}; font-variant-numeric: tabular-nums;
       line-height: 1.42; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
     /* Los títulos ya no cambian de familia — solo de tamaño, peso y
        tracking. A partir de 22px iOS aprieta el interletrado; acá se hace
-       igual, y el peso máximo baja de 800 a 700 (SF Pro no tiene un 800
-       real y el navegador lo falsea engordando el trazo). */
-    .fj h1,.fj h2,.fj .disp { font-family: inherit; letter-spacing: -.022em; font-weight: 700; }
+       igual. El peso sube a 800: a diferencia de SF Pro (que no tiene un
+       800 real y el navegador lo falseaba engordando el trazo), Inter sí
+       trae ese corte dibujado — se nota, sobre todo en los títulos. */
+    .fj h1,.fj h2,.fj .disp { font-family: inherit; letter-spacing: -.022em; font-weight: 800; }
     .fj h1 { font-size: 34px; line-height: 1.06; }
     .fj b, .fj strong { font-weight: 600; }
     /* Micro-etiquetas en versalitas (ENTRENO DE HOY, VOLUMEN, ADHERENCIA…):
