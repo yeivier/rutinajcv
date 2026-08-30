@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v202";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v203";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8154,14 +8154,18 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           {recentPRs.length > 0 && (
             <Collapsible title="Récords recientes" summary={`${recentPRs.length}`}>
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {/* La insignia "PR" y el valor van en el mismo verde que usa
+                    la sesión para "lo que ya hiciste" (v201/v202) — un
+                    récord es, sin ambigüedad, algo bueno: es donde el
+                    acento único de la app tiene sentido usarse acá también. */}
                 {recentPRs.map((pr, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 13, background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE, padding: "14px 15px" }}>
-                    <span style={{ width: 32, height: 32, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: P.text, flexShrink: 0 }}>PR</span>
+                    <span style={{ width: 32, height: 32, borderRadius: 10, background: SES.accSoft, border: `1px solid ${SES.accLine}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: SES.acc, flexShrink: 0 }}>PR</span>
                     <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
                       <span style={{ fontSize: 14.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.name}</span>
                       <span style={{ fontSize: 12.5, color: P.faint2 }}>{daysAgoLabel(pr.date)}</span>
                     </div>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: P.text, flexShrink: 0 }}>{pr.value}</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: SES.acc, flexShrink: 0 }}>{pr.value}</span>
                   </div>
                 ))}
               </div>
@@ -8190,7 +8194,10 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           <RowGroup label="Cuerpo" rows={[
             { label: "Medidas", value: lastMeasure ? daysAgoLabel(lastMeasure.date) : "—", onClick: () => setMeasureOpen(true) },
             { label: "Fotos", value: photos.length ? String(photos.length) : "—", onClick: () => setCompareOpen(true) },
-            { label: "Adherencia", value: adherence == null ? "—" : `${Math.round(adherence)}%` },
+            // Mismo criterio que la lista de Atletas del coach (v201):
+            // verde solo cuando es buena (≥70%), gris el resto — nunca en
+            // rojo de alarma. El mismo dato se lee igual en los dos lados.
+            { label: "Adherencia", value: adherence == null ? "—" : `${Math.round(adherence)}%`, tone: adherence != null && adherence >= 70 ? SES.acc : undefined },
           ]} />
         </>
       )}
