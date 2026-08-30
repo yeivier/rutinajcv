@@ -13,21 +13,10 @@
   <link rel="canonical" href="https://forjaprotraining.com/" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-  <!-- v204: se revierte la decisión de "cero fuentes web" de más arriba.
-       El usuario probó el rediseño y, con razón, dijo que se veía igual
-       que antes — y tenía razón: toda la app corría con la tipografía del
-       sistema (SF Pro), la misma de siempre, así que ningún cambio de
-       mayúsculas o de chips se notaba de un vistazo. Inter es lo que
-       recibe cualquiera que no tenga la fuente, así que la mitigación es
-       la propia carga: font-display:swap pinta con la tipografía del
-       sistema al instante y cambia a Inter si llega a tiempo — nunca hay
-       texto invisible ni bloqueo, y si la red del gimnasio falla, se ve
-       exactamente como se veía antes (mismo fallback de siempre en el
-       CSS). Con caché de navegador, después de la primera vez es
-       instantánea igual. -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" />
+  <!-- Cero fuentes web: la app usa la tipografía del sistema (SF Pro en
+       iPhone/Mac, que es donde vive). No hay descarga, no hay parpadeo de
+       texto sin estilo y no hay fallback raro si la red del gimnasio está
+       mal. Solo se precalienta la API. -->
   <link rel="preconnect" href="https://vzenlmcbftopyjzcltxa.supabase.co" />
   <title>FORJA</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23FFFFFF'/><g fill='%23171512'><rect x='11' y='14.2' width='10' height='3.6' rx='1.3'/><rect x='4' y='11' width='2.6' height='10' rx='.9'/><rect x='7.6' y='9' width='3.2' height='14' rx='1.1'/><rect x='21.2' y='9' width='3.2' height='14' rx='1.1'/><rect x='25.4' y='11' width='2.6' height='10' rx='.9'/></g></svg>" />
@@ -42,7 +31,7 @@
        usa su base por defecto. Va antes del bundle: los dos con defer,
        que conserva el orden. -->
   <script src="/config.js" defer></script>
-  <script src="/bundle.js?v=204" defer></script>
+  <script src="/bundle_old.js" defer></script>
   <script>
     // Registra el service worker que permite abrir la app sin internet
     // (sirve la última copia guardada de index.html/bundle.js cuando no
