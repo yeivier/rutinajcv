@@ -6,6 +6,17 @@ Generado desde el código de la app, no transcrito a mano.
 
 **15 sesiones · 108 ejercicios · 274 series** en 3 rutinas.
 
+> **Nota (2026-08-31):** Rutina A ya no es 5 sesiones/36 ejercicios/85
+> series como dice el resto de este archivo — se sumaron ejercicios a
+> Entrenamiento A, B, D y E (sin sacar nada) y se agregó un sexto día,
+> Entrenamiento F, para llevar Pecho, Espalda, Hombro, Bíceps y
+> Tríceps al tope exacto del MRV natural. El detalle exacto de lo
+> agregado vive en `seedPlan()` (`src/App.jsx`), no en este archivo —
+> lo de abajo (Entrenamiento A a E) sigue siendo el contenido
+> ORIGINAL recuperado y no se tocó línea por línea acá para no
+> arriesgar una transcripción a mano de un dump que se generó desde
+> el código.
+
 ## Cronograma semanal
 
 | Día | Sesión |

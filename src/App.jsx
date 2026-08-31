@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v204";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v205";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2342,6 +2342,10 @@ function seedPlan() {
         ex("Elevación Lateral Cable/Máquina", "Hombro", 90, "", "El «/» son opciones: cable o máquina.", "", sets([n("10-12","0"), n("8-10","0")])),
         ex("Elevación Lateral Mancuernas", "Hombro", 90, "", "Sube con el codo, no con la mano.", "", sets([n("8-10","0"), n("8-10","0")])),
         ex("Extensión de Tríceps en Poleas Cruzadas", "Tríceps", 90, "", "", "", sets([n("10-12","0"), n("8-10","0")])),
+        // Sumadas para llevar Pecho y Tríceps al tope exacto del MRV
+        // (22 y 22 series/semana) sin tocar nada de lo que ya había.
+        ex("Press de Banca en Máquina Convergente", "Pecho", 120, "", "", "", sets([n("10-12","1"), n("8-10","1")])),
+        ex("Press Francés con Barra Z", "Tríceps", 90, "", "", "", sets([n("10-12","1"), n("10-12","1"), n("10-12","1")])),
       ]},
       { id: uid(), name: "Entrenamiento B", exs: [
         ex("Jalón Prono", "Espalda", 120, "", "", TRAINING_B_VIDEOS[0], sets([n("10-12","0"), n("8-10","0")])),
@@ -2351,6 +2355,10 @@ function seedPlan() {
         ex("Remo Bajo con Triángulo", "Espalda", 120, "", "", TRAINING_B_VIDEOS[4], sets([n("10-12","0"), n("8-10","0")])),
         ex("Aperturas inversas en polea", "Hombro", 90, "", "Deltoides posterior.", TRAINING_B_VIDEOS[5], sets([n("10-12","0"), n("10-12","0"), n("10-12","0")])),
         ex("Curl Scott en Máquina", "Bíceps", 90, "", "", "", sets([n("10-12","0"), n("8-10","0")])),
+        // Sumadas para llevar Hombro y Bíceps al tope exacto del MRV
+        // (26 y 26 series/semana) sin tocar nada de lo que ya había.
+        ex("Face Pull en Polea Alta", "Hombro", 90, "", "Deltoides posterior.", "", sets([n("12-15","0"), n("12-15","0"), n("12-15","0")])),
+        ex("Curl Araña en Banco Scott", "Bíceps", 90, "", "", "", sets([n("12-15","0"), n("10-12","0"), n("10-12","0")])),
       ]},
       { id: uid(), name: "Entrenamiento C", exs: [
         ex("Máquina Abductora", "Glúteo", 90, "", "", "", sets([n("12-15","0"), n("10-12","0"), n("8-10","0")])),
@@ -2369,6 +2377,10 @@ function seedPlan() {
         ex("Elevación frontal en banco inclinado", "Hombro", 90, "", "", "", sets([n("10-12","0"), n("8-10","0"), n("8-10","0")])),
         ex("Elevación Lateral Cable/Máquina", "Hombro", 90, "", "El «/» son opciones: cable o máquina.", "", sets([n("10-12","0"), n("8-10","0"), n("8-10","0"), n("8-10","0")])),
         ex("Extensión de Tríceps Francés Poleas/Manc", "Tríceps", 90, "", "El «/» son opciones: poleas o mancuernas.", "", sets([n("10-12","0"), n("10-12","0")])),
+        // Sumadas para llevar Hombro y Tríceps al tope exacto del MRV
+        // (26 y 22 series/semana) sin tocar nada de lo que ya había.
+        ex("Elevación Lateral en Polea Baja a un Brazo", "Hombro", 60, "", "", "", sets([n("12-15","0"), n("12-15","0"), n("12-15","0")])),
+        ex("Patada de Tríceps en Polea", "Tríceps", 60, "", "", "", sets([n("12-15","0"), n("12-15","0"), n("10-12","0")])),
       ]},
       { id: uid(), name: "Entrenamiento E", exs: [
         ex("Jalón Supino Bilateral", "Espalda", 120, "", "", "", sets([n("10-12","0"), n("8-10","0")])),
@@ -2378,6 +2390,27 @@ function seedPlan() {
         ex("Aperturas inversas en Máquina", "Hombro", 90, "", "Deltoides posterior.", "", sets([n("10-12","0"), n("10-12","0")])),
         ex("Curl en Banco Inclinado (45°)", "Bíceps", 90, "", "Codos atrás del torso, estiramiento completo.", "", sets([n("10-12","0"), n("8-10","0")])),
         ex("Hiperextensión en banco romano", "Glúteo", 90, "", "Sostén un peso contra el pecho.", "", sets([n("10-12","0"), n("10-12","0"), n("10-12","0")])),
+        // Sumadas para llevar Espalda y Bíceps al tope exacto del MRV
+        // (25 y 26 series/semana) sin tocar nada de lo que ya había.
+        ex("Remo en Punta con Mancuerna a un Brazo", "Espalda", 120, "", "", "", sets([n("10-12","1"), n("8-10","1"), n("8-10","1")])),
+        ex("Remo en Máquina Iso-Lateral", "Espalda", 120, "", "", "", sets([n("10-12","1"), n("10-12","1"), n("8-10","0")])),
+        ex("Curl Martillo con Cuerda en Polea", "Bíceps", 90, "", "", "", sets([n("10-12","1"), n("10-12","1"), n("8-10","0")])),
+      ]},
+      // Sexto día, íntegramente nuevo: sin él, Bíceps y Tríceps no
+      // llegaban ni cerca del MRV natural (venían de 4 series/semana
+      // cada uno, muy por debajo del mínimo efectivo) aunque A, B, D y
+      // E ya sumaran algo de brazo cada uno. Junto con esas sumas,
+      // cierra Tríceps en 22/22 y Bíceps en 26/26 exactos — el resto
+      // de días queda intacto.
+      { id: uid(), name: "Entrenamiento F", exs: [
+        ex("Extensión de Tríceps en Polea con Cuerda", "Tríceps", 90, "", "", "", sets([n("12-15","0"), n("10-12","0"), n("10-12","0")])),
+        ex("Press Francés Tumbado con Barra EZ", "Tríceps", 90, "", "", "", sets([n("10-12","1"), n("10-12","1"), n("8-10","0")])),
+        ex("Fondos en Máquina Asistida", "Tríceps", 90, "", "", "", sets([n("10-12","1"), n("10-12","1"), n("8-10","0")])),
+        ex("Extensión de Tríceps a un Brazo en Polea", "Tríceps", 60, "", "Una mano por vez.", "", sets([n("12-15","0"), n("12-15","0"), n("10-12","0")])),
+        ex("Curl con Barra Z de Pie", "Bíceps", 90, "", "", "", sets([n("10-12","1"), n("10-12","1"), n("8-10","1"), n("8-10","0")])),
+        ex("Curl Martillo con Mancuernas", "Bíceps", 90, "", "", "", sets([n("10-12","1"), n("10-12","1"), n("8-10","0"), n("8-10","0")])),
+        ex("Curl Concentrado en Banco Scott", "Bíceps", 90, "", "", "", sets([n("12-15","0"), n("10-12","0"), n("10-12","0"), n("8-10","0")])),
+        ex("Curl Inclinado con Mancuernas", "Bíceps", 90, "", "Codos atrás del torso, estiramiento completo.", "", sets([n("10-12","1"), n("10-12","1"), n("8-10","0"), n("8-10","0")])),
       ]},
     ],
     nutrition: {
@@ -2386,7 +2419,7 @@ function seedPlan() {
       meals: [],
     },
     instructions: [
-      { id: uid(), title: "Datos y cronograma", body: "27 años · 1,77 m · categoría Mens Physique. Peso inicial 83 → peso actual 90. Bloque de 4 semanas. Cronograma: Lunes A · Martes B · Miércoles C · Viernes D · Sábado E (jueves y domingo, descanso). Cardio suave ~120 bpm según indique el coach." },
+      { id: uid(), title: "Datos y cronograma", body: "27 años · 1,77 m · categoría Mens Physique. Peso inicial 83 → peso actual 90. Bloque de 4 semanas. Cronograma: Lunes A · Martes B · Miércoles C · Jueves F (brazos) · Viernes D · Sábado E (domingo, descanso). Cardio suave ~120 bpm según indique el coach." },
       { id: uid(), title: "Foco: progresión de carga", body: "El foco del plan es la progresión de carga. Anota SIEMPRE tus cargas para mantener el control (esta app lo hace por ti). El progreso no depende solo del plan, sino de la ejecución correcta, la técnica y la conciencia corporal: siente el músculo que trabaja. Si el entrenamiento se siente muy fácil, probablemente no estás dando tu máximo: progresa la carga con buena amplitud y cadencia. No agregues ejercicios ni series extra: más volumen puede perjudicar la recuperación." },
       { id: uid(), title: "Intensidad del Esfuerzo (IE) y RIR", body: "El IE mide el esfuerzo de cada serie en escala 1 a 10. 1–5: muy fácil (calentamiento). 6–7: medio, terminarías con 3–4 reps en reserva. 8: desafiante, ~2 reps en reserva. 9: muy exigente, queda 1 rep en reserva. 10: fallo total. En FORJA cada serie muestra el RIR equivalente: IE 10 = RIR 0, IE 9 = RIR 1, IE 8 = RIR 2. Respeta el IE de cada ejercicio como parámetro." },
       { id: uid(), title: "Series y calentamiento", body: "Las series que aparecen en cada ejercicio son las series efectivas (cerca o hasta el fallo, según el IE). Antes, calienta en el propio ejercicio: empieza con cargas bajas y súbelas de forma progresiva con pocas repeticiones, sin fatigarte. Ejemplo Leg Press: 40 kg (10) → 100 kg (6) → 140 kg (3) → serie principal. Regla del «/»: en el nombre = opciones (elige la que prefieras); en las repeticiones = las reps de cada serie (Serie 1 / Serie 2 / Serie 3)." },
@@ -2408,8 +2441,12 @@ function seedPlan() {
 // y añade la Rutina B (documento J2) a continuación de la Rutina A.
 function seedPlanWithSchedule() {
   const p = seedPlan();
-  const [A, B, C, D, E] = p.days.map((d) => d.id);
-  p.schedule = { mon: A, tue: B, wed: C, thu: null, fri: D, sat: E, sun: null };
+  // Entrenamiento F (brazos) es el sexto día, agregado para que Hombro,
+  // Pecho, Espalda, Bíceps y Tríceps lleguen al tope exacto del MRV
+  // natural sin sacar nada de A-E. Jueves era descanso y queda libre
+  // para él; domingo sigue siendo el único descanso real de la semana.
+  const [A, B, C, D, E, F] = p.days.map((d) => d.id);
+  p.schedule = { mon: A, tue: B, wed: C, thu: F, fri: D, sat: E, sun: null };
   p.days = p.days.map((d) => ({ ...d, routine: routineOf(d) })).concat(routineBDays(), routineCDays());
   p.routineNames = { ...(p.routineNames || {}), [ROUTINE_C]: ROUTINE_C_NAME };
   p.instructions = [...(p.instructions || []), { id: uid(), ...ROUTINE_C_INTRO }];
@@ -2785,6 +2822,12 @@ const GlobalStyle = () => {
     @keyframes fjPulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
     .fj .pulse { animation: fjPulse 1.6s ease-in-out infinite; }
     @keyframes fjUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+    /* Al desplegar una rutina en Coach → Rutinas, los días aparecían de
+       golpe, sin transición: quien tocaba el acordeón no tenía forma de
+       saber si había pasado algo. Reusa fjUp (definida arriba) para que
+       entren con un fundido + deslizamiento breve — igual de sutil que
+       el resto de la app, pero suficiente para que se note el cambio. */
+    .fj .deployIn { animation: fjUp ${DUR_PUSH}ms ${EASE_IN}; }
     /* Hojas: suben desde el borde de abajo, como las de sistema. Antes
        era un salto de 14px en 220ms —se leía como un parpadeo, no como
        una hoja— y el fondo oscuro aparecía de golpe. */
@@ -5361,6 +5404,18 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // Mientras dure la sesión, la pantalla no se apaga sola.
   usePantallaDespierta(true);
 
+  // Desde v200 la sesión es una sola página larga (sin paso a paso): con
+  // rutinas de muchos ejercicios el final queda lejísimos del principio.
+  // Este botón solo aparece pasado cierto scroll y sube de un toque —
+  // volver arriba a mano era el único gesto que no tenía atajo.
+  const [showTop, setShowTop] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 480);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   useEffect(() => {
     if (!timer) { restFiredRef.current = false; return; }
     const left = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
@@ -5835,6 +5890,22 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       )}
       {/* Que la barra del descanso no tape el final de la lista. */}
       {timer && <div aria-hidden style={{ height: 56 }} />}
+
+      {/* Volver arriba: aparece pasado cierto scroll, se corre por encima
+          de la barra de descanso cuando está sonando para no taparla. */}
+      {showTop && (
+        <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          aria-label="Subir al inicio de la sesión"
+          style={{ position: "fixed", right: 16,
+            bottom: timer ? `calc(66px + env(safe-area-inset-bottom))` : `calc(16px + env(safe-area-inset-bottom))`,
+            width: 44, height: 44, borderRadius: 22, zIndex: 39,
+            background: SES.card, border: `1px solid ${SES.line}`, color: SES.ink,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 14px rgba(0,0,0,.22)",
+            transition: `bottom ${DUR_ROW}ms ${EASE_STD}` }}>
+          <ArrowUp size={19} strokeWidth={2.4} />
+        </button>
+      )}
 
       {/* Salir de la sesión: hoja de 4 salidas (no un solo diálogo de
           confirmación) — la "✕" y "Terminar" abren la misma hoja, tal
@@ -10314,7 +10385,15 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 onDragEnd={endRoutineDrag} />
             </div>
           </div>
-          {open && (<>
+          {/* El acordeón antes mostraba los días de golpe, sin transición
+              ni ninguna marca visual de que "pertenecían" a la rutina de
+              arriba — quien lo tocaba no tenía forma de notar que algo
+              había pasado. El indent + la línea a la izquierda los leen
+              como contenido de RUTINA A_V3 (no una lista aparte más
+              abajo en la pantalla), y "deployIn" los hace entrar con un
+              fundido en vez de aparecer de golpe. */}
+          {open && (
+          <div className="deployIn" style={{ marginLeft: 6, paddingLeft: 12, borderLeft: `2px solid ${P.line}` }}>
           {g.items.map(({ day: d, index: di }) => (
             <Card key={d.id}
               data-day-card={d.id}
@@ -10509,7 +10588,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               </Btn>
             )}
           </div>
-          </>)}
+          </div>
+          )}
         </div>
       );});})()}
       {plan.days.length === 0 && (
