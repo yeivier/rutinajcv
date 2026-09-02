@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v214";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v215";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6665,14 +6665,12 @@ function useTodayData(plan, history, allowedRoutines) {
   const prevBw = bw.length > 1 ? bw[bw.length - 2] : null;
   const steps = history.steps || [];
   const lastSteps = steps.length ? steps[steps.length - 1] : null;
-  const water = history.water || [];
-  const lastWater = water.length ? water[water.length - 1] : null;
   const sleep = history.sleep || [];
   const lastSleep = sleep.length ? sleep[sleep.length - 1] : null;
   const adherence = adherencePct(plan, history, monthKeyOf(todayISO()));
   return { weekSessions, weekVol, streak, lastSession, suggested, suggested2, suggested2Done, setsOf,
     weekNum, weekTotal, mesoName: meso ? meso.name : null, week, lastBw, prevBw,
-    lastSteps, lastWater, lastSleep, adherence };
+    lastSteps, lastSleep, adherence };
 }
 
 // Una semana calendario (lunes→domingo) con el día que toca cada fecha y si
@@ -6857,7 +6855,6 @@ const MacroBar = ({ v }) => (
 const CHECKIN_PANES = {
   peso:        { label: "Peso", Icon: Scale },
   sueno:       { label: "Sueño", Icon: Moon },
-  agua:        { label: "Agua", Icon: Droplet },
   pasos:       { label: "Pasos", Icon: PersonStanding },
   sensaciones: { label: "Sensaciones", Icon: Zap },
   medidas:     { label: "Medidas", Icon: Ruler },
@@ -7181,7 +7178,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   // arreglos de history que ya usa Progreso · Cuerpo (addDailyMetric) —
   // el check-in solo agrega otro lugar desde donde registrar el mismo dato.
   const [ciSleep, setCiSleep] = useState("");
-  const [ciWater, setCiWater] = useState("");
   const [ciSteps, setCiSteps] = useState("");
   // Recuperación
   const [recoveryOpen, setRecoveryOpen] = useState(false);
@@ -7225,7 +7221,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const recoveryToday = lastRecovery && (lastRecovery.date || "").slice(0, 10) === todayKey ? lastRecovery : null;
   const poseToday = (history.bodyPhotos || []).filter((p) => (p.date || "").slice(0, 10) === todayKey);
   const sleepToday = (history.sleep || []).find((s) => (s.date || "").slice(0, 10) === todayKey);
-  const waterToday = (history.water || []).find((w) => (w.date || "").slice(0, 10) === todayKey);
   const stepsToday = (history.steps || []).find((s) => (s.date || "").slice(0, 10) === todayKey);
   // Ficha "Check-in" de la grilla 2×2: cuántas de las 4 secciones ya
   // tienen algo registrado hoy — mismo criterio que las filas de abajo.
@@ -7236,7 +7231,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const ciStatus = {
     peso:        { done: !!bwToday,    detail: bwToday ? `${kg(bwToday.kg)} kg` : "Sin registrar" },
     sueno:       { done: !!sleepToday, detail: sleepToday ? `${kg(sleepToday.hours)} h` : "Sin registrar" },
-    agua:        { done: !!waterToday, detail: waterToday ? `${kg(waterToday.liters)} L` : "Sin registrar" },
     pasos:       { done: !!stepsToday, detail: stepsToday ? Math.round(stepsToday.count).toLocaleString("es-CL") : "Sin registrar" },
     sensaciones: { done: !!recoveryToday, detail: recoveryToday && recoveryToday.scores.energia != null ? `Energía ${recoveryToday.scores.energia}/10` : "Sin responder" },
     medidas:     { done: !!measureToday, detail: measureToday ? "Hoy" : lastMeasure ? daysAgoLabel(lastMeasure.date) : "Sin registrar" },
@@ -7278,15 +7272,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     saveHistory(h);
     setCiSleep(""); setCiPane(null);
     await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nSueño: ${kg(v)} h`);
-  };
-  const saveWaterCI = async () => {
-    const v = num(ciWater);
-    if (!v || v <= 0 || !saveHistory) return;
-    const h = structuredClone(history);
-    h.water = [...(h.water || []), { date: todayISO(), liters: v }];
-    saveHistory(h);
-    setCiWater(""); setCiPane(null);
-    await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nAgua: ${kg(v)} L`);
   };
   const saveStepsCI = async () => {
     const v = num(ciSteps);
@@ -7454,9 +7439,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <KpiTile top="Pasos" onClick={() => setCheckinOpen(true)}
             value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
             sub={d.lastSteps ? "meta 12.000" : "sin registro"} />
-          <KpiTile top="Agua" onClick={() => setCheckinOpen(true)}
-            value={d.lastWater ? `${d.lastWater.liters} L` : "—"}
-            sub={d.lastWater ? "meta 5 L" : "sin registro"} />
           <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
             value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
             sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />
@@ -7570,7 +7552,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           con más profundidad (el gráfico de Progreso), se ofrece saltar
           ahí en vez de duplicar ese gráfico acá. */}
       <Sheet open={!!statDetail} onClose={() => setStatDetail(null)}
-        title={{ adherencia: "Adherencia", racha: "Racha", peso: "Peso corporal", volumen: "Volumen semanal", pasos: "Pasos", agua: "Agua", sueno: "Sueño" }[statDetail] || ""}>
+        title={{ adherencia: "Adherencia", racha: "Racha", peso: "Peso corporal", volumen: "Volumen semanal", pasos: "Pasos", sueno: "Sueño" }[statDetail] || ""}>
         {statDetail === "adherencia" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.adherence == null ? "—" : `${Math.round(d.adherence)}%`}</div>
@@ -7605,13 +7587,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "Sin registros"}</div>
             <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Meta de referencia: 12.000 pasos al día.</div>
-            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Registrar de hoy</Btn>
-          </div>
-        )}
-        {statDetail === "agua" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastWater ? `${kg(d.lastWater.liters)} L` : "Sin registros"}</div>
-            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Meta de referencia: 5 L al día.</div>
             <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Registrar de hoy</Btn>
           </div>
         )}
@@ -7660,11 +7635,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
               <CheckinNumberPane label="Horas dormidas" hint="Anoche" unit="h"
                 value={ciSleep} onChange={setCiSleep} onSave={saveSleepCI}
                 last={sleepToday ? `${kg(sleepToday.hours)} h registradas hoy` : null} />
-            )}
-            {ciPane === "agua" && (
-              <CheckinNumberPane label="Litros de hoy" hint="Total del día" unit="L"
-                value={ciWater} onChange={setCiWater} onSave={saveWaterCI}
-                last={waterToday ? `${kg(waterToday.liters)} L registrados hoy` : null} />
             )}
             {ciPane === "pasos" && (
               <CheckinNumberPane label="Pasos de hoy" hint="Los que marque tu teléfono o reloj" unit="" decimals={0}
@@ -8689,7 +8659,6 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
   };
 
   const stepsEntries = history.steps || [];
-  const waterEntries = history.water || [];
   const sleepEntries = history.sleep || [];
 
   return (
@@ -8735,7 +8704,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
 
       {sub === "cuerpo" && (
         <>
-          {/* El registro diario (peso, pasos, agua, sueño) ya se toma en
+          {/* El registro diario (peso, pasos, sueño) ya se toma en
               el Check-in, con su propio campo y su propio "Registrar".
               Acá se MUESTRA lo registrado y se enlaza allá: antes esta
               pantalla repetía los cuatro formularios enteros, así que el
@@ -8746,7 +8715,6 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           <RowGroup label="Hoy" rows={[
             { label: "Peso", value: bwEntries.length ? `${kg(bwEntries[bwEntries.length - 1].kg)} kg` : "Sin registrar", onClick: onOpenCheckin },
             { label: "Pasos", value: stepsEntries.length ? Math.round(stepsEntries[stepsEntries.length - 1].count).toLocaleString("es-CL") : "Sin registrar", onClick: onOpenCheckin },
-            { label: "Agua", value: waterEntries.length ? `${kg(waterEntries[waterEntries.length - 1].liters)} L` : "Sin registrar", onClick: onOpenCheckin },
             { label: "Sueño", value: sleepEntries.length ? `${kg(sleepEntries[sleepEntries.length - 1].hours)} h` : "Sin registrar", onClick: onOpenCheckin },
           ]} />
 
@@ -8862,15 +8830,6 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
   const suppChecks = (history && history.supplementChecks && history.supplementChecks[todayKey]) || {};
   const suppDone = supplements.filter((s) => suppChecks[s.id]).length;
 
-  const water = (history && history.water) || [];
-  const lastWater = water.length ? water[water.length - 1] : null;
-  const addWater = (liters) => {
-    if (!saveHistory || !liters) return;
-    const h = structuredClone(history);
-    h.water = [...(h.water || []), { date: todayISO(), liters }];
-    saveHistory(h);
-  };
-
   const shopping = (history && history.shoppingList) || [];
   const shopPending = shopping.filter((it) => !it.done).length;
   const addShopItem = () => {
@@ -8901,13 +8860,9 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
           objetivo va de leyenda debajo. Sin kcal cargadas por comida se
           muestra el objetivo del plan y las comidas hechas, que es lo que
           la app sí sabe. */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <KpiTile top="Calorías"
-          value={hasMealKcal ? kcalEaten.toLocaleString("es-CL") : (v.kcal ? String(v.kcal) : "—")}
-          sub={hasMealKcal ? `de ${kcalGoal.toLocaleString("es-CL")} kcal` : "objetivo del día"} />
-        <KpiTile top="Agua" value={lastWater ? `${kg(lastWater.liters)} L` : "—"}
-          sub={lastWater ? "registrado hoy" : "sin registrar"} />
-      </div>
+      <KpiTile top="Calorías"
+        value={hasMealKcal ? kcalEaten.toLocaleString("es-CL") : (v.kcal ? String(v.kcal) : "—")}
+        sub={hasMealKcal ? `de ${kcalGoal.toLocaleString("es-CL")} kcal` : "objetivo del día"} />
 
       {hasMacros && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -8957,11 +8912,6 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Hoy</div>
         <Card style={{ overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-            <span style={{ flex: 1, fontSize: 16 }}>Registrar agua</span>
-            <button onClick={() => addWater(Math.round(((lastWater ? lastWater.liters : 0) + .25) * 100) / 100)}
-              style={{ fontSize: 15, color: P.text, fontWeight: 600 }}>+ 0,25 L</button>
-          </div>
           <button onClick={onOpenSupplements} disabled={!onOpenSupplements}
             style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
             <span style={{ flex: 1, fontSize: 16, color: P.text }}>Suplementos</span>
@@ -15582,8 +15532,6 @@ const IMPORT_FIELDS = [
     re: /fc\s+m[aá]x|max.*heart|frecuencia\s+card[ií]aca\s+m[aá]xima/i },
   { key: "avgHr", store: "physio", field: "avgHr", silent: true,
     re: /fc\s+promedio|average\s+heart|avg\s+hr/i },
-  { key: "liters", store: "water",      field: "liters", label: "Agua",
-    alias: ["agua", "water", "hidratación"] },
 ];
 // Orden por prioridad, no por dónde cae la columna: "day" por sí solo es
 // tan genérico que hace falso positivo con columnas como "Day Strain" de
@@ -15605,16 +15553,12 @@ const parseCsv = (texto) => {
 };
 
 // Varias apps miden la misma métrica en otra unidad de la que usa FORJA
-// (WHOOP da el sueño en minutos, no en horas; algunas dan el agua en mL o
-// en onzas, o el peso en libras). La unidad casi siempre queda anotada en
-// el propio nombre de la columna, así que se detecta ahí.
+// (WHOOP da el sueño en minutos, no en horas; algunas dan el peso en
+// libras). La unidad casi siempre queda anotada en el propio nombre de
+// la columna, así que se detecta ahí.
 function convertirUnidad(field, header, valor) {
   if (field === "hours" && /\bmin\b|minute|minuto/i.test(header)) return valor / 60;
   if (field === "kg" && /\blbs?\b|libra/i.test(header)) return valor * 0.45359237;
-  if (field === "liters") {
-    if (/\bml\b|mililitro/i.test(header)) return valor / 1000;
-    if (/fl.?\s?oz|onza/i.test(header)) return valor * 0.0295735;
-  }
   return valor;
 }
 
@@ -15633,7 +15577,7 @@ function importFromCsv(texto) {
   const encontrados = IMPORT_FIELDS
     .map((f) => ({ ...f, idx: csv.cols.findIndex((c) => f.re ? f.re.test(c) : f.alias.some((a) => c === a || c.startsWith(a))) }))
     .filter((f) => f.idx >= 0);
-  if (!encontrados.length) return { error: "No encontré ninguna columna que sepa leer (peso, pasos, sueño o agua)." };
+  if (!encontrados.length) return { error: "No encontré ninguna columna que sepa leer (peso, pasos, sueño o recuperación)." };
 
   const out = {}, conteo = {};
   csv.filas.forEach((fila) => {
@@ -15717,7 +15661,7 @@ async function unzipEntries(buf) {
 // DOM completo: el archivo puede pesar cientos de MB y un parser de
 // DOM se cuelga con eso.
 function importFromAppleHealthXml(xml) {
-  const dias = { kg: {}, count: {}, hours: {}, liters: {} };
+  const dias = { kg: {}, count: {}, hours: {} };
   const attr = (s, name) => { const m = new RegExp(name + '="([^"]*)"').exec(s); return m ? m[1] : null; };
   const re = new RegExp("<" + "Record\\b([^>]*)\\/?>", "g"); // partido a propósito: check-undefined.py confunde este patrón con una etiqueta JSX
   let m;
@@ -15734,13 +15678,6 @@ function importFromAppleHealthXml(xml) {
     } else if (type === "HKQuantityTypeIdentifierStepCount") {
       const v = parseFloat(attr(s, "value"));
       if (isFinite(v)) dias.count[day] = (dias.count[day] || 0) + v;
-    } else if (type === "HKQuantityTypeIdentifierDietaryWater") {
-      let v = parseFloat(attr(s, "value"));
-      if (!isFinite(v)) continue;
-      const unidad = attr(s, "unit") || "";
-      if (/fl.?oz/i.test(unidad)) v *= 0.0295735;       // onza líquida US → litro
-      else if (/^ml$/i.test(unidad)) v /= 1000;          // mililitro → litro
-      dias.liters[day] = (dias.liters[day] || 0) + v;
     } else if (type === "HKCategoryTypeIdentifierSleepAnalysis") {
       if (!/Asleep/i.test(attr(s, "value") || "")) continue; // descarta "En cama"/"Despierto"
       const start = attr(s, "startDate"), end = attr(s, "endDate");
@@ -15759,8 +15696,7 @@ function importFromAppleHealthXml(xml) {
   push("bodyweight", "kg", "Peso", dias.kg);
   push("steps", "count", "Pasos", dias.count);
   push("sleep", "hours", "Sueño", dias.hours);
-  push("water", "liters", "Agua", dias.liters);
-  if (!Object.keys(conteo).length) return { error: "El export.xml no traía peso, pasos, sueño ni agua." };
+  if (!Object.keys(conteo).length) return { error: "El export.xml no traía peso, pasos ni sueño." };
   return { out, conteo };
 }
 
@@ -15795,9 +15731,9 @@ async function importFromZip(buf) {
     });
     out[store] = [...porDia.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
   });
-  const LABEL = { bodyweight: "Peso", steps: "Pasos", sleep: "Sueño", water: "Agua", physio: "Recuperación" };
+  const LABEL = { bodyweight: "Peso", steps: "Pasos", sleep: "Sueño", physio: "Recuperación" };
   Object.keys(out).forEach((store) => { if (out[store].length) conteo[LABEL[store] || store] = out[store].length; });
-  if (!Object.keys(conteo).length) return { error: "El .zip no traía ningún CSV legible (peso, pasos, sueño o agua)." };
+  if (!Object.keys(conteo).length) return { error: "El .zip no traía ningún CSV legible (peso, pasos, sueño o recuperación)." };
   return { out, conteo };
 }
 
@@ -15903,7 +15839,7 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
             <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>
               Pega acá el CSV que exportaste, o elegí el archivo — funciona con el .csv suelto
               o con el .zip completo (el que exportan Salud, Garmin, WHOOP y Oura). Se leen
-              fecha, peso, pasos, agua, sueño (con su detalle y fases) y las métricas de
+              fecha, peso, pasos, sueño (con su detalle y fases) y las métricas de
               recuperación del reloj (FC en reposo, HRV, esfuerzo…); el resto se ignora.
             </div>
             <input type="file" accept=".csv,.zip,text/csv,text/plain,application/zip,application/x-zip-compressed" aria-label="Elegir archivo CSV o .zip"
