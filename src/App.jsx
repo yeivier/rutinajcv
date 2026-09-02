@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v208";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v209";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15168,12 +15168,25 @@ async function scaleRead() {
    por nombre, en español o inglés.
    ------------------------------------------------------------ */
 const IMPORT_FIELDS = [
-  { key: "kg",     store: "bodyweight", field: "kg",     label: "Peso",              alias: ["peso", "weight", "body weight", "weight (kg)", "masa"] },
-  { key: "count",  store: "steps",      field: "count",  label: "Pasos",             alias: ["pasos", "steps", "step count", "total steps"] },
-  { key: "hours",  store: "sleep",      field: "hours",  label: "Sueño",             alias: ["sueño", "sueno", "sleep", "sleep duration", "asleep time", "horas de sueño"] },
-  { key: "liters", store: "water",      field: "liters", label: "Agua",              alias: ["agua", "water", "hidratación"] },
+  { key: "kg",     store: "bodyweight", field: "kg",     label: "Peso",
+    alias: ["peso", "weight", "body weight", "weight (kg)", "masa", "body mass"] },
+  { key: "count",  store: "steps",      field: "count",  label: "Pasos",
+    alias: ["pasos", "steps", "step count", "total steps"] },
+  // WHOOP llama a esto "Asleep duration (min)" (en minutos, no en horas).
+  // No lleva un alias simple de prefijo como los demás campos porque
+  // "sleep" solo, con startsWith, hace falso positivo con columnas del
+  // mismo WHOOP que no son la duración — "Sleep onset", "Sleep efficiency
+  // %", "Sleep performance %", "Sleep debt (min)" — todas empiezan con
+  // "sleep" pero ninguna es cuánto durmió. Va por patrón en vez de alias.
+  { key: "hours",  store: "sleep",      field: "hours",  label: "Sueño",
+    re: /(?:a?sleep)[\s_-]*duration|duraci[oó]n[\s_-]*(?:de[\s_-]*)?sue[ñn]o|horas?[\s_-]*(?:de[\s_-]*)?sue[ñn]o|^sue[ñn]o$|^sleep$/i },
+  { key: "liters", store: "water",      field: "liters", label: "Agua",
+    alias: ["agua", "water", "hidratación"] },
 ];
-const DATE_ALIAS = ["fecha", "date", "day", "start", "cycle start time", "timestamp"];
+// Orden por prioridad, no por dónde cae la columna: "day" por sí solo es
+// tan genérico que hace falso positivo con columnas como "Day Strain" de
+// WHOOP, así que se prueba de último y solo si nada más específico apareció.
+const DATE_ALIAS = ["fecha", "date", "cycle start time", "timestamp", "start", "day"];
 
 const parseCsv = (texto) => {
   const lineas = String(texto || "").trim().split(/\r?\n/).filter((l) => l.trim());
@@ -15187,16 +15200,34 @@ const parseCsv = (texto) => {
   return { cols, filas };
 };
 
+// Varias apps miden la misma métrica en otra unidad de la que usa FORJA
+// (WHOOP da el sueño en minutos, no en horas; algunas dan el agua en mL o
+// en onzas, o el peso en libras). La unidad casi siempre queda anotada en
+// el propio nombre de la columna, así que se detecta ahí.
+function convertirUnidad(field, header, valor) {
+  if (field === "hours" && /\bmin\b|minute|minuto/i.test(header)) return valor / 60;
+  if (field === "kg" && /\blbs?\b|libra/i.test(header)) return valor * 0.45359237;
+  if (field === "liters") {
+    if (/\bml\b|mililitro/i.test(header)) return valor / 1000;
+    if (/fl.?\s?oz|onza/i.test(header)) return valor * 0.0295735;
+  }
+  return valor;
+}
+
 // Devuelve { bodyweight: [...], steps: [...] } listo para volcar en
 // history, más un resumen de qué se encontró para poder mostrarlo antes
 // de escribir nada.
 function importFromCsv(texto) {
   const csv = parseCsv(texto);
   if (!csv) return { error: "El archivo no parece un CSV con cabecera." };
-  const idxFecha = csv.cols.findIndex((c) => DATE_ALIAS.some((a) => c === a || c.includes(a)));
+  let idxFecha = -1;
+  for (const a of DATE_ALIAS) {
+    const i = csv.cols.findIndex((c) => c === a || c.includes(a));
+    if (i >= 0) { idxFecha = i; break; }
+  }
   if (idxFecha < 0) return { error: "No encontré ninguna columna de fecha (Fecha, Date, Day…)." };
   const encontrados = IMPORT_FIELDS
-    .map((f) => ({ ...f, idx: csv.cols.findIndex((c) => f.alias.some((a) => c === a || c.startsWith(a))) }))
+    .map((f) => ({ ...f, idx: csv.cols.findIndex((c) => f.re ? f.re.test(c) : f.alias.some((a) => c === a || c.startsWith(a))) }))
     .filter((f) => f.idx >= 0);
   if (!encontrados.length) return { error: "No encontré ninguna columna que sepa leer (peso, pasos, sueño o agua)." };
 
@@ -15205,9 +15236,10 @@ function importFromCsv(texto) {
     const d = new Date(fila[idxFecha]);
     if (Number.isNaN(d.getTime())) return;
     encontrados.forEach((f) => {
-      const n = parseFloat(String(fila[f.idx] || "").replace(",", "."));
+      let n = parseFloat(String(fila[f.idx] || "").replace(",", "."));
       if (!isFinite(n) || n <= 0) return;
-      (out[f.store] = out[f.store] || []).push({ date: d.toISOString(), [f.field]: n });
+      n = convertirUnidad(f.field, csv.cols[f.idx], n);
+      (out[f.store] = out[f.store] || []).push({ date: d.toISOString(), [f.field]: Math.round(n * 100) / 100 });
       conteo[f.label] = (conteo[f.label] || 0) + 1;
     });
   });
@@ -15330,13 +15362,24 @@ async function importFromZip(buf) {
   if (salud) return importFromAppleHealthXml(await salud.text());
   const csvs = entries.filter((e) => /\.csv$/i.test(e.name));
   if (!csvs.length) return { error: "No encontré ningún .csv ni export.xml adentro del .zip." };
-  const out = {}, conteo = {};
+  let out = {};
   for (const c of csvs) {
     const r = importFromCsv(await c.text());
     if (r.error) continue;
     Object.keys(r.out).forEach((store) => { out[store] = [...(out[store] || []), ...r.out[store]]; });
-    Object.keys(r.conteo).forEach((k) => { conteo[k] = (conteo[k] || 0) + r.conteo[k]; });
   }
+  // WHOOP (y otros) reparten la misma métrica en más de un CSV del mismo
+  // .zip (p. ej. sueño sale tanto en "sueño.csv" como en
+  // "physiological_cycles.csv") — sin este paso quedarían dos registros
+  // para el mismo día. Se queda con el último que aparece por fecha.
+  const conteo = {};
+  Object.keys(out).forEach((store) => {
+    const porDia = new Map();
+    out[store].forEach((r) => porDia.set((r.date || "").slice(0, 10), r));
+    out[store] = [...porDia.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
+  });
+  const LABEL = { bodyweight: "Peso", steps: "Pasos", sleep: "Sueño", water: "Agua" };
+  Object.keys(out).forEach((store) => { if (out[store].length) conteo[LABEL[store] || store] = out[store].length; });
   if (!Object.keys(conteo).length) return { error: "El .zip no traía ningún CSV legible (peso, pasos, sueño o agua)." };
   return { out, conteo };
 }
