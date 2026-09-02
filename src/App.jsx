@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import {
   Flame, Dumbbell, TrendingUp, BarChart3, BookOpen, Utensils, ClipboardList, MessageSquare,
   Camera, Check, Plus, Minus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
@@ -17,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v205";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v206";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1916,7 +1915,13 @@ function usePantallaDespierta(activo) {
   }, [activo]);
 }
 
-function compressImage(file, maxDim = 1280, quality = 0.72) {
+// Fotos de progreso y adjuntos. Antes se bajaban a 1280 px / calidad 0,72
+// con un solo drawImage (reescalado de baja calidad): en un teléfono con
+// pantalla 3x se veían blandas. Ahora: lado mayor 2048 px, calidad 0,84 y
+// suavizado "high" al reescalar. Si aun así supera el tope de tamaño del
+// almacenamiento, se reintenta al tamaño anterior en vez de rechazar la
+// foto — perder la foto es peor que perder resolución.
+function compressImage(file, maxDim = 2048, quality = 0.84) {
   return new Promise((resolve, reject) => {
     if (!file.type || !file.type.startsWith("image/")) {
       reject(new Error("Por ahora solo se pueden adjuntar fotos (el almacenamiento de la app tiene un límite de 5 MB por archivo; los videos lo superan). Los videos estarán disponibles cuando pasemos la app a un servidor propio."));
@@ -1928,12 +1933,19 @@ function compressImage(file, maxDim = 1280, quality = 0.72) {
       const img = new Image();
       img.onerror = () => reject(new Error("No se pudo procesar la imagen."));
       img.onload = () => {
-        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        const render = (dim, q) => {
+          const scale = Math.min(1, dim / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          const ctx = canvas.getContext("2d");
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          return canvas.toDataURL("image/jpeg", q);
+        };
+        let dataUrl = render(maxDim, quality);
+        if (dataUrl.length > 3_800_000) dataUrl = render(1280, 0.72);
         if (dataUrl.length > 3_800_000) reject(new Error("La foto quedó demasiado pesada incluso comprimida. Intenta con otra."));
         else resolve(dataUrl);
       };
@@ -5841,8 +5853,44 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       {/* La sesión entera, ejercicio por ejercicio, hacia abajo. Cada uno
           con su tabla de series, su descanso y sus accesos — nada de
           «Siguiente»: se rellena lo que toca y se sigue bajando. */}
+      {/* Índice de la sesión: un chip por ejercicio, pegado arriba mientras
+          se baja. Con la sesión entera en una página (v200) y rutinas de
+          8-10 ejercicios, no había forma de ver de un vistazo dónde se
+          está ni de saltar a un ejercicio sin arrastrar. El activo (primer
+          bloque con series pendientes) va en tinta; los terminados, con
+          tilde; un toque lleva al bloque. */}
+      {blocks.length > 1 && (() => {
+        const bloqueActivo = blocks.findIndex((b) => b.rows.some((r) => !exs[r.ei].sets[r.si].done));
+        return (
+          <div style={{ position: "sticky", top: "env(safe-area-inset-top)", zIndex: 30, margin: "0 -16px", padding: "8px 16px",
+            background: SES.bg, borderBottom: `1px solid ${SES.line}`,
+            display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
+            {blocks.map((b, bi) => {
+              const hechas = b.rows.filter((r) => exs[r.ei].sets[r.si].done).length;
+              const listo = hechas === b.rows.length;
+              const activo = bi === bloqueActivo;
+              const nombre = b.group ? exs[b.members[0]].name : exs[b.ei].name;
+              const corto = nombre.length > 20 ? `${nombre.slice(0, 19)}…` : nombre;
+              return (
+                <button key={bi} aria-label={`Ir a ${nombre} (${hechas} de ${b.rows.length} series)`}
+                  onClick={() => { const el = document.getElementById(`fm-b-${bi}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+                  style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 999,
+                    fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
+                    background: activo ? SES.acc : (listo ? SES.accSoft : SES.campo),
+                    color: activo ? SES.accInk : (listo ? SES.acc : SES.dim),
+                    border: `1px solid ${activo ? SES.acc : (listo ? SES.accLine : SES.line)}` }}>
+                  <span className="mono" style={{ fontSize: 11, opacity: .8 }}>{bi + 1}</span>
+                  {corto}
+                  {listo && <Check size={11} strokeWidth={3} />}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {blocks.map((b, bi) => (
-        <div key={bi} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div key={bi} id={`fm-b-${bi}`} style={{ display: "flex", flexDirection: "column", gap: 6, scrollMarginTop: 56 }}>
           {tablaDe(b, bi)}
           {accionesDe(b, bi)}
         </div>
@@ -7740,20 +7788,38 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
 /* ============================================================
    Progreso: sesiones, por ejercicio, cuerpo
    ============================================================ */
-const ChartBox = ({ data, unit }) => (
-  <div style={{ width: "100%", height: 210 }}>
-    <ResponsiveContainer>
-      <LineChart data={data} margin={{ top: 8, right: 10, left: -14, bottom: 0 }}>
-        <CartesianGrid stroke={P.line} strokeDasharray="3 3" />
-        <XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 12 }} stroke={P.line} />
-        <YAxis tick={{ fill: P.faint, fontSize: 12 }} stroke={P.line} domain={["auto", "auto"]} />
-        <Tooltip contentStyle={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, fontSize: 14 }}
-          labelStyle={{ color: P.dim }} itemStyle={{ color: P.ember2 }} formatter={(v) => [`${v} ${unit}`, ""]} />
-        <Line type="monotone" dataKey="v" stroke={P.ember} strokeWidth={2.5} dot={{ r: 3, fill: P.ember2, strokeWidth: 0 }} activeDot={{ r: 5 }} />
-      </LineChart>
-    </ResponsiveContainer>
-  </div>
-);
+// recharts (y sus d3-*, redux, immer…) son ~320 KB del bundle y la app
+// los usa en UN solo gráfico, en Progreso. Antes viajaban en cada
+// arranque, para todos, aunque nadie abriera esa pestaña. Ahora es un
+// chunk aparte que se pide la primera vez que se dibuja un gráfico y
+// queda cacheado (service worker + CDN) para las siguientes.
+let _rechartsProm = null;
+const cargarRecharts = () => _rechartsProm || (_rechartsProm = import("recharts"));
+const ChartBox = ({ data, unit }) => {
+  const [R, setR] = useState(null);
+  useEffect(() => { let on = true; cargarRecharts().then((m) => { if (on) setR(m); }).catch(() => {}); return () => { on = false; }; }, []);
+  if (!R) {
+    return (
+      <div style={{ width: "100%", height: 210, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Loader2 size={22} color={P.faint} className="fj-spin" />
+      </div>
+    );
+  }
+  return (
+    <div style={{ width: "100%", height: 210 }}>
+      <R.ResponsiveContainer>
+        <R.LineChart data={data} margin={{ top: 8, right: 10, left: -14, bottom: 0 }}>
+          <R.CartesianGrid stroke={P.line} strokeDasharray="3 3" />
+          <R.XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 12 }} stroke={P.line} />
+          <R.YAxis tick={{ fill: P.faint, fontSize: 12 }} stroke={P.line} domain={["auto", "auto"]} />
+          <R.Tooltip contentStyle={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, fontSize: 14 }}
+            labelStyle={{ color: P.dim }} itemStyle={{ color: P.ember2 }} formatter={(v) => [`${v} ${unit}`, ""]} />
+          <R.Line type="monotone" dataKey="v" stroke={P.ember} strokeWidth={2.5} dot={{ r: 3, fill: P.ember2, strokeWidth: 0 }} activeDot={{ r: 5 }} />
+        </R.LineChart>
+      </R.ResponsiveContainer>
+    </div>
+  );
+};
 
 const SessionDetailSheet = ({ session, onClose, history, onOpenImg }) => (
   <Sheet open={!!session} onClose={onClose} title={session ? session.dayName : ""} tall>
