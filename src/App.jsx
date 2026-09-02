@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v209";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v210";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15172,21 +15172,28 @@ const IMPORT_FIELDS = [
     alias: ["peso", "weight", "body weight", "weight (kg)", "masa", "body mass"] },
   { key: "count",  store: "steps",      field: "count",  label: "Pasos",
     alias: ["pasos", "steps", "step count", "total steps"] },
-  // WHOOP llama a esto "Asleep duration (min)" (en minutos, no en horas).
-  // No lleva un alias simple de prefijo como los demás campos porque
-  // "sleep" solo, con startsWith, hace falso positivo con columnas del
-  // mismo WHOOP que no son la duración — "Sleep onset", "Sleep efficiency
-  // %", "Sleep performance %", "Sleep debt (min)" — todas empiezan con
-  // "sleep" pero ninguna es cuánto durmió. Va por patrón en vez de alias.
+  // WHOOP llama a esto "Asleep duration (min)" en inglés y "Duración del
+  // sueño (min)" en español (nota el "del", no "de" — el conector entre
+  // "duración" y "sueño" varía según la app y el idioma). No lleva un
+  // alias simple de prefijo como los demás campos porque "sleep"/"sueño"
+  // solos, con startsWith, hacen falso positivo con columnas del mismo
+  // WHOOP que no son la duración total — "Sleep onset"/"Inicio del
+  // sueño", "Sleep efficiency %"/"Eficiencia del sueño %", y las
+  // duraciones de cada FASE del sueño ("Duración de sueño ligero/
+  // profundo/REM (min)", que van después de la duración total en el
+  // orden de columnas y por eso nunca ganan el primer match). Va por
+  // patrón en vez de alias.
   { key: "hours",  store: "sleep",      field: "hours",  label: "Sueño",
-    re: /(?:a?sleep)[\s_-]*duration|duraci[oó]n[\s_-]*(?:de[\s_-]*)?sue[ñn]o|horas?[\s_-]*(?:de[\s_-]*)?sue[ñn]o|^sue[ñn]o$|^sleep$/i },
+    re: /(?:a?sleep)[\s_-]*duration|duraci[oó]n\s+(?:del?\s+)?sue[ñn]o|horas?\s+(?:del?\s+)?sue[ñn]o|^sue[ñn]o$|^sleep$/i },
   { key: "liters", store: "water",      field: "liters", label: "Agua",
     alias: ["agua", "water", "hidratación"] },
 ];
 // Orden por prioridad, no por dónde cae la columna: "day" por sí solo es
 // tan genérico que hace falso positivo con columnas como "Day Strain" de
 // WHOOP, así que se prueba de último y solo si nada más específico apareció.
-const DATE_ALIAS = ["fecha", "date", "cycle start time", "timestamp", "start", "day"];
+// WHOOP en español llama a la fecha "Hora de inicio del ciclo" — ni
+// "fecha" ni "start" aparecen ahí, así que hace falta un alias propio.
+const DATE_ALIAS = ["fecha", "date", "hora de inicio", "cycle start time", "timestamp", "start", "day"];
 
 const parseCsv = (texto) => {
   const lineas = String(texto || "").trim().split(/\r?\n/).filter((l) => l.trim());
