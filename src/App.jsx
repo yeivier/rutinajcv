@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v206";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v207";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2663,6 +2663,22 @@ const statusFor = (sets, ref) => {
   return "sobre MRV";
 };
 
+// Traduce el estado de un grupo muscular a una frase de una línea — para
+// que tocar la barra explique qué significa el número sin mandar a nadie
+// al glosario de MEV/MAV/MRV.
+function explainVolumeStatus(status, sets, ref, muscle) {
+  if (!ref) return null;
+  const m = muscle.toLowerCase();
+  switch (status) {
+    case "bajo": return `Bajo el mínimo efectivo: sumando ${fmtSets(ref.mev - sets)} series más ya hay estímulo real en ${m}.`;
+    case "mínimo": return `Por encima del mínimo, pero todavía no en la zona donde más se progresa — faltan ${fmtSets(ref.mav[0] - sets)} series para entrar en ella.`;
+    case "óptimo": return "En la zona donde más se progresa: no hace falta sumar más.";
+    case "alto": return "Alto pero recuperable — no hace falta bajarlo, tampoco conviene subir más.";
+    case "sobre MRV": return `Sobre el techo recuperable: ${fmtSets(sets - ref.mrv)} series de más no dan más músculo, solo fatiga.`;
+    default: return null;
+  }
+}
+
 /* Series efectivas por grupo muscular para UN día (sesión) puntual —
    incluye el aporte parcial de músculos secundarios.
    refTable: BB_VOLUME_REF (natural, default) o BB_VOLUME_REF_ENHANCED. */
@@ -2734,7 +2750,7 @@ function volStatusColor(status) {
     // MRV"…). Lo que pide atención va en tinta plena; lo normal, atenuado.
     case "bajo": return P.text;
     case "mínimo": return P.dim;
-    case "óptimo": return P.faint;
+    case "óptimo": return P.green;
     case "alto": return P.dim;
     case "sobre MRV": return P.text;
     default: return P.faint;
@@ -8094,6 +8110,59 @@ const BodyMap = ({ trabajo, onPick, seleccion }) => {
   );
 };
 
+// Escala MEV → zona óptima (MAV) → MRV para UN grupo muscular, con dos
+// marcas sobre la misma barra: lo programado (relleno tenue) y lo que de
+// verdad se entrenó esta semana (el punto, en el color de su estado). Un
+// toque expande una frase que explica qué significa esa posición — así
+// no hace falta ir a un glosario aparte para entender el número.
+const LandmarkBar = ({ muscle, sets, actual, ref, max, open, onToggle }) => {
+  const status = statusFor(sets, ref);
+  const col = volStatusColor(status);
+  const actualStatus = actual != null ? statusFor(actual, ref) : null;
+  const actualCol = actualStatus ? volStatusColor(actualStatus) : P.faint;
+  const pct = (v) => Math.max(0, Math.min(100, (v / max) * 100));
+  return (
+    <Card style={{ padding: "11px 13px", marginBottom: 8 }}>
+      <button onClick={onToggle} aria-expanded={open} aria-label={`${muscle}: ver el detalle`} style={{ width: "100%", textAlign: "left" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 9 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>{muscle}</div>
+          {actual != null && (
+            <div style={{ fontSize: 13, fontWeight: 700, color: actualCol }}>{fmtSets(actual)} esta semana</div>
+          )}
+        </div>
+        <div style={{ position: "relative", height: 16, marginBottom: 5 }}>
+          <div style={{ position: "absolute", left: 0, right: 0, top: 6, height: 4, background: P.s3, borderRadius: 2 }} />
+          {ref && (
+            <div style={{ position: "absolute", left: `${pct(ref.mav[0])}%`, width: `${pct(ref.mav[1]) - pct(ref.mav[0])}%`,
+              top: 6, height: 4, background: `${P.green}40`, borderRadius: 2 }} />
+          )}
+          {/* Lo programado: relleno tenue hasta ahí, siempre visible aunque
+              no haya historial (queda como referencia). */}
+          <div style={{ position: "absolute", left: 0, top: 6, height: 4, width: `${pct(sets)}%`, background: col, opacity: .38, borderRadius: 2 }} />
+          {ref && <div title={`MEV ${ref.mev}`} style={{ position: "absolute", left: `${pct(ref.mev)}%`, top: 2, width: 2, height: 12, background: P.faint, borderRadius: 1 }} />}
+          {ref && <div title={`MRV ${ref.mrv}`} style={{ position: "absolute", left: `${pct(ref.mrv)}%`, top: 2, width: 2, height: 12, background: P.faint, borderRadius: 1 }} />}
+          {/* Lo real de esta semana: el punto que manda en la explicación. */}
+          {actual != null && (
+            <div style={{ position: "absolute", left: `calc(${pct(actual)}% - 6px)`, top: 2, width: 12, height: 12, borderRadius: 6,
+              background: actualCol, border: `2px solid ${P.s1}`, transition: `left ${DUR_ROW}ms ${EASE_STD}` }} />
+          )}
+        </div>
+        {ref && (
+          <div className="mono" style={{ fontSize: 11, color: P.faint, display: "flex", justifyContent: "space-between" }}>
+            <span>MEV {ref.mev}</span><span>óptimo {ref.mav[0]}–{ref.mav[1]}</span><span>MRV {ref.mrv}</span>
+          </div>
+        )}
+      </button>
+      {open && ref && (
+        <div style={{ fontSize: 13, color: P.dim, marginTop: 9, paddingTop: 9, borderTop: `1px solid ${P.line}`, lineHeight: 1.45 }}>
+          {explainVolumeStatus(actual != null ? actualStatus : status, actual != null ? actual : sets, ref, muscle)}
+          {actual != null && ` Programado: ${fmtSets(sets)} series/semana.`}
+        </div>
+      )}
+    </Card>
+  );
+};
+
 // Volumen para el ALUMNO. `VolumePanel` (el del coach) sigue igual: ahí
 // el coach necesita el desglose por sesión, el comparador natural/asistido
 // y la nota de dónde salen los landmarks. Al alumno le sirve otra cosa —
@@ -8103,6 +8172,7 @@ const AthleteVolumePanel = ({ plan, history }) => {
   const [periodo, setPeriodo] = useState("semana");
   const [pane, setPane] = useState(null);
   const [sel, setSel] = useState(null);
+  const [volAbierto, setVolAbierto] = useState(null);
   const def = PERIODOS.find((x) => x.id === periodo) || PERIODOS[0];
   const trabajo = useMemo(() => muscleWorkFromHistory(plan, history, def.days), [plan, history, def.days]);
 
@@ -8111,8 +8181,19 @@ const AthleteVolumePanel = ({ plan, history }) => {
   const enhanced = (plan.athlete || {}).enhanced === "asistido";
   const refTable = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
   const vol = useMemo(() => volumeByMuscle(plan, refTable), [plan, refTable]);
-  const maxRef = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
-  const fuera = vol.rows.filter((r) => r.status && r.status !== "en rango").length;
+  // Volumen REAL de los últimos 7 días, aparte del selector de arriba (que
+  // es para el mapa corporal): MEV/MAV/MRV son series por SEMANA, así que
+  // comparar contra "el mes" o "el año" no diría nada — siempre se compara
+  // contra la última semana, sea cual sea el periodo elegido arriba.
+  const actualSemana = useMemo(() => {
+    const m = {};
+    muscleWorkFromHistory(plan, history, 7).musculos.forEach((x) => { m[x.muscle] = x.sets; });
+    return m;
+  }, [plan, history]);
+  const maxRef = Math.max(...vol.rows.map((r) => Math.max(r.sets, actualSemana[r.muscle] || 0, r.ref ? r.ref.mrv : 0)), 1);
+  // "Fuera de rango" = por debajo del mínimo o por encima del techo, de
+  // verdad — "mínimo" y "alto" siguen siendo territorio seguro, no cuentan.
+  const fuera = vol.rows.filter((r) => r.status === "bajo" || r.status === "sobre MRV").length;
 
   const chips = (
     <div style={{ display: "flex", gap: 6 }}>
@@ -8129,7 +8210,7 @@ const AthleteVolumePanel = ({ plan, history }) => {
   );
 
   if (pane) {
-    const titulo = pane === "ejercicios" ? "Ejercicios más usados" : pane === "musculos" ? "Todos los grupos" : "Volumen programado";
+    const titulo = pane === "ejercicios" ? "Ejercicios más usados" : pane === "musculos" ? "Todos los grupos" : "MEV · MAV · MRV";
     return (
       <div className="paneIn" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <button onClick={() => setPane(null)}
@@ -8170,9 +8251,12 @@ const AthleteVolumePanel = ({ plan, history }) => {
             : (
               <>
                 <div style={{ fontSize: 13.5, color: P.faint2, lineHeight: 1.5 }}>
-                  Lo que tu rutina tiene programado por semana, contra los rangos de referencia.
+                  La franja tenue es lo que tu rutina tiene programado; el punto es lo que de verdad entrenaste esta semana. Toca un músculo para el detalle.
                 </div>
-                {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={maxRef} compact />)}
+                {vol.rows.map((r) => (
+                  <LandmarkBar key={r.muscle} muscle={r.muscle} sets={r.sets} actual={actualSemana[r.muscle]} ref={r.ref} max={maxRef}
+                    open={volAbierto === r.muscle} onToggle={() => setVolAbierto(volAbierto === r.muscle ? null : r.muscle)} />
+                ))}
                 <Collapsible title="Qué es MEV, MAV y MRV" summary="">
                   <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5 }}>
                     MEV es el mínimo que hace efecto, MAV la zona donde se progresa mejor y MRV el techo
@@ -8211,7 +8295,7 @@ const AthleteVolumePanel = ({ plan, history }) => {
         })),
         trabajo.musculos.length > 3 && { label: "Ver los demás grupos", value: `${trabajo.musculos.length - 3} más`, onClick: () => setPane("musculos") },
         { label: "Ejercicios más usados", value: trabajo.ejercicios.length ? `${trabajo.ejercicios.length}` : "—", onClick: () => setPane("ejercicios") },
-        { label: "Volumen programado", value: fuera ? `${fuera} fuera de rango` : vol.rows.length ? "todo en rango" : "—", tone: fuera ? P.red : undefined, onClick: () => setPane("programado") },
+        { label: "MEV · MAV · MRV", value: fuera ? `${fuera} fuera de rango` : vol.rows.length ? "todo en rango" : "—", tone: fuera ? P.red : undefined, onClick: () => setPane("programado") },
       ]} />
     </div>
   );
