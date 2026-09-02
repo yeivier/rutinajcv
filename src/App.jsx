@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v207";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v208";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15215,6 +15215,132 @@ function importFromCsv(texto) {
   return { out, conteo };
 }
 
+/* ------------------------------------------------------------
+   .zip — Salud (Apple) solo exporta así, y Garmin/WHOOP/Oura a
+   veces también entregan un .zip con varios CSV adentro. Se lee sin
+   ninguna librería: se parte la tabla central del propio formato ZIP
+   a mano y cada entrada se descomprime con DecompressionStream, que
+   trae el navegador de fábrica (Safari 16.4+, Chrome, Firefox — todo
+   lo que corre esta app hoy). Si el navegador no lo soporta, se avisa
+   en vez de fallar en silencio.
+   ------------------------------------------------------------ */
+async function unzipEntries(buf) {
+  const dv = new DataView(buf);
+  const bytes = new Uint8Array(buf);
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65536); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("No pude leer ese archivo como .zip.");
+  const total = dv.getUint16(eocd + 10, true);
+  let offset = dv.getUint32(eocd + 16, true);
+  const dec = new TextDecoder();
+  const cabeceras = [];
+  for (let i = 0; i < total; i++) {
+    if (dv.getUint32(offset, true) !== 0x02014b50) break;
+    const method = dv.getUint16(offset + 10, true);
+    const compSize = dv.getUint32(offset + 20, true);
+    const nameLen = dv.getUint16(offset + 28, true);
+    const extraLen = dv.getUint16(offset + 30, true);
+    const commentLen = dv.getUint16(offset + 32, true);
+    const localOffset = dv.getUint32(offset + 42, true);
+    const name = dec.decode(bytes.subarray(offset + 46, offset + 46 + nameLen));
+    cabeceras.push({ name, method, compSize, localOffset });
+    offset += 46 + nameLen + extraLen + commentLen;
+  }
+  return cabeceras.filter((e) => !e.name.endsWith("/")).map((e) => ({
+    name: e.name,
+    async text() {
+      const lh = e.localOffset;
+      if (dv.getUint32(lh, true) !== 0x04034b50) throw new Error("Zip dañado.");
+      const lNameLen = dv.getUint16(lh + 26, true);
+      const lExtraLen = dv.getUint16(lh + 28, true);
+      const dataStart = lh + 30 + lNameLen + lExtraLen;
+      const raw = bytes.subarray(dataStart, dataStart + e.compSize);
+      if (e.method === 0) return dec.decode(raw);
+      if (e.method === 8) {
+        if (typeof DecompressionStream === "undefined") throw new Error("Este navegador no sabe descomprimir un .zip — probá con Safari o Chrome actualizados.");
+        const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+        return dec.decode(await new Response(stream).arrayBuffer());
+      }
+      throw new Error("Ese .zip usa una compresión que no sé leer.");
+    },
+  }));
+}
+
+// El export.xml de Salud es un único XML gigante y plano — miles de
+// <Record .../>. Se leen con una expresión regular en vez de armar un
+// DOM completo: el archivo puede pesar cientos de MB y un parser de
+// DOM se cuelga con eso.
+function importFromAppleHealthXml(xml) {
+  const dias = { kg: {}, count: {}, hours: {}, liters: {} };
+  const attr = (s, name) => { const m = new RegExp(name + '="([^"]*)"').exec(s); return m ? m[1] : null; };
+  const re = new RegExp("<" + "Record\\b([^>]*)\\/?>", "g"); // partido a propósito: check-undefined.py confunde este patrón con una etiqueta JSX
+  let m;
+  while ((m = re.exec(xml))) {
+    const s = m[1];
+    const type = attr(s, "type");
+    const day = (attr(s, "startDate") || "").slice(0, 10);
+    if (!type || !day) continue;
+    if (type === "HKQuantityTypeIdentifierBodyMass") {
+      let v = parseFloat(attr(s, "value"));
+      if (!isFinite(v)) continue;
+      if (/lb/i.test(attr(s, "unit") || "")) v *= 0.45359237;
+      dias.kg[day] = v; // se queda con la última lectura del día
+    } else if (type === "HKQuantityTypeIdentifierStepCount") {
+      const v = parseFloat(attr(s, "value"));
+      if (isFinite(v)) dias.count[day] = (dias.count[day] || 0) + v;
+    } else if (type === "HKQuantityTypeIdentifierDietaryWater") {
+      let v = parseFloat(attr(s, "value"));
+      if (!isFinite(v)) continue;
+      const unidad = attr(s, "unit") || "";
+      if (/fl.?oz/i.test(unidad)) v *= 0.0295735;       // onza líquida US → litro
+      else if (/^ml$/i.test(unidad)) v /= 1000;          // mililitro → litro
+      dias.liters[day] = (dias.liters[day] || 0) + v;
+    } else if (type === "HKCategoryTypeIdentifierSleepAnalysis") {
+      if (!/Asleep/i.test(attr(s, "value") || "")) continue; // descarta "En cama"/"Despierto"
+      const start = attr(s, "startDate"), end = attr(s, "endDate");
+      if (!start || !end) continue;
+      const hrs = (new Date(end) - new Date(start)) / 3600000;
+      if (isFinite(hrs) && hrs > 0) dias.hours[day] = (dias.hours[day] || 0) + hrs;
+    }
+  }
+  const out = {}, conteo = {};
+  const push = (store, field, label, map) => {
+    const keys = Object.keys(map);
+    if (!keys.length) return;
+    out[store] = keys.map((d) => ({ date: new Date(d).toISOString(), [field]: Math.round(map[d] * 100) / 100 }));
+    conteo[label] = keys.length;
+  };
+  push("bodyweight", "kg", "Peso", dias.kg);
+  push("steps", "count", "Pasos", dias.count);
+  push("sleep", "hours", "Sueño", dias.hours);
+  push("water", "liters", "Agua", dias.liters);
+  if (!Object.keys(conteo).length) return { error: "El export.xml no traía peso, pasos, sueño ni agua." };
+  return { out, conteo };
+}
+
+// Punto de entrada único para un .zip: si adentro hay un export.xml
+// (Salud/Apple Watch) se lee como tal; si no, se juntan todos los .csv
+// que traiga (Garmin y algunos relojes exportan varios a la vez) y se
+// combina lo que cada uno aporte.
+async function importFromZip(buf) {
+  const entries = await unzipEntries(buf);
+  const salud = entries.find((e) => /(^|\/)export\.xml$/i.test(e.name));
+  if (salud) return importFromAppleHealthXml(await salud.text());
+  const csvs = entries.filter((e) => /\.csv$/i.test(e.name));
+  if (!csvs.length) return { error: "No encontré ningún .csv ni export.xml adentro del .zip." };
+  const out = {}, conteo = {};
+  for (const c of csvs) {
+    const r = importFromCsv(await c.text());
+    if (r.error) continue;
+    Object.keys(r.out).forEach((store) => { out[store] = [...(out[store] || []), ...r.out[store]]; });
+    Object.keys(r.conteo).forEach((k) => { conteo[k] = (conteo[k] || 0) + r.conteo[k]; });
+  }
+  if (!Object.keys(conteo).length) return { error: "El .zip no traía ningún CSV legible (peso, pasos, sueño o agua)." };
+  return { out, conteo };
+}
+
 // Cómo se conecta cada cosa, de verdad. `via` decide qué botón sale:
 //   ble    → Bluetooth directo desde el navegador (funciona hoy)
 //   import → exportar de la app de la marca e importar el archivo acá
@@ -15245,9 +15371,10 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
   const [texto, setTexto] = useState("");
   const [previo, setPrevio] = useState(null);
   const [scaleMsg, setScaleMsg] = useState("");
+  const [leyendo, setLeyendo] = useState(false);
   const hr = useHeartRate();
 
-  useEffect(() => { if (!open) { setDetail(null); setPane(null); setTexto(""); setPrevio(null); setScaleMsg(""); } }, [open]);
+  useEffect(() => { if (!open) { setDetail(null); setPane(null); setTexto(""); setPrevio(null); setScaleMsg(""); setLeyendo(false); } }, [open]);
 
   const groups = useMemo(() => {
     const m = new Map();
@@ -15272,6 +15399,23 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
   };
 
   const analizar = (t) => { setTexto(t); setPrevio(t.trim() ? importFromCsv(t) : null); };
+  const onFile = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = ""; // deja elegir el mismo archivo dos veces seguidas
+    if (!f) return;
+    const esZip = /\.zip$/i.test(f.name) || /zip/i.test(f.type);
+    if (!esZip) { setTexto(""); const r = new FileReader(); r.onload = () => analizar(String(r.result || "")); r.readAsText(f); return; }
+    if (f.size > 600 * 1024 * 1024) { setTexto(""); setPrevio({ error: "Ese .zip pesa demasiado para leerlo en el navegador. Probá exportar un rango de fechas más corto si la app de origen lo permite." }); return; }
+    setTexto(""); setPrevio(null); setLeyendo(true);
+    try {
+      const res = await importFromZip(await f.arrayBuffer());
+      setPrevio(res);
+    } catch (err) {
+      setPrevio({ error: (err && err.message) || "No pude leer ese .zip." });
+    } finally {
+      setLeyendo(false);
+    }
+  };
   const importar = () => {
     if (!previo || previo.error || !saveHistory) return;
     const h = structuredClone(history);
@@ -15297,12 +15441,13 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
               <ChevronLeft size={17} strokeWidth={2.6} /> Dispositivos
             </button>
             <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>
-              Pega acá el CSV que exportaste, o elige el archivo. Se leen las columnas de
+              Pega acá el CSV que exportaste, o elegí el archivo — funciona con el .csv suelto
+              o con el .zip completo (el que exportan Salud, Garmin, WHOOP y Oura). Se leen
               fecha, peso, pasos, sueño y agua; el resto se ignora.
             </div>
-            <input type="file" accept=".csv,text/csv,text/plain" aria-label="Elegir archivo CSV"
-              onChange={(e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => analizar(String(r.result || "")); r.readAsText(f); }}
-              style={{ fontSize: 14, color: P.dim }} />
+            <input type="file" accept=".csv,.zip,text/csv,text/plain,application/zip,application/x-zip-compressed" aria-label="Elegir archivo CSV o .zip"
+              onChange={onFile} style={{ fontSize: 14, color: P.dim }} />
+            {leyendo && <div style={{ fontSize: 13.5, color: P.dim }}>Leyendo el archivo…</div>}
             <Txt value={texto} onChange={(e) => analizar(e.target.value)} rows={6} placeholder={"fecha,peso,pasos\n2026-08-01,78.4,9482"}
               style={{ borderRadius: 12, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 13.5, fontFamily: MONO.mono }} />
             {previo && previo.error && <div style={{ fontSize: 13.5, color: P.red, lineHeight: 1.4 }}>{previo.error}</div>}
