@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v213";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v214";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1555,6 +1555,33 @@ const num = (v) => {
   return isFinite(n) ? n : 0;
 };
 
+// Decimales en cualquier teclado. El problema: <input type="number">
+// solo acepta el PUNTO como separador decimal, pero los teclados en
+// español (iPhone incluido) muestran COMA — al escribir "72,5" el
+// navegador lo declaraba inválido y dejaba el campo vacío, así que
+// "no dejaba poner decimales" al entrenar. La solución, para toda la
+// app: estos campos son type="text" con teclado numérico y se sanean
+// aceptando coma O punto, guardando SIEMPRE con punto (la forma que ya
+// esperan todos los cálculos y comparaciones de la plataforma).
+const sanitizeDecimalInput = (raw) => {
+  const s = String(raw ?? "").replace(/,/g, ".").replace(/[^0-9.]/g, "");
+  const first = s.indexOf(".");
+  if (first === -1) return s;               // sin separador: tal cual
+  return s.slice(0, first + 1) + s.slice(first + 1).replace(/\./g, ""); // un solo punto
+};
+const sanitizeIntInput = (raw) => String(raw ?? "").replace(/[^0-9]/g, "");
+// Campo numérico que SÍ deja escribir decimales con coma o punto en
+// cualquier dispositivo. Reemplaza a los <input type="number"> que
+// rechazaban la coma. `decimals={false}` para campos de enteros.
+const NumInput = ({ decimals = true, onChange, type, inputMode, ...props }) => {
+  const clean = decimals ? sanitizeDecimalInput : sanitizeIntInput;
+  return (
+    <input type="text" inputMode={decimals ? "decimal" : "numeric"}
+      onChange={onChange ? (e) => { e.target.value = clean(e.target.value); onChange(e); } : undefined}
+      {...props} />
+  );
+};
+
 function stepNumeric(raw, dir) {
   const s = String(raw ?? "").trim();
   if (s === "") return dir > 0 ? "1" : "0";
@@ -1743,7 +1770,7 @@ const WeightInput = ({ valueKg, onChangeKg, placeholder, style, disabled }) => {
     onChangeKg(unit === "kg" ? raw : String(lbToKg(n)));
   };
   return (
-    <input type="number" inputMode="decimal" step="any" placeholder={placeholder} disabled={disabled}
+    <NumInput placeholder={placeholder} disabled={disabled}
       value={local}
       onFocus={() => setFocused(true)}
       onBlur={() => { setFocused(false); setLocal(toActive(valueKg)); }}
@@ -3029,7 +3056,7 @@ const PlateCalcBody = ({ initial }) => {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", gap: 8 }}>
-        <input type="number" inputMode="decimal" step="any" placeholder="Peso total (kg)" value={target} onChange={(e) => setTarget(e.target.value)}
+        <NumInput placeholder="Peso total (kg)" value={target} onChange={(e) => setTarget(e.target.value)}
           style={{ flex: 1, padding: "11px 12px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 15 }} />
         <select value={bar} onChange={(e) => setBar(+e.target.value)} style={{ padding: "11px 10px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }}>
           {BAR_OPTIONS_KG.map((b) => <option key={b} value={b}>Barra {b} kg</option>)}
@@ -3489,7 +3516,15 @@ const Field = ({ label, children, hint }) => (
   </div>
 );
 
-const Inp = (props) => <input {...props} style={{ width: "100%", padding: "10px 12px", ...props.style }} />;
+// type="number" se convierte a un campo de texto con teclado numérico
+// que acepta coma o punto (ver NumInput): así todos los <Inp
+// type="number"> de la app dejan escribir decimales en cualquier
+// teclado. inputMode="numeric" => enteros; el resto admite decimales.
+const Inp = ({ type, inputMode, ...props }) => {
+  const st = { width: "100%", padding: "10px 12px", ...props.style };
+  if (type === "number") return <NumInput decimals={inputMode !== "numeric"} {...props} style={st} />;
+  return <input type={type} inputMode={inputMode} {...props} style={st} />;
+};
 const Txt = (props) => <textarea rows={props.rows || 3} {...props} style={{ width: "100%", padding: "10px 12px", resize: "vertical", ...props.style }} />;
 
 // Antes era solo un ícono flotando sin nada detrás — se sentía como un
@@ -4932,7 +4967,7 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
   const fieldStyle = (w) => ({ width: w, minHeight: 48, padding: "9px 4px", textAlign: "center", fontWeight: 600, fontSize: 16,
     background: done ? "rgba(255,255,255,.07)" : P.s3, borderColor: done ? "rgba(255,255,255,.35)" : P.line });
   const inp = (field, ph, w) => (
-    <input type="number" inputMode="decimal" step="any" placeholder={ph} value={set[field]}
+    <NumInput placeholder={ph} value={set[field]}
       onChange={(e) => onPatch({ [field]: e.target.value })}
       style={fieldStyle(w)} />
   );
@@ -6839,7 +6874,7 @@ const CheckinNumberPane = ({ label, hint, unit, value, onChange, onSave, last, d
       {hint && <div style={{ fontSize: 13.5, color: P.faint2, marginTop: 2 }}>{hint}</div>}
     </div>
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <input type="number" inputMode={decimals === 0 ? "numeric" : "decimal"} step="any" autoFocus
+      <NumInput decimals={decimals !== 0} autoFocus
         value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}
         style={{ flex: 1, minWidth: 0, padding: "14px 16px", borderRadius: R_TILE, background: P.s3,
           border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 26, fontWeight: 700 }} />
@@ -7105,7 +7140,7 @@ const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
                   style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, fontSize: 14.5, fontWeight: 600, color: MONO.ink, textAlign: "left" }}>
                   {f.label} <Info size={12} color={MONO.inkFaint} style={{ flexShrink: 0 }} />
                 </button>
-                <input type="number" inputMode="decimal" step="any" placeholder={isPct ? "%" : unit} value={displayVal(f.key, isPct)}
+                <NumInput placeholder={isPct ? "%" : unit} value={displayVal(f.key, isPct)}
                   onChange={(e) => setF(f.key, isPct, e.target.value)}
                   style={{ width: 78, padding: "9px 10px", borderRadius: 10, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5, textAlign: "right", flexShrink: 0 }} />
               </div>
@@ -16954,8 +16989,8 @@ const LabFormSheet = ({ open, onClose, onSave }) => {
                 <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px",
                   borderBottom: i < panel.markers.length - 1 ? `1px solid ${P.line}` : "none" }}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 15, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-                  <input value={vals[key] || ""} onChange={(e) => setVals((o) => ({ ...o, [key]: e.target.value }))}
-                    inputMode="decimal" aria-label={label} placeholder="—"
+                  <NumInput value={vals[key] || ""} onChange={(e) => setVals((o) => ({ ...o, [key]: e.target.value }))}
+                    aria-label={label} placeholder="—"
                     style={{ width: 86, padding: "7px 9px", borderRadius: 9, background: P.s3, border: `1px solid ${P.separatorStrong}`,
                       color: P.text, fontSize: 14.5, textAlign: "right" }} />
                   {unit && <span style={{ fontSize: 12.5, color: P.faint2, width: 56, flexShrink: 0 }}>{unit}</span>}
