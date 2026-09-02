@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v210";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v211";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15185,6 +15185,21 @@ const IMPORT_FIELDS = [
   // patrón en vez de alias.
   { key: "hours",  store: "sleep",      field: "hours",  label: "Sueño",
     re: /(?:a?sleep)[\s_-]*duration|duraci[oó]n\s+(?:del?\s+)?sue[ñn]o|horas?\s+(?:del?\s+)?sue[ñn]o|^sue[ñn]o$|^sleep$/i },
+  // El detalle de sueño de WHOOP (tiempo despierto, cuánto necesitaba,
+  // deuda acumulada, eficiencia, regularidad) viaja pegado al mismo
+  // registro de "hours" — mismo store, mismo día — pero no suma su
+  // propia línea en el resumen de importación (silent): ya cuenta como
+  // "Sueño" una sola vez, no cinco.
+  { key: "sleepAwake", store: "sleep", field: "awakeMin", silent: true,
+    re: /tempo\s+despiert|despiert[oa]\/a|time\s+awake|awake\s*(?:time|duration)/i },
+  { key: "sleepNeed", store: "sleep", field: "needMin", silent: true,
+    re: /sue[ñn]o\s+necesario|sleep\s+need/i },
+  { key: "sleepDebt", store: "sleep", field: "debtMin", silent: true,
+    re: /deuda\s+(?:del?\s+)?sue[ñn]o|sleep\s+debt/i },
+  { key: "sleepEfficiency", store: "sleep", field: "efficiencyPct", silent: true,
+    re: /eficiencia\s+(?:del?\s+)?sue[ñn]o|sleep\s+efficiency/i },
+  { key: "sleepConsistency", store: "sleep", field: "consistencyPct", silent: true,
+    re: /regularidad\s+(?:del?\s+)?sue[ñn]o|sleep\s+consistency/i },
   { key: "liters", store: "water",      field: "liters", label: "Agua",
     alias: ["agua", "water", "hidratación"] },
 ];
@@ -15242,13 +15257,21 @@ function importFromCsv(texto) {
   csv.filas.forEach((fila) => {
     const d = new Date(fila[idxFecha]);
     if (Number.isNaN(d.getTime())) return;
+    // Todos los campos que caen en el mismo store (p. ej. "hours" +
+    // "efficiencyPct" + "debtMin", todos en "sleep") se juntan en UN
+    // solo objeto para ese día, no uno por campo — si no, "sleep"
+    // terminaría con varios registros del mismo día, cada uno con un
+    // solo campo, en vez de un único registro completo.
+    const porTienda = {};
     encontrados.forEach((f) => {
       let n = parseFloat(String(fila[f.idx] || "").replace(",", "."));
       if (!isFinite(n) || n <= 0) return;
       n = convertirUnidad(f.field, csv.cols[f.idx], n);
-      (out[f.store] = out[f.store] || []).push({ date: d.toISOString(), [f.field]: Math.round(n * 100) / 100 });
-      conteo[f.label] = (conteo[f.label] || 0) + 1;
+      const obj = (porTienda[f.store] = porTienda[f.store] || { date: d.toISOString() });
+      obj[f.field] = Math.round(n * 100) / 100;
+      if (!f.silent) conteo[f.label] = (conteo[f.label] || 0) + 1;
     });
+    Object.keys(porTienda).forEach((store) => { (out[store] = out[store] || []).push(porTienda[store]); });
   });
   if (!Object.keys(conteo).length) return { error: "Encontré las columnas pero ninguna fila con datos legibles." };
   return { out, conteo };
