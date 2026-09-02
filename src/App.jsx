@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v211";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v212";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7836,6 +7836,36 @@ const ChartBox = ({ data, unit }) => {
     </div>
   );
 };
+// Mismo chunk de recharts que ChartBox (cargarRecharts ya lo cachea, así
+// que abrir un gráfico de barras después de uno de línea no vuelve a
+// bajar nada) — de barras en vez de línea, para series día a día como
+// pasos, agua o sueño donde no importa tanto la curva como cuánto hubo
+// cada día puntual.
+const BarChartBox = ({ data, unit, color, height = 170 }) => {
+  const [R, setR] = useState(null);
+  useEffect(() => { let on = true; cargarRecharts().then((m) => { if (on) setR(m); }).catch(() => {}); return () => { on = false; }; }, []);
+  if (!R) {
+    return (
+      <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Loader2 size={20} color={P.faint} className="fj-spin" />
+      </div>
+    );
+  }
+  return (
+    <div style={{ width: "100%", height }}>
+      <R.ResponsiveContainer>
+        <R.BarChart data={data} margin={{ top: 8, right: 10, left: -14, bottom: 0 }}>
+          <R.CartesianGrid stroke={P.line} strokeDasharray="3 3" vertical={false} />
+          <R.XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 11 }} stroke={P.line} interval="preserveStartEnd" />
+          <R.YAxis tick={{ fill: P.faint, fontSize: 11 }} stroke={P.line} domain={["auto", "auto"]} />
+          <R.Tooltip contentStyle={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, fontSize: 13 }}
+            labelStyle={{ color: P.dim }} cursor={{ fill: P.s3 }} formatter={(v) => [`${v} ${unit}`, ""]} />
+          <R.Bar dataKey="v" fill={color || P.text} radius={[4, 4, 0, 0]} />
+        </R.BarChart>
+      </R.ResponsiveContainer>
+    </div>
+  );
+};
 
 const SessionDetailSheet = ({ session, onClose, history, onOpenImg }) => (
   <Sheet open={!!session} onClose={onClose} title={session ? session.dayName : ""} tall>
@@ -8301,11 +8331,154 @@ const AthleteVolumePanel = ({ plan, history }) => {
   );
 };
 
+// "25/8" para el eje X de un gráfico — fmtDate ("25 ago") es más claro
+// en una lista, pero ocupa demasiado repetido 14-90 veces en un eje.
+const chartDayLabel = (iso) => {
+  const d = new Date(iso);
+  return `${d.getDate()}/${d.getMonth() + 1}`;
+};
+
+// Serie diaria de un campo de un store del historial (bodyweight/steps/
+// water/sleep) para los últimos `days` días — un punto por día (si hay
+// dos registros del mismo día, como puede pasar al importar de más de
+// un archivo, se queda con el último) y ordenada de más viejo a más
+// nuevo, que es como un gráfico de barras se lee de izquierda a derecha.
+function ultimosDias(entries, field, days) {
+  const cutoff = Date.now() - days * 86400000;
+  const porDia = new Map();
+  entries.forEach((e) => {
+    if (e[field] == null) return;
+    const t = new Date(e.date).getTime();
+    if (!isFinite(t) || t < cutoff) return;
+    porDia.set((e.date || "").slice(0, 10), e);
+  });
+  return [...porDia.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([day, e]) => ({ d: chartDayLabel(day), v: Math.round(e[field] * 10) / 10 }));
+}
+
+// Dashboard de salud: todo lo que hoy vive repartido en check-ins e
+// importaciones de reloj (peso, pasos, agua, sueño y — cuando el reloj
+// lo trae, como WHOOP — el detalle del sueño) en una sola pantalla con
+// gráficos, en vez de una fila de texto por métrica.
+const HealthDashboardSheet = ({ open, onClose, history }) => {
+  const [dias, setDias] = useState(14);
+  useEffect(() => { if (!open) setDias(14); }, [open]);
+
+  const bw = history.bodyweight || [];
+  const steps = history.steps || [];
+  const water = history.water || [];
+  const sleep = history.sleep || [];
+
+  const pesoSerie = useMemo(() => ultimosDias(bw, "kg", dias), [bw, dias]);
+  const pasosSerie = useMemo(() => ultimosDias(steps, "count", dias), [steps, dias]);
+  const aguaSerie = useMemo(() => ultimosDias(water, "liters", dias), [water, dias]);
+  const suenoSerie = useMemo(() => ultimosDias(sleep, "hours", dias), [sleep, dias]);
+
+  // El detalle de sueño (eficiencia, regularidad, cuánto necesitaba)
+  // solo lo trae un reloj importado, no el check-in manual — se
+  // promedia sobre las noches que sí lo tienen en vez de dejar un
+  // hueco por cada noche cargada a mano.
+  const detalle = useMemo(() => {
+    const cutoff = Date.now() - dias * 86400000;
+    const recientes = sleep.filter((e) => new Date(e.date).getTime() >= cutoff && e.efficiencyPct != null);
+    if (!recientes.length) return null;
+    const avg = (f) => recientes.reduce((s, e) => s + (e[f] || 0), 0) / recientes.length;
+    const conNecesidad = recientes.filter((e) => e.needMin);
+    const necesidadCubierta = conNecesidad.length
+      ? Math.round((conNecesidad.reduce((s, e) => s + (e.hours || 0) / (e.needMin / 60), 0) / conNecesidad.length) * 100)
+      : null;
+    return {
+      n: recientes.length,
+      efficiency: Math.round(avg("efficiencyPct")),
+      consistency: Math.round(avg("consistencyPct")),
+      necesidadCubierta,
+      awakeMin: Math.round(avg("awakeMin")),
+      debtMin: Math.round(avg("debtMin")),
+    };
+  }, [sleep, dias]);
+
+  const hayDatos = pesoSerie.length || pasosSerie.length || aguaSerie.length || suenoSerie.length;
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Dashboard de salud" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <SectionSwitch value={dias} onChange={setDias}
+          items={[{ id: 14, label: "14 días" }, { id: 30, label: "30 días" }, { id: 90, label: "90 días" }]} />
+
+        {!hayDatos ? (
+          <Card style={{ padding: 22, textAlign: "center" }}>
+            <div style={{ fontSize: 14, color: P.faint2, lineHeight: 1.5 }}>
+              Todavía no hay peso, pasos, agua ni sueño en este periodo. Se cargan desde el
+              Check-in, o de una sola vez importando el archivo de tu reloj (Más → Dispositivos).
+            </div>
+          </Card>
+        ) : (
+          <>
+            {pesoSerie.length > 0 && (
+              <Card style={{ padding: "15px 15px 6px" }}>
+                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>Peso corporal (kg)</div>
+                <ChartBox data={pesoSerie} unit="kg" />
+              </Card>
+            )}
+            {pasosSerie.length > 0 && (
+              <Card style={{ padding: "15px 15px 6px" }}>
+                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>Pasos</div>
+                <BarChartBox data={pasosSerie} unit="pasos" color={P.faint} />
+              </Card>
+            )}
+            {aguaSerie.length > 0 && (
+              <Card style={{ padding: "15px 15px 6px" }}>
+                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>Agua (L)</div>
+                <BarChartBox data={aguaSerie} unit="L" color={P.faint} />
+              </Card>
+            )}
+            {suenoSerie.length > 0 && (
+              <Card style={{ padding: "15px 15px 6px" }}>
+                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>Horas de sueño</div>
+                <BarChartBox data={suenoSerie} unit="h" color={P.text} />
+              </Card>
+            )}
+
+            {detalle && (
+              <Card style={{ padding: 16 }}>
+                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 14 }}>
+                  Detalle de sueño — promedio de {detalle.n} {detalle.n === 1 ? "noche" : "noches"} con datos de reloj
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-around", flexWrap: "wrap", gap: 14, marginBottom: 14 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                    <Ring pct={detalle.efficiency} size={80} stroke={9} />
+                    <span style={{ fontSize: 12, color: P.faint2 }}>Eficiencia</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                    <Ring pct={detalle.consistency} size={80} stroke={9} />
+                    <span style={{ fontSize: 12, color: P.faint2 }}>Regularidad</span>
+                  </div>
+                  {detalle.necesidadCubierta != null && (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                      <Ring pct={detalle.necesidadCubierta} size={80} stroke={9} />
+                      <span style={{ fontSize: 12, color: P.faint2 }}>Necesidad cubierta</span>
+                    </div>
+                  )}
+                </div>
+                <RowGroup rows={[
+                  { label: "Tiempo despierto (prom.)", value: `${detalle.awakeMin} min` },
+                  { label: "Deuda de sueño (prom.)", value: `${detalle.debtMin} min` },
+                ]} />
+              </Card>
+            )}
+          </>
+        )}
+      </div>
+    </Sheet>
+  );
+};
+
 const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, onOpenCheckin }) => {
   const [sub, setSub] = useState("fuerza");
   const [exId, setExId] = useState("");
   const [measureOpen, setMeasureOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
   // Permite abrir esta pestaña directo en una sub-sección (p.ej. desde las
   // fichas de Hoy: tocar "Peso corporal" cae en "Cuerpo", "Volumen sem."
   // cae en "Volumen"), igual que ya hace AITab con jumpSub/onJumpConsumed.
@@ -8413,6 +8586,10 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
             { label: "Sueño", value: sleepEntries.length ? `${kg(sleepEntries[sleepEntries.length - 1].hours)} h` : "Sin registrar", onClick: onOpenCheckin },
           ]} />
 
+          <RowGroup rows={[
+            { label: "Dashboard de salud", value: "Peso, pasos, agua y sueño", onClick: () => setDashboardOpen(true) },
+          ]} />
+
           <RowGroup label="Cuerpo" rows={[
             { label: "Medidas", value: lastMeasure ? daysAgoLabel(lastMeasure.date) : "—", onClick: () => setMeasureOpen(true) },
             { label: "Fotos", value: photos.length ? String(photos.length) : "—", onClick: () => setCompareOpen(true) },
@@ -8430,6 +8607,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
 
       <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} />
       <PhotoCompareSheet open={compareOpen} onClose={() => setCompareOpen(false)} photos={photos} bodyweight={bwEntries} />
+      <HealthDashboardSheet open={dashboardOpen} onClose={() => setDashboardOpen(false)} history={history} />
     </div>
   );
 };
