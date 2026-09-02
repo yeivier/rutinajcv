@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v212";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v213";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2471,7 +2471,10 @@ const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos
   steps: [], water: [], sleep: [],
   // Cuestionario de recuperación del check-in (un registro por envío, no
   // uno por día — el alumno puede mandar más de uno si algo cambió).
-  recovery: [] });
+  recovery: [],
+  // Métricas fisiológicas diarias importadas de un reloj (WHOOP:
+  // recuperación, FC en reposo, HRV, esfuerzo, etc.). Un registro por día.
+  physio: [] });
 
 /* ============================================================
    Base de conocimiento de culturismo
@@ -7866,6 +7869,36 @@ const BarChartBox = ({ data, unit, color, height = 170 }) => {
     </div>
   );
 };
+// Gráfico circular (dona) — para composiciones donde importa la
+// proporción del total, no la evolución en el tiempo: p. ej. las fases
+// del sueño (ligero/profundo/REM). `data` = [{name, value}]. Paleta en
+// grises + el acento único, coherente con el resto del sistema.
+const PieChartBox = ({ data, unit, colors, height = 180 }) => {
+  const [R, setR] = useState(null);
+  useEffect(() => { let on = true; cargarRecharts().then((m) => { if (on) setR(m); }).catch(() => {}); return () => { on = false; }; }, []);
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (!R) {
+    return (
+      <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Loader2 size={20} color={P.faint} className="fj-spin" />
+      </div>
+    );
+  }
+  return (
+    <div style={{ width: "100%", height }}>
+      <R.ResponsiveContainer>
+        <R.PieChart>
+          <R.Pie data={data} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="82%" paddingAngle={2} stroke="none">
+            {data.map((d, i) => <R.Cell key={i} fill={colors[i % colors.length]} />)}
+          </R.Pie>
+          <R.Tooltip contentStyle={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, fontSize: 13 }}
+            labelStyle={{ color: P.dim }} formatter={(v, n) => [`${v} ${unit || ""} · ${total ? Math.round((v / total) * 100) : 0}%`, n]} />
+          <R.Legend verticalAlign="bottom" height={28} iconType="circle" wrapperStyle={{ fontSize: 12, color: P.faint2 }} />
+        </R.PieChart>
+      </R.ResponsiveContainer>
+    </div>
+  );
+};
 
 const SessionDetailSheet = ({ session, onClose, history, onOpenImg }) => (
   <Sheet open={!!session} onClose={onClose} title={session ? session.dayName : ""} tall>
@@ -8339,10 +8372,9 @@ const chartDayLabel = (iso) => {
 };
 
 // Serie diaria de un campo de un store del historial (bodyweight/steps/
-// water/sleep) para los últimos `days` días — un punto por día (si hay
-// dos registros del mismo día, como puede pasar al importar de más de
-// un archivo, se queda con el último) y ordenada de más viejo a más
-// nuevo, que es como un gráfico de barras se lee de izquierda a derecha.
+// sleep/physio…) para los últimos `days` días — un punto por día (si hay
+// dos registros del mismo día se queda con el último) y ordenada de más
+// viejo a más nuevo, que es como un gráfico se lee de izquierda a derecha.
 function ultimosDias(entries, field, days) {
   const cutoff = Date.now() - days * 86400000;
   const porDia = new Map();
@@ -8355,49 +8387,95 @@ function ultimosDias(entries, field, days) {
   return [...porDia.entries()].sort((a, b) => a[0].localeCompare(b[0]))
     .map(([day, e]) => ({ d: chartDayLabel(day), v: Math.round(e[field] * 10) / 10 }));
 }
+// Promedio de un campo sobre los registros del periodo que lo tengan.
+// null si ninguno lo trae (así no se dibuja una tarjeta vacía).
+function promedioCampo(entries, field, days) {
+  const cutoff = Date.now() - days * 86400000;
+  const vals = entries.filter((e) => new Date(e.date).getTime() >= cutoff && e[field] != null).map((e) => e[field]);
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+// Ficha de estadística chica (dato grande + rótulo) para los promedios
+// del periodo — se agrupan de a dos por fila. (DashStat para no chocar
+// con el StatTile que ya usa la analítica de laboratorio.)
+const DashStat = ({ label, value, unit }) => (
+  <div style={{ flex: "1 1 40%", minWidth: 128, background: P.s3, borderRadius: R_TILE, padding: "11px 13px" }}>
+    <div className="num" style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>
+      {value}{unit && <span style={{ fontSize: 12, fontWeight: 600, color: P.faint2, marginLeft: 3 }}>{unit}</span>}
+    </div>
+    <div style={{ fontSize: 12, color: P.faint2, marginTop: 2 }}>{label}</div>
+  </div>
+);
 
-// Dashboard de salud: todo lo que hoy vive repartido en check-ins e
-// importaciones de reloj (peso, pasos, agua, sueño y — cuando el reloj
-// lo trae, como WHOOP — el detalle del sueño) en una sola pantalla con
-// gráficos, en vez de una fila de texto por métrica.
+// Dashboard de salud: todo lo que vive repartido en check-ins e
+// importaciones de reloj (peso, pasos, sueño con su detalle y fases, y
+// las métricas fisiológicas diarias de WHOOP — recuperación, FC en
+// reposo, HRV, esfuerzo…) en una sola pantalla con gráficos.
 const HealthDashboardSheet = ({ open, onClose, history }) => {
   const [dias, setDias] = useState(14);
   useEffect(() => { if (!open) setDias(14); }, [open]);
 
   const bw = history.bodyweight || [];
   const steps = history.steps || [];
-  const water = history.water || [];
   const sleep = history.sleep || [];
+  const physio = history.physio || [];
 
   const pesoSerie = useMemo(() => ultimosDias(bw, "kg", dias), [bw, dias]);
   const pasosSerie = useMemo(() => ultimosDias(steps, "count", dias), [steps, dias]);
-  const aguaSerie = useMemo(() => ultimosDias(water, "liters", dias), [water, dias]);
   const suenoSerie = useMemo(() => ultimosDias(sleep, "hours", dias), [sleep, dias]);
+  const recuperacionSerie = useMemo(() => ultimosDias(physio, "recovery", dias), [physio, dias]);
+  const rhrSerie = useMemo(() => ultimosDias(physio, "restingHr", dias), [physio, dias]);
+  const hrvSerie = useMemo(() => ultimosDias(physio, "hrv", dias), [physio, dias]);
+  const strainSerie = useMemo(() => ultimosDias(physio, "strain", dias), [physio, dias]);
 
-  // El detalle de sueño (eficiencia, regularidad, cuánto necesitaba)
-  // solo lo trae un reloj importado, no el check-in manual — se
-  // promedia sobre las noches que sí lo tienen en vez de dejar un
-  // hueco por cada noche cargada a mano.
+  const recovAvg = useMemo(() => promedioCampo(physio, "recovery", dias), [physio, dias]);
+  const physioStats = useMemo(() => {
+    const stats = [];
+    const add = (field, label, unit, dec = 0) => {
+      const a = promedioCampo(physio, field, dias);
+      if (a != null) stats.push({ label, unit, value: dec ? a.toFixed(dec).replace(".", ",") : Math.round(a).toLocaleString("es-CL") });
+    };
+    add("spo2", "Oxígeno en sangre", "%", 1);
+    add("skinTemp", "Temp. cutánea", "°C", 1);
+    add("maxHr", "FC máxima", "lpm");
+    add("avgHr", "FC promedio", "lpm");
+    add("calories", "Energía quemada", "cal");
+    return stats;
+  }, [physio, dias]);
+
+  // Detalle y fases del sueño: solo lo trae un reloj importado, no el
+  // check-in manual — se promedia sobre las noches que sí lo tienen.
   const detalle = useMemo(() => {
     const cutoff = Date.now() - dias * 86400000;
     const recientes = sleep.filter((e) => new Date(e.date).getTime() >= cutoff && e.efficiencyPct != null);
     if (!recientes.length) return null;
-    const avg = (f) => recientes.reduce((s, e) => s + (e[f] || 0), 0) / recientes.length;
+    const avg = (f) => { const v = recientes.filter((e) => e[f] != null); return v.length ? v.reduce((s, e) => s + e[f], 0) / v.length : null; };
     const conNecesidad = recientes.filter((e) => e.needMin);
     const necesidadCubierta = conNecesidad.length
       ? Math.round((conNecesidad.reduce((s, e) => s + (e.hours || 0) / (e.needMin / 60), 0) / conNecesidad.length) * 100)
       : null;
+    const light = avg("lightMin"), deep = avg("deepMin"), rem = avg("remMin");
+    const fases = (light || deep || rem) ? [
+      { name: "Ligero", value: Math.round(light || 0) },
+      { name: "Profundo", value: Math.round(deep || 0) },
+      { name: "REM", value: Math.round(rem || 0) },
+    ] : null;
     return {
       n: recientes.length,
       efficiency: Math.round(avg("efficiencyPct")),
-      consistency: Math.round(avg("consistencyPct")),
-      necesidadCubierta,
-      awakeMin: Math.round(avg("awakeMin")),
-      debtMin: Math.round(avg("debtMin")),
+      consistency: avg("consistencyPct") != null ? Math.round(avg("consistencyPct")) : null,
+      necesidadCubierta, fases,
+      score: avg("scorePct") != null ? Math.round(avg("scorePct")) : null,
+      respRate: avg("respRate"),
+      inBedMin: avg("inBedMin") != null ? Math.round(avg("inBedMin")) : null,
+      awakeMin: avg("awakeMin") != null ? Math.round(avg("awakeMin")) : null,
+      debtMin: avg("debtMin") != null ? Math.round(avg("debtMin")) : null,
     };
   }, [sleep, dias]);
 
-  const hayDatos = pesoSerie.length || pasosSerie.length || aguaSerie.length || suenoSerie.length;
+  const hayPhysio = recuperacionSerie.length || physioStats.length || rhrSerie.length;
+  const hayDatos = pesoSerie.length || pasosSerie.length || suenoSerie.length || hayPhysio;
+  const nl = (n) => n.toLocaleString("es-CL");
 
   return (
     <Sheet open={open} onClose={onClose} title="Dashboard de salud" tall>
@@ -8408,12 +8486,57 @@ const HealthDashboardSheet = ({ open, onClose, history }) => {
         {!hayDatos ? (
           <Card style={{ padding: 22, textAlign: "center" }}>
             <div style={{ fontSize: 14, color: P.faint2, lineHeight: 1.5 }}>
-              Todavía no hay peso, pasos, agua ni sueño en este periodo. Se cargan desde el
-              Check-in, o de una sola vez importando el archivo de tu reloj (Más → Dispositivos).
+              Todavía no hay datos en este periodo. Se cargan desde el Check-in, o de una sola
+              vez importando el archivo de tu reloj (Más → Dispositivos).
             </div>
           </Card>
         ) : (
           <>
+            {/* ---------- Recuperación (reloj) ---------- */}
+            {recuperacionSerie.length > 0 && (
+              <Card style={{ padding: "15px 15px 6px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
+                  <div>
+                    <div style={{ fontSize: 13, color: P.faint2 }}>Recuperación</div>
+                    {recovAvg != null && (
+                      <div className="num" style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>
+                        {Math.round(recovAvg)}<span style={{ fontSize: 13, color: P.faint2, marginLeft: 3 }}>% promedio</span>
+                      </div>
+                    )}
+                  </div>
+                  {recovAvg != null && <Ring pct={recovAvg} size={62} stroke={8} />}
+                </div>
+                <BarChartBox data={recuperacionSerie} unit="%" color={P.text} height={150} />
+              </Card>
+            )}
+            {rhrSerie.length >= 2 && (
+              <Card style={{ padding: "15px 15px 6px" }}>
+                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>Frecuencia cardíaca en reposo (lpm)</div>
+                <ChartBox data={rhrSerie} unit="lpm" />
+              </Card>
+            )}
+            {hrvSerie.length >= 2 && (
+              <Card style={{ padding: "15px 15px 6px" }}>
+                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>Variabilidad de la FC — HRV (ms)</div>
+                <ChartBox data={hrvSerie} unit="ms" />
+              </Card>
+            )}
+            {strainSerie.length > 0 && (
+              <Card style={{ padding: "15px 15px 6px" }}>
+                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>Esfuerzo diario</div>
+                <BarChartBox data={strainSerie} unit="" color={P.faint} />
+              </Card>
+            )}
+            {physioStats.length > 0 && (
+              <Card style={{ padding: 16 }}>
+                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 12 }}>Promedios del periodo</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
+                  {physioStats.map((s, i) => <DashStat key={i} label={s.label} value={s.value} unit={s.unit} />)}
+                </div>
+              </Card>
+            )}
+
+            {/* ---------- Básicos (check-in) ---------- */}
             {pesoSerie.length > 0 && (
               <Card style={{ padding: "15px 15px 6px" }}>
                 <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>Peso corporal (kg)</div>
@@ -8426,19 +8549,20 @@ const HealthDashboardSheet = ({ open, onClose, history }) => {
                 <BarChartBox data={pasosSerie} unit="pasos" color={P.faint} />
               </Card>
             )}
-            {aguaSerie.length > 0 && (
-              <Card style={{ padding: "15px 15px 6px" }}>
-                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>Agua (L)</div>
-                <BarChartBox data={aguaSerie} unit="L" color={P.faint} />
-              </Card>
-            )}
+
+            {/* ---------- Sueño ---------- */}
             {suenoSerie.length > 0 && (
               <Card style={{ padding: "15px 15px 6px" }}>
                 <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>Horas de sueño</div>
                 <BarChartBox data={suenoSerie} unit="h" color={P.text} />
               </Card>
             )}
-
+            {detalle && detalle.fases && (
+              <Card style={{ padding: "15px 15px 6px" }}>
+                <div style={{ fontSize: 13, color: P.faint2, marginBottom: 2 }}>Composición del sueño (promedio, min)</div>
+                <PieChartBox data={detalle.fases} unit="min" colors={[P.chevron, P.text, P.faint]} />
+              </Card>
+            )}
             {detalle && (
               <Card style={{ padding: 16 }}>
                 <div style={{ fontSize: 13, color: P.faint2, marginBottom: 14 }}>
@@ -8449,10 +8573,12 @@ const HealthDashboardSheet = ({ open, onClose, history }) => {
                     <Ring pct={detalle.efficiency} size={80} stroke={9} />
                     <span style={{ fontSize: 12, color: P.faint2 }}>Eficiencia</span>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-                    <Ring pct={detalle.consistency} size={80} stroke={9} />
-                    <span style={{ fontSize: 12, color: P.faint2 }}>Regularidad</span>
-                  </div>
+                  {detalle.consistency != null && (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                      <Ring pct={detalle.consistency} size={80} stroke={9} />
+                      <span style={{ fontSize: 12, color: P.faint2 }}>Regularidad</span>
+                    </div>
+                  )}
                   {detalle.necesidadCubierta != null && (
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
                       <Ring pct={detalle.necesidadCubierta} size={80} stroke={9} />
@@ -8461,9 +8587,12 @@ const HealthDashboardSheet = ({ open, onClose, history }) => {
                   )}
                 </div>
                 <RowGroup rows={[
-                  { label: "Tiempo despierto (prom.)", value: `${detalle.awakeMin} min` },
-                  { label: "Deuda de sueño (prom.)", value: `${detalle.debtMin} min` },
-                ]} />
+                  detalle.score != null && { label: "Calificación del sueño (prom.)", value: `${detalle.score}%` },
+                  detalle.inBedMin != null && { label: "Tiempo en la cama (prom.)", value: `${nl(detalle.inBedMin)} min` },
+                  detalle.awakeMin != null && { label: "Tiempo despierto (prom.)", value: `${nl(detalle.awakeMin)} min` },
+                  detalle.debtMin != null && { label: "Deuda de sueño (prom.)", value: `${nl(detalle.debtMin)} min` },
+                  detalle.respRate != null && { label: "Frecuencia respiratoria (prom.)", value: `${detalle.respRate.toFixed(1).replace(".", ",")} rpm` },
+                ].filter(Boolean)} />
               </Card>
             )}
           </>
@@ -8587,7 +8716,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           ]} />
 
           <RowGroup rows={[
-            { label: "Dashboard de salud", value: "Peso, pasos, agua y sueño", onClick: () => setDashboardOpen(true) },
+            { label: "Dashboard de salud", value: "Sueño, recuperación y más", onClick: () => setDashboardOpen(true) },
           ]} />
 
           <RowGroup label="Cuerpo" rows={[
@@ -15378,6 +15507,46 @@ const IMPORT_FIELDS = [
     re: /eficiencia\s+(?:del?\s+)?sue[ñn]o|sleep\s+efficiency/i },
   { key: "sleepConsistency", store: "sleep", field: "consistencyPct", silent: true,
     re: /regularidad\s+(?:del?\s+)?sue[ñn]o|sleep\s+consistency/i },
+  // Calidad y fases del sueño (WHOOP). Las fases van en minutos, tal cual
+  // el archivo, para poder mostrar la composición de la noche. Cada
+  // patrón es específico ("ligero"/"profundo"/"rem") para no chocar con
+  // la duración TOTAL, que gana el primer match por ir antes en el orden
+  // de columnas del archivo.
+  { key: "sleepScore", store: "sleep", field: "scorePct", silent: true,
+    re: /calificaci[oó]n\s+del?\s+sue[ñn]o|sleep\s+(?:score|performance)/i },
+  { key: "sleepResp", store: "sleep", field: "respRate", silent: true,
+    re: /frecuencia\s+respiratoria|respiratory\s+rate/i },
+  { key: "sleepInBed", store: "sleep", field: "inBedMin", silent: true,
+    re: /tiempo\s+en\s+la\s+cama|time\s+in\s+bed|in\s+bed\s+duration/i },
+  { key: "sleepLight", store: "sleep", field: "lightMin", silent: true,
+    re: /sue[ñn]o\s+ligero|light\s+sleep/i },
+  { key: "sleepDeep", store: "sleep", field: "deepMin", silent: true,
+    re: /sue[ñn]o\s+profundo|deep\s+sleep|\bsws\b/i },
+  { key: "sleepRem", store: "sleep", field: "remMin", silent: true,
+    re: /sue[ñn]o\s+rem|rem\s+sleep|rem\s+duration/i },
+  // Métricas fisiológicas diarias de WHOOP → store "physio" (aparte del
+  // "recovery" del check-in, que es otra cosa: el cuestionario que llena
+  // el alumno). Un registro por día, todas las columnas juntas. Solo la
+  // puntuación de recuperación suma línea en el resumen; el resto viaja
+  // pegado (silent).
+  { key: "recoveryScore", store: "physio", field: "recovery", label: "Recuperación",
+    re: /puntuaci[oó]n\s+de\s+recuperaci|recovery\s+score/i },
+  { key: "restingHr", store: "physio", field: "restingHr", silent: true,
+    re: /frecuencia\s+card[ií]aca\s+en\s+reposo|resting\s+heart\s+rate/i },
+  { key: "hrv", store: "physio", field: "hrv", silent: true,
+    re: /variabilidad\s+de\s+la\s+frecuencia|heart\s+rate\s+variability|\bhrv\b/i },
+  { key: "skinTemp", store: "physio", field: "skinTemp", silent: true,
+    re: /temp.*cut[aá]nea|skin\s+temp/i },
+  { key: "spo2", store: "physio", field: "spo2", silent: true,
+    re: /ox[ií]geno\s+en\s+sangre|blood\s+oxygen|spo2/i },
+  { key: "strain", store: "physio", field: "strain", silent: true,
+    re: /esfuerzo\s+del\s+d[ií]a|day\s+strain/i },
+  { key: "calories", store: "physio", field: "calories", silent: true,
+    re: /energ[ií]a\s+quemada|calories\s+burned|energy\s+burned/i },
+  { key: "maxHr", store: "physio", field: "maxHr", silent: true,
+    re: /fc\s+m[aá]x|max.*heart|frecuencia\s+card[ií]aca\s+m[aá]xima/i },
+  { key: "avgHr", store: "physio", field: "avgHr", silent: true,
+    re: /fc\s+promedio|average\s+heart|avg\s+hr/i },
   { key: "liters", store: "water",      field: "liters", label: "Agua",
     alias: ["agua", "water", "hidratación"] },
 ];
@@ -15577,16 +15746,21 @@ async function importFromZip(buf) {
     Object.keys(r.out).forEach((store) => { out[store] = [...(out[store] || []), ...r.out[store]]; });
   }
   // WHOOP (y otros) reparten la misma métrica en más de un CSV del mismo
-  // .zip (p. ej. sueño sale tanto en "sueño.csv" como en
-  // "physiological_cycles.csv") — sin este paso quedarían dos registros
-  // para el mismo día. Se queda con el último que aparece por fecha.
+  // .zip (p. ej. el sueño sale tanto en "sueño.csv" como en
+  // "physiological_cycles.csv", cada uno con algunas columnas) — sin este
+  // paso quedarían dos registros para el mismo día. Se FUSIONAN los
+  // campos del mismo día en vez de quedarse con uno solo, para no perder
+  // columnas que trae un archivo y no el otro.
   const conteo = {};
   Object.keys(out).forEach((store) => {
     const porDia = new Map();
-    out[store].forEach((r) => porDia.set((r.date || "").slice(0, 10), r));
+    out[store].forEach((r) => {
+      const k = (r.date || "").slice(0, 10);
+      porDia.set(k, { ...(porDia.get(k) || {}), ...r });
+    });
     out[store] = [...porDia.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
   });
-  const LABEL = { bodyweight: "Peso", steps: "Pasos", sleep: "Sueño", water: "Agua" };
+  const LABEL = { bodyweight: "Peso", steps: "Pasos", sleep: "Sueño", water: "Agua", physio: "Recuperación" };
   Object.keys(out).forEach((store) => { if (out[store].length) conteo[LABEL[store] || store] = out[store].length; });
   if (!Object.keys(conteo).length) return { error: "El .zip no traía ningún CSV legible (peso, pasos, sueño o agua)." };
   return { out, conteo };
@@ -15694,7 +15868,8 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
             <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>
               Pega acá el CSV que exportaste, o elegí el archivo — funciona con el .csv suelto
               o con el .zip completo (el que exportan Salud, Garmin, WHOOP y Oura). Se leen
-              fecha, peso, pasos, sueño y agua; el resto se ignora.
+              fecha, peso, pasos, agua, sueño (con su detalle y fases) y las métricas de
+              recuperación del reloj (FC en reposo, HRV, esfuerzo…); el resto se ignora.
             </div>
             <input type="file" accept=".csv,.zip,text/csv,text/plain,application/zip,application/x-zip-compressed" aria-label="Elegir archivo CSV o .zip"
               onChange={onFile} style={{ fontSize: 14, color: P.dim }} />
