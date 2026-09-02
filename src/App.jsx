@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v215";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v216";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1632,24 +1632,6 @@ const lbToKg = (lbVal) => lbVal * KG_PER_LB;
 // igual que kg().
 const fmtUnit = (n) => { const r = Math.round(n * 10) / 10; return kg(r); };
 
-// Calculadora de discos (S3 del handoff, Atlas): a partir de un peso
-// objetivo y una barra, cuántos discos van por lado. Set estándar
-// olímpico en kg; algoritmo goloso (de mayor a menor disco) — funciona
-// para cualquier peso alcanzable con el set y avisa el resto si el
-// peso no es exacto (p.ej. pide 83 kg con una barra de 20: sobran 1,5 kg
-// que ningún disco cubre).
-const PLATE_SET_KG = [25, 20, 15, 10, 5, 2.5, 1.25];
-const BAR_OPTIONS_KG = [20, 15, 10];
-function plateBreakdown(targetKg, barKg, plates = PLATE_SET_KG) {
-  let perSide = Math.max(0, (targetKg - barKg) / 2);
-  const used = [];
-  for (const p of plates) {
-    let count = 0;
-    while (perSide >= p - 0.001) { perSide -= p; count++; }
-    if (count > 0) used.push({ plate: p, count });
-  }
-  return { used, remainder: Math.max(0, Math.round(perSide * 100) / 100) };
-}
 
 let WEIGHT_UNIT = "kg";
 try { WEIGHT_UNIT = window.localStorage.getItem("forja-weight-unit") || "kg"; } catch {}
@@ -3037,53 +3019,6 @@ const RingProgress = ({ pct, size = 56, stroke = 5, children }) => {
   );
 };
 
-// Cuerpo de la calculadora de discos, compartido entre Atlas (S3) y el
-// chip "Discos" de Focus Mode — mismo cálculo (plateBreakdown), dos
-// puntos de entrada. Cada disco se ve como una placa apilada con su
-// peso, para leerse de un vistazo sin hacer cuentas.
-// kg() redondea a 1 decimal para pesos normales — con discos de 1,25 kg
-// (estándar) eso da "1,3" y confunde. Acá se muestran los decimales
-// exactos que tenga el número (2 máximo), sin el redondeo de kg().
-const platekg = (n) => {
-  const r = Math.round(n * 100) / 100;
-  return String(r).replace(".", ",");
-};
-const PlateCalcBody = ({ initial }) => {
-  const [target, setTarget] = useState(initial != null ? String(initial) : "");
-  const [bar, setBar] = useState(BAR_OPTIONS_KG[0]);
-  const v = numN(target);
-  const { used, remainder } = v > 0 ? plateBreakdown(v, bar) : { used: [], remainder: 0 };
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", gap: 8 }}>
-        <NumInput placeholder="Peso total (kg)" value={target} onChange={(e) => setTarget(e.target.value)}
-          style={{ flex: 1, padding: "11px 12px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 15 }} />
-        <select value={bar} onChange={(e) => setBar(+e.target.value)} style={{ padding: "11px 10px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }}>
-          {BAR_OPTIONS_KG.map((b) => <option key={b} value={b}>Barra {b} kg</option>)}
-        </select>
-      </div>
-      {v > 0 && (
-        used.length === 0 ? (
-          <div style={{ fontSize: 13.5, color: P.faint2 }}>Solo la barra ({bar} kg) — no alcanza para ningún disco por lado.</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontSize: 13, color: P.faint2 }}>Por lado (barra {bar} kg):</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {used.map(({ plate, count }) => (
-                <div key={plate} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: PLATE_GRAD, color: PLATE_FG,
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>{platekg(plate)}</div>
-                  <div style={{ fontSize: 12.5, color: P.faint2 }}>×{count}</div>
-                </div>
-              ))}
-            </div>
-            {remainder > 0 && <div style={{ fontSize: 12.5, color: P.faint2 }}>Sobran {platekg(remainder)} kg por lado que ningún disco cubre exacto.</div>}
-          </div>
-        )
-      )}
-    </div>
-  );
-};
 
 // Stepper horizontal − valor +: no había ningún componente compartido para
 // esto (el único precedente en toda la app era el par de chevrons apilados
@@ -5426,8 +5361,9 @@ const SalidaRow = ({ icon: Icon, title, body, danger, onClick }) => (
   </button>
 );
 
-const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
-  const [weightUnit] = useWeightUnit();
+const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat }) => {
+  const [weightUnit, setWeightUnit] = useWeightUnit();
+  const [themeMode, setThemeMode] = useTheme();
   const pendingWrites = usePendingWrites();
   const [now, setNow] = useState(Date.now());
   const [ficha, setFicha] = useState(null);
@@ -5449,7 +5385,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // "···" de la fila activa: deshacer/rehacer, borrar la serie, comentario
   // y unidad — todo lo que en el diseño anterior vivía como 4 íconos
   // sueltos en la tarjeta y ahora se junta en una sola hoja chica.
-  const [rowMoreFor, setRowMoreFor] = useState(null);
+  // Índice del bloque cuyo comentario general (del ejercicio) está abierto.
+  const [exCmtFor, setExCmtFor] = useState(null);
   const [calcOpen, setCalcOpen] = useState(false);
   // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
   const [coachNotesOpen, setCoachNotesOpen] = useState(null);
@@ -5788,8 +5725,23 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 <Check size={16} strokeWidth={3} />
               </button>
             </div>
-            {/* El comentario de ESTA serie, debajo de su fila. Se abre desde
-                el «···»; sin esto, ese botón no dibujaba nada. */}
+            {/* Acceso directo al comentario de ESTA serie (antes vivía tras
+                el «···»): un toque abre la caja debajo de la fila. Si la
+                serie ya tiene datos, aparece también «Borrar». */}
+            {cmtKey !== restKey(r.ei, r.si) && !st.comment && (
+              <div style={{ display: "flex", gap: 14, marginTop: 6, paddingLeft: 1 }}>
+                <button onClick={() => openCmt(restKey(r.ei, r.si))}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
+                  <MessageSquare size={12} /> Comentar
+                </button>
+                {(st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null) ? (
+                  <button onClick={() => clearSet(r.ei, r.si)}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
+                    <Trash2 size={12} /> Borrar
+                  </button>
+                ) : null}
+              </div>
+            )}
             {renderCommentBlock(r.ei, r.si)}
             </div>
           );
@@ -5805,16 +5757,18 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const accionesDe = (block, bi) => {
     const primero = block.group ? block.members[0] : block.ei;
     const nombre = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
-    const fila = block.rows[Math.max(0, block.rows.findIndex((r) => !exs[r.ei].sets[r.si].done))] || block.rows[0];
+    const tieneCmt = !!(exs[primero].comment || "").trim();
+    const cmtAbierto = exCmtFor === bi;
     return (
+      <>
       <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 2px" }}>
-        {[["Historial del ejercicio", History, () => setHistEx(primero), false],
+        {[["Comentario del ejercicio", MessageSquare, () => setExCmtFor(cmtAbierto ? null : bi), tieneCmt || cmtAbierto],
+          ["Historial del ejercicio", History, () => setHistEx(primero), false],
           ["Indicaciones del coach", FileText, () => setCoachNotesOpen(bi),
             (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes)],
           ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
-          ["Más opciones de esta serie", MoreHorizontal, () => setRowMoreFor({ ei: fila.ei, si: fila.si }), false],
         ].map(([lbl, Icon, onClick, marcado]) => (
-          <button key={lbl} onClick={onClick} aria-label={`${lbl} — ${nombre}${marcado ? " (hay indicaciones)" : ""}`} title={lbl}
+          <button key={lbl} onClick={onClick} aria-label={`${lbl} — ${nombre}${marcado ? " (con contenido)" : ""}`} title={lbl}
             style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: "transparent",
               color: marcado ? SES.acc : SES.faint, border: "none",
               display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -5827,6 +5781,26 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           <Calculator size={13} /> Calcular RM
         </button>
       </div>
+      {/* Comentario general del ejercicio, desplegado inline debajo de sus
+          acciones — sin abrir menús ni el «···». */}
+      {(cmtAbierto || tieneCmt) && (
+        <div style={{ padding: "0 2px" }}>
+          {cmtAbierto ? (
+            <textarea autoFocus rows={2} value={exs[primero].comment || ""}
+              placeholder={`Comentario de ${nombre} (sensaciones, molestias, ajustes…)`}
+              onChange={(e) => patchEx(primero, { comment: e.target.value })}
+              style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "10px 11px", fontSize: 14.5, lineHeight: 1.45,
+                resize: "none", borderRadius: 10, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink,
+                fontFamily: "inherit", outline: "none" }} />
+          ) : (
+            <button onClick={() => setExCmtFor(bi)} style={{ display: "block", width: "100%", textAlign: "left", fontSize: 13, color: SES.dim,
+              lineHeight: 1.4, background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: 10, padding: "8px 11px", boxSizing: "border-box" }}>
+              {exs[primero].comment}
+            </button>
+          )}
+        </div>
+      )}
+      </>
     );
   };
 
@@ -5885,6 +5859,43 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <X size={17} strokeWidth={2.6} />
         </button>
+      </div>
+
+      {/* Barra de herramientas de la sesión, siempre a la vista (antes
+          escondida tras el «···»): cambiar de tema claro/oscuro, arrancar
+          un descanso a mano, deshacer/rehacer, la unidad de peso y el
+          video/fotos del día. Todo de un toque, sin abrir menús. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        {(() => {
+          const isLight = themeMode !== "dark";
+          const tbBtn = (key, Icon, label, onClick, on) => (
+            <button key={key} onClick={onClick} aria-label={label} title={label}
+              style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                background: SES.campo, border: `1px solid ${SES.line}`, color: on ? SES.acc : SES.dim }}>
+              <Icon size={16} strokeWidth={2} />
+            </button>
+          );
+          return (
+            <>
+              {tbBtn("tema", isLight ? Moon : Sun, isLight ? "Cambiar a modo oscuro" : "Cambiar a modo claro",
+                () => setThemeMode(isLight ? "dark" : "light"))}
+              {tbBtn("timer", Timer, "Iniciar un descanso a mano",
+                () => onStartRest && onStartRest(120, 0, 0), !!timer)}
+              {tbBtn("undo", Undo2, "Deshacer", () => undoStack.length && undo())}
+              {tbBtn("redo", Redo2, "Rehacer", () => redoStack.length && redo())}
+              <button onClick={() => setWeightUnit(weightUnit === "kg" ? "lb" : "kg")} aria-label="Cambiar unidad de peso"
+                title="Cambiar unidad de peso" style={{ height: 34, padding: "0 10px", borderRadius: 9, flexShrink: 0,
+                  display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11.5, fontWeight: 800, letterSpacing: ".03em",
+                  background: SES.campo, border: `1px solid ${SES.line}` }}>
+                <span style={{ color: weightUnit === "kg" ? SES.acc : SES.faint }}>KG</span>
+                <span style={{ color: SES.faint }}>/</span>
+                <span style={{ color: weightUnit === "lb" ? SES.acc : SES.faint }}>LB</span>
+              </button>
+              {tbBtn("media", Camera, "Video y fotos de la sesión", () => setMediaOpen(true),
+                (active.attachIds || []).length > 0)}
+            </>
+          );
+        })()}
       </div>
 
       <div>
@@ -5962,6 +5973,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             border: `1px solid ${doneSets === totalSets ? SES.acc : SES.line}`,
             fontSize: 15, fontWeight: 700 }}>
           {doneSets === 0 ? "Terminar sesión" : doneSets === totalSets ? "Terminar sesión · completa" : `Terminar sesión · ${doneSets} de ${totalSets}`}
+        </button>
+        <button onClick={() => setExiting(true)}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", marginTop: 8,
+            background: "none", border: "none", color: SES.faint, fontSize: 13, fontWeight: 600 }}>
+          <BarChart3 size={14} /> Cómo va la sesión
         </button>
         {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
             y abajo, para que no haga falta preguntarlo. */}
@@ -6145,47 +6161,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       <Sheet open={histEx != null} onClose={() => setHistEx(null)} title={histEx != null ? `Historial · ${exs[histEx].name}` : "Historial"} tall>
         <ExHistorySheetInline entries={(histEx != null && history.byEx[exs[histEx].id]) || []} onOpenImg={setViewImg} />
       </Sheet>
-      <Sheet open={!!rowMoreFor} onClose={() => setRowMoreFor(null)} title="Más">
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button data-keep onClick={() => { clearSet(rowMoreFor.ei, rowMoreFor.si); setRowMoreFor(null); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
-              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
-            <Trash2 size={18} /> Borrar los datos de esta serie
-          </button>
-          <button data-keep onClick={() => { openCmt(restKey(rowMoreFor.ei, rowMoreFor.si)); setRowMoreFor(null); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
-              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
-            <MessageSquare size={18} /> Agregar comentario
-          </button>
-          <button data-keep onClick={() => { setRowMoreFor(null); setMediaOpen(true); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
-              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
-            <Camera size={18} /> Video y fotos de la sesión
-          </button>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={undo} disabled={!undoStack.length}
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 14px", borderRadius: R_TILE,
-                background: P.s3, border: `1px solid ${P.line}`, color: undoStack.length ? P.text : P.faint2, fontSize: 15, fontWeight: 600 }}>
-              <Undo2 size={17} /> Deshacer
-            </button>
-            <button onClick={redo} disabled={!redoStack.length}
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 14px", borderRadius: R_TILE,
-                background: P.s3, border: `1px solid ${P.line}`, color: redoStack.length ? P.text : P.faint2, fontSize: 15, fontWeight: 600 }}>
-              <Redo2 size={17} /> Rehacer
-            </button>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 2px" }}>
-            <span style={{ fontSize: 14.5, color: P.dim, fontWeight: 600 }}>Unidad de peso</span>
-            <UnitToggle />
-          </div>
-          <div style={{ height: 1, background: P.line, margin: "2px 0" }} />
-          <button data-keep onClick={() => { setRowMoreFor(null); setExiting(true); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
-              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
-            <BarChart3 size={18} /> Cómo va la sesión · finalizar
-          </button>
-        </div>
-      </Sheet>
       <Sheet open={mediaOpen} onClose={() => setMediaOpen(false)} title="Video y fotos de la sesión">
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.45 }}>
@@ -6291,7 +6266,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               </Card>
 
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Discos · % del top set</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>% del top set</div>
                 <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>Peso de trabajo</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("Top set", c4top, setC4top)}
@@ -6317,18 +6292,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 </div>
               </Card>
 
-              <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Discos</div>
-                <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>Discos por barra</div>
-                <PlateCalcBody initial={(() => {
-                  if (workW != null) return workW;
-                  // Sin un ejercicio "actual" (están todos en pantalla), se
-                  // parte del último peso que se registró en la sesión.
-                  let w = 0;
-                  exs.forEach((ex) => ex.sets.forEach((st) => { const n = num(st.weight); if (n > 0) w = n; }));
-                  return w > 0 ? w : null;
-                })()} />
-              </Card>
               <div style={{ fontSize: 12, color: P.faint2, lineHeight: 1.5 }}>e1RM es una estimación basada en peso, repeticiones y RIR (fórmula de Epley ajustada). No reemplaza un test real.</div>
             </div>
           );
@@ -16148,9 +16111,8 @@ const CompetitionPrepSheet = ({ open, onClose, plan }) => {
    biblioteca (library, ya existente) con buscador y filtro por
    músculo — antes ExerciseInfoSheet solo se abría contextualmente
    desde una rutina o sesión, nunca había una pantalla de "ver todos".
-   "Calculadora de discos" es la misma PlateCalcBody del chip "Discos"
-   de Focus Mode (mismo cálculo, dos entradas); "Guía de términos"
-   reusa GlossaryBody tal cual ya se usa desde Más → Herramientas.
+   "Guía de términos" reusa GlossaryBody tal cual ya se usa desde
+   Más → Herramientas.
    ============================================================ */
 
 /* Ficha de un ejercicio del catálogo: la animación, para qué músculos es,
@@ -16516,7 +16478,6 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
   const [tope, setTope] = useState(60);
   const [openEx, setOpenEx] = useState(null);
   const [openCat, setOpenCat] = useState(null);
-  const [calcOpen, setCalcOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
 
   // Lo que ya está cargado en la app (biblioteca del coach + rutina) va
@@ -16671,7 +16632,6 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
 
         <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "6px 2px 0" }}>Herramientas</div>
         <Card style={{ overflow: "hidden" }}>
-          <SettingRow Icon={Calculator} label="Calculadora de discos" onClick={() => setCalcOpen(true)} />
           <SettingRow Icon={BookOpen} label="Guía de términos" onClick={() => setGuideOpen(true)} last />
         </Card>
 
@@ -16684,9 +16644,6 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
 
       <CatalogExerciseSheet ex={openCat} open={!!openCat} onClose={() => setOpenCat(null)} />
       <ExerciseInfoSheet ex={openEx} open={!!openEx} onClose={() => setOpenEx(null)} />
-      <Sheet open={calcOpen} onClose={() => setCalcOpen(false)} title="Calculadora de discos">
-        <PlateCalcBody />
-      </Sheet>
       <Sheet open={guideOpen} onClose={() => setGuideOpen(false)} title="Guía de términos" tall>
         <GlossaryBody showTopButton />
       </Sheet>
