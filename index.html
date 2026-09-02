@@ -27,7 +27,12 @@
        instantánea igual. -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" />
+  <!-- v206: la hoja de estilos de Google Fonts bloqueaba el primer pintado
+       (el navegador no dibuja nada hasta tenerla). Se pide como preload y
+       se activa al llegar: la app aparece al instante con la fuente del
+       sistema y cambia a Inter en cuanto llega (font-display: swap). -->
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" /></noscript>
   <link rel="preconnect" href="https://vzenlmcbftopyjzcltxa.supabase.co" />
   <title>FORJA</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23FFFFFF'/><g fill='%23171512'><rect x='11' y='14.2' width='10' height='3.6' rx='1.3'/><rect x='4' y='11' width='2.6' height='10' rx='.9'/><rect x='7.6' y='9' width='3.2' height='14' rx='1.1'/><rect x='21.2' y='9' width='3.2' height='14' rx='1.1'/><rect x='25.4' y='11' width='2.6' height='10' rx='.9'/></g></svg>" />
@@ -42,7 +47,10 @@
        usa su base por defecto. Va antes del bundle: los dos con defer,
        que conserva el orden. -->
   <script src="/config.js" defer></script>
-  <script src="/bundle.js?v=205" defer></script>
+  <!-- v206: type="module" para poder partir el bundle en trozos (recharts,
+       ~320 KB, ahora va aparte y solo se baja al abrir un gráfico). Un
+       módulo se ejecuta como defer y respeta el orden con config.js. -->
+  <script type="module" src="/bundle.js?v=206"></script>
   <script>
     // Registra el service worker que permite abrir la app sin internet
     // (sirve la última copia guardada de index.html/bundle.js cuando no

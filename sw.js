@@ -8,7 +8,7 @@
    index.html, bundle.js, manifest, íconos). Nunca toca las llamadas a
    Supabase ni a la API de Anthropic — esas siguen su curso normal y las
    maneja el respaldo local de sGet/sSet/sDel dentro de la app. */
-const CACHE_NAME = "forja-shell-v2";
+const CACHE_NAME = "forja-shell-v3";
 const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -28,11 +28,46 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Lo que NO cambia para una URL dada: bundle.js?v=NN, los trozos con hash
+// y el catálogo con ?v=. Para estos, caché primero: si ya está guardado
+// se sirve al instante sin esperar a la red (antes cada apertura esperaba
+// al servidor aunque tuviera el archivo idéntico guardado — en la red de
+// un gimnasio eso son segundos). index.html y config.js siguen yendo a la
+// red primero, que es lo que hace llegar las versiones nuevas.
+const esInmutable = (url) =>
+  url.pathname === "/bundle.js" || url.pathname === "/catalogo-ejercicios.json" || /^\/chunk-[^/]+\.js$/.test(url.pathname);
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return; // los POST/DELETE a Supabase pasan de largo
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // Supabase, Anthropic, fuentes: intactos
+
+  if (esInmutable(url)) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        const hit = await cache.match(req);
+        if (hit) return hit;
+        const fresh = await fetch(req);
+        if (fresh && fresh.ok) {
+          // Una versión nueva de bundle.js deja huérfanos los trozos de la
+          // anterior (tienen otro hash): se limpian al guardar el bundle
+          // nuevo, y los trozos vigentes se vuelven a guardar al pedirse.
+          const keys = await cache.keys();
+          const viejas = keys.filter((k) => {
+            const ku = new URL(k.url);
+            if (ku.origin !== url.origin) return false;
+            if (ku.pathname === url.pathname) return ku.search !== url.search;
+            return url.pathname === "/bundle.js" && /^\/chunk-[^/]+\.js$/.test(ku.pathname);
+          });
+          await Promise.all(viejas.map((k) => cache.delete(k)));
+          cache.put(req, fresh.clone());
+        }
+        return fresh;
+      })
+    );
+    return;
+  }
 
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {

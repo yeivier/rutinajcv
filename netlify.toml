@@ -62,3 +62,10 @@
   for = "/icons/*"
   [headers.values]
     Cache-Control = "public, max-age=86400"
+
+# v206: el bundle se parte en trozos (chunk-<hash>.js). El hash cambia con
+# el contenido, así que cada archivo es inmutable por definición.
+[[headers]]
+  for = "/chunk-*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

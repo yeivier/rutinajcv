@@ -2,6 +2,11 @@ import re, sys
 src = open("src/App.jsx", encoding="utf-8").read()
 # declaraciones: sobre el fuente crudo (no vaya a ser que un /* */ se coma una línea real)
 declared = set(re.findall(r'^\s*(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)', src, re.M))
+# nombres que salen de una desestructuración (const [R, setR] = useState…, const { X } = …)
+for m in re.finditer(r'^\s*(?:const|let|var)\s*[\[{]([^\]}=]*)[\]}]', src, re.M):
+    for part in m.group(1).split(','):
+        n = part.split(':')[-1].split('=')[0].strip()
+        if re.fullmatch(r'[A-Za-z_$][\w$]*', n): declared.add(n)
 for m in re.finditer(r'import\s+(?:([A-Za-z_$][\w$]*)\s*,?\s*)?(?:\{([^}]*)\})?\s*from', src, re.S):
     if m.group(1): declared.add(m.group(1))
     if m.group(2):
