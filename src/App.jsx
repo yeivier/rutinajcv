@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v223";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v225";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3293,12 +3293,14 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
         background: PLATE_GRAD, color: PLATE_FG, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{badge}</span>
     )}
     <Icon size={19} color={P.text} strokeWidth={2} />
-    {/* minWidth:0 + overflowWrap: una palabra larga sin espacios como
-        "Suplementación" no cabía en la columna (3 fichas de ancho) y se
-        salía del borde de la ficha; ahora corta y baja de línea, igual que
-        "Competition Prep". */}
+    {/* minWidth:0 + hyphens:auto: una palabra larga sin espacios como
+        "Suplementación"/"Temporizador" no entra en la columna (3 fichas de
+        ancho). Con hyphens:auto (el <html> ya declara lang="es") corta por
+        sílabas con guion — "Tempori-zador", "Configura-ción" — en vez de un
+        tajo feo a mitad de letra; overflowWrap queda de respaldo por si el
+        navegador no tiene diccionario de guionado. */}
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "break-word" }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "break-word", hyphens: "auto", WebkitHyphens: "auto" }}>{label}</div>
       {value != null && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 1, overflowWrap: "break-word" }}>{value}</div>}
     </div>
   </button>
@@ -6275,8 +6277,24 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               <Icon size={16} strokeWidth={2} />
             </button>
           );
+          // Pulso en vivo: si hay pulsómetro conectado (por Bluetooth en
+          // Bluefy/Chrome), muestra las pulsaciones al instante; si no,
+          // toca para conectar (o abre Dispositivos con la guía si el
+          // navegador no tiene Bluetooth, p. ej. Safari).
+          const hrTap = hr.connected ? onOpenDevices : (hr.supported ? hr.connect : onOpenDevices);
+          const hrLabel = hr.connected ? (hr.bpm != null ? `${hr.bpm}` : "···") : "Pulso";
           return (
             <>
+              <button key="hr" onClick={hrTap}
+                aria-label={hr.connected ? `Frecuencia cardíaca ${hr.bpm != null ? hr.bpm + " pulsaciones por minuto" : "conectada"}` : "Conectar pulsómetro para ver la frecuencia cardíaca"}
+                title="Frecuencia cardíaca"
+                style={{ height: 34, padding: "0 10px", borderRadius: 9, flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5,
+                  fontSize: 12.5, fontWeight: 800, letterSpacing: ".01em",
+                  background: hr.connected ? SES.acc : SES.campo, border: `1px solid ${hr.connected ? SES.acc : SES.line}`,
+                  color: hr.connected ? "#fff" : SES.dim }}>
+                <HeartPulse size={15} strokeWidth={2.4} className={hr.connected && hr.bpm != null ? "pulse" : ""} />
+                {hrLabel}{hr.connected && hr.bpm != null ? <span style={{ fontSize: 9.5, fontWeight: 700, opacity: .85 }}>LPM</span> : null}
+              </button>
               {tbBtn("tema", isLight ? Moon : Sun, isLight ? "Cambiar a modo oscuro" : "Cambiar a modo claro",
                 () => setThemeMode(isLight ? "dark" : "light"))}
               {tbBtn("timer", Timer, "Iniciar un descanso a mano",
@@ -7768,9 +7786,10 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
             <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".16em" }}>{workout.eyebrow}</span>
-            <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{workout.title}</span>
+            <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12,
+              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{workout.title}</span>
             <span style={{ fontSize: 12.5, color: P.faint }}>
-              {workout.exs ? `${workout.exs.length} ejercicios · ${workout.sets} series · ${estimateSessionMin(workout.sets)} min` : workout.sub}
+              {workout.exs ? `${workout.exs.length} ${workout.exs.length === 1 ? "ejercicio" : "ejercicios"} · ${workout.sets} ${workout.sets === 1 ? "serie" : "series"} · ${estimateSessionMin(workout.sets)} min` : workout.sub}
             </span>
           </div>
           <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} style={{ flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</Btn>
