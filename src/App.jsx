@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v218";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v219";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2951,6 +2951,38 @@ const GlobalStyle = () => {
     .fj .splashTag { animation: splashTag .3s ease .6s both; }
     @keyframes splashBarIn { from { opacity: 0; } to { opacity: 1; } }
     .fj .splashBar { animation: splashBarIn .3s ease 1.2s both; }
+    /* Reordenar fichas del grid al estilo iOS (mantener pulsado → todo
+       tiembla → arrastrar). El temblor es una animación continua y lenta,
+       con dos fases alternadas para que no todas las fichas se muevan al
+       unísono (queda más orgánico, como el "jiggle" de la pantalla de
+       inicio del iPhone). Va ANTES del guard de prefers-reduced-motion de
+       abajo, a propósito: quien pide menos movimiento no ve el temblor
+       (pero el arrastre sigue funcionando — usa transform por JS, no
+       animación). El arrastre en sí lo maneja OrderableGrid. */
+    @keyframes ordTiembla1 { 0% { transform: rotate(-1.15deg); } 50% { transform: rotate(1.15deg); } 100% { transform: rotate(-1.15deg); } }
+    @keyframes ordTiembla2 { 0% { transform: rotate(1.05deg); } 50% { transform: rotate(-1.05deg); } 100% { transform: rotate(1.05deg); } }
+    .fj .ord-wrap { position: relative; }
+    /* En modo edición las fichas no deben poder seleccionarse ni sacar el
+       menú "Copiar/Consultar" al mantener pulsado. */
+    .fj .ord-editando .ord-wrap, .fj .ord-editando .ord-wrap * {
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    .fj .ord-editando .ord-wrap { animation: ordTiembla1 .33s ease-in-out infinite; transform-origin: 50% 50%; }
+    .fj .ord-editando .ord-wrap:nth-child(2n) { animation-name: ordTiembla2; animation-duration: .35s; }
+    .fj .ord-editando .ord-wrap:nth-child(3n) { animation-duration: .31s; }
+    .fj .ord-editando .ord-wrap:nth-child(3n+1) { animation-duration: .34s; }
+    /* La ficha que se está arrastrando: no tiembla (se levanta y sigue al
+       dedo, eso lo hace el "fantasma" flotante) y su hueco queda marcado. */
+    .fj .ord-wrap.arrastrando { animation: none !important; }
+    .fj .ord-wrap.hueco { animation: none !important; }
+    .fj .ord-wrap.hueco > * { opacity: 0; }
+    .fj .ord-wrap.hueco::after {
+      content: ""; position: absolute; inset: 0; border-radius: ${R_TILE}px;
+      border: 1.5px dashed ${P.line}; background: ${P.s4};
+    }
+    /* El fantasma flotante que sigue al dedo 1:1. */
+    .fj .ord-fantasma { position: fixed; z-index: 9999; pointer-events: none;
+      transform: scale(1.06); filter: drop-shadow(0 10px 22px rgba(0,0,0,.28)); will-change: left, top; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
     /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
        inferior fija (TabBar) queda "transparente" al puntero: si no, al
@@ -3233,6 +3265,256 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
     </div>
   </button>
 );
+
+/* ============ Reordenar fichas del grid (estilo iOS) ============
+   Mantener pulsada una ficha ~0,4 s la activa: todas las fichas del grid
+   entran en "modo edición" y tiemblan (CSS ordTiembla*, en GlobalStyle).
+   Al arrastrar, la ficha se pega al dedo 1:1 mediante un "fantasma"
+   position:fixed que sigue las coordenadas del puntero sin lag ni salto;
+   la ficha original queda como hueco marcado y los demás hacen espacio
+   reordenando el arreglo en vivo. Al soltar, el orden se guarda en
+   localStorage (device-local, no se sincroniza — es una preferencia de
+   interfaz de ESTE dispositivo) y la ficha aterriza ya en su lugar (sin
+   parpadeo: el arreglo ya estaba reordenado). Funciona con dedo (touch) y
+   con mouse.
+
+   Se usan listeners NATIVOS con {passive:false} (no los sintéticos de
+   React, que registran touchmove como passive y hacen que preventDefault
+   se ignore) — misma razón por la que el arrastre de días/ejercicios usa
+   addEventListener. Antes de cumplirse el tiempo de "mantener pulsado", si
+   el dedo se mueve >10 px se cancela la activación y la lista scrollea
+   normal: NO se secuestra el scroll. */
+
+// Lee/guarda el orden de un grid. La clave vive solo en este dispositivo
+// (lsGetRaw/lsSetRaw = localStorage directo, sin sincronizar): el orden de
+// las fichas es una preferencia visual, no un dato compartido del atleta.
+function loadOrdIds(clave, keys) {
+  let saved = null;
+  try { const raw = lsGetRaw("forja-ord:" + clave); if (raw) saved = JSON.parse(raw); } catch {}
+  return reconcileOrd(Array.isArray(saved) ? saved : [], keys);
+}
+// Concilia el orden guardado con las fichas actuales: respeta el orden de
+// las que siguen existiendo, agrega al final las nuevas y descarta las que
+// ya no están (una función que se quitó, un permiso que cambió, etc.).
+function reconcileOrd(saved, keys) {
+  const set = new Set(keys);
+  const out = saved.filter((k) => set.has(k));
+  const has = new Set(out);
+  for (const k of keys) if (!has.has(k)) out.push(k);
+  return out;
+}
+function saveOrdIds(clave, ids) {
+  try { lsSetRaw("forja-ord:" + clave, JSON.stringify(ids)); } catch {}
+}
+// Mueve `fromKey` a la posición de `toKey`, devolviendo un arreglo nuevo.
+function moveOrd(order, fromKey, toKey) {
+  const fi = order.indexOf(fromKey), ti = order.indexOf(toKey);
+  if (fi < 0 || ti < 0 || fi === ti) return order;
+  const a = order.slice();
+  a.splice(fi, 1);
+  let nti = a.indexOf(toKey);
+  if (fi < ti) nti += 1; // se movió hacia adelante: cae DESPUÉS del destino
+  a.splice(nti, 0, fromKey);
+  return a;
+}
+
+// Hook por-ficha: listeners nativos de mantener-pulsado + arrastre. Lee las
+// callbacks y el estado (editando/orderable) desde un ref para no re-montar
+// los listeners en cada render. Devuelve el ref del elemento.
+function useOrdCell(handlers) {
+  const ref = useRef(null);
+  const cb = useRef(handlers);
+  cb.current = handlers;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const st = { timer: null, grabbed: false, sx: 0, sy: 0 };
+    const clear = () => { if (st.timer) { clearTimeout(st.timer); st.timer = null; } };
+    const grab = (x, y) => {
+      st.grabbed = true;
+      try { navigator.vibrate && navigator.vibrate(18); } catch {}
+      cb.current.onGrab(x, y);
+    };
+    const begin = (x, y) => {
+      if (!cb.current.orderable) return;
+      st.grabbed = false; st.sx = x; st.sy = y; clear();
+      // Ya en modo edición, una pulsación más corta re-agarra la ficha.
+      const hold = cb.current.editando ? 130 : 400;
+      st.timer = setTimeout(() => { st.timer = null; grab(x, y); }, hold);
+    };
+    const move = (x, y, e) => {
+      if (st.grabbed) {
+        if (e && e.cancelable) e.preventDefault(); // bloquea scroll mientras arrastra
+        cb.current.onMove(x, y);
+        return;
+      }
+      // Antes de activarse: si el dedo se va, era scroll → cancelar.
+      if (st.timer && (Math.abs(x - st.sx) > 10 || Math.abs(y - st.sy) > 10)) clear();
+    };
+    const finish = () => {
+      clear();
+      window.removeEventListener("mousemove", onMM);
+      window.removeEventListener("mouseup", onMU);
+      if (st.grabbed) { st.grabbed = false; cb.current.onDrop(); }
+    };
+    const onTS = (e) => { const t = e.touches[0]; if (t) begin(t.clientX, t.clientY); };
+    const onTM = (e) => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY, e); };
+    const onMM = (e) => move(e.clientX, e.clientY, null);
+    const onMU = () => finish();
+    const onMD = (e) => {
+      if (e.button !== 0 || !cb.current.orderable) return;
+      begin(e.clientX, e.clientY);
+      window.addEventListener("mousemove", onMM);
+      window.addEventListener("mouseup", onMU);
+    };
+    // Sin menú contextual (Copiar/Consultar) al mantener pulsado en edición.
+    const noMenu = (e) => { if (cb.current.orderable) e.preventDefault(); };
+    el.addEventListener("touchstart", onTS, { passive: false });
+    el.addEventListener("touchmove", onTM, { passive: false });
+    el.addEventListener("touchend", finish);
+    el.addEventListener("touchcancel", finish);
+    el.addEventListener("mousedown", onMD);
+    el.addEventListener("contextmenu", noMenu);
+    return () => {
+      el.removeEventListener("touchstart", onTS);
+      el.removeEventListener("touchmove", onTM);
+      el.removeEventListener("touchend", finish);
+      el.removeEventListener("touchcancel", finish);
+      el.removeEventListener("mousedown", onMD);
+      el.removeEventListener("contextmenu", noMenu);
+      window.removeEventListener("mousemove", onMM);
+      window.removeEventListener("mouseup", onMU);
+      clear();
+    };
+  }, []);
+  return ref;
+}
+
+// Una celda del grid reordenable. Registra su elemento en el mapa de refs
+// del grid (para localizar qué ficha está bajo el dedo) y en el hook de
+// arrastre. Mientras se edita, el tap no navega (onClick queda anulado).
+const OrdCell = ({ item, editando, orderable, hueco, register, onGrab, onMove, onDrop, render }) => {
+  const ref = useOrdCell({
+    editando, orderable,
+    onGrab: (x, y) => onGrab(item.key, x, y),
+    onMove: (x, y) => onMove(x, y),
+    onDrop,
+  });
+  const setRef = (el) => { ref.current = el; register(item.key, el); };
+  return (
+    <div className={"ord-wrap" + (hueco ? " arrastrando hueco" : "")} ref={setRef}
+      // Captura el click posterior al arrastre / en modo edición para que la
+      // ficha no navegue al soltar.
+      onClickCapture={(e) => { if (editando) { e.preventDefault(); e.stopPropagation(); } }}>
+      {render(item, editando)}
+    </div>
+  );
+};
+
+// Grid reordenable estilo iOS. `items` son las fichas en su orden POR
+// DEFECTO (cada una con `.key`); el orden mostrado sale de conciliar eso
+// con lo guardado. `editando`/`onActivate` los controla la pestaña (todas
+// las grillas tiemblan juntas y comparten el botón "Listo").
+const OrderableGrid = ({ clave, items, cols = 3, gap = 9, orderable = true, editando = false, onActivate, render }) => {
+  const keys = items.map((i) => i.key);
+  const [order, setOrder] = useState(() => loadOrdIds(clave, keys));
+  const keysSig = keys.join("|");
+  useEffect(() => { setOrder((prev) => reconcileOrd(prev, keys)); }, [keysSig]);
+
+  const byKey = new Map(items.map((i) => [i.key, i]));
+  const ordered = order.map((k) => byKey.get(k)).filter(Boolean);
+
+  const orderedRef = useRef(ordered); orderedRef.current = ordered;
+  const orderRef = useRef(order); orderRef.current = order;
+  const wrapRefs = useRef({});
+  const register = (k, el) => { if (el) wrapRefs.current[k] = el; else delete wrapRefs.current[k]; };
+
+  const [drag, setDrag] = useState(null); // { key, gx, gy, w, h }
+  const dragRef = useRef(null);
+
+  const keyUnderPoint = (x, y) => {
+    let hit = null, best = Infinity;
+    for (const it of orderedRef.current) {
+      const el = wrapRefs.current[it.key];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return it.key;
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+      if (d < best) { best = d; hit = it.key; }
+    }
+    return hit;
+  };
+
+  const onGrab = (key, x, y) => {
+    const el = wrapRefs.current[key];
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    dragRef.current = { key, offX: x - r.left, offY: y - r.top, w: r.width, h: r.height, moved: false };
+    if (!editando && onActivate) onActivate();
+    document.body.classList.add("fj-dragging");
+    setDrag({ key, gx: r.left, gy: r.top, w: r.width, h: r.height });
+  };
+  const onMove = (x, y) => {
+    const d = dragRef.current;
+    if (!d) return;
+    d.moved = true;
+    setDrag({ key: d.key, gx: x - d.offX, gy: y - d.offY, w: d.w, h: d.h });
+    autoScrollNearEdge(y);
+    const over = keyUnderPoint(x, y);
+    if (over && over !== d.key) setOrder((prev) => moveOrd(prev, d.key, over));
+  };
+  const onDrop = () => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    document.body.classList.remove("fj-dragging");
+    setDrag(null);
+    if (d && d.moved) saveOrdIds(clave, orderRef.current);
+  };
+
+  const draggedItem = drag ? byKey.get(drag.key) : null;
+  return (
+    <div className={orderable && editando ? "ord-editando" : ""}
+      style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap }}>
+      {ordered.map((it) => (
+        <OrdCell key={it.key} item={it} editando={orderable && editando} orderable={orderable}
+          hueco={drag && drag.key === it.key} register={register}
+          onGrab={onGrab} onMove={onMove} onDrop={onDrop} render={render} />
+      ))}
+      {drag && draggedItem && (
+        <div className="ord-fantasma" style={{ left: drag.gx, top: drag.gy, width: drag.w, height: drag.h }}>
+          {render(draggedItem, true)}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Botón flotante "Listo" para salir del modo edición del grid, y hook que
+// también sale al tocar fuera de una ficha.
+const OrderDoneBar = ({ show, onDone }) => show ? (
+  <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(var(--fj-tabbar-h) + 12px)",
+    display: "flex", justifyContent: "center", zIndex: 60, pointerEvents: "none" }}>
+    <button data-order-done onClick={onDone} style={{ pointerEvents: "auto", background: P.text, color: P.s1,
+      fontWeight: 700, fontSize: 15, padding: "11px 28px", borderRadius: 999, boxShadow: "0 8px 24px rgba(0,0,0,.3)" }}>
+      Listo
+    </button>
+  </div>
+) : null;
+function useExitEditOnOutside(active, onExit) {
+  useEffect(() => {
+    if (!active) return;
+    const h = (e) => {
+      const t = e.target;
+      if (t && t.closest && (t.closest(".ord-wrap") || t.closest("[data-order-done]"))) return;
+      onExit();
+    };
+    // Se engancha con un pequeño retraso para no capturar el mismo gesto
+    // que activó el modo edición.
+    const id = setTimeout(() => document.addEventListener("pointerdown", h, true), 60);
+    return () => { clearTimeout(id); document.removeEventListener("pointerdown", h, true); };
+  }, [active]);
+}
 
 // Ficha de KPI sin ícono: etiqueta chica arriba, dato grande, leyenda
 // chica abajo — distinta de `Tile` (que siempre lleva ícono) porque acá
@@ -17707,6 +17989,9 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
   const filtered = query
     ? groups.map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.kw.includes(query)) })).filter((g) => g.rows.length > 0)
     : groups;
+  const [editando, setEditando] = useState(false);
+  const orderable = !query;
+  useExitEditOnOutside(orderable && editando, () => setEditando(false));
 
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
@@ -17729,11 +18014,12 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
       {filtered.map((g) => (
         <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
-            {g.rows.map((r) => <Tile key={r.key} Icon={r.Icon} label={r.label} onClick={r.onClick} />)}
-          </div>
+          <OrderableGrid clave={"mas-coach-" + g.label} items={g.rows} orderable={orderable}
+            editando={editando} onActivate={() => setEditando(true)}
+            render={(r, ed) => <Tile Icon={r.Icon} label={r.label} onClick={ed ? undefined : r.onClick} />} />
         </div>
       ))}
+      <OrderDoneBar show={orderable && editando} onDone={() => setEditando(false)} />
     </div>
   );
 };
@@ -17774,6 +18060,9 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
         .map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.kw.includes(query)) }))
         .filter((g) => g.rows.length > 0)
     : groups;
+  const [editando, setEditando] = useState(false);
+  const orderable = !query;
+  useExitEditOnOutside(orderable && editando, () => setEditando(false));
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
       <ScreenTitle title="Más" />
@@ -17795,11 +18084,12 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
       {filtered.map((g) => (
         <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
-            {g.rows.map((r) => <Tile key={r.key} Icon={r.Icon} label={r.label} onClick={r.onClick} badge={r.badge} />)}
-          </div>
+          <OrderableGrid clave={"mas-alumno-" + g.label} items={g.rows} orderable={orderable}
+            editando={editando} onActivate={() => setEditando(true)}
+            render={(r, ed) => <Tile Icon={r.Icon} label={r.label} onClick={ed ? undefined : r.onClick} badge={r.badge} />} />
         </div>
       ))}
+      <OrderDoneBar show={orderable && editando} onDone={() => setEditando(false)} />
     </div>
   );
 };
