@@ -2959,8 +2959,26 @@ const GlobalStyle = () => {
        abajo, a propósito: quien pide menos movimiento no ve el temblor
        (pero el arrastre sigue funcionando — usa transform por JS, no
        animación). El arrastre en sí lo maneja OrderableGrid. */
-    @keyframes ordTiembla1 { 0% { transform: rotate(-1.15deg); } 50% { transform: rotate(1.15deg); } 100% { transform: rotate(-1.15deg); } }
-    @keyframes ordTiembla2 { 0% { transform: rotate(1.05deg); } 50% { transform: rotate(-1.05deg); } 100% { transform: rotate(1.05deg); } }
+    /* Temblor "jiggle" de iPhone: una rotación chica combinada con un bamboleo
+       de posición mínimo, lento y continuo — como los íconos de la pantalla
+       de inicio cuando se mantienen pulsados para reordenarlos. Dos fases
+       espejadas (una por celda alternada) para que no todas se muevan al
+       unísono; los cuatro keyframes intermedios evitan el "ida y vuelta"
+       plano y le dan el vaivén orgánico. */
+    @keyframes ordTiembla1 {
+      0%   { transform: rotate(-1.8deg) translate(-0.4px, -0.5px); }
+      25%  { transform: rotate(1.1deg)  translate(0.5px, -0.3px); }
+      50%  { transform: rotate(1.8deg)  translate(0.4px, 0.5px); }
+      75%  { transform: rotate(-1.1deg) translate(-0.5px, 0.3px); }
+      100% { transform: rotate(-1.8deg) translate(-0.4px, -0.5px); }
+    }
+    @keyframes ordTiembla2 {
+      0%   { transform: rotate(1.8deg)  translate(0.4px, 0.5px); }
+      25%  { transform: rotate(-1.1deg) translate(-0.5px, 0.3px); }
+      50%  { transform: rotate(-1.8deg) translate(-0.4px, -0.5px); }
+      75%  { transform: rotate(1.1deg)  translate(0.5px, -0.3px); }
+      100% { transform: rotate(1.8deg)  translate(0.4px, 0.5px); }
+    }
     /* La celda (.ord-wrap) lleva el TRANSLATE del reacomodo en vivo (el
        módulo se lo pone inline) con transición suave; el TEMBLOR (rotate)
        va en su hijo directo (la ficha) para que ambos transforms no
@@ -2973,10 +2991,10 @@ const GlobalStyle = () => {
     .fj .editando > .ord-wrap, .fj .editando > .ord-wrap * {
       -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     }
-    .fj .editando > .ord-wrap > * { animation: ordTiembla1 .33s ease-in-out infinite; transform-origin: 50% 50%; }
-    .fj .editando > .ord-wrap:nth-child(2n) > * { animation-name: ordTiembla2; animation-duration: .35s; }
-    .fj .editando > .ord-wrap:nth-child(3n) > * { animation-duration: .31s; }
-    .fj .editando > .ord-wrap:nth-child(3n+1) > * { animation-duration: .34s; }
+    .fj .editando > .ord-wrap > * { animation: ordTiembla1 .42s ease-in-out infinite; transform-origin: 50% 50%; will-change: transform; }
+    .fj .editando > .ord-wrap:nth-child(2n) > * { animation-name: ordTiembla2; animation-duration: .46s; }
+    .fj .editando > .ord-wrap:nth-child(3n) > * { animation-duration: .40s; }
+    .fj .editando > .ord-wrap:nth-child(3n+1) > * { animation-duration: .44s; }
     /* La ficha que se está arrastrando (data-hueco lo pone el módulo por JS,
        no React): su hijo no tiembla, la celda no transiciona y el hueco
        queda marcado. El marcador es un atributo data-* para que un
