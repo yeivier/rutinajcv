@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v217";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v218";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2508,7 +2508,10 @@ const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos
   recovery: [],
   // Métricas fisiológicas diarias importadas de un reloj (WHOOP:
   // recuperación, FC en reposo, HRV, esfuerzo, etc.). Un registro por día.
-  physio: [] });
+  physio: [],
+  // Exámenes subidos y leídos por la IA (InBody, DEXA, análisis…): uno por
+  // examen, con fecha, tipo e indicadores {nombre, valor, unidad}.
+  exams: [] });
 
 /* ============================================================
    Base de conocimiento de culturismo
@@ -8614,7 +8617,14 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
     Object.keys(history.byEx).forEach((id) => {
       if (!m.has(id) && history.byEx[id].length) m.set(id, history.byEx[id][history.byEx[id].length - 1].exName || "Ejercicio");
     });
-    return [...m.entries()];
+    // Ordenados por lo ENTRENADO más recientemente primero (del más
+    // reciente al menos reciente); los que aún no se entrenaron van al
+    // final. Así al abrir Progreso el primero es lo último que hiciste.
+    const ultimaFecha = (id) => {
+      const en = history.byEx[id];
+      return en && en.length ? new Date(en[en.length - 1].date).getTime() : 0;
+    };
+    return [...m.entries()].sort((a, b) => ultimaFecha(b[0]) - ultimaFecha(a[0]));
   }, [plan, history]);
   useEffect(() => { if (!exId && allEx.length) setExId(allEx[0][0]); }, [allEx, exId]);
 
@@ -16026,9 +16036,11 @@ const TABS = {
   // acceso rápido.
   alumno: [
     { id: "hoy", label: "Inicio", Icon: Home },
-    { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
     { id: "progreso", label: "Progreso", Icon: BarChart3 },
-    { id: "nutricion", label: "Nutrición", Icon: Utensils },
+    // "Entrenar" al medio (es lo que más se toca). La agenda toma el lugar
+    // que tenía Nutrición; Nutrición sigue accesible desde "Más".
+    { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
+    { id: "agenda", label: "Agenda", Icon: Calendar },
     { id: "mas", label: "Más", Icon: MoreHorizontal },
   ],
   coach: [
@@ -16053,7 +16065,7 @@ const UTILITY_SCREENS = {
 
 // Easy Mode deja solo lo imprescindible en la barra inferior. Todo lo
 // demás sigue existiendo: vuelve al toque con el switch de Interfaz.
-const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "cmas"], alumno: ["hoy", "entrenar", "progreso", "nutricion", "mas"] };
+const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "cmas"], alumno: ["hoy", "progreso", "entrenar", "agenda", "mas"] };
 const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", cmas: "Más", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
 
 /* ============================================================
@@ -16926,6 +16938,190 @@ const LabFormSheet = ({ open, onClose, onSave }) => {
   );
 };
 
+/* ============================================================
+   Exámenes con IA — lee un examen subido (InBody, DEXA, análisis de
+   sangre, cualquier informe con indicadores), en PDF, Word, foto o
+   pantallazo, con la IA de Anthropic (misma api key que el Coach IA).
+   Extrae fecha + tipo + cada indicador con su valor y unidad, lo guarda
+   por fecha y dibuja un gráfico por indicador para ver la evolución.
+   ============================================================ */
+// Saca el texto de un .docx (es un zip con word/document.xml adentro),
+// reusando el lector de zip que ya existe para importar de WHOOP/Salud.
+async function docxToText(buf) {
+  const entries = await unzipEntries(buf);
+  const doc = entries.find((e) => /word\/document\.xml$/i.test(e.name));
+  if (!doc) return "";
+  const xml = await doc.text();
+  // Cada </w:p> es un salto de párrafo; el resto de etiquetas se quita.
+  return xml.replace(/<\/w:p>/g, "\n").replace(/<[^>]+>/g, " ").replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
+}
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result || "").split(",")[1] || "");
+  r.onerror = reject;
+  r.readAsArrayBuffer ? r.readAsDataURL(file) : reject(new Error("no reader"));
+});
+// Intenta sacar un objeto JSON de la respuesta de la IA aunque venga con
+// texto o fences ```json alrededor.
+function parseExamJson(text) {
+  let s = String(text || "").trim();
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) s = fence[1].trim();
+  const i = s.indexOf("{"), j = s.lastIndexOf("}");
+  if (i >= 0 && j > i) s = s.slice(i, j + 1);
+  return JSON.parse(s);
+}
+
+const EXAM_SYS = `Eres un lector de exámenes de composición corporal y de salud (InBody, DEXA/densitometría, bioimpedancia, análisis de sangre/orina, perfil hormonal, y cualquier informe clínico con indicadores). Recibes el archivo de UN examen. Extrae la información y responde ÚNICAMENTE con un objeto JSON válido, sin texto alrededor, con esta forma exacta:
+{"fecha":"YYYY-MM-DD","tipo":"string corto (ej: InBody 770, DEXA, Perfil lipídico)","resumen":"1-2 frases neutras con lo más relevante, sin diagnosticar","indicadores":[{"nombre":"string","valor":number,"unidad":"string"}]}
+Reglas: incluye TODOS los indicadores numéricos del informe (peso, % graso, masa muscular, masa ósea, grasa visceral, metabolismo basal, agua corporal, densidad ósea/T-score/Z-score, colesterol, glucosa, etc.). "valor" SIEMPRE numérico (usa punto decimal, sin unidades dentro). Si un dato no es numérico, omítelo. Si no encuentras la fecha, usa la de hoy. No inventes valores que no estén en el documento. Responde en español.`;
+
+const ExamsSheet = ({ open, onClose, history, saveHistory }) => {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [detalle, setDetalle] = useState(null); // examen abierto (ficha)
+  const fileRef = useRef(null);
+  const exams = useMemo(() => [...((history && history.exams) || [])].sort((a, b) => new Date(a.date) - new Date(b.date)), [history]);
+
+  useEffect(() => { if (!open) { setErr(""); setDetalle(null); } }, [open]);
+
+  // Serie por indicador a través de todos los exámenes que lo tengan, para
+  // el gráfico de evolución. Solo indicadores presentes en 2+ exámenes se
+  // grafican; el resto se ven en la ficha de cada examen.
+  const seriesPorIndicador = useMemo(() => {
+    const map = new Map();
+    exams.forEach((ex) => (ex.indicadores || []).forEach((ind) => {
+      if (ind.valor == null || !isFinite(+ind.valor)) return;
+      const key = String(ind.nombre).trim();
+      if (!map.has(key)) map.set(key, { nombre: key, unidad: ind.unidad || "", puntos: [] });
+      map.get(key).puntos.push({ d: fmtDate(ex.date), v: Math.round(+ind.valor * 100) / 100 });
+    }));
+    return [...map.values()];
+  }, [exams]);
+
+  const analizar = async (file) => {
+    if (!file) return;
+    setErr(""); setBusy(true);
+    try {
+      const key = await sGet("forja-ai-key");
+      if (!key) { setErr("Primero configura tu API key de Anthropic en Coach IA."); setBusy(false); return; }
+      const name = file.name || "examen";
+      const type = file.type || "";
+      let content;
+      if (/^image\//.test(type)) {
+        const data = await fileToBase64(file);
+        content = [{ type: "image", source: { type: "base64", media_type: type, data } },
+          { type: "text", text: `Archivo: ${name}. Extrae el examen como JSON.` }];
+      } else if (/pdf$/i.test(type) || /\.pdf$/i.test(name)) {
+        const data = await fileToBase64(file);
+        content = [{ type: "document", source: { type: "base64", media_type: "application/pdf", data } },
+          { type: "text", text: `Archivo: ${name}. Extrae el examen como JSON.` }];
+      } else if (/\.docx$/i.test(name) || /officedocument/i.test(type)) {
+        const texto = await docxToText(await file.arrayBuffer());
+        if (!texto) throw new Error("No pude leer texto de ese Word.");
+        content = [{ type: "text", text: `Examen (texto extraído de ${name}):\n\n${texto}\n\nExtrae el examen como JSON.` }];
+      } else {
+        // .txt, .csv u otro texto plano
+        const texto = await file.text();
+        content = [{ type: "text", text: `Examen (${name}):\n\n${texto}\n\nExtrae el examen como JSON.` }];
+      }
+      const data = await callClaudeAPI(key, { model: AI_MODEL, max_tokens: 4000, system: EXAM_SYS, messages: [{ role: "user", content }] });
+      const txt = (data.content || []).map((b) => b.text || "").join("");
+      const parsed = parseExamJson(txt);
+      const inds = (parsed.indicadores || []).filter((x) => x && x.nombre != null && isFinite(+x.valor))
+        .map((x) => ({ nombre: String(x.nombre).trim(), valor: Math.round(+x.valor * 100) / 100, unidad: (x.unidad || "").toString().trim() }));
+      if (!inds.length) throw new Error("No encontré indicadores numéricos en ese archivo. Probá con una foto más nítida o el PDF original.");
+      const fecha = /^\d{4}-\d{2}-\d{2}/.test(parsed.fecha || "") ? new Date(parsed.fecha).toISOString() : todayISO();
+      const nuevo = { id: uid(), date: fecha, tipo: (parsed.tipo || "Examen").toString().trim(), resumen: (parsed.resumen || "").toString().trim(), fuente: name, indicadores: inds };
+      const h = structuredClone(history);
+      h.exams = [...(h.exams || []), nuevo];
+      saveHistory(h);
+      setDetalle(nuevo);
+    } catch (e) {
+      setErr((e && e.message) || "No pude leer ese examen.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const borrar = (id) => {
+    const h = structuredClone(history);
+    h.exams = (h.exams || []).filter((e) => e.id !== id);
+    saveHistory(h);
+    setDetalle(null);
+  };
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Exámenes con IA" tall>
+      {detalle ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <button onClick={() => setDetalle(null)} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 15, fontWeight: 600, color: P.text, alignSelf: "flex-start" }}>
+            <ChevronLeft size={17} strokeWidth={2.6} /> Todos los exámenes
+          </button>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>{detalle.tipo}</div>
+            <div style={{ fontSize: 13, color: P.faint2 }}>{fmtDateFull(detalle.date)}</div>
+          </div>
+          {detalle.resumen && <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5, background: P.s3, borderRadius: R_TILE, padding: "11px 13px" }}>{detalle.resumen}</div>}
+          <RowGroup label="Indicadores" rows={detalle.indicadores.map((ind) => ({ label: ind.nombre, value: `${String(ind.valor).replace(".", ",")}${ind.unidad ? ` ${ind.unidad}` : ""}` }))} />
+          <button onClick={() => borrar(detalle.id)} style={{ alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 6, color: P.red, fontSize: 13.5, fontWeight: 600 }}>
+            <Trash2 size={15} /> Borrar este examen
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5 }}>
+            Subí un examen — InBody, DEXA, análisis de sangre o cualquier informe con indicadores — en PDF, Word, foto o pantallazo. La IA lo lee, extrae cada indicador con su valor, lo guarda por fecha y arma los gráficos de evolución.
+          </div>
+          <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.csv,image/*,application/pdf" style={{ display: "none" }}
+            onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; analizar(f); }} />
+          <Btn kind="ember" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy} style={{ width: "100%" }}>
+            {busy ? "Leyendo el examen con la IA…" : "Subir un examen"}
+          </Btn>
+          {err && <div style={{ fontSize: 13.5, color: P.red, lineHeight: 1.4 }}>{err}</div>}
+
+          {exams.length === 0 && !busy && (
+            <Card style={{ padding: 22, textAlign: "center" }}>
+              <div style={{ fontSize: 14, color: P.faint2, lineHeight: 1.5 }}>Todavía no subiste ningún examen. Cuando subas el primero vas a ver acá cada indicador y, con dos o más, su gráfico de evolución.</div>
+            </Card>
+          )}
+
+          {seriesPorIndicador.some((s) => s.puntos.length >= 2) && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Evolución por indicador</div>
+              {seriesPorIndicador.filter((s) => s.puntos.length >= 2).map((s) => (
+                <Card key={s.nombre} style={{ padding: "15px 15px 6px" }}>
+                  <div style={{ fontSize: 13, color: P.faint2, marginBottom: 6 }}>{s.nombre}{s.unidad ? ` (${s.unidad})` : ""}</div>
+                  <ChartBox data={s.puntos} unit={s.unidad} />
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {exams.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Exámenes cargados</div>
+              {[...exams].reverse().map((ex) => (
+                <button key={ex.id} onClick={() => setDetalle(ex)}
+                  style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left", width: "100%",
+                    background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE, padding: "13px 15px" }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: P.s3, color: P.text,
+                    display: "flex", alignItems: "center", justifyContent: "center" }}><FileText size={16} /></span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.tipo}</div>
+                    <div style={{ fontSize: 12.5, color: P.faint2 }}>{fmtDate(ex.date)} · {(ex.indicadores || []).length} indicadores</div>
+                  </div>
+                  <ChevronRight size={16} color={P.chevron} style={{ flexShrink: 0 }} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Sheet>
+  );
+};
+
 const LabsSheet = ({ open, onClose, history, saveHistory, athlete }) => {
   const [formOpen, setFormOpen] = useState(false);
   const [marker, setMarker] = useState(null);
@@ -17542,12 +17738,13 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
   );
 };
 
-const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos }) => {
+const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams }) => {
   const [q, setQ] = useState("");
   const unread = useUnreadChatCount(sid, "alumno");
   const groups = [
     { label: "Comunicación", rows: [
       { key: "mensajes", Icon: MessageSquare, label: "Mensajes", kw: "habla coach chat", onClick: () => onOpenUtility("chat"), badge: unread > 0 ? unread : null },
+      { key: "nutricion", Icon: Utensils, label: "Nutrición", kw: "comidas dieta macros calorías agua suplementos", onClick: onOpenNutrition },
     ] },
     { label: "Culturismo", rows: [
       { key: "checkin", Icon: Camera, label: "Check-in", kw: "peso recuperación fotos video", onClick: onOpenCheckin },
@@ -17556,6 +17753,7 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
       { key: "fotos", Icon: Camera, label: "Comparar fotos", kw: "progreso antes después", onClick: onOpenPhotos },
       { key: "supp", Icon: Droplet, label: "Suplementación", kw: "creatina proteína adherencia tomas", onClick: onOpenSupplements },
       { key: "labs", Icon: Ruler, label: "Analítica", kw: "laboratorio sangre marcadores control médico", onClick: onOpenLabs },
+      { key: "examenes", Icon: FileText, label: "Exámenes con IA", kw: "inbody dexa composición corporal pdf informe leer indicadores", onClick: onOpenExams },
     ] },
     { label: "Herramientas", rows: [
       { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva cronómetro", onClick: () => onOpenUtility("timer") },
@@ -18389,6 +18587,7 @@ const App = () => {
   const [compareOpen, setCompareOpen] = useState(false);
   const [supplementsOpen, setSupplementsOpen] = useState(false);
   const [labsOpen, setLabsOpen] = useState(false);
+  const [examsOpen, setExamsOpen] = useState(false);
   const [photosOpen, setPhotosOpen] = useState(false);
   // Pantalla de utilidad abierta desde "Más" (temporizador, guía, agenda
   // del alumno). Se muestra por encima de la pestaña actual con una
@@ -18925,6 +19124,11 @@ const App = () => {
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             jumpSub={progressJumpSub} onJumpConsumed={() => setProgressJumpSub(null)} />
         )}
+        {mode === "alumno" && tab === "agenda" && (
+          <CalendarTab plan={plan} history={history} onGoTrain={() => setTab("entrenar")}
+            bookings={bookings.slots} sid={sid}
+            onCancelBooking={(id) => saveBookings(bookings.slots.map((x) => (x.id === id ? { ...x, status: "cancelada" } : x)))} />
+        )}
         {mode === "alumno" && tab === "nutricion" && (
           <NutritionView plan={plan} n={plan.nutrition} history={history} saveHistory={saveHistory}
             onOpenSupplements={() => setSupplementsOpen(true)} />
@@ -18937,6 +19141,7 @@ const App = () => {
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
             onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)}
             onOpenSupplements={() => setSupplementsOpen(true)} onOpenLabs={() => setLabsOpen(true)}
+            onOpenNutrition={() => setTab("nutricion")} onOpenExams={() => setExamsOpen(true)}
             onOpenPhotos={() => setPhotosOpen(true)} />
         )}
         <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} />
@@ -18946,6 +19151,7 @@ const App = () => {
         <SupplementsSheet open={supplementsOpen} onClose={() => setSupplementsOpen(false)} plan={plan} history={history}
           saveHistory={saveHistory} onOpenLabs={() => setLabsOpen(true)} />
         <LabsSheet open={labsOpen} onClose={() => setLabsOpen(false)} history={history} saveHistory={saveHistory} athlete={plan.athlete} />
+        <ExamsSheet open={examsOpen} onClose={() => setExamsOpen(false)} history={history} saveHistory={saveHistory} />
         <PhotoCompareSheet open={photosOpen} onClose={() => setPhotosOpen(false)} photos={history.bodyPhotos || []} bodyweight={history.bodyweight || []} />
         {/* Jerarquía: deshacer/rehacer son acciones corrientes (gris de
             sistema) y "Vaciar" es la destructiva, así que va en contorno,
