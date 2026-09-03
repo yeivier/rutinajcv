@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v220";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v221";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -16031,7 +16031,12 @@ async function unzipEntries(buf) {
 // DOM completo: el archivo puede pesar cientos de MB y un parser de
 // DOM se cuelga con eso.
 function importFromAppleHealthXml(xml) {
-  const dias = { kg: {}, count: {}, hours: {} };
+  // Un mapa por métrica, indexado por día (YYYY-MM-DD). Los promedios se
+  // acumulan como {s:suma, n:cantidad} y se dividen al final; los máximos
+  // se quedan con el mayor; los conteos/energía se suman.
+  const kg = {}, steps = {}, sleepMin = {}, deepMin = {}, remMin = {}, lightMin = {};
+  const rhr = {}, hrv = {}, spo2 = {}, resp = {}, hr = {}, hrMax = {}, cal = {};
+  const acc = (map, d, v) => { const o = map[d] || (map[d] = { s: 0, n: 0 }); o.s += v; o.n++; };
   const attr = (s, name) => { const m = new RegExp(name + '="([^"]*)"').exec(s); return m ? m[1] : null; };
   const re = new RegExp("<" + "Record\\b([^>]*)\\/?>", "g"); // partido a propósito: check-undefined.py confunde este patrón con una etiqueta JSX
   let m;
@@ -16040,33 +16045,100 @@ function importFromAppleHealthXml(xml) {
     const type = attr(s, "type");
     const day = (attr(s, "startDate") || "").slice(0, 10);
     if (!type || !day) continue;
-    if (type === "HKQuantityTypeIdentifierBodyMass") {
-      let v = parseFloat(attr(s, "value"));
-      if (!isFinite(v)) continue;
-      if (/lb/i.test(attr(s, "unit") || "")) v *= 0.45359237;
-      dias.kg[day] = v; // se queda con la última lectura del día
-    } else if (type === "HKQuantityTypeIdentifierStepCount") {
-      const v = parseFloat(attr(s, "value"));
-      if (isFinite(v)) dias.count[day] = (dias.count[day] || 0) + v;
-    } else if (type === "HKCategoryTypeIdentifierSleepAnalysis") {
-      if (!/Asleep/i.test(attr(s, "value") || "")) continue; // descarta "En cama"/"Despierto"
-      const start = attr(s, "startDate"), end = attr(s, "endDate");
-      if (!start || !end) continue;
-      const hrs = (new Date(end) - new Date(start)) / 3600000;
-      if (isFinite(hrs) && hrs > 0) dias.hours[day] = (dias.hours[day] || 0) + hrs;
+    const val = parseFloat(attr(s, "value"));
+    switch (type) {
+      case "HKQuantityTypeIdentifierBodyMass": {
+        if (!isFinite(val)) break;
+        kg[day] = /lb/i.test(attr(s, "unit") || "") ? val * 0.45359237 : val; // última lectura del día
+        break;
+      }
+      case "HKQuantityTypeIdentifierStepCount":
+        if (isFinite(val)) steps[day] = (steps[day] || 0) + val;
+        break;
+      case "HKQuantityTypeIdentifierRestingHeartRate":
+        if (isFinite(val)) acc(rhr, day, val);
+        break;
+      case "HKQuantityTypeIdentifierHeartRateVariabilitySDNN":
+        if (isFinite(val)) acc(hrv, day, val); // ms
+        break;
+      case "HKQuantityTypeIdentifierHeartRate":
+        if (isFinite(val)) { acc(hr, day, val); hrMax[day] = Math.max(hrMax[day] || 0, val); }
+        break;
+      case "HKQuantityTypeIdentifierOxygenSaturation":
+        if (isFinite(val)) acc(spo2, day, val <= 1 ? val * 100 : val); // Apple lo da 0–1
+        break;
+      case "HKQuantityTypeIdentifierRespiratoryRate":
+        if (isFinite(val)) acc(resp, day, val);
+        break;
+      case "HKQuantityTypeIdentifierActiveEnergyBurned":
+        if (isFinite(val)) cal[day] = (cal[day] || 0) + val; // kcal
+        break;
+      case "HKCategoryTypeIdentifierSleepAnalysis": {
+        const value = attr(s, "value") || "";
+        if (!/Asleep/i.test(value)) break; // descarta "En cama"/"Despierto"
+        const start = attr(s, "startDate"), end = attr(s, "endDate");
+        if (!start || !end) break;
+        const min = (new Date(end) - new Date(start)) / 60000;
+        if (!isFinite(min) || min <= 0) break;
+        sleepMin[day] = (sleepMin[day] || 0) + min;
+        // Fases (iOS 16+): Core = ligero, Deep = profundo, REM. Los export
+        // viejos solo traen "Asleep" (sin fase) — ahí solo hay total.
+        if (/Deep/i.test(value)) deepMin[day] = (deepMin[day] || 0) + min;
+        else if (/REM/i.test(value)) remMin[day] = (remMin[day] || 0) + min;
+        else if (/Core|Unspecified/i.test(value)) lightMin[day] = (lightMin[day] || 0) + min;
+        break;
+      }
+      default: break;
     }
   }
   const out = {}, conteo = {};
-  const push = (store, field, label, map) => {
+  const r2 = (x) => Math.round(x * 100) / 100;
+  // Peso y pasos: un valor por día.
+  const simple = (store, field, label, map, tx) => {
     const keys = Object.keys(map);
     if (!keys.length) return;
-    out[store] = keys.map((d) => ({ date: new Date(d).toISOString(), [field]: Math.round(map[d] * 100) / 100 }));
+    out[store] = keys.map((d) => ({ date: new Date(d).toISOString(), [field]: r2(tx ? tx(map[d]) : map[d]) }));
     conteo[label] = keys.length;
   };
-  push("bodyweight", "kg", "Peso", dias.kg);
-  push("steps", "count", "Pasos", dias.count);
-  push("sleep", "hours", "Sueño", dias.hours);
-  if (!Object.keys(conteo).length) return { error: "El export.xml no traía peso, pasos ni sueño." };
+  simple("bodyweight", "kg", "Peso", kg);
+  simple("steps", "count", "Pasos", steps);
+  // Sueño: total + fases por día.
+  const sd = Object.keys(sleepMin);
+  if (sd.length) {
+    out.sleep = sd.map((d) => {
+      const rec = { date: new Date(d).toISOString(), hours: r2(sleepMin[d] / 60) };
+      if (deepMin[d]) rec.deepMin = Math.round(deepMin[d]);
+      if (remMin[d]) rec.remMin = Math.round(remMin[d]);
+      if (lightMin[d]) rec.lightMin = Math.round(lightMin[d]);
+      return rec;
+    });
+    conteo["Sueño"] = sd.length;
+  }
+  // Fisiología: FC en reposo, HRV, FC media/máx, SpO2, respiración, energía.
+  // Se juntan todas las métricas del mismo día en un solo registro.
+  const physioDias = {};
+  const setP = (map, field, tx, avg) => {
+    Object.keys(map).forEach((d) => {
+      const raw = avg ? map[d].s / map[d].n : map[d];
+      const v = r2(tx ? tx(raw) : raw);
+      (physioDias[d] || (physioDias[d] = { date: new Date(d).toISOString() }))[field] = v;
+    });
+  };
+  setP(rhr, "restingHr", null, true);
+  setP(hrv, "hrv", null, true);
+  setP(hr, "avgHr", null, true);
+  setP(hrMax, "maxHr", null, false);
+  setP(spo2, "spo2", null, true);
+  setP(resp, "respRate", null, true);
+  setP(cal, "calories", null, false);
+  const pd = Object.keys(physioDias);
+  if (pd.length) {
+    out.physio = pd.map((d) => physioDias[d]);
+    // Etiqueta para el resumen de "encontrado en el archivo".
+    if (Object.keys(rhr).length || Object.keys(hrv).length) conteo["Recuperación (FC/HRV)"] = pd.length;
+    else conteo["Fisiología"] = pd.length;
+  }
+  if (!Object.keys(conteo).length) return { error: "El export.xml no traía métricas legibles (peso, pasos, sueño, FC, HRV…)." };
   return { out, conteo };
 }
 
@@ -16117,6 +16189,9 @@ const DEVICE_CATALOG = [
   { id: "scale", name: "Báscula Bluetooth", group: "Se conectan ahora", Icon: Scale, via: "ble",
     blurb: "Básculas con el perfil estándar de Bluetooth LE. Te subes con la app abierta y el peso queda registrado sin escribirlo.",
     syncs: ["Peso corporal"] },
+  { id: "applehealth", name: "Salud del iPhone (Apple Health)", group: "Salud del iPhone", Icon: HeartPulse, via: "import",
+    blurb: "Trae a FORJA todo lo que tu iPhone y Apple Watch ya guardan en Salud. Apple no deja que ninguna web lea Salud en vivo (es una decisión suya, vale para todas las apps web), así que se conecta con la exportación oficial:\n\n1. Abrí la app Salud.\n2. Tocá tu foto arriba a la derecha.\n3. Bajá hasta «Exportar todos los datos de salud».\n4. Guardá el archivo (export.zip) y elegilo acá abajo.\n\nSe lee el export.zip completo, sin descomprimirlo a mano.",
+    syncs: ["Peso", "Pasos", "Sueño (con sus fases: ligero, profundo, REM)", "FC en reposo", "Variabilidad (HRV)", "FC media y máxima", "Oxígeno en sangre (SpO₂)", "Frecuencia respiratoria", "Energía activa"] },
   { id: "garmin", name: "Garmin", group: "Se importan por archivo", Icon: Watch, via: "import",
     blurb: "Garmin Connect no deja que otra app lea el reloj por Bluetooth, pero sí exportar tus datos. En Garmin Connect: Configuración → Gestión de datos → Exportar.",
     syncs: ["Peso", "Pasos", "Sueño"] },
@@ -16126,9 +16201,6 @@ const DEVICE_CATALOG = [
   { id: "oura", name: "Oura", group: "Se importan por archivo", Icon: Watch, via: "import",
     blurb: "En la app Oura: Perfil → Exportar datos. También llega por correo.",
     syncs: ["Sueño", "Frecuencia cardíaca en reposo"] },
-  { id: "applehealth", name: "Salud / Apple Watch", group: "Se importan por archivo", Icon: Smartphone, via: "import",
-    blurb: "En Salud: tu foto arriba a la derecha → Exportar todos los datos. Apple no ofrece ninguna forma de que una web lea Salud directamente.",
-    syncs: ["Peso", "Pasos", "Sueño"] },
 ];
 
 const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
@@ -16289,7 +16361,7 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
       <Sheet open={!!dev} onClose={() => { setDetail(null); setScaleMsg(""); }} title={dev ? dev.name : ""}>
         {dev && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.55 }}>{dev.blurb}</div>
+            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.55, whiteSpace: "pre-line" }}>{dev.blurb}</div>
             <RowGroup label="Qué trae" rows={dev.syncs.map((x) => ({ label: x }))} />
             {dev.via === "ble" && dev.id === "hr" && (
               hr.connected
