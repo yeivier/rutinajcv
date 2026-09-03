@@ -2991,6 +2991,13 @@ const GlobalStyle = () => {
     .fj .editando > .ord-wrap, .fj .editando > .ord-wrap * {
       -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     }
+    /* Todo el bloque de un grupo reordenable (rótulo + grilla): sin
+       selección de texto ni menú "Copiar/Consultar". Al mantener pulsada
+       una ficha, iOS intentaba seleccionar el rótulo de al lado
+       ("Culturismo", etc.) porque quedaba fuera de la .ord-wrap; esto lo
+       cubre entero. No afecta al buscador, que está fuera de estos
+       bloques. */
+    .fj .ord-group { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     .fj .editando > .ord-wrap > * { animation: ordTiembla1 .42s ease-in-out infinite; transform-origin: 50% 50%; will-change: transform; }
     .fj .editando > .ord-wrap:nth-child(2n) > * { animation-name: ordTiembla2; animation-duration: .46s; }
     .fj .editando > .ord-wrap:nth-child(3n) > * { animation-duration: .40s; }
@@ -18091,7 +18098,7 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
         <div style={{ textAlign: "center", color: P.faint2, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
       )}
       {filtered.map((g) => (
-        <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div key={g.label} className="ord-group" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
           <OrderableGrid clave={"mas-coach-" + g.label} items={g.rows} orderable={orderable}
             modoOrden={modoOrden} setModoOrden={setModoOrden}
@@ -18161,7 +18168,7 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
         <div style={{ textAlign: "center", color: P.faint2, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
       )}
       {filtered.map((g) => (
-        <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div key={g.label} className="ord-group" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
           <OrderableGrid clave={"mas-alumno-" + g.label} items={g.rows} orderable={orderable}
             modoOrden={modoOrden} setModoOrden={setModoOrden}
