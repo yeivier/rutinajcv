@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v219";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v220";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2959,29 +2959,63 @@ const GlobalStyle = () => {
        abajo, a propósito: quien pide menos movimiento no ve el temblor
        (pero el arrastre sigue funcionando — usa transform por JS, no
        animación). El arrastre en sí lo maneja OrderableGrid. */
-    @keyframes ordTiembla1 { 0% { transform: rotate(-1.15deg); } 50% { transform: rotate(1.15deg); } 100% { transform: rotate(-1.15deg); } }
-    @keyframes ordTiembla2 { 0% { transform: rotate(1.05deg); } 50% { transform: rotate(-1.05deg); } 100% { transform: rotate(1.05deg); } }
-    .fj .ord-wrap { position: relative; }
-    /* En modo edición las fichas no deben poder seleccionarse ni sacar el
-       menú "Copiar/Consultar" al mantener pulsado. */
-    .fj .ord-editando .ord-wrap, .fj .ord-editando .ord-wrap * {
+    /* Temblor "jiggle" de iPhone: una rotación chica combinada con un bamboleo
+       de posición mínimo, lento y continuo — como los íconos de la pantalla
+       de inicio cuando se mantienen pulsados para reordenarlos. Dos fases
+       espejadas (una por celda alternada) para que no todas se muevan al
+       unísono; los cuatro keyframes intermedios evitan el "ida y vuelta"
+       plano y le dan el vaivén orgánico. */
+    @keyframes ordTiembla1 {
+      0%   { transform: rotate(-1.8deg) translate(-0.4px, -0.5px); }
+      25%  { transform: rotate(1.1deg)  translate(0.5px, -0.3px); }
+      50%  { transform: rotate(1.8deg)  translate(0.4px, 0.5px); }
+      75%  { transform: rotate(-1.1deg) translate(-0.5px, 0.3px); }
+      100% { transform: rotate(-1.8deg) translate(-0.4px, -0.5px); }
+    }
+    @keyframes ordTiembla2 {
+      0%   { transform: rotate(1.8deg)  translate(0.4px, 0.5px); }
+      25%  { transform: rotate(-1.1deg) translate(-0.5px, 0.3px); }
+      50%  { transform: rotate(-1.8deg) translate(-0.4px, -0.5px); }
+      75%  { transform: rotate(1.1deg)  translate(0.5px, -0.3px); }
+      100% { transform: rotate(1.8deg)  translate(0.4px, 0.5px); }
+    }
+    /* La celda (.ord-wrap) lleva el TRANSLATE del reacomodo en vivo (el
+       módulo se lo pone inline) con transición suave; el TEMBLOR (rotate)
+       va en su hijo directo (la ficha) para que ambos transforms no
+       peleen: una animación CSS en curso pisaría el transform inline, así
+       que se separan en dos elementos. */
+    .fj .ord-wrap { position: relative; transition: transform .18s cubic-bezier(.32,.72,0,1); }
+    /* Solo la grilla activa (modoOrden === su clave) entra en edición. En
+       edición las fichas no deben poder seleccionarse ni sacar el menú
+       "Copiar/Consultar" al mantener pulsado. */
+    .fj .editando > .ord-wrap, .fj .editando > .ord-wrap * {
       -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     }
-    .fj .ord-editando .ord-wrap { animation: ordTiembla1 .33s ease-in-out infinite; transform-origin: 50% 50%; }
-    .fj .ord-editando .ord-wrap:nth-child(2n) { animation-name: ordTiembla2; animation-duration: .35s; }
-    .fj .ord-editando .ord-wrap:nth-child(3n) { animation-duration: .31s; }
-    .fj .ord-editando .ord-wrap:nth-child(3n+1) { animation-duration: .34s; }
-    /* La ficha que se está arrastrando: no tiembla (se levanta y sigue al
-       dedo, eso lo hace el "fantasma" flotante) y su hueco queda marcado. */
-    .fj .ord-wrap.arrastrando { animation: none !important; }
-    .fj .ord-wrap.hueco { animation: none !important; }
-    .fj .ord-wrap.hueco > * { opacity: 0; }
-    .fj .ord-wrap.hueco::after {
+    /* Todo el bloque de un grupo reordenable (rótulo + grilla): sin
+       selección de texto ni menú "Copiar/Consultar". Al mantener pulsada
+       una ficha, iOS intentaba seleccionar el rótulo de al lado
+       ("Culturismo", etc.) porque quedaba fuera de la .ord-wrap; esto lo
+       cubre entero. No afecta al buscador, que está fuera de estos
+       bloques. */
+    .fj .ord-group { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    .fj .editando > .ord-wrap > * { animation: ordTiembla1 .42s ease-in-out infinite; transform-origin: 50% 50%; will-change: transform; }
+    .fj .editando > .ord-wrap:nth-child(2n) > * { animation-name: ordTiembla2; animation-duration: .46s; }
+    .fj .editando > .ord-wrap:nth-child(3n) > * { animation-duration: .40s; }
+    .fj .editando > .ord-wrap:nth-child(3n+1) > * { animation-duration: .44s; }
+    /* La ficha que se está arrastrando (data-hueco lo pone el módulo por JS,
+       no React): su hijo no tiembla, la celda no transiciona y el hueco
+       queda marcado. El marcador es un atributo data-* para que un
+       re-render de React no lo pise (React solo gobierna className/style
+       que declara el JSX). */
+    .fj .ord-wrap[data-hueco] { transition: none !important; }
+    .fj .ord-wrap[data-hueco] > * { animation: none !important; opacity: 0; }
+    .fj .ord-wrap[data-hueco]::after {
       content: ""; position: absolute; inset: 0; border-radius: ${R_TILE}px;
       border: 1.5px dashed ${P.line}; background: ${P.s4};
     }
-    /* El fantasma flotante que sigue al dedo 1:1. */
-    .fj .ord-fantasma { position: fixed; z-index: 9999; pointer-events: none;
+    /* El fantasma flotante que sigue al dedo 1:1 (nodo clonado fuera del
+       árbol de React, en <body>). */
+    .fj .ord-fantasma { position: fixed; z-index: 9999; pointer-events: none; margin: 0;
       transform: scale(1.06); filter: drop-shadow(0 10px 22px rgba(0,0,0,.28)); will-change: left, top; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
     /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
@@ -3259,9 +3293,13 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
         background: PLATE_GRAD, color: PLATE_FG, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{badge}</span>
     )}
     <Icon size={19} color={P.text} strokeWidth={2} />
-    <div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25 }}>{label}</div>
-      {value != null && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 1 }}>{value}</div>}
+    {/* minWidth:0 + overflowWrap: una palabra larga sin espacios como
+        "Suplementación" no cabía en la columna (3 fichas de ancho) y se
+        salía del borde de la ficha; ahora corta y baja de línea, igual que
+        "Competition Prep". */}
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "break-word" }}>{label}</div>
+      {value != null && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 1, overflowWrap: "break-word" }}>{value}</div>}
     </div>
   </button>
 );
@@ -3318,174 +3356,226 @@ function moveOrd(order, fromKey, toKey) {
   return a;
 }
 
-// Hook por-ficha: listeners nativos de mantener-pulsado + arrastre. Lee las
-// callbacks y el estado (editando/orderable) desde un ref para no re-montar
-// los listeners en cada render. Devuelve el ref del elemento.
-function useOrdCell(handlers) {
-  const ref = useRef(null);
-  const cb = useRef(handlers);
-  cb.current = handlers;
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const st = { timer: null, grabbed: false, sx: 0, sy: 0 };
-    const clear = () => { if (st.timer) { clearTimeout(st.timer); st.timer = null; } };
-    const grab = (x, y) => {
-      st.grabbed = true;
-      try { navigator.vibrate && navigator.vibrate(18); } catch {}
-      cb.current.onGrab(x, y);
-    };
-    const begin = (x, y) => {
-      if (!cb.current.orderable) return;
-      st.grabbed = false; st.sx = x; st.sy = y; clear();
-      // Ya en modo edición, una pulsación más corta re-agarra la ficha.
-      const hold = cb.current.editando ? 130 : 400;
-      st.timer = setTimeout(() => { st.timer = null; grab(x, y); }, hold);
-    };
-    const move = (x, y, e) => {
-      if (st.grabbed) {
-        if (e && e.cancelable) e.preventDefault(); // bloquea scroll mientras arrastra
-        cb.current.onMove(x, y);
-        return;
-      }
-      // Antes de activarse: si el dedo se va, era scroll → cancelar.
-      if (st.timer && (Math.abs(x - st.sx) > 10 || Math.abs(y - st.sy) > 10)) clear();
-    };
-    const finish = () => {
-      clear();
-      window.removeEventListener("mousemove", onMM);
-      window.removeEventListener("mouseup", onMU);
-      if (st.grabbed) { st.grabbed = false; cb.current.onDrop(); }
-    };
-    const onTS = (e) => { const t = e.touches[0]; if (t) begin(t.clientX, t.clientY); };
-    const onTM = (e) => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY, e); };
-    const onMM = (e) => move(e.clientX, e.clientY, null);
-    const onMU = () => finish();
-    const onMD = (e) => {
-      if (e.button !== 0 || !cb.current.orderable) return;
-      begin(e.clientX, e.clientY);
-      window.addEventListener("mousemove", onMM);
-      window.addEventListener("mouseup", onMU);
-    };
-    // Sin menú contextual (Copiar/Consultar) al mantener pulsado en edición.
-    const noMenu = (e) => { if (cb.current.orderable) e.preventDefault(); };
-    el.addEventListener("touchstart", onTS, { passive: false });
-    el.addEventListener("touchmove", onTM, { passive: false });
-    el.addEventListener("touchend", finish);
-    el.addEventListener("touchcancel", finish);
-    el.addEventListener("mousedown", onMD);
-    el.addEventListener("contextmenu", noMenu);
-    return () => {
-      el.removeEventListener("touchstart", onTS);
-      el.removeEventListener("touchmove", onTM);
-      el.removeEventListener("touchend", finish);
-      el.removeEventListener("touchcancel", finish);
-      el.removeEventListener("mousedown", onMD);
-      el.removeEventListener("contextmenu", noMenu);
-      window.removeEventListener("mousemove", onMM);
-      window.removeEventListener("mouseup", onMU);
-      clear();
-    };
-  }, []);
-  return ref;
+/* Gestor de arrastre a nivel de módulo (un único arrastre a la vez en toda
+   la app). Se maneja con listeners NATIVOS a nivel de window con
+   {passive:false} — los sintéticos de React registran touchmove como
+   passive y ahí preventDefault se ignora, que es justo lo que rompía el
+   arrastre "en el celular sí, en escritorio no". `arrastrable(...)` solo
+   engancha el touchstart/mousedown de cada ficha; el seguimiento y el
+   soltar los toman los listeners globales que se enganchan al empezar.
+
+   Durante el arrastre NO se re-renderiza React (el orden real se aplica
+   recién al soltar, vía `alSoltar`): el reacomodo en vivo se hace por JS
+   moviendo las celdas con transform inline y marcando el hueco con un
+   atributo data-* — cosas que un re-render de React no gobierna, así que
+   no hay pelea entre ambos. */
+const _ar = {
+  activo: false, timer: null, clave: null, ids: null, i: null, alSoltar: null,
+  el: null, ghost: null, offX: 0, offY: 0, sx: 0, sy: 0, moved: false,
+  base: null, scrollY0: 0, scrollX0: 0, to: 0, suppress: false,
+};
+
+function _ordEls(clave) {
+  const sel = window.CSS && CSS.escape ? CSS.escape(clave) : clave;
+  return Array.from(document.querySelectorAll('.ord-wrap[data-ord-clave="' + sel + '"]'));
 }
 
-// Una celda del grid reordenable. Registra su elemento en el mapa de refs
-// del grid (para localizar qué ficha está bajo el dedo) y en el hook de
-// arrastre. Mientras se edita, el tap no navega (onClick queda anulado).
-const OrdCell = ({ item, editando, orderable, hueco, register, onGrab, onMove, onDrop, render }) => {
-  const ref = useOrdCell({
-    editando, orderable,
-    onGrab: (x, y) => onGrab(item.key, x, y),
-    onMove: (x, y) => onMove(x, y),
-    onDrop,
+// Índice de la celda bajo (x,y), comparando contra los rects base
+// (ajustados por el scroll ocurrido desde que empezó el arrastre). Si el
+// dedo no cae dentro de ninguna, elige la de centro más cercano.
+function _arDebajo(x, y) {
+  const dx = window.scrollX - _ar.scrollX0, dy = window.scrollY - _ar.scrollY0;
+  let hit = -1, best = Infinity;
+  for (let k = 0; k < _ar.base.length; k++) {
+    const b = _ar.base[k];
+    const L = b.left - dx, T = b.top - dy;
+    if (x >= L && x <= L + b.w && y >= T && y <= T + b.h) return k;
+    const cx = L + b.w / 2, cy = T + b.h / 2;
+    const d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+    if (d < best) { best = d; hit = k; }
+  }
+  return hit;
+}
+
+// Reacomoda visualmente las celdas para abrir el hueco donde caería la
+// ficha si se soltara sobre la posición `to` (los de en medio se corren un
+// lugar con transform; la arrastrada queda como hueco). Sin cambiar el
+// orden de React todavía.
+function _arSeguir(x, y) {
+  if (!_ar.activo) return;
+  _ar.ghost.style.left = (x - _ar.offX) + "px";
+  _ar.ghost.style.top = (y - _ar.offY) + "px";
+  autoScrollNearEdge(y);
+  const to = _arDebajo(x, y);
+  if (to < 0) return;
+  _ar.to = to;
+  const from = _ar.i;
+  const els = _ordEls(_ar.clave);
+  // El delta entre dos slots es invariante al scroll (ambos se mueven
+  // igual), así que se calcula directo sobre los rects base.
+  for (let p = 0; p < els.length; p++) {
+    if (p === from) { els[p].style.transform = ""; continue; } // la arrastrada: hueco
+    let pp = p; // posición visual destino de esta celda
+    if (from < to && p > from && p <= to) pp = p - 1;
+    else if (from > to && p >= to && p < from) pp = p + 1;
+    if (pp === p) { els[p].style.transform = ""; continue; }
+    const tx = (_ar.base[pp].left - _ar.base[p].left);
+    const ty = (_ar.base[pp].top - _ar.base[p].top);
+    els[p].style.transform = "translate(" + tx + "px," + ty + "px)";
+  }
+}
+
+function _arActivar(opts) {
+  _ar.activo = true;
+  _ar.moved = true;
+  try { navigator.vibrate && navigator.vibrate(18); } catch {}
+  if (opts && opts.onActivar) opts.onActivar(); // pone modoOrden → una sola re-render
+  const el = _ar.el;
+  const r = el.getBoundingClientRect();
+  _ar.offX = _ar.sx - r.left; _ar.offY = _ar.sy - r.top;
+  _ar.scrollY0 = window.scrollY; _ar.scrollX0 = window.scrollX;
+  // Rects base de cada slot (sin transform: todavía no se aplicó ninguno).
+  _ar.base = _ordEls(_ar.clave).map((e) => {
+    const b = e.getBoundingClientRect();
+    return { left: b.left, top: b.top, w: b.width, h: b.height };
   });
-  const setRef = (el) => { ref.current = el; register(item.key, el); };
-  return (
-    <div className={"ord-wrap" + (hueco ? " arrastrando hueco" : "")} ref={setRef}
-      // Captura el click posterior al arrastre / en modo edición para que la
-      // ficha no navegue al soltar.
-      onClickCapture={(e) => { if (editando) { e.preventDefault(); e.stopPropagation(); } }}>
-      {render(item, editando)}
-    </div>
-  );
-};
+  // Fantasma: clon del propio wrap, fijo, que sigue al dedo 1:1. Se cuelga
+  // de <body> (fuera de .fj) para que ningún ancestro con transform lo
+  // vuelva relativo; por eso el position:fixed y lo visual van INLINE, no
+  // por la clase .ord-fantasma (que está scopeada bajo .fj y no aplicaría
+  // acá).
+  const g = el.cloneNode(true);
+  g.classList.add("ord-fantasma");
+  g.removeAttribute("data-hueco");
+  g.style.position = "fixed"; g.style.zIndex = "9999"; g.style.pointerEvents = "none"; g.style.margin = "0";
+  g.style.transform = "scale(1.06)"; g.style.filter = "drop-shadow(0 10px 22px rgba(0,0,0,.28))";
+  g.style.width = r.width + "px"; g.style.height = r.height + "px";
+  g.style.left = r.left + "px"; g.style.top = r.top + "px";
+  document.body.appendChild(g);
+  _ar.ghost = g;
+  el.setAttribute("data-hueco", "1"); // marca el hueco (atributo: React no lo pisa)
+  document.body.classList.add("fj-dragging");
+}
+
+function _arSoltar() {
+  const clave = _ar.clave, ids = _ar.ids, from = _ar.i, to = _ar.to, alSoltar = _ar.alSoltar, moved = _ar.activo && _ar.moved;
+  _arLimpiar();
+  if (moved && ids && from != null && to != null && to !== from) {
+    const nuevo = moveOrdIdx(ids, from, to);
+    // suprime el click que viene tras soltar, para no navegar.
+    _ar.suppress = true;
+    setTimeout(() => { _ar.suppress = false; }, 400);
+    if (alSoltar) alSoltar(nuevo);
+  }
+}
+
+// Deshace todo lo imperativo: quita transforms, el hueco y el fantasma.
+function _arLimpiar() {
+  if (_ar.timer) { clearTimeout(_ar.timer); _ar.timer = null; }
+  window.removeEventListener("touchmove", _wTouchMove, { passive: false });
+  window.removeEventListener("touchend", _wUp);
+  window.removeEventListener("touchcancel", _wUp);
+  window.removeEventListener("mousemove", _wMouseMove);
+  window.removeEventListener("mouseup", _wUp);
+  if (_ar.clave) for (const e of _ordEls(_ar.clave)) { e.style.transform = ""; e.removeAttribute("data-hueco"); }
+  if (_ar.ghost && _ar.ghost.parentNode) _ar.ghost.parentNode.removeChild(_ar.ghost);
+  document.body.classList.remove("fj-dragging");
+  _ar.activo = false; _ar.ghost = null; _ar.el = null; _ar.base = null;
+  _ar.clave = null; _ar.ids = null; _ar.i = null; _ar.alSoltar = null; _ar.moved = false;
+}
+
+// Mueve el elemento del índice `from` al índice `to`, devolviendo un
+// arreglo nuevo (variante por índice de moveOrd).
+function moveOrdIdx(order, from, to) {
+  if (from === to || from < 0 || to < 0 || from >= order.length || to >= order.length) return order.slice();
+  const a = order.slice();
+  const [m] = a.splice(from, 1);
+  a.splice(to, 0, m);
+  return a;
+}
+
+// Listeners globales (se enganchan al empezar un gesto sobre una ficha).
+function _wTouchMove(e) {
+  const t = e.touches[0]; if (!t) return;
+  if (_ar.activo) { if (e.cancelable) e.preventDefault(); _arSeguir(t.clientX, t.clientY); return; }
+  // Antes de activarse: si el dedo se va >10 px, era scroll → cancelar.
+  if (_ar.timer && (Math.abs(t.clientX - _ar.sx) > 10 || Math.abs(t.clientY - _ar.sy) > 10)) {
+    clearTimeout(_ar.timer); _ar.timer = null; _arLimpiar();
+  }
+}
+function _wMouseMove(e) {
+  if (_ar.activo) { _arSeguir(e.clientX, e.clientY); return; }
+  if (_ar.timer && (Math.abs(e.clientX - _ar.sx) > 10 || Math.abs(e.clientY - _ar.sy) > 10)) {
+    clearTimeout(_ar.timer); _ar.timer = null; _arLimpiar();
+  }
+}
+function _wUp() {
+  if (_ar.activo) _arSoltar();
+  else _arLimpiar();
+}
+
+// API que se esparce en cada ficha (`{...arrastrable(clave, ids, i, alSoltar,
+// opts)}`). Devuelve solo onTouchStart / onMouseDown / onClickCapture — el
+// seguimiento lo toman los listeners globales, para poder usar
+// {passive:false} y bloquear el scroll de verdad.
+function arrastrable(clave, ids, i, alSoltar, opts) {
+  const delay = (opts && opts.delay != null) ? opts.delay : 430;
+  const empezar = (el, x, y) => {
+    if (_ar.activo || _ar.timer) _arLimpiar();
+    _ar.clave = clave; _ar.ids = ids.slice(); _ar.i = i; _ar.alSoltar = alSoltar;
+    _ar.el = el; _ar.sx = x; _ar.sy = y; _ar.to = i; _ar.moved = false; _ar.activo = false;
+    window.addEventListener("touchmove", _wTouchMove, { passive: false });
+    window.addEventListener("touchend", _wUp);
+    window.addEventListener("touchcancel", _wUp);
+    window.addEventListener("mousemove", _wMouseMove);
+    window.addEventListener("mouseup", _wUp);
+    _ar.timer = setTimeout(() => { _ar.timer = null; _arActivar(opts); }, delay);
+  };
+  return {
+    onTouchStart: (e) => {
+      const t = e.touches[0]; if (!t) return;
+      empezar(e.currentTarget, t.clientX, t.clientY);
+    },
+    onMouseDown: (e) => {
+      if (e.button !== 0) return;
+      empezar(e.currentTarget, e.clientX, e.clientY);
+    },
+    // Evita que el tap que sigue a un arrastre (o cualquier tap en edición)
+    // navegue.
+    onClickCapture: (e) => {
+      if (_ar.suppress || opts && opts.editando) { e.preventDefault(); e.stopPropagation(); }
+    },
+  };
+}
 
 // Grid reordenable estilo iOS. `items` son las fichas en su orden POR
 // DEFECTO (cada una con `.key`); el orden mostrado sale de conciliar eso
-// con lo guardado. `editando`/`onActivate` los controla la pestaña (todas
-// las grillas tiemblan juntas y comparten el botón "Listo").
-const OrderableGrid = ({ clave, items, cols = 3, gap = 9, orderable = true, editando = false, onActivate, render }) => {
+// con lo guardado. Solo la grilla cuya `clave === modoOrden` está en
+// edición (tiembla); la pestaña controla `modoOrden`/`setModoOrden` y
+// comparte un único botón "Listo".
+const OrderableGrid = ({ clave, items, cols = 3, gap = 9, orderable = true, modoOrden, setModoOrden, render }) => {
   const keys = items.map((i) => i.key);
   const [order, setOrder] = useState(() => loadOrdIds(clave, keys));
   const keysSig = keys.join("|");
   useEffect(() => { setOrder((prev) => reconcileOrd(prev, keys)); }, [keysSig]);
 
   const byKey = new Map(items.map((i) => [i.key, i]));
-  const ordered = order.map((k) => byKey.get(k)).filter(Boolean);
+  const idsPresentes = order.filter((k) => byKey.has(k));
+  const ordered = idsPresentes.map((k) => byKey.get(k));
+  const editando = orderable && modoOrden === clave;
 
-  const orderedRef = useRef(ordered); orderedRef.current = ordered;
-  const orderRef = useRef(order); orderRef.current = order;
-  const wrapRefs = useRef({});
-  const register = (k, el) => { if (el) wrapRefs.current[k] = el; else delete wrapRefs.current[k]; };
+  const guardarNuevoOrden = (nuevo) => { setOrder(nuevo); saveOrdIds(clave, nuevo); };
 
-  const [drag, setDrag] = useState(null); // { key, gx, gy, w, h }
-  const dragRef = useRef(null);
-
-  const keyUnderPoint = (x, y) => {
-    let hit = null, best = Infinity;
-    for (const it of orderedRef.current) {
-      const el = wrapRefs.current[it.key];
-      if (!el) continue;
-      const r = el.getBoundingClientRect();
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return it.key;
-      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-      const d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
-      if (d < best) { best = d; hit = it.key; }
-    }
-    return hit;
-  };
-
-  const onGrab = (key, x, y) => {
-    const el = wrapRefs.current[key];
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    dragRef.current = { key, offX: x - r.left, offY: y - r.top, w: r.width, h: r.height, moved: false };
-    if (!editando && onActivate) onActivate();
-    document.body.classList.add("fj-dragging");
-    setDrag({ key, gx: r.left, gy: r.top, w: r.width, h: r.height });
-  };
-  const onMove = (x, y) => {
-    const d = dragRef.current;
-    if (!d) return;
-    d.moved = true;
-    setDrag({ key: d.key, gx: x - d.offX, gy: y - d.offY, w: d.w, h: d.h });
-    autoScrollNearEdge(y);
-    const over = keyUnderPoint(x, y);
-    if (over && over !== d.key) setOrder((prev) => moveOrd(prev, d.key, over));
-  };
-  const onDrop = () => {
-    const d = dragRef.current;
-    dragRef.current = null;
-    document.body.classList.remove("fj-dragging");
-    setDrag(null);
-    if (d && d.moved) saveOrdIds(clave, orderRef.current);
-  };
-
-  const draggedItem = drag ? byKey.get(drag.key) : null;
   return (
-    <div className={orderable && editando ? "ord-editando" : ""}
+    <div className={"ord-grilla" + (editando ? " editando" : "")}
       style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap }}>
-      {ordered.map((it) => (
-        <OrdCell key={it.key} item={it} editando={orderable && editando} orderable={orderable}
-          hueco={drag && drag.key === it.key} register={register}
-          onGrab={onGrab} onMove={onMove} onDrop={onDrop} render={render} />
-      ))}
-      {drag && draggedItem && (
-        <div className="ord-fantasma" style={{ left: drag.gx, top: drag.gy, width: drag.w, height: drag.h }}>
-          {render(draggedItem, true)}
+      {ordered.map((it, i) => (
+        <div key={it.key} className="ord-wrap" data-ord-clave={clave}
+          {...(orderable ? arrastrable(clave, idsPresentes, i, guardarNuevoOrden,
+            { delay: editando ? 130 : 430, editando, onActivar: () => setModoOrden(clave) }) : {})}>
+          {render(it, editando)}
         </div>
-      )}
+      ))}
     </div>
   );
 };
@@ -17989,9 +18079,9 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
   const filtered = query
     ? groups.map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.kw.includes(query)) })).filter((g) => g.rows.length > 0)
     : groups;
-  const [editando, setEditando] = useState(false);
+  const [modoOrden, setModoOrden] = useState(null);
   const orderable = !query;
-  useExitEditOnOutside(orderable && editando, () => setEditando(false));
+  useExitEditOnOutside(orderable && !!modoOrden, () => setModoOrden(null));
 
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
@@ -18012,14 +18102,14 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
         <div style={{ textAlign: "center", color: P.faint2, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
       )}
       {filtered.map((g) => (
-        <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div key={g.label} className="ord-group" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
           <OrderableGrid clave={"mas-coach-" + g.label} items={g.rows} orderable={orderable}
-            editando={editando} onActivate={() => setEditando(true)}
+            modoOrden={modoOrden} setModoOrden={setModoOrden}
             render={(r, ed) => <Tile Icon={r.Icon} label={r.label} onClick={ed ? undefined : r.onClick} />} />
         </div>
       ))}
-      <OrderDoneBar show={orderable && editando} onDone={() => setEditando(false)} />
+      <OrderDoneBar show={orderable && !!modoOrden} onDone={() => setModoOrden(null)} />
     </div>
   );
 };
@@ -18060,9 +18150,9 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
         .map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.kw.includes(query)) }))
         .filter((g) => g.rows.length > 0)
     : groups;
-  const [editando, setEditando] = useState(false);
+  const [modoOrden, setModoOrden] = useState(null);
   const orderable = !query;
-  useExitEditOnOutside(orderable && editando, () => setEditando(false));
+  useExitEditOnOutside(orderable && !!modoOrden, () => setModoOrden(null));
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
       <ScreenTitle title="Más" />
@@ -18082,14 +18172,14 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
         <div style={{ textAlign: "center", color: P.faint2, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
       )}
       {filtered.map((g) => (
-        <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div key={g.label} className="ord-group" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
           <OrderableGrid clave={"mas-alumno-" + g.label} items={g.rows} orderable={orderable}
-            editando={editando} onActivate={() => setEditando(true)}
+            modoOrden={modoOrden} setModoOrden={setModoOrden}
             render={(r, ed) => <Tile Icon={r.Icon} label={r.label} onClick={ed ? undefined : r.onClick} badge={r.badge} />} />
         </div>
       ))}
-      <OrderDoneBar show={orderable && editando} onDone={() => setEditando(false)} />
+      <OrderDoneBar show={orderable && !!modoOrden} onDone={() => setModoOrden(null)} />
     </div>
   );
 };
