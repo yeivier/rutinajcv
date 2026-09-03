@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v222";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v223";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -18917,7 +18917,8 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
       dragRef.current.hidden = true;
       setHolding(false);
       setVisible(false);
-      toast && toast("Asistente de IA oculto — toca la pestaña del borde para volver a mostrarlo");
+      // Se oculta en silencio: sin toast. La pestaña del borde queda visible
+      // para volver a mostrarlo, así que no hace falta avisar nada.
     }, AI_FAB_HOLD_MS);
   };
   const onPointerMove = (e) => {
