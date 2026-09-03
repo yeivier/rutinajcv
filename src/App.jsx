@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v221";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v222";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15743,6 +15743,19 @@ const ReadOnlyLock = ({ active, toast, children }) => (
    ============================================================ */
 const bleSupported = () => typeof navigator !== "undefined" && !!navigator.bluetooth;
 
+// iPhone/iPad (incluye el iPad que se hace pasar por Mac con teclado).
+const isIOSDevice = () => {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+};
+// Bluefy – Web BLE Browser: navegador gratis de iOS que SÍ trae Web
+// Bluetooth (Safari y todo navegador de iPhone no, ni siquiera agregando la
+// app a la pantalla de inicio — es límite de Apple, vale para toda web).
+// Abriendo FORJA en Bluefy, el mismo código de conexión funciona sin tocar
+// nada. Es la única forma real de Bluetooth web en iPhone.
+const BLUEFY_URL = "https://apps.apple.com/app/id1492822055";
+
 let HR_STATE = { device: null, name: "", bpm: null, battery: null, error: "" };
 const hrListeners = new Set();
 const hrEmit = () => hrListeners.forEach((fn) => fn(HR_STATE));
@@ -15756,7 +15769,7 @@ const parseHeartRate = (view) => {
 };
 
 async function hrConnect() {
-  if (!bleSupported()) { hrSet({ error: "Este navegador no tiene Bluetooth. En iPhone, Safari no lo implementa." }); return false; }
+  if (!bleSupported()) { hrSet({ error: isIOSDevice() ? "En iPhone, abrí FORJA en Bluefy para conectar por Bluetooth (Safari no lo permite)." : "Este navegador no tiene Bluetooth. Usá Chrome o Edge." }); return false; }
   try {
     hrSet({ error: "" });
     const device = await navigator.bluetooth.requestDevice({
@@ -16203,6 +16216,56 @@ const DEVICE_CATALOG = [
     syncs: ["Sueño", "Frecuencia cardíaca en reposo"] },
 ];
 
+// Qué mostrar cuando el navegador no tiene Web Bluetooth. En iPhone no es un
+// callejón sin salida: se guía a abrir FORJA en Bluefy (donde el mismo botón
+// SÍ conecta). En escritorio/Android sin Bluetooth, se manda a Chrome/Edge.
+const BleIosHelp = ({ toast }) => {
+  const ios = isIOSDevice();
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast && toast("Enlace copiado — pegalo en Bluefy");
+    } catch {
+      toast && toast("Copiá el enlace de la barra de arriba y pegalo en Bluefy");
+    }
+  };
+  if (!ios) {
+    return (
+      <div style={{ fontSize: 13, color: P.faint2, lineHeight: 1.5 }}>
+        Este navegador no tiene Bluetooth. Se conecta desde Chrome o Edge (en computador o Android).
+        En iPhone, mirá abajo. La importación por archivo funciona en cualquier dispositivo.
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.55 }}>
+        Apple no permite Bluetooth en Safari — y <b>tampoco</b> agregando FORJA a la pantalla de
+        inicio (ese atajo sigue usando Safari por dentro). No es algo de FORJA: vale para
+        cualquier web en iPhone. Para conectar tu pulsómetro o báscula, abrí FORJA en{" "}
+        <b>Bluefy</b>, un navegador gratis que sí trae Bluetooth. Ahí este mismo botón conecta.
+      </div>
+      <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, color: P.dim, lineHeight: 1.65 }}>
+        <li>Instalá <b>Bluefy</b> desde la App Store (botón de abajo).</li>
+        <li>Copiá el enlace de FORJA y pegalo en la barra de Bluefy.</li>
+        <li>En Bluefy, volvé a Dispositivos y tocá <b>Conectar por Bluetooth</b>.</li>
+      </ol>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Btn kind="ember" small onClick={() => window.open(BLUEFY_URL, "_blank")}>
+          <Smartphone size={14} /> Instalar Bluefy
+        </Btn>
+        <Btn kind="line" small onClick={copiar}>
+          <Copy size={14} /> Copiar enlace
+        </Btn>
+      </div>
+      <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5 }}>
+        ¿No querés instalar otro navegador? Importá los datos de tu reloj o de la app Salud por
+        archivo, acá abajo — anda en cualquier iPhone.
+      </div>
+    </div>
+  );
+};
+
 const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
   const [detail, setDetail] = useState(null);
   const [pane, setPane] = useState(null);      // "import"
@@ -16329,11 +16392,8 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
             </Card>
             {hr.error && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4, marginBottom: 14 }}>{hr.error}</div>}
             {!hr.supported && (
-              <div style={{ fontSize: 13, color: P.faint2, lineHeight: 1.5, marginBottom: 16 }}>
-                Safari no implementa Bluetooth en la web, así que en iPhone y iPad no se puede conectar
-                nada por Bluetooth desde el navegador — es decisión de Apple. En Chrome de Android o de
-                computador sí funciona. Mientras tanto, la importación por archivo de acá abajo anda en
-                cualquier dispositivo.
+              <div style={{ marginBottom: 16 }}>
+                <BleIosHelp toast={toast} />
               </div>
             )}
 
@@ -16379,11 +16439,7 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
                 <Upload size={15} /> Importar el archivo exportado
               </Btn>
             )}
-            {dev.via === "ble" && !bleSupported() && (
-              <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5 }}>
-                Tu navegador no tiene Bluetooth. En iPhone no hay forma: Safari no lo implementa.
-              </div>
-            )}
+            {dev.via === "ble" && !bleSupported() && <BleIosHelp toast={toast} />}
           </div>
         )}
       </Sheet>
