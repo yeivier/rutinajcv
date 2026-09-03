@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v213";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v216";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1555,6 +1555,33 @@ const num = (v) => {
   return isFinite(n) ? n : 0;
 };
 
+// Decimales en cualquier teclado. El problema: <input type="number">
+// solo acepta el PUNTO como separador decimal, pero los teclados en
+// español (iPhone incluido) muestran COMA — al escribir "72,5" el
+// navegador lo declaraba inválido y dejaba el campo vacío, así que
+// "no dejaba poner decimales" al entrenar. La solución, para toda la
+// app: estos campos son type="text" con teclado numérico y se sanean
+// aceptando coma O punto, guardando SIEMPRE con punto (la forma que ya
+// esperan todos los cálculos y comparaciones de la plataforma).
+const sanitizeDecimalInput = (raw) => {
+  const s = String(raw ?? "").replace(/,/g, ".").replace(/[^0-9.]/g, "");
+  const first = s.indexOf(".");
+  if (first === -1) return s;               // sin separador: tal cual
+  return s.slice(0, first + 1) + s.slice(first + 1).replace(/\./g, ""); // un solo punto
+};
+const sanitizeIntInput = (raw) => String(raw ?? "").replace(/[^0-9]/g, "");
+// Campo numérico que SÍ deja escribir decimales con coma o punto en
+// cualquier dispositivo. Reemplaza a los <input type="number"> que
+// rechazaban la coma. `decimals={false}` para campos de enteros.
+const NumInput = ({ decimals = true, onChange, type, inputMode, ...props }) => {
+  const clean = decimals ? sanitizeDecimalInput : sanitizeIntInput;
+  return (
+    <input type="text" inputMode={decimals ? "decimal" : "numeric"}
+      onChange={onChange ? (e) => { e.target.value = clean(e.target.value); onChange(e); } : undefined}
+      {...props} />
+  );
+};
+
 function stepNumeric(raw, dir) {
   const s = String(raw ?? "").trim();
   if (s === "") return dir > 0 ? "1" : "0";
@@ -1605,24 +1632,6 @@ const lbToKg = (lbVal) => lbVal * KG_PER_LB;
 // igual que kg().
 const fmtUnit = (n) => { const r = Math.round(n * 10) / 10; return kg(r); };
 
-// Calculadora de discos (S3 del handoff, Atlas): a partir de un peso
-// objetivo y una barra, cuántos discos van por lado. Set estándar
-// olímpico en kg; algoritmo goloso (de mayor a menor disco) — funciona
-// para cualquier peso alcanzable con el set y avisa el resto si el
-// peso no es exacto (p.ej. pide 83 kg con una barra de 20: sobran 1,5 kg
-// que ningún disco cubre).
-const PLATE_SET_KG = [25, 20, 15, 10, 5, 2.5, 1.25];
-const BAR_OPTIONS_KG = [20, 15, 10];
-function plateBreakdown(targetKg, barKg, plates = PLATE_SET_KG) {
-  let perSide = Math.max(0, (targetKg - barKg) / 2);
-  const used = [];
-  for (const p of plates) {
-    let count = 0;
-    while (perSide >= p - 0.001) { perSide -= p; count++; }
-    if (count > 0) used.push({ plate: p, count });
-  }
-  return { used, remainder: Math.max(0, Math.round(perSide * 100) / 100) };
-}
 
 let WEIGHT_UNIT = "kg";
 try { WEIGHT_UNIT = window.localStorage.getItem("forja-weight-unit") || "kg"; } catch {}
@@ -1743,7 +1752,7 @@ const WeightInput = ({ valueKg, onChangeKg, placeholder, style, disabled }) => {
     onChangeKg(unit === "kg" ? raw : String(lbToKg(n)));
   };
   return (
-    <input type="number" inputMode="decimal" step="any" placeholder={placeholder} disabled={disabled}
+    <NumInput placeholder={placeholder} disabled={disabled}
       value={local}
       onFocus={() => setFocused(true)}
       onBlur={() => { setFocused(false); setLocal(toActive(valueKg)); }}
@@ -3010,53 +3019,6 @@ const RingProgress = ({ pct, size = 56, stroke = 5, children }) => {
   );
 };
 
-// Cuerpo de la calculadora de discos, compartido entre Atlas (S3) y el
-// chip "Discos" de Focus Mode — mismo cálculo (plateBreakdown), dos
-// puntos de entrada. Cada disco se ve como una placa apilada con su
-// peso, para leerse de un vistazo sin hacer cuentas.
-// kg() redondea a 1 decimal para pesos normales — con discos de 1,25 kg
-// (estándar) eso da "1,3" y confunde. Acá se muestran los decimales
-// exactos que tenga el número (2 máximo), sin el redondeo de kg().
-const platekg = (n) => {
-  const r = Math.round(n * 100) / 100;
-  return String(r).replace(".", ",");
-};
-const PlateCalcBody = ({ initial }) => {
-  const [target, setTarget] = useState(initial != null ? String(initial) : "");
-  const [bar, setBar] = useState(BAR_OPTIONS_KG[0]);
-  const v = numN(target);
-  const { used, remainder } = v > 0 ? plateBreakdown(v, bar) : { used: [], remainder: 0 };
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input type="number" inputMode="decimal" step="any" placeholder="Peso total (kg)" value={target} onChange={(e) => setTarget(e.target.value)}
-          style={{ flex: 1, padding: "11px 12px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 15 }} />
-        <select value={bar} onChange={(e) => setBar(+e.target.value)} style={{ padding: "11px 10px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14.5 }}>
-          {BAR_OPTIONS_KG.map((b) => <option key={b} value={b}>Barra {b} kg</option>)}
-        </select>
-      </div>
-      {v > 0 && (
-        used.length === 0 ? (
-          <div style={{ fontSize: 13.5, color: P.faint2 }}>Solo la barra ({bar} kg) — no alcanza para ningún disco por lado.</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontSize: 13, color: P.faint2 }}>Por lado (barra {bar} kg):</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {used.map(({ plate, count }) => (
-                <div key={plate} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: PLATE_GRAD, color: PLATE_FG,
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>{platekg(plate)}</div>
-                  <div style={{ fontSize: 12.5, color: P.faint2 }}>×{count}</div>
-                </div>
-              ))}
-            </div>
-            {remainder > 0 && <div style={{ fontSize: 12.5, color: P.faint2 }}>Sobran {platekg(remainder)} kg por lado que ningún disco cubre exacto.</div>}
-          </div>
-        )
-      )}
-    </div>
-  );
-};
 
 // Stepper horizontal − valor +: no había ningún componente compartido para
 // esto (el único precedente en toda la app era el par de chevrons apilados
@@ -3489,7 +3451,15 @@ const Field = ({ label, children, hint }) => (
   </div>
 );
 
-const Inp = (props) => <input {...props} style={{ width: "100%", padding: "10px 12px", ...props.style }} />;
+// type="number" se convierte a un campo de texto con teclado numérico
+// que acepta coma o punto (ver NumInput): así todos los <Inp
+// type="number"> de la app dejan escribir decimales en cualquier
+// teclado. inputMode="numeric" => enteros; el resto admite decimales.
+const Inp = ({ type, inputMode, ...props }) => {
+  const st = { width: "100%", padding: "10px 12px", ...props.style };
+  if (type === "number") return <NumInput decimals={inputMode !== "numeric"} {...props} style={st} />;
+  return <input type={type} inputMode={inputMode} {...props} style={st} />;
+};
 const Txt = (props) => <textarea rows={props.rows || 3} {...props} style={{ width: "100%", padding: "10px 12px", resize: "vertical", ...props.style }} />;
 
 // Antes era solo un ícono flotando sin nada detrás — se sentía como un
@@ -4932,7 +4902,7 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
   const fieldStyle = (w) => ({ width: w, minHeight: 48, padding: "9px 4px", textAlign: "center", fontWeight: 600, fontSize: 16,
     background: done ? "rgba(255,255,255,.07)" : P.s3, borderColor: done ? "rgba(255,255,255,.35)" : P.line });
   const inp = (field, ph, w) => (
-    <input type="number" inputMode="decimal" step="any" placeholder={ph} value={set[field]}
+    <NumInput placeholder={ph} value={set[field]}
       onChange={(e) => onPatch({ [field]: e.target.value })}
       style={fieldStyle(w)} />
   );
@@ -5391,8 +5361,9 @@ const SalidaRow = ({ icon: Icon, title, body, danger, onClick }) => (
   </button>
 );
 
-const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onToggleDone, onOpenAIChat }) => {
-  const [weightUnit] = useWeightUnit();
+const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat }) => {
+  const [weightUnit, setWeightUnit] = useWeightUnit();
+  const [themeMode, setThemeMode] = useTheme();
   const pendingWrites = usePendingWrites();
   const [now, setNow] = useState(Date.now());
   const [ficha, setFicha] = useState(null);
@@ -5414,7 +5385,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // "···" de la fila activa: deshacer/rehacer, borrar la serie, comentario
   // y unidad — todo lo que en el diseño anterior vivía como 4 íconos
   // sueltos en la tarjeta y ahora se junta en una sola hoja chica.
-  const [rowMoreFor, setRowMoreFor] = useState(null);
+  // Índice del bloque cuyo comentario general (del ejercicio) está abierto.
+  const [exCmtFor, setExCmtFor] = useState(null);
   const [calcOpen, setCalcOpen] = useState(false);
   // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
   const [coachNotesOpen, setCoachNotesOpen] = useState(null);
@@ -5753,8 +5725,23 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 <Check size={16} strokeWidth={3} />
               </button>
             </div>
-            {/* El comentario de ESTA serie, debajo de su fila. Se abre desde
-                el «···»; sin esto, ese botón no dibujaba nada. */}
+            {/* Acceso directo al comentario de ESTA serie (antes vivía tras
+                el «···»): un toque abre la caja debajo de la fila. Si la
+                serie ya tiene datos, aparece también «Borrar». */}
+            {cmtKey !== restKey(r.ei, r.si) && !st.comment && (
+              <div style={{ display: "flex", gap: 14, marginTop: 6, paddingLeft: 1 }}>
+                <button onClick={() => openCmt(restKey(r.ei, r.si))}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
+                  <MessageSquare size={12} /> Comentar
+                </button>
+                {(st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null) ? (
+                  <button onClick={() => clearSet(r.ei, r.si)}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
+                    <Trash2 size={12} /> Borrar
+                  </button>
+                ) : null}
+              </div>
+            )}
             {renderCommentBlock(r.ei, r.si)}
             </div>
           );
@@ -5770,16 +5757,18 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const accionesDe = (block, bi) => {
     const primero = block.group ? block.members[0] : block.ei;
     const nombre = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
-    const fila = block.rows[Math.max(0, block.rows.findIndex((r) => !exs[r.ei].sets[r.si].done))] || block.rows[0];
+    const tieneCmt = !!(exs[primero].comment || "").trim();
+    const cmtAbierto = exCmtFor === bi;
     return (
+      <>
       <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 2px" }}>
-        {[["Historial del ejercicio", History, () => setHistEx(primero), false],
+        {[["Comentario del ejercicio", MessageSquare, () => setExCmtFor(cmtAbierto ? null : bi), tieneCmt || cmtAbierto],
+          ["Historial del ejercicio", History, () => setHistEx(primero), false],
           ["Indicaciones del coach", FileText, () => setCoachNotesOpen(bi),
             (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes)],
           ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
-          ["Más opciones de esta serie", MoreHorizontal, () => setRowMoreFor({ ei: fila.ei, si: fila.si }), false],
         ].map(([lbl, Icon, onClick, marcado]) => (
-          <button key={lbl} onClick={onClick} aria-label={`${lbl} — ${nombre}${marcado ? " (hay indicaciones)" : ""}`} title={lbl}
+          <button key={lbl} onClick={onClick} aria-label={`${lbl} — ${nombre}${marcado ? " (con contenido)" : ""}`} title={lbl}
             style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: "transparent",
               color: marcado ? SES.acc : SES.faint, border: "none",
               display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -5792,6 +5781,26 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           <Calculator size={13} /> Calcular RM
         </button>
       </div>
+      {/* Comentario general del ejercicio, desplegado inline debajo de sus
+          acciones — sin abrir menús ni el «···». */}
+      {(cmtAbierto || tieneCmt) && (
+        <div style={{ padding: "0 2px" }}>
+          {cmtAbierto ? (
+            <textarea autoFocus rows={2} value={exs[primero].comment || ""}
+              placeholder={`Comentario de ${nombre} (sensaciones, molestias, ajustes…)`}
+              onChange={(e) => patchEx(primero, { comment: e.target.value })}
+              style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "10px 11px", fontSize: 14.5, lineHeight: 1.45,
+                resize: "none", borderRadius: 10, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink,
+                fontFamily: "inherit", outline: "none" }} />
+          ) : (
+            <button onClick={() => setExCmtFor(bi)} style={{ display: "block", width: "100%", textAlign: "left", fontSize: 13, color: SES.dim,
+              lineHeight: 1.4, background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: 10, padding: "8px 11px", boxSizing: "border-box" }}>
+              {exs[primero].comment}
+            </button>
+          )}
+        </div>
+      )}
+      </>
     );
   };
 
@@ -5850,6 +5859,43 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <X size={17} strokeWidth={2.6} />
         </button>
+      </div>
+
+      {/* Barra de herramientas de la sesión, siempre a la vista (antes
+          escondida tras el «···»): cambiar de tema claro/oscuro, arrancar
+          un descanso a mano, deshacer/rehacer, la unidad de peso y el
+          video/fotos del día. Todo de un toque, sin abrir menús. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        {(() => {
+          const isLight = themeMode !== "dark";
+          const tbBtn = (key, Icon, label, onClick, on) => (
+            <button key={key} onClick={onClick} aria-label={label} title={label}
+              style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                background: SES.campo, border: `1px solid ${SES.line}`, color: on ? SES.acc : SES.dim }}>
+              <Icon size={16} strokeWidth={2} />
+            </button>
+          );
+          return (
+            <>
+              {tbBtn("tema", isLight ? Moon : Sun, isLight ? "Cambiar a modo oscuro" : "Cambiar a modo claro",
+                () => setThemeMode(isLight ? "dark" : "light"))}
+              {tbBtn("timer", Timer, "Iniciar un descanso a mano",
+                () => onStartRest && onStartRest(120, 0, 0), !!timer)}
+              {tbBtn("undo", Undo2, "Deshacer", () => undoStack.length && undo())}
+              {tbBtn("redo", Redo2, "Rehacer", () => redoStack.length && redo())}
+              <button onClick={() => setWeightUnit(weightUnit === "kg" ? "lb" : "kg")} aria-label="Cambiar unidad de peso"
+                title="Cambiar unidad de peso" style={{ height: 34, padding: "0 10px", borderRadius: 9, flexShrink: 0,
+                  display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11.5, fontWeight: 800, letterSpacing: ".03em",
+                  background: SES.campo, border: `1px solid ${SES.line}` }}>
+                <span style={{ color: weightUnit === "kg" ? SES.acc : SES.faint }}>KG</span>
+                <span style={{ color: SES.faint }}>/</span>
+                <span style={{ color: weightUnit === "lb" ? SES.acc : SES.faint }}>LB</span>
+              </button>
+              {tbBtn("media", Camera, "Video y fotos de la sesión", () => setMediaOpen(true),
+                (active.attachIds || []).length > 0)}
+            </>
+          );
+        })()}
       </div>
 
       <div>
@@ -5927,6 +5973,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             border: `1px solid ${doneSets === totalSets ? SES.acc : SES.line}`,
             fontSize: 15, fontWeight: 700 }}>
           {doneSets === 0 ? "Terminar sesión" : doneSets === totalSets ? "Terminar sesión · completa" : `Terminar sesión · ${doneSets} de ${totalSets}`}
+        </button>
+        <button onClick={() => setExiting(true)}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", marginTop: 8,
+            background: "none", border: "none", color: SES.faint, fontSize: 13, fontWeight: 600 }}>
+          <BarChart3 size={14} /> Cómo va la sesión
         </button>
         {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
             y abajo, para que no haga falta preguntarlo. */}
@@ -6110,47 +6161,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       <Sheet open={histEx != null} onClose={() => setHistEx(null)} title={histEx != null ? `Historial · ${exs[histEx].name}` : "Historial"} tall>
         <ExHistorySheetInline entries={(histEx != null && history.byEx[exs[histEx].id]) || []} onOpenImg={setViewImg} />
       </Sheet>
-      <Sheet open={!!rowMoreFor} onClose={() => setRowMoreFor(null)} title="Más">
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button data-keep onClick={() => { clearSet(rowMoreFor.ei, rowMoreFor.si); setRowMoreFor(null); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
-              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
-            <Trash2 size={18} /> Borrar los datos de esta serie
-          </button>
-          <button data-keep onClick={() => { openCmt(restKey(rowMoreFor.ei, rowMoreFor.si)); setRowMoreFor(null); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
-              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
-            <MessageSquare size={18} /> Agregar comentario
-          </button>
-          <button data-keep onClick={() => { setRowMoreFor(null); setMediaOpen(true); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
-              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
-            <Camera size={18} /> Video y fotos de la sesión
-          </button>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={undo} disabled={!undoStack.length}
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 14px", borderRadius: R_TILE,
-                background: P.s3, border: `1px solid ${P.line}`, color: undoStack.length ? P.text : P.faint2, fontSize: 15, fontWeight: 600 }}>
-              <Undo2 size={17} /> Deshacer
-            </button>
-            <button onClick={redo} disabled={!redoStack.length}
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px 14px", borderRadius: R_TILE,
-                background: P.s3, border: `1px solid ${P.line}`, color: redoStack.length ? P.text : P.faint2, fontSize: 15, fontWeight: 600 }}>
-              <Redo2 size={17} /> Rehacer
-            </button>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 2px" }}>
-            <span style={{ fontSize: 14.5, color: P.dim, fontWeight: 600 }}>Unidad de peso</span>
-            <UnitToggle />
-          </div>
-          <div style={{ height: 1, background: P.line, margin: "2px 0" }} />
-          <button data-keep onClick={() => { setRowMoreFor(null); setExiting(true); }}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: R_TILE,
-              background: P.s3, border: `1px solid ${P.line}`, color: P.text, fontSize: 15, fontWeight: 600 }}>
-            <BarChart3 size={18} /> Cómo va la sesión · finalizar
-          </button>
-        </div>
-      </Sheet>
       <Sheet open={mediaOpen} onClose={() => setMediaOpen(false)} title="Video y fotos de la sesión">
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.45 }}>
@@ -6256,7 +6266,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               </Card>
 
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Discos · % del top set</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>% del top set</div>
                 <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>Peso de trabajo</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("Top set", c4top, setC4top)}
@@ -6282,18 +6292,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 </div>
               </Card>
 
-              <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Discos</div>
-                <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>Discos por barra</div>
-                <PlateCalcBody initial={(() => {
-                  if (workW != null) return workW;
-                  // Sin un ejercicio "actual" (están todos en pantalla), se
-                  // parte del último peso que se registró en la sesión.
-                  let w = 0;
-                  exs.forEach((ex) => ex.sets.forEach((st) => { const n = num(st.weight); if (n > 0) w = n; }));
-                  return w > 0 ? w : null;
-                })()} />
-              </Card>
               <div style={{ fontSize: 12, color: P.faint2, lineHeight: 1.5 }}>e1RM es una estimación basada en peso, repeticiones y RIR (fórmula de Epley ajustada). No reemplaza un test real.</div>
             </div>
           );
@@ -6630,14 +6628,12 @@ function useTodayData(plan, history, allowedRoutines) {
   const prevBw = bw.length > 1 ? bw[bw.length - 2] : null;
   const steps = history.steps || [];
   const lastSteps = steps.length ? steps[steps.length - 1] : null;
-  const water = history.water || [];
-  const lastWater = water.length ? water[water.length - 1] : null;
   const sleep = history.sleep || [];
   const lastSleep = sleep.length ? sleep[sleep.length - 1] : null;
   const adherence = adherencePct(plan, history, monthKeyOf(todayISO()));
   return { weekSessions, weekVol, streak, lastSession, suggested, suggested2, suggested2Done, setsOf,
     weekNum, weekTotal, mesoName: meso ? meso.name : null, week, lastBw, prevBw,
-    lastSteps, lastWater, lastSleep, adherence };
+    lastSteps, lastSleep, adherence };
 }
 
 // Una semana calendario (lunes→domingo) con el día que toca cada fecha y si
@@ -6822,7 +6818,6 @@ const MacroBar = ({ v }) => (
 const CHECKIN_PANES = {
   peso:        { label: "Peso", Icon: Scale },
   sueno:       { label: "Sueño", Icon: Moon },
-  agua:        { label: "Agua", Icon: Droplet },
   pasos:       { label: "Pasos", Icon: PersonStanding },
   sensaciones: { label: "Sensaciones", Icon: Zap },
   medidas:     { label: "Medidas", Icon: Ruler },
@@ -6839,7 +6834,7 @@ const CheckinNumberPane = ({ label, hint, unit, value, onChange, onSave, last, d
       {hint && <div style={{ fontSize: 13.5, color: P.faint2, marginTop: 2 }}>{hint}</div>}
     </div>
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <input type="number" inputMode={decimals === 0 ? "numeric" : "decimal"} step="any" autoFocus
+      <NumInput decimals={decimals !== 0} autoFocus
         value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}
         style={{ flex: 1, minWidth: 0, padding: "14px 16px", borderRadius: R_TILE, background: P.s3,
           border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 26, fontWeight: 700 }} />
@@ -7105,7 +7100,7 @@ const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
                   style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, fontSize: 14.5, fontWeight: 600, color: MONO.ink, textAlign: "left" }}>
                   {f.label} <Info size={12} color={MONO.inkFaint} style={{ flexShrink: 0 }} />
                 </button>
-                <input type="number" inputMode="decimal" step="any" placeholder={isPct ? "%" : unit} value={displayVal(f.key, isPct)}
+                <NumInput placeholder={isPct ? "%" : unit} value={displayVal(f.key, isPct)}
                   onChange={(e) => setF(f.key, isPct, e.target.value)}
                   style={{ width: 78, padding: "9px 10px", borderRadius: 10, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5, textAlign: "right", flexShrink: 0 }} />
               </div>
@@ -7146,7 +7141,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   // arreglos de history que ya usa Progreso · Cuerpo (addDailyMetric) —
   // el check-in solo agrega otro lugar desde donde registrar el mismo dato.
   const [ciSleep, setCiSleep] = useState("");
-  const [ciWater, setCiWater] = useState("");
   const [ciSteps, setCiSteps] = useState("");
   // Recuperación
   const [recoveryOpen, setRecoveryOpen] = useState(false);
@@ -7190,7 +7184,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const recoveryToday = lastRecovery && (lastRecovery.date || "").slice(0, 10) === todayKey ? lastRecovery : null;
   const poseToday = (history.bodyPhotos || []).filter((p) => (p.date || "").slice(0, 10) === todayKey);
   const sleepToday = (history.sleep || []).find((s) => (s.date || "").slice(0, 10) === todayKey);
-  const waterToday = (history.water || []).find((w) => (w.date || "").slice(0, 10) === todayKey);
   const stepsToday = (history.steps || []).find((s) => (s.date || "").slice(0, 10) === todayKey);
   // Ficha "Check-in" de la grilla 2×2: cuántas de las 4 secciones ya
   // tienen algo registrado hoy — mismo criterio que las filas de abajo.
@@ -7201,7 +7194,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const ciStatus = {
     peso:        { done: !!bwToday,    detail: bwToday ? `${kg(bwToday.kg)} kg` : "Sin registrar" },
     sueno:       { done: !!sleepToday, detail: sleepToday ? `${kg(sleepToday.hours)} h` : "Sin registrar" },
-    agua:        { done: !!waterToday, detail: waterToday ? `${kg(waterToday.liters)} L` : "Sin registrar" },
     pasos:       { done: !!stepsToday, detail: stepsToday ? Math.round(stepsToday.count).toLocaleString("es-CL") : "Sin registrar" },
     sensaciones: { done: !!recoveryToday, detail: recoveryToday && recoveryToday.scores.energia != null ? `Energía ${recoveryToday.scores.energia}/10` : "Sin responder" },
     medidas:     { done: !!measureToday, detail: measureToday ? "Hoy" : lastMeasure ? daysAgoLabel(lastMeasure.date) : "Sin registrar" },
@@ -7243,15 +7235,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     saveHistory(h);
     setCiSleep(""); setCiPane(null);
     await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nSueño: ${kg(v)} h`);
-  };
-  const saveWaterCI = async () => {
-    const v = num(ciWater);
-    if (!v || v <= 0 || !saveHistory) return;
-    const h = structuredClone(history);
-    h.water = [...(h.water || []), { date: todayISO(), liters: v }];
-    saveHistory(h);
-    setCiWater(""); setCiPane(null);
-    await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nAgua: ${kg(v)} L`);
   };
   const saveStepsCI = async () => {
     const v = num(ciSteps);
@@ -7419,9 +7402,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <KpiTile top="Pasos" onClick={() => setCheckinOpen(true)}
             value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
             sub={d.lastSteps ? "meta 12.000" : "sin registro"} />
-          <KpiTile top="Agua" onClick={() => setCheckinOpen(true)}
-            value={d.lastWater ? `${d.lastWater.liters} L` : "—"}
-            sub={d.lastWater ? "meta 5 L" : "sin registro"} />
           <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
             value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
             sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />
@@ -7535,7 +7515,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           con más profundidad (el gráfico de Progreso), se ofrece saltar
           ahí en vez de duplicar ese gráfico acá. */}
       <Sheet open={!!statDetail} onClose={() => setStatDetail(null)}
-        title={{ adherencia: "Adherencia", racha: "Racha", peso: "Peso corporal", volumen: "Volumen semanal", pasos: "Pasos", agua: "Agua", sueno: "Sueño" }[statDetail] || ""}>
+        title={{ adherencia: "Adherencia", racha: "Racha", peso: "Peso corporal", volumen: "Volumen semanal", pasos: "Pasos", sueno: "Sueño" }[statDetail] || ""}>
         {statDetail === "adherencia" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.adherence == null ? "—" : `${Math.round(d.adherence)}%`}</div>
@@ -7570,13 +7550,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "Sin registros"}</div>
             <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Meta de referencia: 12.000 pasos al día.</div>
-            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Registrar de hoy</Btn>
-          </div>
-        )}
-        {statDetail === "agua" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastWater ? `${kg(d.lastWater.liters)} L` : "Sin registros"}</div>
-            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Meta de referencia: 5 L al día.</div>
             <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Registrar de hoy</Btn>
           </div>
         )}
@@ -7625,11 +7598,6 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
               <CheckinNumberPane label="Horas dormidas" hint="Anoche" unit="h"
                 value={ciSleep} onChange={setCiSleep} onSave={saveSleepCI}
                 last={sleepToday ? `${kg(sleepToday.hours)} h registradas hoy` : null} />
-            )}
-            {ciPane === "agua" && (
-              <CheckinNumberPane label="Litros de hoy" hint="Total del día" unit="L"
-                value={ciWater} onChange={setCiWater} onSave={saveWaterCI}
-                last={waterToday ? `${kg(waterToday.liters)} L registrados hoy` : null} />
             )}
             {ciPane === "pasos" && (
               <CheckinNumberPane label="Pasos de hoy" hint="Los que marque tu teléfono o reloj" unit="" decimals={0}
@@ -8654,7 +8622,6 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
   };
 
   const stepsEntries = history.steps || [];
-  const waterEntries = history.water || [];
   const sleepEntries = history.sleep || [];
 
   return (
@@ -8700,7 +8667,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
 
       {sub === "cuerpo" && (
         <>
-          {/* El registro diario (peso, pasos, agua, sueño) ya se toma en
+          {/* El registro diario (peso, pasos, sueño) ya se toma en
               el Check-in, con su propio campo y su propio "Registrar".
               Acá se MUESTRA lo registrado y se enlaza allá: antes esta
               pantalla repetía los cuatro formularios enteros, así que el
@@ -8711,7 +8678,6 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           <RowGroup label="Hoy" rows={[
             { label: "Peso", value: bwEntries.length ? `${kg(bwEntries[bwEntries.length - 1].kg)} kg` : "Sin registrar", onClick: onOpenCheckin },
             { label: "Pasos", value: stepsEntries.length ? Math.round(stepsEntries[stepsEntries.length - 1].count).toLocaleString("es-CL") : "Sin registrar", onClick: onOpenCheckin },
-            { label: "Agua", value: waterEntries.length ? `${kg(waterEntries[waterEntries.length - 1].liters)} L` : "Sin registrar", onClick: onOpenCheckin },
             { label: "Sueño", value: sleepEntries.length ? `${kg(sleepEntries[sleepEntries.length - 1].hours)} h` : "Sin registrar", onClick: onOpenCheckin },
           ]} />
 
@@ -8827,15 +8793,6 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
   const suppChecks = (history && history.supplementChecks && history.supplementChecks[todayKey]) || {};
   const suppDone = supplements.filter((s) => suppChecks[s.id]).length;
 
-  const water = (history && history.water) || [];
-  const lastWater = water.length ? water[water.length - 1] : null;
-  const addWater = (liters) => {
-    if (!saveHistory || !liters) return;
-    const h = structuredClone(history);
-    h.water = [...(h.water || []), { date: todayISO(), liters }];
-    saveHistory(h);
-  };
-
   const shopping = (history && history.shoppingList) || [];
   const shopPending = shopping.filter((it) => !it.done).length;
   const addShopItem = () => {
@@ -8866,13 +8823,9 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
           objetivo va de leyenda debajo. Sin kcal cargadas por comida se
           muestra el objetivo del plan y las comidas hechas, que es lo que
           la app sí sabe. */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <KpiTile top="Calorías"
-          value={hasMealKcal ? kcalEaten.toLocaleString("es-CL") : (v.kcal ? String(v.kcal) : "—")}
-          sub={hasMealKcal ? `de ${kcalGoal.toLocaleString("es-CL")} kcal` : "objetivo del día"} />
-        <KpiTile top="Agua" value={lastWater ? `${kg(lastWater.liters)} L` : "—"}
-          sub={lastWater ? "registrado hoy" : "sin registrar"} />
-      </div>
+      <KpiTile top="Calorías"
+        value={hasMealKcal ? kcalEaten.toLocaleString("es-CL") : (v.kcal ? String(v.kcal) : "—")}
+        sub={hasMealKcal ? `de ${kcalGoal.toLocaleString("es-CL")} kcal` : "objetivo del día"} />
 
       {hasMacros && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -8922,11 +8875,6 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Hoy</div>
         <Card style={{ overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-            <span style={{ flex: 1, fontSize: 16 }}>Registrar agua</span>
-            <button onClick={() => addWater(Math.round(((lastWater ? lastWater.liters : 0) + .25) * 100) / 100)}
-              style={{ fontSize: 15, color: P.text, fontWeight: 600 }}>+ 0,25 L</button>
-          </div>
           <button onClick={onOpenSupplements} disabled={!onOpenSupplements}
             style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
             <span style={{ flex: 1, fontSize: 16, color: P.text }}>Suplementos</span>
@@ -15547,8 +15495,6 @@ const IMPORT_FIELDS = [
     re: /fc\s+m[aá]x|max.*heart|frecuencia\s+card[ií]aca\s+m[aá]xima/i },
   { key: "avgHr", store: "physio", field: "avgHr", silent: true,
     re: /fc\s+promedio|average\s+heart|avg\s+hr/i },
-  { key: "liters", store: "water",      field: "liters", label: "Agua",
-    alias: ["agua", "water", "hidratación"] },
 ];
 // Orden por prioridad, no por dónde cae la columna: "day" por sí solo es
 // tan genérico que hace falso positivo con columnas como "Day Strain" de
@@ -15570,16 +15516,12 @@ const parseCsv = (texto) => {
 };
 
 // Varias apps miden la misma métrica en otra unidad de la que usa FORJA
-// (WHOOP da el sueño en minutos, no en horas; algunas dan el agua en mL o
-// en onzas, o el peso en libras). La unidad casi siempre queda anotada en
-// el propio nombre de la columna, así que se detecta ahí.
+// (WHOOP da el sueño en minutos, no en horas; algunas dan el peso en
+// libras). La unidad casi siempre queda anotada en el propio nombre de
+// la columna, así que se detecta ahí.
 function convertirUnidad(field, header, valor) {
   if (field === "hours" && /\bmin\b|minute|minuto/i.test(header)) return valor / 60;
   if (field === "kg" && /\blbs?\b|libra/i.test(header)) return valor * 0.45359237;
-  if (field === "liters") {
-    if (/\bml\b|mililitro/i.test(header)) return valor / 1000;
-    if (/fl.?\s?oz|onza/i.test(header)) return valor * 0.0295735;
-  }
   return valor;
 }
 
@@ -15598,7 +15540,7 @@ function importFromCsv(texto) {
   const encontrados = IMPORT_FIELDS
     .map((f) => ({ ...f, idx: csv.cols.findIndex((c) => f.re ? f.re.test(c) : f.alias.some((a) => c === a || c.startsWith(a))) }))
     .filter((f) => f.idx >= 0);
-  if (!encontrados.length) return { error: "No encontré ninguna columna que sepa leer (peso, pasos, sueño o agua)." };
+  if (!encontrados.length) return { error: "No encontré ninguna columna que sepa leer (peso, pasos, sueño o recuperación)." };
 
   const out = {}, conteo = {};
   csv.filas.forEach((fila) => {
@@ -15682,7 +15624,7 @@ async function unzipEntries(buf) {
 // DOM completo: el archivo puede pesar cientos de MB y un parser de
 // DOM se cuelga con eso.
 function importFromAppleHealthXml(xml) {
-  const dias = { kg: {}, count: {}, hours: {}, liters: {} };
+  const dias = { kg: {}, count: {}, hours: {} };
   const attr = (s, name) => { const m = new RegExp(name + '="([^"]*)"').exec(s); return m ? m[1] : null; };
   const re = new RegExp("<" + "Record\\b([^>]*)\\/?>", "g"); // partido a propósito: check-undefined.py confunde este patrón con una etiqueta JSX
   let m;
@@ -15699,13 +15641,6 @@ function importFromAppleHealthXml(xml) {
     } else if (type === "HKQuantityTypeIdentifierStepCount") {
       const v = parseFloat(attr(s, "value"));
       if (isFinite(v)) dias.count[day] = (dias.count[day] || 0) + v;
-    } else if (type === "HKQuantityTypeIdentifierDietaryWater") {
-      let v = parseFloat(attr(s, "value"));
-      if (!isFinite(v)) continue;
-      const unidad = attr(s, "unit") || "";
-      if (/fl.?oz/i.test(unidad)) v *= 0.0295735;       // onza líquida US → litro
-      else if (/^ml$/i.test(unidad)) v /= 1000;          // mililitro → litro
-      dias.liters[day] = (dias.liters[day] || 0) + v;
     } else if (type === "HKCategoryTypeIdentifierSleepAnalysis") {
       if (!/Asleep/i.test(attr(s, "value") || "")) continue; // descarta "En cama"/"Despierto"
       const start = attr(s, "startDate"), end = attr(s, "endDate");
@@ -15724,8 +15659,7 @@ function importFromAppleHealthXml(xml) {
   push("bodyweight", "kg", "Peso", dias.kg);
   push("steps", "count", "Pasos", dias.count);
   push("sleep", "hours", "Sueño", dias.hours);
-  push("water", "liters", "Agua", dias.liters);
-  if (!Object.keys(conteo).length) return { error: "El export.xml no traía peso, pasos, sueño ni agua." };
+  if (!Object.keys(conteo).length) return { error: "El export.xml no traía peso, pasos ni sueño." };
   return { out, conteo };
 }
 
@@ -15760,9 +15694,9 @@ async function importFromZip(buf) {
     });
     out[store] = [...porDia.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
   });
-  const LABEL = { bodyweight: "Peso", steps: "Pasos", sleep: "Sueño", water: "Agua", physio: "Recuperación" };
+  const LABEL = { bodyweight: "Peso", steps: "Pasos", sleep: "Sueño", physio: "Recuperación" };
   Object.keys(out).forEach((store) => { if (out[store].length) conteo[LABEL[store] || store] = out[store].length; });
-  if (!Object.keys(conteo).length) return { error: "El .zip no traía ningún CSV legible (peso, pasos, sueño o agua)." };
+  if (!Object.keys(conteo).length) return { error: "El .zip no traía ningún CSV legible (peso, pasos, sueño o recuperación)." };
   return { out, conteo };
 }
 
@@ -15868,7 +15802,7 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
             <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>
               Pega acá el CSV que exportaste, o elegí el archivo — funciona con el .csv suelto
               o con el .zip completo (el que exportan Salud, Garmin, WHOOP y Oura). Se leen
-              fecha, peso, pasos, agua, sueño (con su detalle y fases) y las métricas de
+              fecha, peso, pasos, sueño (con su detalle y fases) y las métricas de
               recuperación del reloj (FC en reposo, HRV, esfuerzo…); el resto se ignora.
             </div>
             <input type="file" accept=".csv,.zip,text/csv,text/plain,application/zip,application/x-zip-compressed" aria-label="Elegir archivo CSV o .zip"
@@ -16177,9 +16111,8 @@ const CompetitionPrepSheet = ({ open, onClose, plan }) => {
    biblioteca (library, ya existente) con buscador y filtro por
    músculo — antes ExerciseInfoSheet solo se abría contextualmente
    desde una rutina o sesión, nunca había una pantalla de "ver todos".
-   "Calculadora de discos" es la misma PlateCalcBody del chip "Discos"
-   de Focus Mode (mismo cálculo, dos entradas); "Guía de términos"
-   reusa GlossaryBody tal cual ya se usa desde Más → Herramientas.
+   "Guía de términos" reusa GlossaryBody tal cual ya se usa desde
+   Más → Herramientas.
    ============================================================ */
 
 /* Ficha de un ejercicio del catálogo: la animación, para qué músculos es,
@@ -16545,7 +16478,6 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
   const [tope, setTope] = useState(60);
   const [openEx, setOpenEx] = useState(null);
   const [openCat, setOpenCat] = useState(null);
-  const [calcOpen, setCalcOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
 
   // Lo que ya está cargado en la app (biblioteca del coach + rutina) va
@@ -16700,7 +16632,6 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
 
         <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "6px 2px 0" }}>Herramientas</div>
         <Card style={{ overflow: "hidden" }}>
-          <SettingRow Icon={Calculator} label="Calculadora de discos" onClick={() => setCalcOpen(true)} />
           <SettingRow Icon={BookOpen} label="Guía de términos" onClick={() => setGuideOpen(true)} last />
         </Card>
 
@@ -16713,9 +16644,6 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
 
       <CatalogExerciseSheet ex={openCat} open={!!openCat} onClose={() => setOpenCat(null)} />
       <ExerciseInfoSheet ex={openEx} open={!!openEx} onClose={() => setOpenEx(null)} />
-      <Sheet open={calcOpen} onClose={() => setCalcOpen(false)} title="Calculadora de discos">
-        <PlateCalcBody />
-      </Sheet>
       <Sheet open={guideOpen} onClose={() => setGuideOpen(false)} title="Guía de términos" tall>
         <GlossaryBody showTopButton />
       </Sheet>
@@ -16954,8 +16882,8 @@ const LabFormSheet = ({ open, onClose, onSave }) => {
                 <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px",
                   borderBottom: i < panel.markers.length - 1 ? `1px solid ${P.line}` : "none" }}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 15, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-                  <input value={vals[key] || ""} onChange={(e) => setVals((o) => ({ ...o, [key]: e.target.value }))}
-                    inputMode="decimal" aria-label={label} placeholder="—"
+                  <NumInput value={vals[key] || ""} onChange={(e) => setVals((o) => ({ ...o, [key]: e.target.value }))}
+                    aria-label={label} placeholder="—"
                     style={{ width: 86, padding: "7px 9px", borderRadius: 9, background: P.s3, border: `1px solid ${P.separatorStrong}`,
                       color: P.text, fontSize: 14.5, textAlign: "right" }} />
                   {unit && <span style={{ fontSize: 12.5, color: P.faint2, width: 56, flexShrink: 0 }}>{unit}</span>}
