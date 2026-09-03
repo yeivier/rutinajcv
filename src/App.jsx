@@ -3293,9 +3293,13 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
         background: PLATE_GRAD, color: PLATE_FG, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{badge}</span>
     )}
     <Icon size={19} color={P.text} strokeWidth={2} />
-    <div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25 }}>{label}</div>
-      {value != null && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 1 }}>{value}</div>}
+    {/* minWidth:0 + overflowWrap: una palabra larga sin espacios como
+        "Suplementación" no cabía en la columna (3 fichas de ancho) y se
+        salía del borde de la ficha; ahora corta y baja de línea, igual que
+        "Competition Prep". */}
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "break-word" }}>{label}</div>
+      {value != null && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 1, overflowWrap: "break-word" }}>{value}</div>}
     </div>
   </button>
 );
