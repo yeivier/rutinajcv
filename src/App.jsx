@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v230";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v231";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -358,7 +358,7 @@ const EQUIPMENT = ["Barra","Barra EZ","Mancuernas","Máquina","Polea","Smith","P
 // otro se escribe al empezar y queda guardado para volver a elegirlo con
 // un toque. Es dato del dispositivo, no del plan: el alumno cambia de
 // sede, la rutina no.
-const GIMNASIOS = ["Sportlife Pie Andino", "W Fitness El Alba", "Youtopia Trapenses", "Youtopia Vitacura"];
+const GIMNASIOS = ["Sportlife Pie Andino", "Smart Fit", "W Fitness El Alba", "Youtopia Trapenses", "Youtopia Vitacura"];
 const GYM_KEY = "forja-gimnasios";
 // Porcentaje de crédito que se le puede asignar a un músculo secundario
 // (el ejercicio también lo trabaja, pero no es el músculo principal).
