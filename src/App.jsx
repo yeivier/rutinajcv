@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v235";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v236";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -19630,61 +19630,80 @@ const App = () => {
   const logoutDelegate = logout; // alias, todo el ingreso va por login ahora
 
   useEffect(() => {
+    // Red de seguridad del arranque: si CUALQUIER cosa inesperada truena acá
+    // adentro (una forma de dato que el código no esperaba, una promesa que
+    // ni resuelve ni rechaza…), antes esto dejaba `loading` en true PARA
+    // SIEMPRE — la app se quedaba pegada en el splash sin ningún camino de
+    // salida, sin importar cuánto se esperara. Con el try/catch de abajo,
+    // cualquier error deja igual a la pantalla de login (que no depende de
+    // nada que haya en el dispositivo ni en la base), y con el timeout de
+    // más abajo, incluso una promesa colgada sin resolver ni rechazar no
+    // deja el splash pegado más de 15 s.
+    let resuelto = false;
+    const aSalvo = () => { resuelto = true; };
     (async () => {
-      // Si este dispositivo ya entró con un perfil con acceso, va directo a
-      // ese espacio aislado — nunca ve el roster del dueño.
-      const delId = lsGetRaw("forja-delegate-device");
-      if (delId) {
-        const a = await loadAccess();
-        const prof = a.profiles.find((p) => p.id === delId);
-        if (prof) { await enterDelegate(prof); return; }
-        // El perfil ya no existe (el dueño lo borró): a la pantalla de login.
-        lsDelRaw("forja-delegate-device");
-        setShowLogin(true); setLoading(false); return;
-      }
-      const got = await sGetKnown("forja-roster");
-      let r = got.value;
-      const usable = r && r.v === ROSTER_VERSION && r.students && r.students.length > 0;
-      if (!usable) {
-        if (!got.ok) {
-          // La lectura no llegó al servidor. NO se siembra nada: un roster
-          // de ejemplo escrito acá pisaría el real, que sigue existiendo
-          // en la base. Se muestra el login y el usuario reintenta con señal.
-          setRoster({ v: ROSTER_VERSION, students: [] });
-          setShowLogin(true); setLoading(false);
-          return;
+      try {
+        // Si este dispositivo ya entró con un perfil con acceso, va directo a
+        // ese espacio aislado — nunca ve el roster del dueño.
+        const delId = lsGetRaw("forja-delegate-device");
+        if (delId) {
+          const a = await loadAccess();
+          const prof = a.profiles.find((p) => p.id === delId);
+          if (prof) { await enterDelegate(prof); aSalvo(); return; }
+          // El perfil ya no existe (el dueño lo borró): a la pantalla de login.
+          lsDelRaw("forja-delegate-device");
+          setShowLogin(true); setLoading(false); aSalvo(); return;
         }
-        // Lectura confirmada y sin roster: primera vez de verdad.
-        const id = uid();
-        r = { v: ROSTER_VERSION, students: [{ id, name: "Alumno ejemplo", createdAt: todayISO() }] };
-        await sSet(`forja-plan:${id}`, seedPlanWithSchedule());
-        const legacyH = await sGet("forja-history");
-        await sSet(`forja-history:${id}`, (legacyH && legacyH.sessions) ? legacyH : emptyHistory());
-        const legacyA = await sGet("forja-active");
-        if (legacyA) await sSet(`forja-active:${id}`, legacyA);
-        await sSet("forja-roster", r);
+        const got = await sGetKnown("forja-roster");
+        let r = got.value;
+        const usable = r && r.v === ROSTER_VERSION && r.students && r.students.length > 0;
+        if (!usable) {
+          if (!got.ok) {
+            // La lectura no llegó al servidor. NO se siembra nada: un roster
+            // de ejemplo escrito acá pisaría el real, que sigue existiendo
+            // en la base. Se muestra el login y el usuario reintenta con señal.
+            setRoster({ v: ROSTER_VERSION, students: [] });
+            setShowLogin(true); setLoading(false); aSalvo();
+            return;
+          }
+          // Lectura confirmada y sin roster: primera vez de verdad.
+          const id = uid();
+          r = { v: ROSTER_VERSION, students: [{ id, name: "Alumno ejemplo", createdAt: todayISO() }] };
+          await sSet(`forja-plan:${id}`, seedPlanWithSchedule());
+          const legacyH = await sGet("forja-history");
+          await sSet(`forja-history:${id}`, (legacyH && legacyH.sessions) ? legacyH : emptyHistory());
+          const legacyA = await sGet("forja-active");
+          if (legacyA) await sSet(`forja-active:${id}`, legacyA);
+          await sSet("forja-roster", r);
+        }
+        setRoster(r);
+        const t = await sGet("forja-team");
+        if (t && Array.isArray(t.members)) setTeam(t);
+        const lib = await sGet("forja-library");
+        if (lib && Array.isArray(lib.exercises)) setLibrary(lib.exercises);
+        const bk = await sGet("forja-bookings");
+        if (bk && Array.isArray(bk.slots)) setBookings({ slots: bk.slots });
+        const av = await sGet("forja-availability");
+        if (av) setAvailability((a) => ({ ...a, ...av }));
+        // Perfiles-alumno pre-cargados por el dueño (p. ej. CONI) con su
+        // rutina lista. Solo con lectura confirmada (got.ok), para no sembrar
+        // sobre datos que no llegaron a leerse.
+        if (got.ok) { try { await seedAccessProfiles(); } catch {} }
+        // Ingreso obligatorio con usuario y clave: si ESTE dispositivo ya
+        // inició sesión como dueño, entra directo; si no, muestra la pantalla
+        // de login (nunca se entra sin clave). La cuenta de dueño es una
+        // constante del código, así que no hay nada que sembrar.
+        if (lsGetRaw("forja-owner-device")) { await enterOwner(r); aSalvo(); return; }
+        setShowLogin(true); setLoading(false); aSalvo();
+      } catch (e) {
+        console.error("[forja] arranque falló, cae a login:", e);
+        setShowLogin(true); setLoading(false); aSalvo();
       }
-      setRoster(r);
-      const t = await sGet("forja-team");
-      if (t && Array.isArray(t.members)) setTeam(t);
-      const lib = await sGet("forja-library");
-      if (lib && Array.isArray(lib.exercises)) setLibrary(lib.exercises);
-      const bk = await sGet("forja-bookings");
-      if (bk && Array.isArray(bk.slots)) setBookings({ slots: bk.slots });
-      const av = await sGet("forja-availability");
-      if (av) setAvailability((a) => ({ ...a, ...av }));
-      // Perfiles-alumno pre-cargados por el dueño (p. ej. CONI) con su
-      // rutina lista. Solo con lectura confirmada (got.ok), para no sembrar
-      // sobre datos que no llegaron a leerse.
-      if (got.ok) { try { await seedAccessProfiles(); } catch {} }
-      // Ingreso obligatorio con usuario y clave: si ESTE dispositivo ya
-      // inició sesión como dueño, entra directo; si no, muestra la pantalla
-      // de login (nunca se entra sin clave). La cuenta de dueño es una
-      // constante del código, así que no hay nada que sembrar.
-      if (lsGetRaw("forja-owner-device")) { await enterOwner(r); return; }
-      setShowLogin(true); setLoading(false);
     })();
-    return () => { clearTimeout(planTimer.current); clearTimeout(activeTimer.current); clearTimeout(toastTimer.current); };
+    const redDeSeguridad = setTimeout(() => {
+      if (!resuelto) { console.error("[forja] arranque no resolvió en 15 s, fuerza login"); setShowLogin(true); setLoading(false); }
+    }, 15000);
+    return () => { clearTimeout(redDeSeguridad); clearTimeout(planTimer.current); clearTimeout(activeTimer.current); clearTimeout(toastTimer.current); };
   }, []);
 
   // Respaldo automático de la sesión activa al minimizar o cerrar
