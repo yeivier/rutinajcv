@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v229";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v231";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -358,7 +358,7 @@ const EQUIPMENT = ["Barra","Barra EZ","Mancuernas","Máquina","Polea","Smith","P
 // otro se escribe al empezar y queda guardado para volver a elegirlo con
 // un toque. Es dato del dispositivo, no del plan: el alumno cambia de
 // sede, la rutina no.
-const GIMNASIOS = ["Sportlife Pie Andino", "W Fitness El Alba", "Youtopia Trapenses", "Youtopia Vitacura"];
+const GIMNASIOS = ["Sportlife Pie Andino", "Smart Fit", "W Fitness El Alba", "Youtopia Trapenses", "Youtopia Vitacura"];
 const GYM_KEY = "forja-gimnasios";
 // Porcentaje de crédito que se le puede asignar a un músculo secundario
 // (el ejercicio también lo trabaja, pero no es el músculo principal).
@@ -1641,6 +1641,41 @@ const OWNER_HASH = "d0e7db2820e344c775da99ece927e8b91022d1a483e52c9c519f6eb3e3f2
    rutina lista. Idempotente: si el perfil ya existe no se toca, y el plan
    solo se siembra si ese espacio todavía no tiene uno (para no pisar lo que
    ya haya entrenado/editado). Se puede agregar más gente sumando entradas. */
+// Plan de nutrición de CONI (recomp con Retatrutida 1,5 mg): objetivo
+// ~1.400 kcal, 120 g proteína · 105 g carbos · 55 g grasas. Cada comida
+// trae 3 opciones (A/B/C) escritas en su nota — el alumno las ve en
+// Nutrición y elige una. Las kcal por comida suman el objetivo del día.
+function buildConiNutrition() {
+  const meal = (name, kcal, notes) => ({ id: uid(), name, time: "", kcal, items: [], notes });
+  return {
+    kcal: 1400, p: 120, c: 105, f: 55, solve: "kcal",
+    notes:
+      "Recomp con Retatrutida 1,5 mg · ~1.400 kcal al día\n" +
+      "Proteínas 120 g · Carbohidratos 105 g · Grasas 55 g\n\n" +
+      "Elige UNA opción en cada comida.\n\n" +
+      "Hidratación: 2,5–3 L de agua al día. Suma una pizca de sal de mar o electrolitos sin azúcar en el agua de la mañana (la Retatrutida es diurética).\n\n" +
+      "Timing de carbohidratos: pon la mayor porción (arroz, papa o avena) en la comida pre o post entrenamiento.",
+    meals: [
+      meal("Desayuno", 350,
+        "A) 2 huevos + 2 claras revueltas, 1 rebanada de pan integral tostado, 1/4 de palta, café o té sin azúcar.\n" +
+        "B) 150 g de yogurt griego natural sin azúcar, 30 g de avena integral, 1/2 taza de arándanos o frutillas, 10 g de almendras fileteadas.\n" +
+        "C) Batido: 1 scoop de whey, 150 ml de leche descremada o vegetal sin azúcar, 1/2 plátano, 1 cda de chía."),
+      meal("Almuerzo", 450,
+        "A) 150 g de pechuga de pollo a la plancha, 100 g de arroz integral o quinoa, brócoli y espárragos al vapor (1 cdta de aceite de oliva).\n" +
+        "B) 150 g de carne vacuna magra (posta o lomo liso), 150 g de papa cocida o al horno, ensalada verde mixta con vinagreta de limón.\n" +
+        "C) 150 g de salmón al horno, 100 g de camote asado, ensalada de espinaca y tomate cherry."),
+      meal("Snack de media tarde", 200,
+        "A) 1 manzana verde o pera + 15 g de mantequilla de maní (1 cda rasa).\n" +
+        "B) 1 lata pequeña (100 g) de atún al agua + pepino y tomate.\n" +
+        "C) 1 scoop de proteína en agua, o 100 g de quesillo o queso cottage con sal y pimienta."),
+      meal("Cena", 400,
+        "A) 150 g de pescado blanco (merluza, reineta o tilapia), salteado de zapallito italiano y pimentón, 1/4 de palta.\n" +
+        "B) Tortilla de 3 claras + 1 huevo con champiñones y espinaca, 2 galletas de arroz integral.\n" +
+        "C) 120 g de pechuga de pavo molida con salsa de tomate natural sobre “fideos” de zapallito italiano."),
+    ],
+    supplements: [],
+  };
+}
 function buildConiPlan() {
   // Constructor de series: cada [tipo, reps, rir] → una serie del modelo.
   const S = (arr) => arr.map(([type, repsT, rirT]) => ({ id: uid(), type, repsT, rirT: rirT || "", pct: 15 }));
@@ -1695,7 +1730,7 @@ function buildConiPlan() {
       ] },
     ],
     routineNames: { A: "Rutina de CONI" },
-    nutrition: { meals: [], supplements: [] },
+    nutrition: buildConiNutrition(),
     instructions: [],
     schedule: { mon: dL, tue: dM, wed: dX, fri: dV, sat: dS },
     events: [], athlete: {}, mesoState: null, updatedAt: todayISO(),
@@ -1708,7 +1743,8 @@ function buildConiPlan() {
 const SEED_ACCESS = [
   { id: "acc_coni", user: "coni",
     passHash: "5a949ec06c0f29010bc11bd541ebbde0ccff10b74209ae541fe4d1e7f7b5b9b2",
-    name: "CONI_EL_TERROR_DELCARRETE", role: "alumno", createdAt: "2026-09-04", plan: buildConiPlan },
+    name: "CONI_EL_TERROR_DELCARRETE", role: "alumno", createdAt: "2026-09-04",
+    plan: buildConiPlan, nutrition: buildConiNutrition },
 ];
 async function seedAccessProfiles() {
   const a = await loadAccess();
@@ -1725,6 +1761,15 @@ async function seedAccessProfiles() {
       await sSet(planKey, s.plan());
       const h = await sGetKnown(`forja-history:${s.id}`);
       if (h.ok && h.value == null) await sSet(`forja-history:${s.id}`, emptyHistory());
+    } else if (cur.ok && cur.value && s.nutrition) {
+      // Parche de nutrición: el plan ya existía (se sembró antes de que
+      // hubiese plan de comidas) pero sigue sin comidas cargadas → se le
+      // inyecta el plan de nutrición sin tocar los días entrenados.
+      const nut = cur.value.nutrition;
+      const sinComidas = !nut || !Array.isArray(nut.meals) || nut.meals.length === 0;
+      if (sinComidas) {
+        await sSet(planKey, { ...cur.value, nutrition: s.nutrition(), updatedAt: todayISO() });
+      }
     }
   }
   if (changed) await saveAccess(a);
@@ -9369,7 +9414,7 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
           </div>
         </div>
       )}
-      {n.notes && <div style={{ fontSize: 14.5, color: P.dim, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: "11px 14px", lineHeight: 1.5 }}>{n.notes}</div>}
+      {n.notes && <div style={{ fontSize: 14.5, color: P.dim, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: "11px 14px", lineHeight: 1.5, whiteSpace: "pre-line" }}>{n.notes}</div>}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, padding: "0 16px 0 16px" }}>
@@ -9382,20 +9427,44 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
           <Card style={{ overflow: "hidden" }}>
             {n.meals.map((m, i) => {
               const done = !!mealChecks[m.id];
+              // Detalle de la comida: alimentos cargados + la nota (donde
+              // el coach escribe, p. ej., las opciones A/B/C). Si hay
+              // detalle se muestra siempre debajo — es un plan para SEGUIR,
+              // así que las opciones tienen que estar a la vista, no
+              // escondidas tras un toque. El nombre puede envolver.
+              const items = (m.items || []).filter((it) => (it.food || "").trim());
+              const note = (m.notes || "").trim();
+              const hasDetail = items.length > 0 || !!note;
               return (
-                <button key={m.id} onClick={() => toggleMeal(m.id)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
-                  padding: "13px 16px", borderBottom: i < n.meals.length - 1 ? `1px solid ${P.line}` : "none" }}>
-                  <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                    background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
-                    {done && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
-                  </span>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 16, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
-                  <span style={{ fontSize: 15, color: P.faint2, flexShrink: 0 }}>
-                    {mealKcal(m) > 0
-                      ? `${mealKcal(m).toLocaleString("es-CL")} kcal`
-                      : done ? (m.time || "hecha") : (m.time || "pendiente")}
-                  </span>
-                </button>
+                <div key={m.id} style={{ borderBottom: i < n.meals.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                  <button onClick={() => toggleMeal(m.id)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+                    padding: hasDetail ? "13px 16px 9px" : "13px 16px" }}>
+                    <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                      background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
+                      {done && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: hasDetail ? 600 : 400, color: P.text }}>{m.name}</span>
+                    <span style={{ fontSize: 15, color: P.faint2, flexShrink: 0, alignSelf: hasDetail ? "flex-start" : "center", marginTop: hasDetail ? 1 : 0 }}>
+                      {mealKcal(m) > 0
+                        ? `${mealKcal(m).toLocaleString("es-CL")} kcal`
+                        : done ? (m.time || "hecha") : (m.time || "pendiente")}
+                    </span>
+                  </button>
+                  {hasDetail && (
+                    <div style={{ padding: "0 16px 13px 52px", display: "flex", flexDirection: "column", gap: 6 }}>
+                      {items.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          {items.map((it) => (
+                            <div key={it.id} style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.4 }}>
+                              {it.food}{(it.qty || "").trim() ? <span style={{ color: P.faint2 }}>{" — " + it.qty}</span> : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {note && <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5, whiteSpace: "pre-line" }}>{note}</div>}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </Card>
