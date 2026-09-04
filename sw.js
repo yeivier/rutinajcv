@@ -8,7 +8,14 @@
    index.html, bundle.js, manifest, íconos). Nunca toca las llamadas a
    Supabase ni a la API de Anthropic — esas siguen su curso normal y las
    maneja el respaldo local de sGet/sSet/sDel dentro de la app. */
-const CACHE_NAME = "forja-shell-v3";
+// v4: se sube el nombre de la caché para BORRAR de raíz cualquier copia
+// vieja del shell (index.html/bundle anteriores). El handler de "activate"
+// elimina todas las cachés cuyo nombre no sea el actual, así que subir
+// este número deja fuera, y para siempre, versiones cacheadas antiguas
+// (p. ej. la pantalla "¿Quién entra?" previa al login). Combinado con el
+// skipWaiting/clients.claim de abajo y el auto-recargar de index.html, un
+// dispositivo que abría la versión vieja pasa a la nueva sin intervención.
+const CACHE_NAME = "forja-shell-v4";
 const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

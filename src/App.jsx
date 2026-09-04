@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v231";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v234";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7987,6 +7987,12 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
             value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} />
           <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} />
+          {/* Nutrición a lo ancho: se ve y se registran las comidas del día
+              directo desde Inicio. Muestra cuántas van marcadas. */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Tile Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
+              value={mealsTotal ? `${mealsDoneCount} de ${mealsTotal} comidas` : "Ver y registrar"} />
+          </div>
         </div>
       </div>
 
@@ -16733,10 +16739,11 @@ const TABS = {
   alumno: [
     { id: "hoy", label: "Inicio", Icon: Home },
     { id: "progreso", label: "Progreso", Icon: BarChart3 },
-    // "Entrenar" al medio (es lo que más se toca). La agenda toma el lugar
-    // que tenía Nutrición; Nutrición sigue accesible desde "Más".
+    // "Entrenar" al medio (es lo que más se toca).
     { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
-    { id: "agenda", label: "Agenda", Icon: Calendar },
+    // Nutrición ocupa el lugar de Agenda en la barra (se usa a diario);
+    // Agenda sigue accesible desde "Más".
+    { id: "nutricion", label: "Nutrición", Icon: Utensils },
     { id: "mas", label: "Más", Icon: MoreHorizontal },
   ],
   coach: [
@@ -16761,7 +16768,7 @@ const UTILITY_SCREENS = {
 
 // Easy Mode deja solo lo imprescindible en la barra inferior. Todo lo
 // demás sigue existiendo: vuelve al toque con el switch de Interfaz.
-const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "cmas"], alumno: ["hoy", "progreso", "entrenar", "agenda", "mas"] };
+const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "cmas"], alumno: ["hoy", "progreso", "entrenar", "nutricion", "mas"] };
 const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", cmas: "Más", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
 
 /* ============================================================
