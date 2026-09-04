@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v241";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v242";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -132,6 +132,31 @@ const DARK_THEME = {
   plateDim: "#5A5A63",
   plateBorder: "#FFFFFF",
 };
+// Tercer tema, a pedido (blanco y rosado): mismas tarjetas blancas que
+// LIGHT_THEME —el contenido sigue leyéndose igual de limpio— pero el
+// fondo, las líneas y las superficies secundarias pasan a un rosa suave,
+// y el acento (antes tinta #101012) pasa a un rosa vivo. Mismo patrón de
+// paquete que los otros dos: solo colores, ninguna estructura nueva.
+const PINK_THEME = {
+  P: {
+    bg: "#FDF2F8", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#FCE7F3", s4: "#FBCFE8",
+    line: "#F9C4DE", text: "#101012", dim: "#2B2B30",
+    faint: "#8A5670", faint2: "#9C5F7E",
+    ember: "#DB2777", ember2: "#DB2777", glow: "#DB2777",
+    green: "#101012", blue: "#5A5A63", red: "#D70015",
+    frame: "#F9C4DE",
+    bgGrad: "#FDF2F8",
+    fillTertiary: "#FCE7F3", separatorStrong: "#F5AFD2",
+    textQuaternary: "#D68CB2", chevron: "#EBA6C9", dotInactive: "#F9C4DE",
+  },
+  plateGrad: "#DB2777",
+  plateFg: "#FFFFFF",
+  plateDim: "#F5AFD2",
+  plateBorder: "#DB2777",
+};
+// Paquete por modo — mode ("light"|"dark"|"pink") ya viene resuelto
+// (resolveTheme() ya convirtió "auto" a light/dark antes de llegar acá).
+const THEME_PACKAGES = { light: LIGHT_THEME, dark: DARK_THEME, pink: PINK_THEME };
 
 const P = { ...LIGHT_THEME.P };
 let PLATE_GRAD = LIGHT_THEME.plateGrad;
@@ -175,9 +200,13 @@ const systemPrefersDark = () => { try { return window.matchMedia("(prefers-color
 function resolveTheme(mode) { return mode === "auto" ? (systemPrefersDark() ? "dark" : "light") : mode; }
 function applyTheme(mode) {
   const resolved = resolveTheme(mode);
-  const t = resolved === "light" ? LIGHT_THEME : DARK_THEME;
+  const t = THEME_PACKAGES[resolved] || LIGHT_THEME;
   Object.assign(P, t.P);
-  Object.assign(SES, teColors(resolved === "light"));
+  // La sesión (Entrenar) solo tiene paleta clara/oscura propia — "pink" es
+  // una variante clara (tarjetas blancas, fondo suave), así que usa la
+  // paleta clara de la sesión igual que "light": lo único realmente
+  // oscuro es "dark".
+  Object.assign(SES, teColors(resolved !== "dark"));
   PLATE_GRAD = t.plateGrad; PLATE_FG = t.plateFg; PLATE_DIM = t.plateDim; PLATE_BORDER = t.plateBorder;
   THEME_MODE = mode;
   try { window.localStorage.setItem("forja-theme", mode); } catch {}
@@ -207,14 +236,18 @@ function useTheme() {
 // según el modo activo.
 const ThemeToggle = () => {
   const [mode, setMode] = useTheme();
-  const isLight = mode === "light";
+  // Este botón solo alterna oscuro ↔ claro (el tema Rosa se elige aparte,
+  // desde Ajustes → Apariencia). "isDark" en vez de "isLight": así, desde
+  // Rosa o Auto, el ícono y el destino del toque son consistentes (ofrece
+  // pasar a oscuro) en vez de solo distinguir el caso "light" exacto.
+  const isDark = mode === "dark";
   return (
-    <button onClick={() => setMode(isLight ? "dark" : "light")}
-      title={isLight ? "Cambiar a modo oscuro" : "Cambiar a modo claro"}
-      aria-label={isLight ? "Cambiar a modo oscuro" : "Cambiar a modo claro"}
+    <button onClick={() => setMode(isDark ? "light" : "dark")}
+      title={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+      aria-label={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
       style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 10,
         background: P.s3, border: `1px solid ${P.line}`, color: P.dim, flexShrink: 0 }}>
-      {isLight ? <Moon size={16} /> : <Sun size={16} />}
+      {isDark ? <Sun size={16} /> : <Moon size={16} />}
     </button>
   );
 };
@@ -16868,8 +16901,8 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
 
       <SettingGroup label="Ajustes">
         <SettingRow Icon={theme === "dark" ? Moon : Sun} label="Apariencia"
-          hint={theme === "light" ? "Claro" : theme === "dark" ? "Modo gimnasio — gris oscuro, sin negro puro" : "Auto — sigue el sistema"}
-          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Gimnasio" }, { id: "auto", label: "Auto" }]} value={theme} onChange={setTheme} />} />
+          hint={theme === "light" ? "Claro" : theme === "dark" ? "Modo gimnasio — gris oscuro, sin negro puro" : theme === "pink" ? "Rosa — blanco y rosado" : "Auto — sigue el sistema"}
+          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Gimnasio" }, { id: "pink", label: "Rosa" }, { id: "auto", label: "Auto" }]} value={theme} onChange={setTheme} />} />
         <SettingRow Icon={Ruler} label="Unidad de peso" hint={weightUnit === "kg" ? "Kilogramos" : "Libras"}
           control={<SectionSwitch items={[{ id: "kg", label: "kg" }, { id: "lb", label: "lb" }]} value={weightUnit} onChange={setWeightUnitPref} />} />
         <SettingRow Icon={Ruler} label="Unidad de medidas" hint={measureUnit === "cm" ? "Centímetros" : "Pulgadas"}
