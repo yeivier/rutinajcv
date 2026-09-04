@@ -50,7 +50,7 @@
   <!-- v206: type="module" para poder partir el bundle en trozos (recharts,
        ~320 KB, ahora va aparte y solo se baja al abrir un gráfico). Un
        módulo se ejecuta como defer y respeta el orden con config.js. -->
-  <script type="module" src="/bundle.js?v=231"></script>
+  <script type="module" src="/bundle.js?v=235"></script>
   <script>
     // Registra el service worker que permite abrir la app sin internet
     // (sirve la última copia guardada de index.html/bundle.js cuando no
@@ -58,8 +58,27 @@
     // registra en silencio: si falla o no existe, la app sigue andando
     // igual, solo sin esta capa extra.
     if ("serviceWorker" in navigator) {
+      // Si ya había un service worker controlando esta pestaña y aparece
+      // uno nuevo (una versión nueva desplegada), este cambio de "dueño"
+      // significa que la copia vieja del shell quedó atrás: se recarga UNA
+      // vez para que la app se pinte con el código nuevo al instante, sin
+      // que el usuario tenga que forzar recarga. El guard `controller` evita
+      // recargar en la primera visita (cuando aún no había ninguno), y la
+      // bandera evita cualquier bucle de recargas.
+      if (navigator.serviceWorker.controller) {
+        let recargando = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (recargando) return;
+          recargando = true;
+          window.location.reload();
+        });
+      }
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/sw.js").catch(() => {});
+        navigator.serviceWorker.register("/sw.js").then((reg) => {
+          // Empuja una comprobación de actualización apenas carga, para no
+          // esperar al chequeo automático del navegador (que puede tardar).
+          try { reg.update(); } catch (e) {}
+        }).catch(() => {});
       });
     }
   </script>

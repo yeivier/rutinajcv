@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v231";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v235";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7987,6 +7987,12 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
             value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} />
           <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} />
+          {/* Nutrición a lo ancho: se ve y se registran las comidas del día
+              directo desde Inicio. Muestra cuántas van marcadas. */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Tile Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
+              value={mealsTotal ? `${mealsDoneCount} de ${mealsTotal} comidas` : "Ver y registrar"} />
+          </div>
         </div>
       </div>
 
@@ -9328,6 +9334,27 @@ const ExHistorySheetInline = ({ entries, onOpenImg }) => (
 //     no depende del coach.
 //   - history.water: el agua se muestra acá y en Progreso·Cuerpo, pero
 //     es el mismo arreglo: no se duplica el dato.
+//   - history.mealChoices: { "<fecha>": { "<mealId>": "A" } } — qué opción
+//     (A/B/C…) eligió el alumno para esa comida ese día. Solo aplica a las
+//     comidas cuya nota trae varias opciones marcadas "A)", "B)"…
+// Detecta si la nota de una comida es un menú de opciones ("A) …", "B) …").
+// Devuelve { intro, options:[{key,text}] } o null si no hay al menos dos.
+// Cada opción va desde su marca hasta la siguiente, así el texto puede
+// ocupar varias líneas sin romperse.
+const parseMealOptions = (note) => {
+  if (!note) return null;
+  const re = /(?:^|\n)[ \t]*([A-Za-zÑñ])\)[ \t]*/g;
+  const marks = [];
+  let m;
+  while ((m = re.exec(note))) marks.push({ key: m[1].toUpperCase(), textStart: re.lastIndex, markStart: m.index });
+  if (marks.length < 2) return null;
+  const intro = note.slice(0, marks[0].markStart).trim();
+  const options = marks.map((mk, i) => ({
+    key: mk.key,
+    text: note.slice(mk.textStart, i + 1 < marks.length ? marks[i + 1].markStart : note.length).trim(),
+  }));
+  return { intro, options };
+};
 const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => {
   // Ciclado de carbohidratos (opcional, ver NutritionEditor): si está
   // activado, se muestran los macros de "hoy" según si hay rutina
@@ -9361,6 +9388,18 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
     h.mealChecks[todayKey] = { ...(h.mealChecks[todayKey] || {}) };
     if (h.mealChecks[todayKey][mealId]) delete h.mealChecks[todayKey][mealId];
     else h.mealChecks[todayKey][mealId] = true;
+    saveHistory(h);
+  };
+  // Opción elegida por comida (A/B/C…), por día. Tocar la opción ya
+  // elegida la deselecciona.
+  const mealChoices = (history && history.mealChoices && history.mealChoices[todayKey]) || {};
+  const setMealChoice = (mealId, key) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.mealChoices = h.mealChoices || {};
+    h.mealChoices[todayKey] = { ...(h.mealChoices[todayKey] || {}) };
+    if (key == null) delete h.mealChoices[todayKey][mealId];
+    else h.mealChoices[todayKey][mealId] = key;
     saveHistory(h);
   };
 
@@ -9434,6 +9473,11 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
               // escondidas tras un toque. El nombre puede envolver.
               const items = (m.items || []).filter((it) => (it.food || "").trim());
               const note = (m.notes || "").trim();
+              // Si la nota es un menú de opciones, el alumno ELIGE una (no
+              // se muestra como lista fija). El resto de la nota (intro) y
+              // las notas sin opciones se muestran como texto.
+              const opts = parseMealOptions(note);
+              const choice = mealChoices[m.id];
               const hasDetail = items.length > 0 || !!note;
               return (
                 <div key={m.id} style={{ borderBottom: i < n.meals.length - 1 ? `1px solid ${P.line}` : "none" }}>
@@ -9443,7 +9487,9 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
                       background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
                       {done && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
                     </span>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: hasDetail ? 600 : 400, color: P.text }}>{m.name}</span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: hasDetail ? 600 : 400, color: P.text }}>
+                      {m.name}{opts && choice ? <span style={{ color: P.faint2, fontWeight: 400 }}>{" · Opción " + choice}</span> : null}
+                    </span>
                     <span style={{ fontSize: 15, color: P.faint2, flexShrink: 0, alignSelf: hasDetail ? "flex-start" : "center", marginTop: hasDetail ? 1 : 0 }}>
                       {mealKcal(m) > 0
                         ? `${mealKcal(m).toLocaleString("es-CL")} kcal`
@@ -9451,7 +9497,7 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
                     </span>
                   </button>
                   {hasDetail && (
-                    <div style={{ padding: "0 16px 13px 52px", display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ padding: "0 16px 13px 52px", display: "flex", flexDirection: "column", gap: 7 }}>
                       {items.length > 0 && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                           {items.map((it) => (
@@ -9461,7 +9507,30 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
                           ))}
                         </div>
                       )}
-                      {note && <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5, whiteSpace: "pre-line" }}>{note}</div>}
+                      {opts ? (
+                        <>
+                          {opts.intro && <div style={{ fontSize: 13.5, color: P.faint2, lineHeight: 1.45 }}>{opts.intro}</div>}
+                          {!choice && <div style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2 }}>Elige tu opción:</div>}
+                          {opts.options.map((o) => {
+                            const sel = choice === o.key;
+                            return (
+                              <button key={o.key} onClick={() => setMealChoice(m.id, sel ? null : o.key)}
+                                style={{ textAlign: "left", display: "flex", gap: 10, alignItems: "flex-start",
+                                  background: sel ? P.s3 : P.s1, border: `1px solid ${sel ? P.text : P.line}`,
+                                  borderRadius: 12, padding: "10px 12px", transition: `border-color ${DUR_ROW}ms ease, background ${DUR_ROW}ms ease` }}>
+                                <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                                  background: sel ? PLATE_GRAD : "transparent", border: sel ? "none" : `1.5px solid ${P.chevron}`,
+                                  fontSize: 12, fontWeight: 700, color: sel ? PLATE_FG : P.faint2 }}>
+                                  {sel ? <Check size={13} color={PLATE_FG} strokeWidth={3} /> : o.key}
+                                </span>
+                                <span style={{ flex: 1, fontSize: 14.5, color: sel ? P.text : P.dim, lineHeight: 1.45, fontWeight: sel ? 600 : 400 }}>{o.text}</span>
+                              </button>
+                            );
+                          })}
+                        </>
+                      ) : (
+                        note && <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5, whiteSpace: "pre-line" }}>{note}</div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -16733,10 +16802,11 @@ const TABS = {
   alumno: [
     { id: "hoy", label: "Inicio", Icon: Home },
     { id: "progreso", label: "Progreso", Icon: BarChart3 },
-    // "Entrenar" al medio (es lo que más se toca). La agenda toma el lugar
-    // que tenía Nutrición; Nutrición sigue accesible desde "Más".
+    // "Entrenar" al medio (es lo que más se toca).
     { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
-    { id: "agenda", label: "Agenda", Icon: Calendar },
+    // Nutrición ocupa el lugar de Agenda en la barra (se usa a diario);
+    // Agenda sigue accesible desde "Más".
+    { id: "nutricion", label: "Nutrición", Icon: Utensils },
     { id: "mas", label: "Más", Icon: MoreHorizontal },
   ],
   coach: [
@@ -16761,7 +16831,7 @@ const UTILITY_SCREENS = {
 
 // Easy Mode deja solo lo imprescindible en la barra inferior. Todo lo
 // demás sigue existiendo: vuelve al toque con el switch de Interfaz.
-const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "cmas"], alumno: ["hoy", "progreso", "entrenar", "agenda", "mas"] };
+const EASY_TAB_IDS = { coach: ["dashboard", "atletas", "rutina", "cmas"], alumno: ["hoy", "progreso", "entrenar", "nutricion", "mas"] };
 const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", cmas: "Más", nutricion: "Nutrición", hoy: "Inicio", entrenar: "Entrenar", progreso: "Progreso", dashboard: "Panel", atletas: "Atletas", mas: "Más" };
 
 /* ============================================================
