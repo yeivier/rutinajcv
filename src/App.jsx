@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v227";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v228";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1633,7 +1633,7 @@ const saveAccess = (a) => sSet(ACCESS_KEY, a);
 // perfiles que cree son SOLO-ALUMNO. Es un candado de interfaz (la clave de
 // Supabase es pública), no seguridad de servidor.
 const OWNER_USER = "javier";
-const OWNER_HASH = "694105c338eb0762d77908fa682eec25c748c30f4f3aaa3f052d862005317831";
+const OWNER_HASH = "d0e7db2820e344c775da99ece927e8b91022d1a483e52c9c519f6eb3e3f27d38"; // clave: 1234
 
 /* Perfiles-alumno pre-cargados por el dueño: se crean (una sola vez) en
    forja-access con su rutina ya montada en su espacio aislado
