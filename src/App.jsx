@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v223";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v226";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1625,6 +1625,15 @@ async function hashClave(txt) {
 }
 const loadAccess = async () => { const a = await sGet(ACCESS_KEY); return (a && Array.isArray(a.profiles)) ? a : { profiles: [] }; };
 const saveAccess = (a) => sSet(ACCESS_KEY, a);
+// Cuenta de DUEÑO integrada (usuario "javier"). Es una CONSTANTE del código:
+// no se guarda en forja-access ni se sincroniza, así que funciona sin
+// conexión desde el primer arranque y nunca pisa los perfiles-alumno del
+// servidor. Solo está el HASH de la clave — nunca el texto plano. El dueño
+// entra con esta cuenta y ve la app completa (coach + alumno + gestión); los
+// perfiles que cree son SOLO-ALUMNO. Es un candado de interfaz (la clave de
+// Supabase es pública), no seguridad de servidor.
+const OWNER_USER = "javier";
+const OWNER_HASH = "694105c338eb0762d77908fa682eec25c748c30f4f3aaa3f052d862005317831";
 const fmtDate = (iso) => {
   const d = new Date(iso);
   return d.toLocaleDateString("es-CL", { day: "numeric", month: "short" });
@@ -3293,12 +3302,14 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
         background: PLATE_GRAD, color: PLATE_FG, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{badge}</span>
     )}
     <Icon size={19} color={P.text} strokeWidth={2} />
-    {/* minWidth:0 + overflowWrap: una palabra larga sin espacios como
-        "Suplementación" no cabía en la columna (3 fichas de ancho) y se
-        salía del borde de la ficha; ahora corta y baja de línea, igual que
-        "Competition Prep". */}
+    {/* minWidth:0 + hyphens:auto: una palabra larga sin espacios como
+        "Suplementación"/"Temporizador" no entra en la columna (3 fichas de
+        ancho). Con hyphens:auto (el <html> ya declara lang="es") corta por
+        sílabas con guion — "Tempori-zador", "Configura-ción" — en vez de un
+        tajo feo a mitad de letra; overflowWrap queda de respaldo por si el
+        navegador no tiene diccionario de guionado. */}
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "break-word" }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "break-word", hyphens: "auto", WebkitHyphens: "auto" }}>{label}</div>
       {value != null && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 1, overflowWrap: "break-word" }}>{value}</div>}
     </div>
   </button>
@@ -6275,8 +6286,24 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               <Icon size={16} strokeWidth={2} />
             </button>
           );
+          // Pulso en vivo: si hay pulsómetro conectado (por Bluetooth en
+          // Bluefy/Chrome), muestra las pulsaciones al instante; si no,
+          // toca para conectar (o abre Dispositivos con la guía si el
+          // navegador no tiene Bluetooth, p. ej. Safari).
+          const hrTap = hr.connected ? onOpenDevices : (hr.supported ? hr.connect : onOpenDevices);
+          const hrLabel = hr.connected ? (hr.bpm != null ? `${hr.bpm}` : "···") : "Pulso";
           return (
             <>
+              <button key="hr" onClick={hrTap}
+                aria-label={hr.connected ? `Frecuencia cardíaca ${hr.bpm != null ? hr.bpm + " pulsaciones por minuto" : "conectada"}` : "Conectar pulsómetro para ver la frecuencia cardíaca"}
+                title="Frecuencia cardíaca"
+                style={{ height: 34, padding: "0 10px", borderRadius: 9, flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5,
+                  fontSize: 12.5, fontWeight: 800, letterSpacing: ".01em",
+                  background: hr.connected ? SES.acc : SES.campo, border: `1px solid ${hr.connected ? SES.acc : SES.line}`,
+                  color: hr.connected ? "#fff" : SES.dim }}>
+                <HeartPulse size={15} strokeWidth={2.4} className={hr.connected && hr.bpm != null ? "pulse" : ""} />
+                {hrLabel}{hr.connected && hr.bpm != null ? <span style={{ fontSize: 9.5, fontWeight: 700, opacity: .85 }}>LPM</span> : null}
+              </button>
               {tbBtn("tema", isLight ? Moon : Sun, isLight ? "Cambiar a modo oscuro" : "Cambiar a modo claro",
                 () => setThemeMode(isLight ? "dark" : "light"))}
               {tbBtn("timer", Timer, "Iniciar un descanso a mano",
@@ -7768,9 +7795,10 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
             <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".16em" }}>{workout.eyebrow}</span>
-            <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{workout.title}</span>
+            <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12,
+              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{workout.title}</span>
             <span style={{ fontSize: 12.5, color: P.faint }}>
-              {workout.exs ? `${workout.exs.length} ejercicios · ${workout.sets} series · ${estimateSessionMin(workout.sets)} min` : workout.sub}
+              {workout.exs ? `${workout.exs.length} ${workout.exs.length === 1 ? "ejercicio" : "ejercicios"} · ${workout.sets} ${workout.sets === 1 ? "serie" : "series"} · ${estimateSessionMin(workout.sets)} min` : workout.sub}
             </span>
           </div>
           <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} style={{ flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</Btn>
@@ -16508,11 +16536,15 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
           control={<SectionSwitch items={[{ id: "on", label: "Mostrar" }, { id: "off", label: "Ocultar" }]} value={aiFab ? "on" : "off"} onChange={(v) => setAiFab(v === "on")} />} />
       </SettingGroup>
 
-      <SettingGroup label="Modo">
-        <SettingRow Icon={mode === "coach" ? ClipboardList : Dumbbell} label="Entrar como" hint={`Ahora estás en modo ${mode}`} last
-          control={<SectionSwitch items={[{ id: "alumno", label: "Alumno" }, { id: "coach", label: "Coach" }]} value={mode}
-            onChange={(m) => { if (m !== mode) onSwitchMode(m); }} />} />
-      </SettingGroup>
+      {/* Cambio de modo solo para el dueño: un perfil de acceso (alumno) no
+          puede pasar a coach. */}
+      {!isDelegate && (
+        <SettingGroup label="Modo">
+          <SettingRow Icon={mode === "coach" ? ClipboardList : Dumbbell} label="Entrar como" hint={`Ahora estás en modo ${mode}`} last
+            control={<SectionSwitch items={[{ id: "alumno", label: "Alumno" }, { id: "coach", label: "Coach" }]} value={mode}
+              onChange={(m) => { if (m !== mode) onSwitchMode(m); }} />} />
+        </SettingGroup>
+      )}
 
       {/* La versión vive acá abajo, no en la cabecera: el encabezado es
           identidad, no diagnóstico. */}
@@ -18242,7 +18274,7 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
   );
 };
 
-const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams }) => {
+const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams }) => {
   const [q, setQ] = useState("");
   const unread = useUnreadChatCount(sid, "alumno");
   const groups = [
@@ -18269,8 +18301,10 @@ const MasTab = ({ toast, sid, onOpenUtility, onOpenDevices, onOpenSettings, onSw
     ] },
     { label: "Cuenta", rows: [
       { key: "config", Icon: Sun, label: "Configuración", kw: "apariencia vista interfaz tema", onClick: onOpenSettings },
-      { key: "cambiar", Icon: Users, label: "Cambiar a Coach", kw: "entrar modo coach", onClick: () => onSwitchMode("coach") },
-    ] },
+      // Un perfil de acceso (alumno) NO puede pasar a modo coach: su cuenta
+      // es solo-alumno. Solo el dueño ve "Cambiar a Coach".
+      !isDelegate && { key: "cambiar", Icon: Users, label: "Cambiar a Coach", kw: "entrar modo coach", onClick: () => onSwitchMode("coach") },
+    ].filter(Boolean) },
   ];
   const query = q.trim().toLowerCase();
   const filtered = query
@@ -18565,7 +18599,9 @@ const AccessProfilesSheet = ({ open, onClose }) => {
   const [clave, setClave] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const refresh = async () => setProfiles((await loadAccess()).profiles);
+  // La cuenta de dueño no se muestra ni se puede borrar desde acá: acá solo
+  // se gestionan los usuarios-alumno.
+  const refresh = async () => setProfiles((await loadAccess()).profiles.filter((p) => p.role !== "owner"));
   useEffect(() => { if (open) { refresh(); setNombre(""); setUser(""); setClave(""); setErr(""); } }, [open]);
   const crear = async () => {
     const n = nombre.trim(), u = user.trim().toLowerCase();
@@ -18574,7 +18610,7 @@ const AccessProfilesSheet = ({ open, onClose }) => {
     const a = await loadAccess();
     if (a.profiles.some((p) => p.user === u)) { setErr("Ya existe un perfil con ese usuario."); setBusy(false); return; }
     const passHash = await hashClave(clave);
-    a.profiles = [...a.profiles, { id: "acc_" + uid(), user: u, passHash, name: n, createdAt: todayISO() }];
+    a.profiles = [...a.profiles, { id: "acc_" + uid(), user: u, passHash, name: n, role: "alumno", createdAt: todayISO() }];
     await saveAccess(a);
     setBusy(false); setNombre(""); setUser(""); setClave(""); refresh();
   };
@@ -18589,8 +18625,9 @@ const AccessProfilesSheet = ({ open, onClose }) => {
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5 }}>
           Creá un usuario y clave para darle acceso a otra persona. Entra por el mismo link con su
-          usuario y clave, a un espacio propio y vacío: sus rutinas, su IA y su progreso — sin ver
-          tus datos ni los de otros alumnos. Es un candado de la app, no de nivel bancario.
+          usuario y clave, a un espacio propio y vacío: sus rutinas, su IA y su progreso. Solo entra
+          a su <b>modo alumno</b> — no ve tus datos ni los de otros alumnos, no puede pasar a coach
+          ni gestionar nada. Es un candado de la app, no de nivel bancario.
         </div>
         <Card style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <Field label="Nombre de la persona"><Inp value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: Camila" /></Field>
@@ -19024,7 +19061,10 @@ const App = () => {
   // uno, la app corre en un espacio aislado: roster de una sola persona
   // (ella misma), sin equipo, sin ver a otros alumnos ni al dueño.
   const [delegate, setDelegate] = useState(null);
-  const [showLogin, setShowLogin] = useState(false);
+  // Login-first: por defecto se entra por la pantalla de usuario+clave, no
+  // por las fichas de "¿Quién entra?". El boot lo confirma según el marcador
+  // del dispositivo (dueño/alumno recordado) o lo deja en login.
+  const [showLogin, setShowLogin] = useState(true);
   // Equipo del lado coach (Head Coach + staff). Sin miembros = coach solo,
   // acceso total, cero fricción extra (comportamiento de siempre).
   const [team, setTeam] = useState({ members: [] });
@@ -19248,21 +19288,39 @@ const App = () => {
     // dispositivo), para que la próxima vez entre directo a su perfil.
     lsSetRaw("forja-delegate-device", prof.id);
   };
+  // Entrar como DUEÑO: la app completa con el roster y los datos reales
+  // (no un espacio aislado). Se recuerda en el dispositivo para no volver a
+  // pedir la clave hasta cerrar sesión.
+  const enterOwner = async (rosterArg) => {
+    const rr = rosterArg || roster;
+    setDelegate(null);
+    setShowLogin(false);
+    lsDelRaw("forja-delegate-device");
+    lsSetRaw("forja-owner-device", "1");
+    await openIdentity("coach", rr.students[0]?.id, rr, null);
+  };
   const onLogin = async (user, clave) => {
     const u = String(user).trim().toLowerCase();
-    const a = await loadAccess();
-    const prof = a.profiles.find((p) => p.user === u);
     const h = await hashClave(clave);
+    // Dueño: cuenta integrada (constante), no depende de forja-access.
+    if (u === OWNER_USER && h === OWNER_HASH) { await enterOwner(); return null; }
+    // Alumno: perfil con acceso creado por el dueño → espacio aislado.
+    const a = await loadAccess();
+    const prof = a.profiles.find((p) => p.user === u && p.role !== "owner");
     if (!prof || h !== prof.passHash) return "Usuario o clave incorrectos.";
     await enterDelegate(prof);
     return null;
   };
-  const logoutDelegate = () => {
+  // Cerrar sesión: vuelve a la pantalla de login, sea dueño o alumno.
+  const logout = () => {
     setDelegate(null);
     lsDelRaw("forja-delegate-device");
+    lsDelRaw("forja-owner-device");
+    sSet("forja-device", null, false);
     setReady(false);
     setShowLogin(true);
   };
+  const logoutDelegate = logout; // alias, todo el ingreso va por login ahora
 
   useEffect(() => {
     (async () => {
@@ -19284,9 +19342,9 @@ const App = () => {
         if (!got.ok) {
           // La lectura no llegó al servidor. NO se siembra nada: un roster
           // de ejemplo escrito acá pisaría el real, que sigue existiendo
-          // en la base. Se muestra vacío y el usuario reintenta con señal.
+          // en la base. Se muestra el login y el usuario reintenta con señal.
           setRoster({ v: ROSTER_VERSION, students: [] });
-          setLoading(false);
+          setShowLogin(true); setLoading(false);
           return;
         }
         // Lectura confirmada y sin roster: primera vez de verdad.
@@ -19308,10 +19366,12 @@ const App = () => {
       if (bk && Array.isArray(bk.slots)) setBookings({ slots: bk.slots });
       const av = await sGet("forja-availability");
       if (av) setAvailability((a) => ({ ...a, ...av }));
-      const dev = await sGet("forja-device", false);
-      const known = dev && dev.sid && r.students.some((s) => s.id === dev.sid);
-      if (dev && dev.mode && known) await openIdentity(dev.mode, dev.sid, r, dev.teamId);
-      else setLoading(false);
+      // Ingreso obligatorio con usuario y clave: si ESTE dispositivo ya
+      // inició sesión como dueño, entra directo; si no, muestra la pantalla
+      // de login (nunca se entra sin clave). La cuenta de dueño es una
+      // constante del código, así que no hay nada que sembrar.
+      if (lsGetRaw("forja-owner-device")) { await enterOwner(r); return; }
+      setShowLogin(true); setLoading(false);
     })();
     return () => { clearTimeout(planTimer.current); clearTimeout(activeTimer.current); clearTimeout(toastTimer.current); };
   }, []);
@@ -19554,9 +19614,9 @@ const App = () => {
             el avatar, no solo un menú suelto. */}
         {!enSesion && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "calc(8px + env(safe-area-inset-top)) 16px 4px" }}>
-            <button onClick={() => delegate ? logoutDelegate() : setReady(false)} style={{ textAlign: "left", minWidth: 0 }}>
+            <button onClick={logout} style={{ textAlign: "left", minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{currentStudent?.name || "—"}</div>
-              <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>{delegate ? "cerrar sesión" : `modo ${mode} · cambiar`}</div>
+              <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>{delegate ? "cerrar sesión" : `modo ${mode} · cerrar sesión`}</div>
             </button>
             <button onClick={() => setMoreOpen(true)} aria-label="Perfil y más opciones"
               style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
@@ -19643,7 +19703,7 @@ const App = () => {
             onOpenSupplements={() => setSupplementsOpen(true)} />
         )}
         {mode === "alumno" && tab === "mas" && (
-          <MasTab toast={toast} sid={sid} onOpenUtility={(id) => setUtility(id)} onOpenDevices={() => setDevicesOpen(true)}
+          <MasTab toast={toast} sid={sid} isDelegate={!!delegate} onOpenUtility={(id) => setUtility(id)} onOpenDevices={() => setDevicesOpen(true)}
             onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             onOpenPosing={() => { setTab("hoy"); setAutoOpenPosing(true); }}
@@ -19744,7 +19804,7 @@ const App = () => {
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode} isDelegate={!!delegate}
-        studentName={currentStudent?.name} onSwitchIdentity={() => { setMoreOpen(false); delegate ? logoutDelegate() : setReady(false); }}
+        studentName={currentStudent?.name} onSwitchIdentity={() => { setMoreOpen(false); logout(); }}
         onManageAccess={() => { setMoreOpen(false); setAccessOpen(true); }}
         canManageTeam={myRoleMeta.manageTeam}
         routineView={routineView} onChangeRoutineView={setRoutineView}
