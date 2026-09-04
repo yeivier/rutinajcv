@@ -7,7 +7,7 @@ import {
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText,
-  UserPlus, DollarSign, Droplet, Smile, Columns2
+  UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut
 } from "lucide-react";
 
 /* ============================================================
@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v236";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v237";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2661,6 +2661,42 @@ const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos
   // Exámenes subidos y leídos por la IA (InBody, DEXA, análisis…): uno por
   // examen, con fecha, tipo e indicadores {nombre, valor, unidad}.
   exams: [] });
+
+// Registro de actividad de la cuenta: cada apertura/cierre de sesión
+// (con hora y duración) y cada acción que el alumno hace en su espacio
+// (marca una comida, elige una opción, registra su peso…), para que el
+// coach pueda ver el detalle de qué hace y cuándo. No va en emptyHistory
+// (mismo patrón "lazy" que mealChecks/supplementChecks): un historial
+// viejo sin esta clave simplemente no tiene registro previo.
+const MAX_ACTIVITY_LOG = 500;
+// Agrega una entrada SOBRE un historial ya clonado (`h`) que el llamador
+// va a guardar de todos modos con su propio cambio — así el cambio real
+// y su registro quedan en el MISMO saveHistory/sSet, sin dos escrituras
+// que puedan pisarse entre sí (una con el dato viejo del cierre anterior).
+function pushActivity(h, label, type = "action") {
+  h.activityLog = [...(h.activityLog || []), { id: uid(), ts: new Date().toISOString(), type, label }];
+  if (h.activityLog.length > MAX_ACTIVITY_LOG) h.activityLog = h.activityLog.slice(-MAX_ACTIVITY_LOG);
+}
+// Para los casos donde no hay otro cambio en simultáneo (entrar/salir de
+// la app): lee, agrega y guarda en un solo paso, directo contra la clave
+// de Supabase — no depende del estado de React, así sirve también desde
+// manejadores que corren fuera de un componente montado (pagehide).
+async function logActivityFor(studentId, label, type = "action") {
+  try {
+    const h = (await sGet(`forja-history:${studentId}`)) || emptyHistory();
+    const h2 = structuredClone(h);
+    pushActivity(h2, label, type);
+    await sSet(`forja-history:${studentId}`, h2);
+    return h2;
+  } catch { return null; }
+}
+// Formatea la duración de una sesión en "Xh Ym" / "Xm" / "<1 min".
+const fmtDuracion = (ms) => {
+  const min = Math.round(ms / 60000);
+  if (min < 1) return "menos de 1 min";
+  const h = Math.floor(min / 60), m = min % 60;
+  return h > 0 ? `${h} h ${m} min` : `${m} min`;
+};
 
 /* ============================================================
    Base de conocimiento de culturismo
@@ -7788,6 +7824,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     if (!v || v <= 0 || !saveHistory) return;
     const h = structuredClone(history);
     h.bodyweight = [...(h.bodyweight || []), { date: todayISO(), kg: v }];
+    pushActivity(h, `Registró su peso: ${kg(v)} kg`);
     saveHistory(h);
     setCiWeight("");
     setCiPane(null);
@@ -7799,6 +7836,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     if (!v || v <= 0 || !saveHistory) return;
     const h = structuredClone(history);
     h.sleep = [...(h.sleep || []), { date: todayISO(), hours: v }];
+    pushActivity(h, `Registró sueño: ${kg(v)} h`);
     saveHistory(h);
     setCiSleep(""); setCiPane(null);
     await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nSueño: ${kg(v)} h`);
@@ -7808,6 +7846,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     if (!v || v <= 0 || !saveHistory) return;
     const h = structuredClone(history);
     h.steps = [...(h.steps || []), { date: todayISO(), count: v }];
+    pushActivity(h, `Registró pasos: ${Math.round(v).toLocaleString("es-CL")}`);
     saveHistory(h);
     setCiSteps(""); setCiPane(null);
     await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nPasos: ${Math.round(v).toLocaleString("es-CL")}`);
@@ -7817,10 +7856,11 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     if (!saveHistory) return;
     const h = structuredClone(history);
     h.measurements = [...(h.measurements || []), { date: todayISO(), values }];
-    saveHistory(h);
-    setMeasureOpen(false);
     const lines = BODY_MEASURE_FIELDS.filter((f) => values[f.key] != null)
       .map((f) => `${f.label}: ${kg(values[f.key])}${f.unit === "%" ? "%" : " cm"}`);
+    pushActivity(h, `Registró medidas corporales (${lines.length})`);
+    saveHistory(h);
+    setMeasureOpen(false);
     await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nMétricas corporales:\n${lines.join("\n")}`);
   };
 
@@ -7832,6 +7872,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     const h = structuredClone(history);
     h.recovery = [...(h.recovery || []), { date: todayISO(), scores: { ...rec },
       comment: recComment.trim() || undefined, attachIds: recAttachIds.length ? recAttachIds : undefined }];
+    pushActivity(h, "Envió su cuestionario de recuperación");
     saveHistory(h);
     const lines = [`Check-in · ${fmtDateFull(todayISO())} · Recuperación`];
     answered.forEach((f) => lines.push(`${f.label}: ${rec[f.key]}/10`));
@@ -7857,6 +7898,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     setPoseSaving(true);
     const h = structuredClone(history);
     h.bodyPhotos = [...(h.bodyPhotos || []), ...shots.map((s) => ({ id: s.id, date: todayISO(), angle: s.angle }))];
+    pushActivity(h, `Subió fotos/video de posing (${shots.length})`);
     saveHistory(h);
     const labels = { frontal: "Frontal", lateral: "Lateral", posterior: "Posterior", video: "Video de posing" };
     await sendChatText(`Check-in · ${fmtDateFull(todayISO())} · Fotos y posing\n${shots.map((s) => labels[s.angle]).join(", ")}`);
@@ -9383,11 +9425,14 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
   const kcalGoal = +(v.kcal || 0) || kcalPlanned;
   const toggleMeal = (mealId) => {
     if (!saveHistory) return;
+    const nombre = (n.meals.find((m) => m.id === mealId) || {}).name || "una comida";
+    const yaHecha = !!mealChecks[mealId];
     const h = structuredClone(history);
     h.mealChecks = h.mealChecks || {};
     h.mealChecks[todayKey] = { ...(h.mealChecks[todayKey] || {}) };
     if (h.mealChecks[todayKey][mealId]) delete h.mealChecks[todayKey][mealId];
     else h.mealChecks[todayKey][mealId] = true;
+    pushActivity(h, yaHecha ? `Desmarcó "${nombre}"` : `Marcó "${nombre}" como hecha`);
     saveHistory(h);
   };
   // Opción elegida por comida (A/B/C…), por día. Tocar la opción ya
@@ -9395,11 +9440,13 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
   const mealChoices = (history && history.mealChoices && history.mealChoices[todayKey]) || {};
   const setMealChoice = (mealId, key) => {
     if (!saveHistory) return;
+    const nombre = (n.meals.find((m) => m.id === mealId) || {}).name || "una comida";
     const h = structuredClone(history);
     h.mealChoices = h.mealChoices || {};
     h.mealChoices[todayKey] = { ...(h.mealChoices[todayKey] || {}) };
     if (key == null) delete h.mealChoices[todayKey][mealId];
     else h.mealChoices[todayKey][mealId] = key;
+    pushActivity(h, key == null ? `Quitó su elección para "${nombre}"` : `Eligió la opción ${key} para "${nombre}"`);
     saveHistory(h);
   };
 
@@ -9414,13 +9461,16 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
     if (!t || !saveHistory) return;
     const h = structuredClone(history);
     h.shoppingList = [...(h.shoppingList || []), { id: uid(), text: t, done: false }];
+    pushActivity(h, `Agregó "${t}" a la lista de compras`);
     saveHistory(h);
     setShopText("");
   };
   const toggleShopItem = (id) => {
     if (!saveHistory) return;
+    const item = shopping.find((it) => it.id === id);
     const h = structuredClone(history);
     h.shoppingList = (h.shoppingList || []).map((it) => it.id === id ? { ...it, done: !it.done } : it);
+    if (item) pushActivity(h, item.done ? `Desmarcó "${item.text}" de la lista de compras` : `Marcó "${item.text}" como comprado`);
     saveHistory(h);
   };
 
@@ -12364,13 +12414,27 @@ const ActivityTab = ({ plan, history }) => {
   }, [plan, history]);
   useEffect(() => { if (!exId && allEx.length) setExId(allEx[0][0]); }, [allEx, exId]);
   const commented = history.sessions.filter((s) => s.hasComments).length;
+  // Registro de actividad de la cuenta (entradas/salidas con hora y
+  // duración, y qué carga/cambia el alumno) — más reciente primero,
+  // agrupado por día con el mismo formato que el chat (Hoy/Ayer/fecha).
+  const logEntries = [...(history.activityLog || [])].reverse();
+  const logGroups = useMemo(() => {
+    const out = [];
+    let cur = null;
+    for (const e of logEntries) {
+      const day = fmtChatDay(e.ts);
+      if (!cur || cur.day !== day) { cur = { day, items: [] }; out.push(cur); }
+      cur.items.push(e);
+    }
+    return out;
+  }, [history.activityLog]);
 
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Actividad del alumno</h1>
       <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>{history.sessions.length} sesiones registradas{commented ? ` · ${commented} con comentarios` : ""}. Revisa pesos, RIR, notas y fotos de cada entrenamiento.</div>
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
-        {[["ses", "Por sesión"], ["ex", "Por ejercicio"]].map(([id, l]) => (
+        {[["ses", "Por sesión"], ["ex", "Por ejercicio"], ["log", "Registro"]].map(([id, l]) => (
           <button key={id} onClick={() => setSub(id)} style={{ flex: 1, padding: "9px 4px", borderRadius: 10, fontSize: 14.5, fontWeight: 600,
             background: sub === id ? P.s3 : "transparent", color: sub === id ? P.text : P.faint, border: `1px solid ${sub === id ? P.line : "transparent"}` }}>{l}</button>
         ))}
@@ -12406,6 +12470,35 @@ const ActivityTab = ({ plan, history }) => {
               </>
             )}
         </div>
+      )}
+      {sub === "log" && (
+        logGroups.length === 0 ? (
+          <Empty icon={History} title="Sin registro todavía" body="Acá vas a ver cada vez que el alumno entra o sale de la app, y qué carga o cambia: comidas marcadas, opciones elegidas, peso, sueño, pasos y más." />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            {logGroups.map((g) => (
+              <div key={g.day}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: P.faint2, marginBottom: 8, paddingLeft: 2 }}>{g.day}</div>
+                <Card style={{ overflow: "hidden" }}>
+                  {g.items.map((e, i) => {
+                    const Icon = e.type === "login" ? LogIn : e.type === "logout" ? LogOut : History;
+                    return (
+                      <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 14px",
+                        borderBottom: i < g.items.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                        <span style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                          background: P.s3, border: `1px solid ${P.line}` }}>
+                          <Icon size={13} color={e.type === "login" ? SES.acc : e.type === "logout" ? P.faint2 : P.ember2} />
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, color: P.text, lineHeight: 1.4 }}>{e.label}</span>
+                        <span style={{ fontSize: 12.5, color: P.faint2, flexShrink: 0, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{fmtChatTime(e.ts)}</span>
+                      </div>
+                    );
+                  })}
+                </Card>
+              </div>
+            ))}
+          </div>
+        )
       )}
       <SessionDetailSheet session={openSession} onClose={() => setOpenSession(null)} history={history} onOpenImg={setViewImg} />
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
@@ -17981,11 +18074,14 @@ const SupplementsSheet = ({ open, onClose, plan, history, saveHistory, onOpenLab
   const today = checks[todayKey] || {};
   const toggle = (id) => {
     if (!saveHistory) return;
+    const nombre = (supplements.find((s) => s.id === id) || {}).name || "un suplemento";
+    const yaTomado = !!today[id];
     const h = structuredClone(history);
     h.supplementChecks = h.supplementChecks || {};
     h.supplementChecks[todayKey] = { ...(h.supplementChecks[todayKey] || {}) };
     if (h.supplementChecks[todayKey][id]) delete h.supplementChecks[todayKey][id];
     else h.supplementChecks[todayKey][id] = true;
+    pushActivity(h, yaTomado ? `Desmarcó "${nombre}"` : `Marcó "${nombre}" como tomado`);
     saveHistory(h);
   };
 
@@ -18838,6 +18934,18 @@ const AccessProfilesSheet = ({ open, onClose }) => {
   // campo abierto; `newClave` lo que se escribe.
   const [editId, setEditId] = useState(null);
   const [newClave, setNewClave] = useState("");
+  // Actividad de un perfil con acceso: estos espacios NO viven en
+  // roster.students (son aislados), así que no aparecen en Atletas →
+  // Actividad — acá es donde el dueño puede revisar el detalle de
+  // cualquiera de ellos, reusando el mismo ActivityTab del coach.
+  const [openActivity, setOpenActivity] = useState(null); // { id, name, plan, history }
+  const [loadingActivity, setLoadingActivity] = useState(false);
+  const abrirActividad = async (p) => {
+    setLoadingActivity(true);
+    const [plan, history] = await Promise.all([sGet(`forja-plan:${p.id}`), sGet(`forja-history:${p.id}`)]);
+    setOpenActivity({ id: p.id, name: p.name, plan: plan || emptyPlan(), history: history || emptyHistory() });
+    setLoadingActivity(false);
+  };
   const refresh = async () => {
     const a = await loadAccess();
     setProfiles(a.profiles.filter((p) => p.role !== "owner"));
@@ -18942,6 +19050,11 @@ const AccessProfilesSheet = ({ open, onClose }) => {
                   <div style={{ fontSize: 12.5, color: P.faint2 }}>usuario: {p.user}</div>
                 </div>
                 {editId !== p.id && (
+                  <button onClick={() => abrirActividad(p)} disabled={loadingActivity} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: P.dim, flexShrink: 0 }}>
+                    <History size={13} /> Actividad
+                  </button>
+                )}
+                {editId !== p.id && (
                   <button onClick={() => borrar(p.id)} aria-label={`Borrar el perfil de ${p.name}`} style={{ color: P.red, padding: 6, flexShrink: 0 }}><Trash2 size={17} /></button>
                 )}
                 {cambiaClaveUI(p.id)}
@@ -18953,6 +19066,9 @@ const AccessProfilesSheet = ({ open, onClose }) => {
           </div>
         )}
       </div>
+      <Sheet open={!!openActivity} onClose={() => setOpenActivity(null)} title={openActivity ? openActivity.name : "Actividad"} tall>
+        {openActivity && <ActivityTab plan={openActivity.plan} history={openActivity.history} />}
+      </Sheet>
     </Sheet>
   );
 };
@@ -19469,6 +19585,12 @@ const App = () => {
   const toastTimer = useRef(null);
   const sidRef = useRef(null);
   const activeRef = useRef(null);
+  // Registro de actividad de cuentas con acceso (perfiles delegados, p. ej.
+  // CONI): a qué hora entró esta apertura de la app y desde cuándo, para
+  // poder calcular la duración al salir. `delegateRef` deja ver el perfil
+  // vigente desde manejadores que no se vuelven a montar (pagehide).
+  const delegateRef = useRef(null);
+  const delegateSessionStartRef = useRef(null);
 
   const loadStudent = async (id) => {
     let p = await sGet(`forja-plan:${id}`); if (!p) p = emptyPlan();
@@ -19589,6 +19711,15 @@ const App = () => {
     // Marca LOCAL y persistente (no se sincroniza a Supabase: es de ESTE
     // dispositivo), para que la próxima vez entre directo a su perfil.
     lsSetRaw("forja-delegate-device", prof.id);
+    // Registro de actividad: esta llamada cubre TANTO el login explícito
+    // (usuario+clave) COMO el reingreso silencioso al reabrir la app ya
+    // logueada (el dispositivo la recuerda) — cualquiera de los dos es
+    // "entró a la app" para quien mira el detalle. Arranca el cronómetro
+    // de duración de esta apertura puntual.
+    delegateRef.current = prof;
+    delegateSessionStartRef.current = Date.now();
+    const h2 = await logActivityFor(prof.id, "Entró a la app", "login");
+    if (h2 && sidRef.current === prof.id) setHistory(h2);
   };
   // Entrar como DUEÑO: la app completa con el roster y los datos reales
   // (no un espacio aislado). Se recuerda en el dispositivo para no volver a
@@ -19596,6 +19727,8 @@ const App = () => {
   const enterOwner = async (rosterArg) => {
     const rr = rosterArg || roster;
     setDelegate(null);
+    delegateRef.current = null;
+    delegateSessionStartRef.current = null;
     setShowLogin(false);
     lsDelRaw("forja-delegate-device");
     lsSetRaw("forja-owner-device", "1");
@@ -19620,6 +19753,15 @@ const App = () => {
   };
   // Cerrar sesión: vuelve a la pantalla de login, sea dueño o alumno.
   const logout = () => {
+    // Si quien cierra sesión es un perfil con acceso (no el dueño), se
+    // registra el cierre con la duración de esta apertura — de fondo, sin
+    // esperarlo, para no demorar la vuelta al login.
+    if (delegateRef.current && delegateSessionStartRef.current) {
+      const dur = Date.now() - delegateSessionStartRef.current;
+      logActivityFor(delegateRef.current.id, `Cerró sesión (estuvo ${fmtDuracion(dur)})`, "logout");
+    }
+    delegateRef.current = null;
+    delegateSessionStartRef.current = null;
     setDelegate(null);
     lsDelRaw("forja-delegate-device");
     lsDelRaw("forja-owner-device");
@@ -19713,6 +19855,25 @@ const App = () => {
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("pagehide", flush);
     return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pagehide", flush); };
+  }, []);
+
+  // Cierre PASIVO de un perfil con acceso: la mayoría no toca "cerrar
+  // sesión", solo cierra la pestaña o cambia de app. `pagehide` es el
+  // único evento que el navegador garantiza al abandonar la página — se
+  // registra ahí la duración de esta apertura. `lsSetRaw` (dentro de
+  // sSet) escribe local de forma síncrona antes de intentar la red, así
+  // que el dato no se pierde aunque la pestaña se cierre antes de que la
+  // llamada a Supabase alcance a terminar; si no llegó, queda en la cola
+  // de reintentos como cualquier otra escritura offline.
+  useEffect(() => {
+    const onPageHide = () => {
+      if (!delegateRef.current || !delegateSessionStartRef.current) return;
+      const dur = Date.now() - delegateSessionStartRef.current;
+      logActivityFor(delegateRef.current.id, `Salió de la app (estuvo ${fmtDuracion(dur)})`, "logout");
+      delegateSessionStartRef.current = null; // evita duplicar si vuelven a disparar el evento
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
   }, []);
 
   const applyActive = useCallback((a) => { activeRef.current = a; setActive(a); }, []);
