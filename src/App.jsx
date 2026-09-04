@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v228";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v229";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -18688,16 +18688,23 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd, onLogin, startLogin }
 /* Gestión de perfiles con acceso — el dueño crea/borra los usuarios a los
    que les delega la app. Ver hashClave/loadAccess arriba. */
 const AccessProfilesSheet = ({ open, onClose }) => {
-  const [profiles, setProfiles] = useState([]);
+  const [profiles, setProfiles] = useState([]);   // solo alumnos
+  const [ownerProf, setOwnerProf] = useState(null); // perfil dueño guardado (o null = usa la constante)
   const [nombre, setNombre] = useState("");
   const [user, setUser] = useState("");
   const [clave, setClave] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  // La cuenta de dueño no se muestra ni se puede borrar desde acá: acá solo
-  // se gestionan los usuarios-alumno.
-  const refresh = async () => setProfiles((await loadAccess()).profiles.filter((p) => p.role !== "owner"));
-  useEffect(() => { if (open) { refresh(); setNombre(""); setUser(""); setClave(""); setErr(""); } }, [open]);
+  // Cambio de clave inline: `editId` = id del alumno (o "owner") con el
+  // campo abierto; `newClave` lo que se escribe.
+  const [editId, setEditId] = useState(null);
+  const [newClave, setNewClave] = useState("");
+  const refresh = async () => {
+    const a = await loadAccess();
+    setProfiles(a.profiles.filter((p) => p.role !== "owner"));
+    setOwnerProf(a.profiles.find((p) => p.role === "owner") || null);
+  };
+  useEffect(() => { if (open) { refresh(); setNombre(""); setUser(""); setClave(""); setErr(""); setEditId(null); setNewClave(""); } }, [open]);
   const crear = async () => {
     const n = nombre.trim(), u = user.trim().toLowerCase();
     if (!n || !u || clave.length < 4) { setErr("Completá nombre, usuario y una clave de al menos 4 caracteres."); return; }
@@ -18715,6 +18722,42 @@ const AccessProfilesSheet = ({ open, onClose }) => {
     await saveAccess(a);
     refresh();
   };
+  // Cambiar la clave de un alumno (target = id) o la propia del dueño
+  // (target = "owner"). La del dueño se guarda como un perfil role "owner" en
+  // forja-access que, si existe, pisa a la constante del código.
+  const cambiarClave = async (target) => {
+    if (newClave.length < 4) { setErr("La clave nueva necesita al menos 4 caracteres."); return; }
+    setBusy(true); setErr("");
+    const a = await loadAccess();
+    const passHash = await hashClave(newClave);
+    if (target === "owner") {
+      const op = a.profiles.find((p) => p.role === "owner");
+      if (op) op.passHash = passHash;
+      else a.profiles = [{ id: "owner_root", user: OWNER_USER, name: "Javier", role: "owner", createdAt: todayISO(), passHash }, ...a.profiles];
+    } else {
+      const p = a.profiles.find((x) => x.id === target);
+      if (p) p.passHash = passHash;
+    }
+    await saveAccess(a);
+    setBusy(false); setEditId(null); setNewClave(""); refresh();
+  };
+  const ownerUser = ownerProf ? ownerProf.user : OWNER_USER;
+  const cambiaClaveUI = (target) => (
+    editId === target ? (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+        <Inp type="password" value={newClave} autoFocus onChange={(e) => setNewClave(e.target.value)} placeholder="clave nueva (mín. 4)"
+          onKeyDown={(e) => { if (e.key === "Enter") cambiarClave(target); }} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn kind="ember" small onClick={() => cambiarClave(target)} disabled={busy} style={{ flex: 1 }}>{busy ? "Guardando…" : "Guardar clave"}</Btn>
+          <Btn kind="line" small onClick={() => { setEditId(null); setNewClave(""); setErr(""); }} style={{ flex: 1 }}>Cancelar</Btn>
+        </div>
+      </div>
+    ) : (
+      <button onClick={() => { setEditId(target); setNewClave(""); setErr(""); }} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: P.dim, flexShrink: 0 }}>
+        <Lock size={13} /> Cambiar clave
+      </button>
+    )
+  );
   return (
     <Sheet open={open} onClose={onClose} title="Perfiles con acceso" tall>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -18722,27 +18765,47 @@ const AccessProfilesSheet = ({ open, onClose }) => {
           Creá un usuario y clave para darle acceso a otra persona. Entra por el mismo link con su
           usuario y clave, a un espacio propio y vacío: sus rutinas, su IA y su progreso. Solo entra
           a su <b>modo alumno</b> — no ve tus datos ni los de otros alumnos, no puede pasar a coach
-          ni gestionar nada. Es un candado de la app, no de nivel bancario.
+          ni gestionar nada. Podés <b>cambiar la clave</b> de cualquiera (y la tuya) cuando quieras.
+          Es un candado de la app, no de nivel bancario.
         </div>
+
+        {/* Tu propia cuenta de dueño: cambiar tu clave sin tocar código. */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Tu acceso (dueño)</div>
+          <Card style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: P.text, color: P.s1,
+              display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{ownerUser.slice(0, 1).toUpperCase()}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>Dueño</div>
+              <div style={{ fontSize: 12.5, color: P.faint2 }}>usuario: {ownerUser}</div>
+            </div>
+            {cambiaClaveUI("owner")}
+          </Card>
+        </div>
+
         <Card style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Nuevo perfil</div>
           <Field label="Nombre de la persona"><Inp value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: Camila" /></Field>
           <Field label="Usuario"><Inp value={user} autoCapitalize="none" autoCorrect="off" onChange={(e) => setUser(e.target.value)} placeholder="usuario para entrar" /></Field>
           <Field label="Clave"><Inp type="password" value={clave} onChange={(e) => setClave(e.target.value)} placeholder="mínimo 4 caracteres" /></Field>
-          {err && <div style={{ fontSize: 13, color: P.red }}>{err}</div>}
           <Btn kind="ember" onClick={crear} disabled={busy} style={{ width: "100%" }}>{busy ? "Creando…" : "Crear perfil"}</Btn>
         </Card>
+        {err && <div style={{ fontSize: 13, color: P.red }}>{err}</div>}
         {profiles.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Perfiles creados</div>
             {profiles.map((p) => (
-              <Card key={p.id} style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+              <Card key={p.id} style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                 <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: PLATE_GRAD, color: PLATE_FG,
                   display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{p.name.slice(0, 1).toUpperCase()}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
                   <div style={{ fontSize: 12.5, color: P.faint2 }}>usuario: {p.user}</div>
                 </div>
-                <button onClick={() => borrar(p.id)} aria-label={`Borrar el perfil de ${p.name}`} style={{ color: P.red, padding: 6, flexShrink: 0 }}><Trash2 size={17} /></button>
+                {editId !== p.id && (
+                  <button onClick={() => borrar(p.id)} aria-label={`Borrar el perfil de ${p.name}`} style={{ color: P.red, padding: 6, flexShrink: 0 }}><Trash2 size={17} /></button>
+                )}
+                {cambiaClaveUI(p.id)}
               </Card>
             ))}
             <div style={{ fontSize: 12, color: P.faint2, lineHeight: 1.5, paddingLeft: 4 }}>
@@ -19001,7 +19064,7 @@ const AI_FAB_HOLD_MS = 550;
 // (60). Antes estaba en 95 y quedaba flotando sobre cualquier hoja
 // abierta, tapando la última fila —se vio tapando "Médico tratante" en
 // Suplementación y la quinta ficha de accesos en la sesión.
-const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatSignal, toast }) => {
+const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatSignal, toast, hideFab }) => {
   const [visible, setVisible] = useAiFabVisible();
   const [pos, setPos] = useState(() => clampFabPos(loadFabPos() || { right: 16, bottom: 110 }));
   const [dragging, setDragging] = useState(false);
@@ -19071,7 +19134,12 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
 
   return (
     <>
-      {visible ? (
+      {/* Con la sesión abierta el botón flotante se esconde (tapaba la fila
+          de accesos, y ahí ya hay un "Coach IA" propio), PERO el componente
+          sigue montado para que ese acceso —vía openChatSignal— pueda abrir
+          este mismo chat. Antes se desmontaba entero y por eso la estrella
+          de la sesión no hacía nada. */}
+      {!hideFab && (visible ? (
         <button
           onPointerDown={onPointerDown} onPointerMove={onPointerMove}
           onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
@@ -19093,7 +19161,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
             boxShadow: "0 4px 14px -8px rgba(0,0,0,.3)", opacity: 0.9 }}>
           <Sparkles size={12} strokeWidth={2.4} />
         </button>
-      )}
+      ))}
       {chatOpen && mode === "alumno" && (
         <div onClick={() => setChatOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 96, background: "rgba(5,3,3,.68)",
           display: "flex", alignItems: "flex-end", justifyContent: "center",
@@ -19397,10 +19465,15 @@ const App = () => {
   const onLogin = async (user, clave) => {
     const u = String(user).trim().toLowerCase();
     const h = await hashClave(clave);
-    // Dueño: cuenta integrada (constante), no depende de forja-access.
-    if (u === OWNER_USER && h === OWNER_HASH) { await enterOwner(); return null; }
-    // Alumno: perfil con acceso creado por el dueño → espacio aislado.
     const a = await loadAccess();
+    // Dueño: si cambió su clave desde la app hay un perfil role "owner" en
+    // forja-access que MANDA sobre la constante del código; si no, se usa la
+    // constante integrada (funciona sin conexión desde el primer arranque).
+    const ownerProf = a.profiles.find((p) => p.role === "owner");
+    const ownerUser = ownerProf ? ownerProf.user : OWNER_USER;
+    const ownerHash = ownerProf ? ownerProf.passHash : OWNER_HASH;
+    if (u === ownerUser && h === ownerHash) { await enterOwner(); return null; }
+    // Alumno: perfil con acceso creado por el dueño → espacio aislado.
     const prof = a.profiles.find((p) => p.user === u && p.role !== "owner");
     if (!prof || h !== prof.passHash) return "Usuario o clave incorrectos.";
     await enterDelegate(prof);
@@ -19939,14 +20012,14 @@ const App = () => {
       <Sheet open={gloss.open} onClose={() => setGloss({ open: false, focus: null })} title="Guía rápida" tall>
         <GlossaryBody focusId={gloss.focus} />
       </Sheet>
-      {/* Con la sesión abierta el botón flotante se esconde: tapaba la fila
-          de accesos y ahí ya hay un "Coach IA" propio, así que además
-          sobraba. Vuelve solo al salir de la sesión. */}
-      {!(mode === "alumno" && tab === "entrenar" && active) && (
-        <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
-          onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
-          openChatSignal={aiChatOpenSignal} toast={toast} />
-      )}
+      {/* Siempre montado: durante la sesión el botón flotante se esconde
+          (hideFab) para no tapar la fila de accesos, pero el componente sigue
+          vivo para que la estrella "Coach IA" de la sesión pueda abrir el
+          chat (openChatSignal). */}
+      <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
+        hideFab={mode === "alumno" && tab === "entrenar" && !!active}
+        onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
+        openChatSignal={aiChatOpenSignal} toast={toast} />
       <Toast msg={toastMsg} />
     </div>
   );
