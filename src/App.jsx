@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v226";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v227";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1634,6 +1634,101 @@ const saveAccess = (a) => sSet(ACCESS_KEY, a);
 // Supabase es pública), no seguridad de servidor.
 const OWNER_USER = "javier";
 const OWNER_HASH = "694105c338eb0762d77908fa682eec25c748c30f4f3aaa3f052d862005317831";
+
+/* Perfiles-alumno pre-cargados por el dueño: se crean (una sola vez) en
+   forja-access con su rutina ya montada en su espacio aislado
+   (forja-plan:<id>). La persona entra con su usuario+clave y encuentra la
+   rutina lista. Idempotente: si el perfil ya existe no se toca, y el plan
+   solo se siembra si ese espacio todavía no tiene uno (para no pisar lo que
+   ya haya entrenado/editado). Se puede agregar más gente sumando entradas. */
+function buildConiPlan() {
+  // Constructor de series: cada [tipo, reps, rir] → una serie del modelo.
+  const S = (arr) => arr.map(([type, repsT, rirT]) => ({ id: uid(), type, repsT, rirT: rirT || "", pct: 15 }));
+  const fst = (reps) => S(Array.from({ length: 7 }, () => ["fst", reps, ""]));
+  const NOTA_FST = "FST-7: 7 series con descanso corto (~30 s).";
+  const NOTA_MARTES = "Descanso 60 s entre series. Serie 1 RIR 3 · Serie 2 RIR 2 · Serie 3 al fallo.";
+  const rir3 = () => S([["normal", "15", "3"], ["normal", "12", "2"], ["normal", "10", "0"]]); // 15·12·10, RIR 3/2/fallo
+  const topApprox = (n) => S([["normal", "12", ""], ...Array.from({ length: n }, () => ["top", "8-10", ""])]);
+  const ex = (name, muscle, rest, notes, s) => ({ id: uid(), name, muscle, rest, superset: "", notes: notes || "", video: "", sets: s });
+  const dL = uid(), dM = uid(), dX = uid(), dV = uid(), dS = uid();
+  return {
+    days: [
+      { id: dL, name: "Lunes — Femoral / Glúteo", routine: "A", exs: [
+        ex("Curl tumbada", "Femoral", 60, "", S([["normal","15",""],["normal","12",""],["normal","10",""],["normal","8",""]])),
+        ex("Peso muerto rumano 1 pierna", "Femoral", 90, "Apoyo en soporte con la otra mano para estabilidad y la otra pierna en el aire. 12 aprox + 3 top sets 8/10.", topApprox(3)),
+        ex("Curl sentada", "Femoral", 30, NOTA_FST, fst("10")),
+        ex("Split búlgaro paso abierto", "Cuádriceps", 90, "", S([["normal","12",""],["normal","12",""],["normal","12",""]])),
+        ex("Aductor (abrir)", "Aductor", 30, NOTA_FST, fst("12")),
+      ] },
+      { id: dM, name: "Martes — Espalda / Hombro", routine: "A", exs: [
+        ex("Remo barra T abierto", "Espalda", 60, NOTA_MARTES, rir3()),
+        ex("Elevaciones laterales y raise", "Hombro", 60, NOTA_MARTES, rir3()),
+        ex("Posterior 1 mano en máquina", "Hombro", 60, NOTA_MARTES, rir3()),
+        ex("Jalón abierto", "Espalda", 60, NOTA_MARTES, rir3()),
+        ex("Elevación lateral 1 brazo en polea", "Hombro", 60, NOTA_MARTES, rir3()),
+        ex("Dominadas", "Espalda", 60, "Cadencia 2-1-2-1 (2 s positiva · 1 s contracción · 2 s negativa · 1 s estiramiento). " + NOTA_MARTES, rir3()),
+        ex("Posterior en polea", "Hombro", 60, NOTA_MARTES, rir3()),
+      ] },
+      { id: dX, name: "Miércoles — Cuádriceps / Glúteo", routine: "A", exs: [
+        ex("Aductor (cerrar)", "Aductor", 60, "", S([["normal","15",""],["normal","12",""],["normal","10",""],["normal","8",""]])),
+        ex("Extensiones", "Cuádriceps", 60, "", S([["normal","15",""],["normal","12",""],["normal","10",""],["normal","8",""]])),
+        ex("Bell squat", "Cuádriceps", 90, "12 aprox + top sets 8/10 (planilla: «2 X TOP SET 3X 8/10»).", topApprox(3)),
+        ex("Buenos días", "Femoral", 60, "", S([["normal","10",""],["normal","10",""],["normal","10",""]])),
+        ex("Step up", "Glúteo", 60, "", S([["normal","12",""],["normal","12",""],["normal","12",""]])),
+        ex("Patadas glúteo", "Glúteo", 45, "", S(Array.from({ length: 5 }, () => ["normal","20",""]))),
+        ex("Prensa inclinada", "Cuádriceps", 30, NOTA_FST, fst("12")),
+      ] },
+      { id: dV, name: "Viernes — Femoral / Glúteo", routine: "A", exs: [
+        ex("Curl tumbada", "Femoral", 90, "12 aprox + 3 top sets 8/10 al fallo.", S([["normal","12",""],["top","8-10","0"],["top","8-10","0"],["top","8-10","0"]])),
+        ex("Peso muerto rumano 1 pierna", "Femoral", 90, "Apoyo en soporte con la otra mano para estabilidad y la otra pierna en el aire. 12 aprox + 2 top sets 8/10.", topApprox(2)),
+        ex("Buenos días", "Femoral", 90, "12 aprox + 2 top sets 8/10.", topApprox(2)),
+        ex("Curl sentada", "Femoral", 60, "", S([["normal","12",""],["normal","12",""],["normal","12",""]])),
+        ex("Hiperextensión lumbar para glúteo", "Glúteo", 90, "12 aprox + 3 top sets 8/10. Rest-pause en la última serie.", S([["normal","12",""],["top","8-10",""],["top","8-10",""],["restpause","8-10",""]])),
+      ] },
+      { id: dS, name: "Sábado — Glúteo", routine: "A", exs: [
+        ex("Abductor (abrir)", "Glúteo", 60, "", S([["normal","15",""],["normal","12",""],["normal","10",""],["normal","8",""]])),
+        ex("Hip thrust 1 pierna", "Glúteo", 60, "", S([["normal","10",""],["normal","10",""],["normal","10",""]])),
+        ex("Patadas para glúteo superior en polea", "Glúteo", 45, "", S([["normal","15",""],["normal","12",""],["normal","10",""],["normal","8",""]])),
+        ex("Step up", "Glúteo", 60, "", S([["normal","10",""],["normal","10",""],["normal","10",""]])),
+        ex("Hip thrust", "Glúteo", 30, NOTA_FST, fst("12")),
+        ex("Patadas rana", "Glúteo", 45, "", S([["normal","10",""],["normal","10",""],["normal","10",""]])),
+      ] },
+    ],
+    routineNames: { A: "Rutina de CONI" },
+    nutrition: { meals: [], supplements: [] },
+    instructions: [],
+    schedule: { mon: dL, tue: dM, wed: dX, fri: dV, sat: dS },
+    events: [], athlete: {}, mesoState: null, updatedAt: todayISO(),
+    // Marca el plan como al día para que NO se le inyecten las rutinas
+    // plantilla por defecto (B/C…): CONI ve solo SU rutina.
+    seedVersion: SEED_VERSION,
+    seedKeysC: [],
+  };
+}
+const SEED_ACCESS = [
+  { id: "acc_coni", user: "coni",
+    passHash: "5a949ec06c0f29010bc11bd541ebbde0ccff10b74209ae541fe4d1e7f7b5b9b2",
+    name: "CONI_EL_TERROR_DELCARRETE", role: "alumno", createdAt: "2026-09-04", plan: buildConiPlan },
+];
+async function seedAccessProfiles() {
+  const a = await loadAccess();
+  let changed = false;
+  for (const s of SEED_ACCESS) {
+    if (!a.profiles.some((p) => p.user === s.user || p.id === s.id)) {
+      a.profiles = [...a.profiles, { id: s.id, user: s.user, passHash: s.passHash, name: s.name, role: s.role, createdAt: s.createdAt }];
+      changed = true;
+    }
+    // Plan: solo si ese espacio todavía no tiene uno (no pisar lo entrenado).
+    const planKey = `forja-plan:${s.id}`;
+    const cur = await sGetKnown(planKey);
+    if (cur.ok && cur.value == null) {
+      await sSet(planKey, s.plan());
+      const h = await sGetKnown(`forja-history:${s.id}`);
+      if (h.ok && h.value == null) await sSet(`forja-history:${s.id}`, emptyHistory());
+    }
+  }
+  if (changed) await saveAccess(a);
+}
 const fmtDate = (iso) => {
   const d = new Date(iso);
   return d.toLocaleDateString("es-CL", { day: "numeric", month: "short" });
@@ -19366,6 +19461,10 @@ const App = () => {
       if (bk && Array.isArray(bk.slots)) setBookings({ slots: bk.slots });
       const av = await sGet("forja-availability");
       if (av) setAvailability((a) => ({ ...a, ...av }));
+      // Perfiles-alumno pre-cargados por el dueño (p. ej. CONI) con su
+      // rutina lista. Solo con lectura confirmada (got.ok), para no sembrar
+      // sobre datos que no llegaron a leerse.
+      if (got.ok) { try { await seedAccessProfiles(); } catch {} }
       // Ingreso obligatorio con usuario y clave: si ESTE dispositivo ya
       // inició sesión como dueño, entra directo; si no, muestra la pantalla
       // de login (nunca se entra sin clave). La cuenta de dueño es una
