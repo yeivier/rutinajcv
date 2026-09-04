@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v240";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v241";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1435,6 +1435,24 @@ async function sDel(key, shared = true) {
     storageOK = false;
     queuePendingWrite(key, null, true);
     return true;
+  }
+}
+
+// Lista todas las claves que EMPIEZAN con `prefix` (p. ej. "forja-plan:").
+// Uso exclusivo de la recuperación de alumnos: el roster es solo un
+// ÍNDICE (`forja-roster` → lista de ids); si ese índice se corrompe o
+// pierde una entrada, el plan/historial de ese alumno puede seguir
+// intacto en la base, simplemente sin nada que apunte a él. Barrer las
+// claves por prefijo es la única forma de encontrar esos "huérfanos" sin
+// saber de antemano su id.
+async function sbListKeysLike(prefix) {
+  try {
+    const r = await fetchWithTimeout(`${SB_URL}?key=like.${encodeURIComponent(prefix)}*&select=key`, { headers: SB_H });
+    if (!r.ok) throw new Error(r.statusText);
+    const rows = await r.json();
+    return { ok: true, keys: rows.map((x) => x.key) };
+  } catch (e) {
+    return { ok: false, keys: [] };
   }
 }
 
@@ -16808,7 +16826,7 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
 /* Hoja "Más": lo que salió de la barra de pestañas. Herramientas de
    referencia, gestión (alumnos/equipo) y los ajustes de apariencia —
    agrupados en filas de sistema, como los Ajustes de iOS. */
-const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents }) => {
   const [theme, setTheme] = useTheme();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
@@ -16842,6 +16860,7 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
       {mode === "coach" && !isDelegate && (
         <SettingGroup label="Gestión">
           <SettingRow Icon={Users} label="Alumnos" hint="Elegir, agregar o renombrar" onClick={onOpenRoster} />
+          <SettingRow Icon={RotateCcw} label="Recuperar alumnos" hint="Buscar rutinas guardadas que no aparecen en tu lista" onClick={onRecoverStudents} />
           <SettingRow Icon={Lock} label="Perfiles con acceso" hint="Dar acceso a otra persona con usuario y clave" onClick={onManageAccess} last={!canManageTeam} />
           {canManageTeam && <SettingRow Icon={Award} label="Equipo" hint="Coaches, nutricionistas y sus permisos" onClick={onOpenTeam} last />}
         </SettingGroup>
@@ -19147,6 +19166,112 @@ const RosterSheet = ({ open, onClose, roster, sid, onEnter, onAdd, onRename, onR
   );
 };
 
+/* ---- Recuperar alumnos ----
+   El roster (forja-roster) es solo un ÍNDICE: una lista de {id,name}
+   que apunta a los documentos reales (forja-plan:<id>, forja-history:
+   <id>). Si ese índice pierde una entrada — se borró sin querer, un
+   bug lo pisó — el plan y el historial de esa persona pueden seguir
+   intactos en la base, simplemente sin nada en la app que los muestre.
+   Esta hoja barre TODAS las claves "forja-plan:*" guardadas y compara
+   contra los ids que el roster actual conoce: lo que sobra es un
+   alumno "huérfano" recuperable. No inventa nombres (el plan no los
+   guarda) — el coach le pone nombre él mismo al restaurarlo, mirando
+   el resumen de su rutina para reconocerlo. */
+const RecoverStudentsSheet = ({ open, onClose, roster, onRestore }) => {
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [orphans, setOrphans] = useState([]); // [{id, plan, history}]
+  const [err, setErr] = useState("");
+  const [restoringId, setRestoringId] = useState(null);
+  const [nameDraft, setNameDraft] = useState("");
+
+  useEffect(() => {
+    if (!open) { setOrphans([]); setSearched(false); setErr(""); setRestoringId(null); setNameDraft(""); }
+  }, [open]);
+
+  const buscar = async () => {
+    setLoading(true); setErr(""); setSearched(false);
+    const [res, access] = await Promise.all([sbListKeysLike("forja-plan:"), loadAccess()]);
+    if (!res.ok) { setErr("No se pudo conectar con la base. Probá de nuevo con mejor señal."); setLoading(false); return; }
+    // "Conocido" no es solo estar en el roster: los perfiles con acceso
+    // (delegados, p. ej. CONI) también tienen su forja-plan:<id> pero
+    // viven en forja-access, no en el roster — mostrarlos acá como
+    // "huérfanos" sería un falso positivo, no están perdidos.
+    const knownIds = new Set([...roster.students.map((s) => s.id), ...access.profiles.map((p) => p.id)]);
+    const ids = res.keys.map((k) => k.slice("forja-plan:".length)).filter((id) => id && !knownIds.has(id));
+    const out = [];
+    for (const id of ids) {
+      const [plan, history] = await Promise.all([sGet(`forja-plan:${id}`), sGet(`forja-history:${id}`)]);
+      out.push({ id, plan: plan || emptyPlan(), history: history || emptyHistory() });
+    }
+    setOrphans(out);
+    setSearched(true);
+    setLoading(false);
+  };
+
+  const restaurar = async (o) => {
+    const nombre = nameDraft.trim();
+    if (!nombre) return;
+    setRestoringId(o.id + ":guardando");
+    await onRestore(o.id, nombre);
+    setOrphans((prev) => prev.filter((x) => x.id !== o.id));
+    setNameDraft("");
+    setRestoringId(null);
+  };
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Recuperar alumnos" tall>
+      <div style={{ color: P.dim, fontSize: 14.5, lineHeight: 1.5, marginBottom: 14 }}>
+        Busca en la base planes guardados que ya no aparecen en tu lista de alumnos — pasa si un
+        alumno se borró de la lista por error, pero su rutina y su historial siguen guardados.
+        Si encuentra alguno, le ponés nombre (el plan no lo guarda) y lo devolvés a tu lista tal
+        cual estaba, sin tocar sus datos.
+      </div>
+      <Btn kind="ember" onClick={buscar} disabled={loading} style={{ width: "100%", marginBottom: 14 }}>
+        {loading ? "Buscando…" : "Buscar datos huérfanos"}
+      </Btn>
+      {err && <div style={{ fontSize: 13, color: P.red, marginBottom: 10 }}>{err}</div>}
+      {searched && orphans.length === 0 && !err && (
+        <Empty icon={Search} title="No se encontró nada" body="Todos los planes guardados en la base ya están en tu lista de alumnos. Si borraste a alguien con el botón de eliminar, sus datos se borraron junto con la lista — no hay nada que recuperar ahí." />
+      )}
+      {orphans.map((o) => {
+        const days = (o.plan.days || []).length;
+        const muscles = [...new Set((o.plan.days || []).flatMap((d) => (d.exs || []).map((e) => e.muscle)).filter(Boolean))].slice(0, 4);
+        const sessions = o.history.sessions || [];
+        const last = sessions[sessions.length - 1];
+        const enEdicion = restoringId === o.id;
+        return (
+          <Card key={o.id} style={{ padding: 14, marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: P.faint2, marginBottom: 6, fontFamily: "monospace" }}>id: {o.id}</div>
+            <div style={{ fontSize: 14.5, color: P.text, marginBottom: 4 }}>
+              {days} día{days !== 1 ? "s" : ""} en su rutina{muscles.length ? ` · ${muscles.join(", ")}` : ""}
+            </div>
+            <div style={{ fontSize: 13.5, color: P.faint, marginBottom: 10 }}>
+              {sessions.length} sesión{sessions.length !== 1 ? "es" : ""} registrada{sessions.length !== 1 ? "s" : ""}
+              {last ? ` · última ${fmtDateFull(last.date)}` : ""}
+            </div>
+            {enEdicion ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <Inp autoFocus value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} placeholder="Nombre de este alumno" />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Btn kind="ember" small onClick={() => restaurar(o)} disabled={!nameDraft.trim() || restoringId === o.id + ":guardando"} style={{ flex: 1 }}>
+                    {restoringId === o.id + ":guardando" ? "Restaurando…" : "Confirmar"}
+                  </Btn>
+                  <Btn kind="line" small onClick={() => { setRestoringId(null); setNameDraft(""); }} style={{ flex: 1 }}>Cancelar</Btn>
+                </div>
+              </div>
+            ) : (
+              <Btn kind="line" small onClick={() => { setRestoringId(o.id); setNameDraft(""); }}>
+                <RotateCcw size={13} /> Restaurar como alumno
+              </Btn>
+            )}
+          </Card>
+        );
+      })}
+    </Sheet>
+  );
+};
+
 /* ---- Gestión del equipo (solo Head Coach) ---- */
 // Áreas que de verdad distinguen un rol de otro (timer/guía/chat son
 // ALWAYS_TABS: edición para todos, no suman nada a la matriz). Mismos
@@ -19546,6 +19671,7 @@ const App = () => {
   const [savedAt, setSavedAt] = useState("");
   const [gloss, setGloss] = useState({ open: false, focus: null });
   const [rosterOpen, setRosterOpen] = useState(false);
+  const [recoverOpen, setRecoverOpen] = useState(false);
   // Sección activa dentro de cada pestaña de coach (Atletas → Actividad/
   // Rankings/Cobros/Leads, Rutinas → Rutina/Nutrición/IA). Se guarda por
   // pestaña para que volver a ella recuerde dónde estabas.
@@ -20056,6 +20182,14 @@ const App = () => {
     }
   };
 
+  // Devuelve al roster un alumno "huérfano" encontrado por RecoverStudentsSheet
+  // — su plan y su historial YA existen en la base (esto solo re-agrega la
+  // entrada al índice), así que no se toca `forja-plan:<id>`/`forja-history:<id>`.
+  const restoreStudent = async (id, name) => {
+    const r = { ...roster, students: [...roster.students, { id, name, createdAt: todayISO() }] };
+    await sSet("forja-roster", r); setRoster(r);
+  };
+
   const switchMode = (m) => openIdentity(m, sidRef.current, roster, myTeamId);
   const currentStudent = roster.students.find((s) => s.id === sid);
   // Una pestaña de coach se muestra si el rol tiene acceso a ALGUNA de sus
@@ -20305,6 +20439,7 @@ const App = () => {
         routineView={routineView} onChangeRoutineView={setRoutineView}
         onOpenUtility={(id) => { setMoreOpen(false); setUtility(id); }}
         onOpenRoster={() => { setMoreOpen(false); setRosterOpen(true); }}
+        onRecoverStudents={() => { setMoreOpen(false); setRecoverOpen(true); }}
         onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
         onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
         onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }} />
@@ -20313,6 +20448,7 @@ const App = () => {
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
         onEnter={(m, id) => { setRosterOpen(false); openIdentity(m, id, roster, myTeamId); }}
         onAdd={() => addStudent(false)} onRename={renameStudent} onRemove={(s) => setConfirmDel(s)} />
+      <RecoverStudentsSheet open={recoverOpen} onClose={() => setRecoverOpen(false)} roster={roster} onRestore={restoreStudent} />
       <EquipoSheet open={equipoOpen} onClose={() => setEquipoOpen(false)} team={team}
         onAdd={(member) => { const t = { members: [...team.members, member] }; setTeam(t); sSet("forja-team", t); }}
         onChangeRole={(id, role) => { const t = { members: team.members.map((m) => m.id === id ? { ...m, role } : m) }; setTeam(t); sSet("forja-team", t); }}
