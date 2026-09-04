@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v237";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v239";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8001,8 +8001,9 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
       )}
 
       {/* Estado de hoy: los cuatro datos que se miran todos los días,
-          sin ícono — el número ES el ícono. Tocar cualquiera abre el
-          check-in, que es donde se registran. */}
+          sin ícono — el número ES el ícono. Peso/Pasos/Sueño abren el
+          check-in (ahí se registran); Comidas abre Nutrición, que es
+          donde se marcan. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Estado de hoy</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
@@ -8015,6 +8016,9 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
             value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
             sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />
+          <KpiTile top="Comidas" onClick={onOpenNutrition}
+            value={mealsTotal ? `${mealsDoneCount}/${mealsTotal}` : "—"}
+            sub={mealsTotal ? "hechas hoy" : "sin plan cargado"} />
         </div>
       </div>
 

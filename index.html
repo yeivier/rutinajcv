@@ -2,6 +2,51 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
+  <script>
+    // Extractor de emergencia: si un service worker VIEJO (de antes de
+    // este sistema de versiones, o de un navegador embebido que revisa
+    // actualizaciones más lento — el de WhatsApp/Instagram, por ejemplo)
+    // sigue controlando esta pestaña, esperar a que se entere SOLO de que
+    // hay una versión nueva puede tardar minutos, horas, o no pasar nunca
+    // — le pasó a una alumna, que seguía viendo la pantalla de antes del
+    // login mucho después del cambio. Esta bandera (independiente del
+    // ?v= de bundle.js, que index.html ya revisa siempre porque nunca se
+    // cachea) fuerza, apenas detecta que cambió, borrar TODO lo que
+    // pudiera estar sirviendo una copia vieja —cualquier service worker
+    // registrado y toda la Cache Storage— y recargar UNA vez, sin
+    // depender de que el service worker viejo coopere: unregister() y
+    // caches.delete() actúan directo, no esperan su ciclo propio.
+    (function () {
+      try {
+        var V = "238";
+        var visto = window.localStorage.getItem("forja-shell-v");
+        if (visto === V) return; // ya está al día, nada que limpiar
+        window.localStorage.setItem("forja-shell-v", V);
+        var teniaAlgo = false;
+        var pendientes = [];
+        if ("serviceWorker" in navigator && navigator.serviceWorker.getRegistrations) {
+          pendientes.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+            if (rs.length) teniaAlgo = true;
+            return Promise.all(rs.map(function (r) { return r.unregister(); }));
+          }).catch(function () {}));
+        }
+        if (window.caches && caches.keys) {
+          pendientes.push(caches.keys().then(function (ks) {
+            if (ks.length) teniaAlgo = true;
+            return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+          }).catch(function () {}));
+        }
+        // Solo recarga si YA había algo que limpiar (un service worker o
+        // una caché de una visita anterior) — la primera vez de un
+        // navegador nuevo no tiene nada viejo que sacarse de encima.
+        if (visto != null) {
+          Promise.all(pendientes).then(function () {
+            if (teniaAlgo) window.location.reload();
+          });
+        }
+      } catch (e) {}
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -50,7 +95,7 @@
   <!-- v206: type="module" para poder partir el bundle en trozos (recharts,
        ~320 KB, ahora va aparte y solo se baja al abrir un gráfico). Un
        módulo se ejecuta como defer y respeta el orden con config.js. -->
-  <script type="module" src="/bundle.js?v=237"></script>
+  <script type="module" src="/bundle.js?v=239"></script>
   <script>
     // Registra el service worker que permite abrir la app sin internet
     // (sirve la última copia guardada de index.html/bundle.js cuando no
