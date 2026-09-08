@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v245";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v246";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -19046,6 +19046,46 @@ const FaceIdLock = ({ label, onUnlock, onUsePassword, verify }) => {
     </div>
   );
 };
+
+/* Oferta automática de Face ID: se muestra ENCIMA de la app recién
+   entrada (no hay que ir a buscarla a Ajustes) apenas se detecta que
+   este teléfono la soporta y todavía no se activó ni se preguntó antes
+   para esta cuenta. "Ahora no" también marca que ya se preguntó — no
+   vuelve a interrumpir en cada apertura, pero sigue disponible después
+   desde Más → Seguridad para quien la rechazó por error. */
+const FaceIdOfferSheet = ({ offer, onClose }) => {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  if (!offer) return null;
+  const activar = async () => {
+    setBusy(true); setErr("");
+    try { await faceIdEnroll(offer.who, offer.label); }
+    catch { setErr("No se pudo activar Face ID. Podés intentarlo después desde Más → Seguridad."); setBusy(false); return; }
+    lsSetRaw(`forja-faceid-asked:${offer.who}`, "1");
+    setBusy(false); onClose();
+  };
+  const ahoraNo = () => { lsSetRaw(`forja-faceid-asked:${offer.who}`, "1"); onClose(); };
+  return (
+    <div className="scrimIn" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 90,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <Card style={{ padding: 22, maxWidth: 360, width: "100%", background: P.s2, textAlign: "center" }}>
+        <div style={{ width: 64, height: 64, borderRadius: 20, background: PLATE_GRAD, display: "flex",
+          alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+          <ScanFace size={30} color={PLATE_FG} />
+        </div>
+        <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 6 }}>Entrar con Face ID</div>
+        <div style={{ color: P.dim, fontSize: 14.5, lineHeight: 1.5, marginBottom: 18 }}>
+          La próxima vez que abras FORJA en este teléfono, desbloqueá con Face ID en vez de escribir tu clave.
+        </div>
+        {err && <div style={{ fontSize: 13, color: P.red, marginBottom: 12 }}>{err}</div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Btn kind="ember" onClick={activar} disabled={busy} style={{ width: "100%" }}>{busy ? "Activando…" : "Activar Face ID"}</Btn>
+          <Btn kind="line" onClick={ahoraNo} disabled={busy} style={{ width: "100%" }}>Ahora no</Btn>
+        </div>
+      </Card>
+    </div>
+  );
+};
 const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd, onLogin, startLogin }) => {
   // Si ya hay equipo armado (más de un coach/staff), "Coach" no entra
   // directo: primero pregunta quién de todos es. Sin equipo (el caso de
@@ -19829,6 +19869,19 @@ const App = () => {
   // entrar directo como siempre hace falta que lo desbloquee. Null =
   // nada pendiente, sigue el flujo normal.
   const [faceLock, setFaceLock] = useState(null);
+  // Oferta de Face ID: en vez de escondida en Ajustes esperando a que
+  // alguien la encuentre, se ofrece SOLA justo al entrar (recién logueado
+  // a mano, o al reabrir en un teléfono ya recordado que todavía no la
+  // activó) — una vez por dispositivo+cuenta (`forja-faceid-asked:<who>`
+  // marca que ya se preguntó, se haya aceptado o no). { who, label } o
+  // null = nada que ofrecer ahora.
+  const [faceOffer, setFaceOffer] = useState(null);
+  const maybeOfferFaceId = async (who, label) => {
+    try {
+      if (faceIdEnabled(who) || lsGetRaw(`forja-faceid-asked:${who}`)) return;
+      if (await faceIdSupported()) setFaceOffer({ who, label });
+    } catch {}
+  };
   // Equipo del lado coach (Head Coach + staff). Sin miembros = coach solo,
   // acceso total, cero fricción extra (comportamiento de siempre).
   const [team, setTeam] = useState({ members: [] });
@@ -20091,11 +20144,12 @@ const App = () => {
     const ownerProf = a.profiles.find((p) => p.role === "owner");
     const ownerUser = ownerProf ? ownerProf.user : OWNER_USER;
     const ownerHash = ownerProf ? ownerProf.passHash : OWNER_HASH;
-    if (u === ownerUser && h === ownerHash) { await enterOwner(); return null; }
+    if (u === ownerUser && h === ownerHash) { await enterOwner(); maybeOfferFaceId("owner", "Tú"); return null; }
     // Alumno: perfil con acceso creado por el dueño → espacio aislado.
     const prof = a.profiles.find((p) => p.user === u && p.role !== "owner");
     if (!prof || h !== prof.passHash) return "Usuario o clave incorrectos.";
     await enterDelegate(prof);
+    maybeOfferFaceId(prof.id, prof.name);
     return null;
   };
   // Cerrar sesión: vuelve a la pantalla de login, sea dueño o alumno.
@@ -20147,7 +20201,7 @@ const App = () => {
               setFaceLock({ who: prof.id, label: `Hola, ${prof.name}`, run: () => enterDelegate(prof) });
               setLoading(false); aSalvo(); return;
             }
-            await enterDelegate(prof); aSalvo(); return;
+            await enterDelegate(prof); maybeOfferFaceId(prof.id, prof.name); aSalvo(); return;
           }
           // El perfil ya no existe (el dueño lo borró): a la pantalla de login.
           lsDelRaw("forja-delegate-device");
@@ -20197,7 +20251,7 @@ const App = () => {
             setFaceLock({ who: "owner", label: "Bienvenido de nuevo", run: () => enterOwner(r) });
             setLoading(false); aSalvo(); return;
           }
-          await enterOwner(r); aSalvo(); return;
+          await enterOwner(r); maybeOfferFaceId("owner", "Tú"); aSalvo(); return;
         }
         setShowLogin(true); setLoading(false); aSalvo();
       } catch (e) {
@@ -20691,6 +20745,7 @@ const App = () => {
       {compareOpen && <RoutineCompareScreen onClose={() => setCompareOpen(false)} plan={plan} />}
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)} />
+      <FaceIdOfferSheet offer={faceOffer} onClose={() => setFaceOffer(null)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode} isDelegate={!!delegate}
         studentName={identityName} onSwitchIdentity={() => { setMoreOpen(false); logout(); }}
         onManageAccess={() => { setMoreOpen(false); setAccessOpen(true); }}
