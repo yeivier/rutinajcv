@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v244";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v245";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4105,11 +4105,37 @@ const TempoExplainer = ({ result, tempo }) => (
   </div>
 );
 
+// Deslizar el dedo hacia la derecha para volver/cerrar — el mismo gesto
+// de "atrás" de iOS. Solo cuenta si el toque ARRANCA cerca del borde
+// izquierdo de la pantalla (como el gesto real de iOS): así no choca
+// con nada que se deslice horizontal adentro del contenido (chips,
+// carruseles). Puramente horizontal y de un solo golpe, no un arrastre
+// lento — para no disparar por accidente al leer con el dedo apoyado.
+function useSwipeBack(onBack) {
+  const startRef = useRef(null);
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (t.clientX - rect.left > 44) { startRef.current = null; return; }
+    startRef.current = { x: t.clientX, y: t.clientY, t: Date.now() };
+  };
+  const onTouchEnd = (e) => {
+    const s = startRef.current; startRef.current = null;
+    if (!s) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - s.x, dy = t.clientY - s.y, dt = Date.now() - s.t;
+    if (dx > 60 && Math.abs(dy) < 50 && dt < 800) onBack();
+  };
+  const onTouchCancel = () => { startRef.current = null; };
+  return { onTouchStart, onTouchEnd, onTouchCancel };
+}
+
 const Sheet = ({ open, onClose, title, children, tall }) => {
   if (!open) return null;
+  const swipe = useSwipeBack(onClose);
   return (
     <div className="scrimIn" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
-      <div className="sheetIn" onClick={(e) => e.stopPropagation()}
+      <div className="sheetIn" onClick={(e) => e.stopPropagation()} {...swipe}
         style={{ background: P.bg, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: "var(--fj-w)",
           maxHeight: tall ? "calc(100dvh - env(safe-area-inset-top) - 8px)" : "82dvh", minHeight: "60dvh",
           display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -12436,7 +12462,7 @@ const InstructionsEditor = ({ plan, savePlan }) => {
    ActivityTab de siempre —sesión por sesión, por ejercicio, fotos y
    comentarios— para ese alumno puntual, cargado al vuelo.
    ============================================================ */
-const AtletasActividadTab = ({ roster, toast }) => {
+const AtletasActividadTab = ({ roster, toast, onManage }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, lastDays, pct }
   const [q, setQ] = useState("");
@@ -12486,30 +12512,41 @@ const AtletasActividadTab = ({ roster, toast }) => {
         // TrueCoach/TrainHeroic, que ya hacen esto — el hueco real no es
         // esta lista, es que un coach de a pocos alumnos no tiene una
         // app así del tamaño de la suya.
-        <Card style={{ overflow: "hidden" }}>
-          {filtered.map((r, i) => (
-            <button key={r.id} onClick={() => openDetail(r)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
-              padding: "12px 14px", borderBottom: i === filtered.length - 1 ? "none" : `1px solid ${P.line}` }}>
-              <span style={{ width: 34, height: 34, borderRadius: 17, background: P.s3, border: `1px solid ${P.line}`,
-                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 13.5, fontWeight: 700, color: P.faint }}>
-                {(r.name || "?").trim().charAt(0).toUpperCase()}
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: P.text }}>{r.name}</div>
-                <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>última {lastLabel(r.lastDays).toLowerCase()}</div>
+        //
+        // Antes toda la fila era un solo botón que solo abría un vistazo
+        // de actividad (sin editar nada) — no había forma de, desde acá,
+        // entrar a gestionar la rutina del atleta tocado. Ahora la fila
+        // tiene dos acciones explícitas y separadas: "Gestionar" (entra
+        // como este atleta — su Rutina, Mensajes, etc.) y "Actividad"
+        // (el mismo vistazo de siempre, sin salir de esta lista).
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map((r) => (
+            <Card key={r.id} style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ width: 34, height: 34, borderRadius: 17, background: P.s3, border: `1px solid ${P.line}`,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 13.5, fontWeight: 700, color: P.faint }}>
+                  {(r.name || "?").trim().charAt(0).toUpperCase()}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                  <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>última {lastLabel(r.lastDays).toLowerCase()}</div>
+                </div>
+                {/* `SES.acc` (el mismo verde de la sesión, ahora acorde al
+                    tema claro/oscuro) en vez de `P.green` — ese token quedó
+                    monocromo a propósito en el resto de la app; acá SÍ hace
+                    falta un color real para leer la adherencia de un vistazo. */}
+                {r.pct != null && (
+                  <span style={{ fontSize: 15, fontWeight: 700, flexShrink: 0, fontVariantNumeric: "tabular-nums",
+                    color: r.pct >= 70 ? SES.acc : P.faint }}>{r.pct}%</span>
+                )}
               </div>
-              {/* `SES.acc` (el mismo verde de la sesión, ahora acorde al
-                  tema claro/oscuro) en vez de `P.green` — ese token quedó
-                  monocromo a propósito en el resto de la app; acá SÍ hace
-                  falta un color real para leer la adherencia de un vistazo. */}
-              {r.pct != null && (
-                <span style={{ fontSize: 15, fontWeight: 700, flexShrink: 0, fontVariantNumeric: "tabular-nums",
-                  color: r.pct >= 70 ? SES.acc : P.faint }}>{r.pct}%</span>
-              )}
-              <ChevronRight size={16} color={P.faint} />
-            </button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Btn kind="ember" small onClick={() => onManage(r.id)}><ClipboardList size={13} /> Gestionar</Btn>
+                <Btn kind="line" small onClick={() => openDetail(r)}><History size={13} /> Actividad</Btn>
+              </div>
+            </Card>
           ))}
-        </Card>
+        </div>
       )}
       <Sheet open={!!openStudent} onClose={() => setOpenStudent(null)} title={openStudent ? openStudent.name : "Actividad"} tall>
         {openStudent && <ActivityTab plan={openStudent.plan} history={openStudent.history} />}
@@ -19200,15 +19237,20 @@ const AccessProfilesSheet = ({ open, onClose }) => {
           Es un candado de la app, no de nivel bancario.
         </div>
 
-        {/* Tu propia cuenta de dueño: cambiar tu clave sin tocar código. */}
+        {/* Tu propia cuenta de dueño: cambiar tu clave sin tocar código.
+            Fila propia para avatar+nombre, fila propia para la acción —
+            así nunca se solapan por poco ancho (le pasaba antes: el texto
+            "usuario: …" quedaba debajo del botón). */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Tu acceso (dueño)</div>
-          <Card style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: P.text, color: P.s1,
-              display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{ownerUser.slice(0, 1).toUpperCase()}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>Dueño</div>
-              <div style={{ fontSize: 12.5, color: P.faint2 }}>usuario: {ownerUser}</div>
+          <Card style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: P.text, color: P.s1,
+                display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{ownerUser.slice(0, 1).toUpperCase()}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>Dueño</div>
+                <div style={{ fontSize: 12.5, color: P.faint2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>usuario: {ownerUser}</div>
+              </div>
             </div>
             {cambiaClaveUI("owner")}
           </Card>
@@ -19226,22 +19268,31 @@ const AccessProfilesSheet = ({ open, onClose }) => {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Perfiles creados</div>
             {profiles.map((p) => (
-              <Card key={p.id} style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: PLATE_GRAD, color: PLATE_FG,
-                  display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{p.name.slice(0, 1).toUpperCase()}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-                  <div style={{ fontSize: 12.5, color: P.faint2 }}>usuario: {p.user}</div>
+              // Misma corrección que la tarjeta del dueño: avatar+nombre en
+              // su propia fila, acciones (Actividad / Cambiar clave /
+              // Eliminar) en una fila aparte — antes iban todas mezcladas
+              // con el texto en una sola fila con flexWrap, y en pantallas
+              // angostas "usuario: …" quedaba tapado debajo de "Actividad".
+              <Card key={p.id} style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: PLATE_GRAD, color: PLATE_FG,
+                    display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{p.name.slice(0, 1).toUpperCase()}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                    <div style={{ fontSize: 12.5, color: P.faint2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>usuario: {p.user}</div>
+                  </div>
                 </div>
-                {editId !== p.id && (
-                  <button onClick={() => abrirActividad(p)} disabled={loadingActivity} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: P.dim, flexShrink: 0 }}>
-                    <History size={13} /> Actividad
-                  </button>
+                {editId === p.id ? cambiaClaveUI(p.id) : (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <button onClick={() => abrirActividad(p)} disabled={loadingActivity} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: P.dim }}>
+                      <History size={13} /> Actividad
+                    </button>
+                    {cambiaClaveUI(p.id)}
+                    <button onClick={() => borrar(p.id)} aria-label={`Borrar el perfil de ${p.name}`} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: P.red, marginLeft: "auto" }}>
+                      <Trash2 size={13} /> Eliminar
+                    </button>
+                  </div>
                 )}
-                {editId !== p.id && (
-                  <button onClick={() => borrar(p.id)} aria-label={`Borrar el perfil de ${p.name}`} style={{ color: P.red, padding: 6, flexShrink: 0 }}><Trash2 size={17} /></button>
-                )}
-                {cambiaClaveUI(p.id)}
               </Card>
             ))}
             <div style={{ fontSize: 12, color: P.faint2, lineHeight: 1.5, paddingLeft: 4 }}>
@@ -20374,6 +20425,23 @@ const App = () => {
 
   const switchMode = (m) => openIdentity(m, sidRef.current, roster, myTeamId);
   const currentStudent = roster.students.find((s) => s.id === sid);
+  // En modo coach, la cabecera de arriba NO muestra el nombre de un
+  // alumno puntual — antes mostraba `currentStudent`, que en realidad
+  // es "a quién apunta `sid` ahora mismo" (por defecto el primero del
+  // roster, sin que el coach haya elegido a nadie todavía). Verlo ahí
+  // arriba de un Panel que resume a TODOS los alumnos confundía: parecía
+  // que se había entrado como esa persona. Ahora la cabecera siempre
+  // dice quién está usando la app (el coach, o el miembro de equipo
+  // activo) — a quién se está gestionando se ve en la propia pantalla
+  // (Atletas, Rutina) al entrar puntual a esa persona.
+  const identityName = mode === "coach"
+    ? (myTeamId ? (team.members.find((m) => m.id === myTeamId) || {}).name || "Coach" : "Tú")
+    : (currentStudent?.name || "—");
+  // Las pantallas de utilidad (Temporizador, Guía, Agenda…) no son un
+  // <Sheet> — son una pantalla completa con su propia cabecera de
+  // "volver" — así que el gesto de deslizar hacia la derecha se conecta
+  // acá aparte, al mismo `onBack` que ya usa esa cabecera.
+  const utilitySwipe = useSwipeBack(() => setUtility(null));
   // Una pestaña de coach se muestra si el rol tiene acceso a ALGUNA de sus
   // secciones; dentro, solo aparecen las que ese rol puede ver.
   const allowedSections = (t) => (t.sections || [t.id]).filter((x) => roleTabAccess[x]);
@@ -20432,13 +20500,13 @@ const App = () => {
         {!enSesion && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "calc(8px + env(safe-area-inset-top)) 16px 4px" }}>
             <button onClick={logout} style={{ textAlign: "left", minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{currentStudent?.name || "—"}</div>
+              <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{identityName}</div>
               <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>{delegate ? "cerrar sesión" : `modo ${mode} · cerrar sesión`}</div>
             </button>
             <button onClick={() => setMoreOpen(true)} aria-label="Perfil y más opciones"
               style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
                 background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
-              {(currentStudent?.name || "?").slice(0, 1).toUpperCase()}
+              {(identityName || "?").slice(0, 1).toUpperCase()}
             </button>
           </div>
         )}
@@ -20451,7 +20519,7 @@ const App = () => {
         {/* Una pantalla de utilidad (abierta desde "Más") se muestra encima
             de la pestaña actual, con cabecera de volver. */}
         {utility && (
-          <div className="sheetIn">
+          <div className="sheetIn" {...utilitySwipe}>
             <PushHeader title={UTILITY_SCREENS[utility].label} onBack={() => setUtility(null)} />
             {utility === "timer" && <TimerTab />}
             {utility === "guia" && (
@@ -20589,7 +20657,10 @@ const App = () => {
             onOpenMensajes={() => { setTab("indicaciones"); setSection((o) => ({ ...o, indicaciones: "chat" })); }}
             onOpenTeam={myRoleMeta.manageTeam ? () => setEquipoOpen(true) : null} teamSize={(team.members || []).length} />
         )}
-        {mode === "coach" && sub === "actividad" && <AtletasActividadTab roster={roster} toast={toast} />}
+        {mode === "coach" && sub === "actividad" && (
+          <AtletasActividadTab roster={roster} toast={toast}
+            onManage={(id) => openIdentity("coach", id, roster, myTeamId)} />
+        )}
         {mode === "coach" && sub === "rankings" && (
           <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
             <RankingsTab roster={roster} toast={toast} />
@@ -20621,7 +20692,7 @@ const App = () => {
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode} isDelegate={!!delegate}
-        studentName={currentStudent?.name} onSwitchIdentity={() => { setMoreOpen(false); logout(); }}
+        studentName={identityName} onSwitchIdentity={() => { setMoreOpen(false); logout(); }}
         onManageAccess={() => { setMoreOpen(false); setAccessOpen(true); }}
         canManageTeam={myRoleMeta.manageTeam}
         routineView={routineView} onChangeRoutineView={setRoutineView}
