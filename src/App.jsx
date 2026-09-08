@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v243";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v244";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1844,14 +1844,33 @@ const SEED_ACCESS = [
     plan: buildConiPlan, nutrition: buildConiNutrition },
 ];
 async function seedAccessProfiles() {
-  const a = await loadAccess();
+  // Lectura CONFIRMADA de la lista de perfiles: `loadAccess()` usa `sGet`,
+  // que ante una falla de red sin nada en caché devuelve null igual que
+  // cuando de verdad no hay nada guardado — las dos cosas se veían iguales
+  // acá. Con eso, un simple corte de señal en el arranque del dueño hacía
+  // que este código pensara "todavía no hay ningún perfil", sembrara de
+  // nuevo el de ejemplo (CONI, con SU clave por defecto) y lo GUARDARA
+  // encima del real en la base — borrando cualquier perfil que el dueño
+  // hubiera agregado (p. ej. un alumno con acceso propio) y revirtiendo la
+  // clave de cualquiera que la hubiese cambiado. Pasó de verdad: un perfil
+  // entero desapareció y una clave volvió a la de fábrica. Con lectura
+  // confirmada, si no se pudo hablar con el servidor esta vez, simplemente
+  // no se toca forja-access — se reintenta solo en el próximo arranque.
+  const got = await sGetKnown(ACCESS_KEY);
+  const a = (got.value && Array.isArray(got.value.profiles)) ? got.value : { profiles: [] };
   let changed = false;
-  for (const s of SEED_ACCESS) {
-    if (!a.profiles.some((p) => p.user === s.user || p.id === s.id)) {
-      a.profiles = [...a.profiles, { id: s.id, user: s.user, passHash: s.passHash, name: s.name, role: s.role, createdAt: s.createdAt }];
-      changed = true;
+  if (got.ok) {
+    for (const s of SEED_ACCESS) {
+      if (!a.profiles.some((p) => p.user === s.user || p.id === s.id)) {
+        a.profiles = [...a.profiles, { id: s.id, user: s.user, passHash: s.passHash, name: s.name, role: s.role, createdAt: s.createdAt }];
+        changed = true;
+      }
     }
-    // Plan: solo si ese espacio todavía no tiene uno (no pisar lo entrenado).
+  }
+  // El plan/historial de cada perfil semilla se sigue revisando aparte,
+  // clave por clave con su propia lectura confirmada — no depende de si
+  // la lista de perfiles se pudo leer, y nunca pisa un plan ya entrenado.
+  for (const s of SEED_ACCESS) {
     const planKey = `forja-plan:${s.id}`;
     const cur = await sGetKnown(planKey);
     if (cur.ok && cur.value == null) {
