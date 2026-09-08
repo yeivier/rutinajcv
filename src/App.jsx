@@ -7,7 +7,7 @@ import {
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText,
-  UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut
+  UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace
 } from "lucide-react";
 
 /* ============================================================
@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v242";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v244";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1676,6 +1676,52 @@ async function hashClave(txt) {
 }
 const loadAccess = async () => { const a = await sGet(ACCESS_KEY); return (a && Array.isArray(a.profiles)) ? a : { profiles: [] }; };
 const saveAccess = (a) => sSet(ACCESS_KEY, a);
+
+/* Face ID / Touch ID como traba EXTRA de este teléfono, aparte de la
+   clave — no la reemplaza: si el aparato no lo soporta, la persona
+   cancela, o simplemente prefiere no usarlo, la clave sigue funcionando
+   exactamente igual que siempre. Es el mismo modelo de "candado de
+   interfaz" que ya usa la clave (nunca hubo servidor verificando nada):
+   no hay backend que chequee la firma criptográfica de WebAuthn, alcanza
+   con que el propio sistema operativo confirme la biometría del dueño
+   del teléfono contra la credencial que quedó guardada en ESE aparato.
+   Por eso vive en localStorage sin sincronizar — Face ID es, por
+   naturaleza, un candado de un dispositivo, no de la cuenta. */
+function faceIdKey(who) { return `forja-faceid:${who}`; } // who = "owner" o el id del perfil con acceso
+async function faceIdSupported() {
+  try { return !!(window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()); }
+  catch { return false; }
+}
+function faceIdEnabled(who) { return !!lsGetRaw(faceIdKey(who)); }
+function faceIdDisable(who) { lsDelRaw(faceIdKey(who)); }
+async function faceIdEnroll(who, label) {
+  const cred = await navigator.credentials.create({
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: { name: "FORJA" },
+      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: label, displayName: label },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+      timeout: 60000,
+    },
+  });
+  if (!cred) throw new Error("Face ID: sin credencial");
+  const idB64 = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+  lsSetRaw(faceIdKey(who), idB64);
+}
+async function faceIdVerify(who) {
+  const idB64 = lsGetRaw(faceIdKey(who));
+  if (!idB64) return false;
+  const raw = Uint8Array.from(atob(idB64), (c) => c.charCodeAt(0));
+  const assertion = await navigator.credentials.get({
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ id: raw, type: "public-key" }],
+      userVerification: "required", timeout: 60000,
+    },
+  });
+  return !!assertion;
+}
 // Cuenta de DUEÑO integrada (usuario "javier"). Es una CONSTANTE del código:
 // no se guarda en forja-access ni se sincroniza, así que funciona sin
 // conexión desde el primer arranque y nunca pisa los perfiles-alumno del
@@ -1798,14 +1844,33 @@ const SEED_ACCESS = [
     plan: buildConiPlan, nutrition: buildConiNutrition },
 ];
 async function seedAccessProfiles() {
-  const a = await loadAccess();
+  // Lectura CONFIRMADA de la lista de perfiles: `loadAccess()` usa `sGet`,
+  // que ante una falla de red sin nada en caché devuelve null igual que
+  // cuando de verdad no hay nada guardado — las dos cosas se veían iguales
+  // acá. Con eso, un simple corte de señal en el arranque del dueño hacía
+  // que este código pensara "todavía no hay ningún perfil", sembrara de
+  // nuevo el de ejemplo (CONI, con SU clave por defecto) y lo GUARDARA
+  // encima del real en la base — borrando cualquier perfil que el dueño
+  // hubiera agregado (p. ej. un alumno con acceso propio) y revirtiendo la
+  // clave de cualquiera que la hubiese cambiado. Pasó de verdad: un perfil
+  // entero desapareció y una clave volvió a la de fábrica. Con lectura
+  // confirmada, si no se pudo hablar con el servidor esta vez, simplemente
+  // no se toca forja-access — se reintenta solo en el próximo arranque.
+  const got = await sGetKnown(ACCESS_KEY);
+  const a = (got.value && Array.isArray(got.value.profiles)) ? got.value : { profiles: [] };
   let changed = false;
-  for (const s of SEED_ACCESS) {
-    if (!a.profiles.some((p) => p.user === s.user || p.id === s.id)) {
-      a.profiles = [...a.profiles, { id: s.id, user: s.user, passHash: s.passHash, name: s.name, role: s.role, createdAt: s.createdAt }];
-      changed = true;
+  if (got.ok) {
+    for (const s of SEED_ACCESS) {
+      if (!a.profiles.some((p) => p.user === s.user || p.id === s.id)) {
+        a.profiles = [...a.profiles, { id: s.id, user: s.user, passHash: s.passHash, name: s.name, role: s.role, createdAt: s.createdAt }];
+        changed = true;
+      }
     }
-    // Plan: solo si ese espacio todavía no tiene uno (no pisar lo entrenado).
+  }
+  // El plan/historial de cada perfil semilla se sigue revisando aparte,
+  // clave por clave con su propia lectura confirmada — no depende de si
+  // la lista de perfiles se pudo leer, y nunca pisa un plan ya entrenado.
+  for (const s of SEED_ACCESS) {
     const planKey = `forja-plan:${s.id}`;
     const cur = await sGetKnown(planKey);
     if (cur.ok && cur.value == null) {
@@ -16859,12 +16924,26 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
 /* Hoja "Más": lo que salió de la barra de pestañas. Herramientas de
    referencia, gestión (alumnos/equipo) y los ajustes de apariencia —
    agrupados en filas de sistema, como los Ajustes de iOS. */
-const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho }) => {
   const [theme, setTheme] = useTheme();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
   const [weightUnit, setWeightUnitPref] = useWeightUnit();
   const [measureUnit, setMeasureUnitPref] = useMeasureUnit();
+  // Face ID: candado extra de ESTE teléfono, aparte de la clave — cada
+  // quien lo prende para su propia cuenta (dueño o perfil con acceso).
+  const [faceOk, setFaceOk] = useState(false);
+  const [faceOn, setFaceOn] = useState(() => faceIdEnabled(faceIdWho));
+  useEffect(() => { faceIdSupported().then(setFaceOk); }, []);
+  useEffect(() => { setFaceOn(faceIdEnabled(faceIdWho)); }, [faceIdWho]);
+  const toggleFaceId = async (v) => {
+    if (v === "on") {
+      try { await faceIdEnroll(faceIdWho, studentName || "FORJA"); setFaceOn(true); }
+      catch { /* canceló el permiso o el aparato no cooperó: queda como estaba */ }
+    } else {
+      faceIdDisable(faceIdWho); setFaceOn(false);
+    }
+  };
   return (
     <Sheet open={open} onClose={onClose} title="Más" tall>
       {/* Cabecera de perfil: es lo primero que se ve al abrir "Más" desde
@@ -16896,6 +16975,14 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
           <SettingRow Icon={RotateCcw} label="Recuperar alumnos" hint="Buscar rutinas guardadas que no aparecen en tu lista" onClick={onRecoverStudents} />
           <SettingRow Icon={Lock} label="Perfiles con acceso" hint="Dar acceso a otra persona con usuario y clave" onClick={onManageAccess} last={!canManageTeam} />
           {canManageTeam && <SettingRow Icon={Award} label="Equipo" hint="Coaches, nutricionistas y sus permisos" onClick={onOpenTeam} last />}
+        </SettingGroup>
+      )}
+
+      {faceOk && (
+        <SettingGroup label="Seguridad">
+          <SettingRow Icon={ScanFace} label="Face ID en este teléfono" last
+            hint={faceOn ? "Activado — te lo pide además de la clave la próxima vez" : "Pedirlo, aparte de tu clave, cada vez que se abra la app acá"}
+            control={<SectionSwitch items={[{ id: "off", label: "No" }, { id: "on", label: "Sí" }]} value={faceOn ? "on" : "off"} onChange={toggleFaceId} />} />
         </SettingGroup>
       )}
 
@@ -18881,6 +18968,47 @@ const GateTile = ({ onClick, avatar, label }) => (
   </button>
 );
 const GATE_TILE = 72, GATE_TILE_R = 20;
+
+/* Se muestra ANTES de entrar, en un dispositivo que ya activó Face ID:
+   una traba extra encima del "este teléfono ya inició sesión" de
+   siempre. Intenta solo apenas se monta (sin que la persona tenga que
+   tocar nada primero) y, si no reconoce o el aparato no coopera, deja
+   reintentar o caer a la clave de siempre — Face ID nunca deja a nadie
+   afuera. */
+const FaceIdLock = ({ label, onUnlock, onUsePassword, verify }) => {
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState("");
+  const intentar = async () => {
+    setBusy(true); setErr("");
+    try {
+      const ok = await verify();
+      if (ok) { onUnlock(); return; }
+      setErr("No se reconoció. Probá de nuevo o entra con tu clave.");
+    } catch {
+      setErr("No se reconoció. Probá de nuevo o entra con tu clave.");
+    }
+    setBusy(false);
+  };
+  useEffect(() => { intentar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="fj" style={{ minHeight: "100vh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <GlobalStyle />
+      <div style={{ width: "100%", maxWidth: 380, textAlign: "center" }}>
+        <div style={{ marginBottom: 18 }}><Logo size={34} /></div>
+        <div style={{ width: 84, height: 84, borderRadius: 24, background: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
+          <ScanFace size={40} color={PLATE_FG} />
+        </div>
+        <h1 style={{ fontSize: 21, letterSpacing: "-.02em", margin: "0 0 6px" }}>{label}</h1>
+        <div style={{ fontSize: 14, color: P.faint2, marginBottom: 22 }}>{busy ? "Verificando Face ID…" : "Desbloqueá para entrar"}</div>
+        {err && <div style={{ fontSize: 13, color: P.red, marginBottom: 14 }}>{err}</div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Btn kind="ember" onClick={intentar} disabled={busy} style={{ width: "100%" }}>{busy ? "Verificando…" : "Usar Face ID"}</Btn>
+          <Btn kind="line" onClick={onUsePassword} style={{ width: "100%" }}>Usar mi clave</Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
 const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd, onLogin, startLogin }) => {
   // Si ya hay equipo armado (más de un coach/staff), "Coach" no entra
   // directo: primero pregunta quién de todos es. Sin equipo (el caso de
@@ -19645,6 +19773,11 @@ const App = () => {
   // por las fichas de "¿Quién entra?". El boot lo confirma según el marcador
   // del dispositivo (dueño/alumno recordado) o lo deja en login.
   const [showLogin, setShowLogin] = useState(true);
+  // Face ID pendiente: este dispositivo ya está recordado (dueño o un
+  // perfil con acceso) Y tiene Face ID activado, así que antes de
+  // entrar directo como siempre hace falta que lo desbloquee. Null =
+  // nada pendiente, sigue el flujo normal.
+  const [faceLock, setFaceLock] = useState(null);
   // Equipo del lado coach (Head Coach + staff). Sin miembros = coach solo,
   // acceso total, cero fricción extra (comportamiento de siempre).
   const [team, setTeam] = useState({ members: [] });
@@ -19954,7 +20087,17 @@ const App = () => {
         if (delId) {
           const a = await loadAccess();
           const prof = a.profiles.find((p) => p.id === delId);
-          if (prof) { await enterDelegate(prof); aSalvo(); return; }
+          if (prof) {
+            // Face ID activado en este teléfono para este perfil: traba
+            // extra antes de mostrar sus datos, aparte de la clave (que
+            // ya no se pide en este dispositivo recordado — sin Face ID
+            // activado, el comportamiento de siempre sigue intacto).
+            if (faceIdEnabled(prof.id)) {
+              setFaceLock({ who: prof.id, label: `Hola, ${prof.name}`, run: () => enterDelegate(prof) });
+              setLoading(false); aSalvo(); return;
+            }
+            await enterDelegate(prof); aSalvo(); return;
+          }
           // El perfil ya no existe (el dueño lo borró): a la pantalla de login.
           lsDelRaw("forja-delegate-device");
           setShowLogin(true); setLoading(false); aSalvo(); return;
@@ -19998,7 +20141,13 @@ const App = () => {
         // inició sesión como dueño, entra directo; si no, muestra la pantalla
         // de login (nunca se entra sin clave). La cuenta de dueño es una
         // constante del código, así que no hay nada que sembrar.
-        if (lsGetRaw("forja-owner-device")) { await enterOwner(r); aSalvo(); return; }
+        if (lsGetRaw("forja-owner-device")) {
+          if (faceIdEnabled("owner")) {
+            setFaceLock({ who: "owner", label: "Bienvenido de nuevo", run: () => enterOwner(r) });
+            setLoading(false); aSalvo(); return;
+          }
+          await enterOwner(r); aSalvo(); return;
+        }
         setShowLogin(true); setLoading(false); aSalvo();
       } catch (e) {
         console.error("[forja] arranque falló, cae a login:", e);
@@ -20255,6 +20404,12 @@ const App = () => {
     return <SplashScreen exiting={splashExiting} />;
   }
 
+  if (faceLock) {
+    return <FaceIdLock label={faceLock.label} verify={() => faceIdVerify(faceLock.who)}
+      onUnlock={() => { const run = faceLock.run; setFaceLock(null); run(); }}
+      onUsePassword={() => { setFaceLock(null); setShowLogin(true); }} />;
+  }
+
   if (!ready) {
     return <Gate roster={roster} team={team} onLogin={onLogin} startLogin={showLogin}
       onEnter={(m, id) => openIdentity(m, id)}
@@ -20475,7 +20630,8 @@ const App = () => {
         onRecoverStudents={() => { setMoreOpen(false); setRecoverOpen(true); }}
         onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
         onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
-        onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }} />
+        onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }}
+        faceIdWho={delegate ? delegate.id : "owner"} />
       <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast}
         history={history} saveHistory={saveHistory} />
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
