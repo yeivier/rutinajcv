@@ -16,7 +16,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v246";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v247";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -16981,24 +16981,29 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
       faceIdDisable(faceIdWho); setFaceOn(false);
     }
   };
+  // "Cerrar sesión" olvida este dispositivo por completo (la próxima vez
+  // hay que volver a entrar con usuario y clave, o Face ID si está
+  // activado) — antes bastaba con tocar por error la cabecera de perfil
+  // para que pasara sin avisar. Ahora es un botón aparte, con su propia
+  // confirmación: nadie sale de la cuenta sin querer.
+  const [confirmLogout, setConfirmLogout] = useState(false);
   return (
     <Sheet open={open} onClose={onClose} title="Más" tall>
       {/* Cabecera de perfil: es lo primero que se ve al abrir "Más" desde
-          el avatar de la cabecera — así esa hoja funciona de verdad como
-          el "perfil" que un alumno espera al tocar su ícono, no solo un
-          menú de ajustes sin nombre ni cara. */}
-      <button onClick={onSwitchIdentity}
-        style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "6px 4px 18px", textAlign: "left" }}>
+          el avatar de la cabecera — pero es solo informativa (quién está
+          usando la app ahora), no un botón. Antes tocarla cerraba la
+          sesión en el acto, sin avisar — "cerrar sesión" ahora vive
+          aparte, como su propio botón con confirmación. */}
+      <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "6px 4px 18px" }}>
         <div style={{ width: 52, height: 52, borderRadius: 16, background: PLATE_GRAD, color: PLATE_FG,
           display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 19, flexShrink: 0 }}>
           {(studentName || "?").slice(0, 1).toUpperCase()}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 17, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{studentName || "—"}</div>
-          <div style={{ fontSize: 13, color: P.faint }}>{isDelegate ? "cerrar sesión" : `modo ${mode} · cambiar de cuenta`}</div>
+          <div style={{ fontSize: 13, color: P.faint }}>{isDelegate ? "perfil con acceso" : `modo ${mode}`}</div>
         </div>
-        <ChevronRight size={17} color={P.faint} style={{ flexShrink: 0 }} />
-      </button>
+      </div>
       <SettingGroup label="Herramientas">
         <SettingRow Icon={Timer} label="Temporizador" hint="Intervalos, cuenta regresiva y cronómetro" onClick={() => onOpenUtility("timer")} />
         <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} last={mode === "coach"} />
@@ -17052,9 +17057,18 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
         </SettingGroup>
       )}
 
+      <SettingGroup>
+        <SettingRow Icon={LogOut} label="Cerrar sesión" last onClick={() => setConfirmLogout(true)} />
+      </SettingGroup>
+
       {/* La versión vive acá abajo, no en la cabecera: el encabezado es
           identidad, no diagnóstico. */}
       <div style={{ textAlign: "center", fontSize: 12, color: P.faint, paddingTop: 4 }}>FORJA · {BUILD}</div>
+      <Confirm open={confirmLogout} title="Cerrar sesión"
+        body={`Vas a salir de este dispositivo. La próxima vez vas a necesitar tu usuario y clave${faceOn ? " (o Face ID)" : ""} para volver a entrar.`}
+        okLabel="Cerrar sesión" danger
+        onOk={() => { setConfirmLogout(false); onSwitchIdentity(); }}
+        onCancel={() => setConfirmLogout(false)} />
     </Sheet>
   );
 };
@@ -20544,19 +20558,18 @@ const App = () => {
       <GlobalStyle />
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
         paddingBottom: enSesion ? 0 : "calc(96px + env(safe-area-inset-bottom))" }}>
-        {/* Cabecera: identidad como texto a la izquierda (toque rápido:
-            cambiar de alumno/coach) y el avatar a la derecha — es el lugar
-            donde la gente ya busca su propio ícono de cuenta. Tocarlo abre
-            "Más", que ahora arranca con una cabecera de perfil propia (foto,
-            nombre, cambiar de cuenta) antes de sus grupos de herramientas y
-            ajustes — así sí funciona como el perfil que se espera al tocar
-            el avatar, no solo un menú suelto. */}
+        {/* Cabecera: identidad como texto a la izquierda (solo informativa —
+            quién está usando la app ahora) y el avatar a la derecha, que es
+            el único que abre algo (la hoja "Más"). Antes el texto de la
+            izquierda cerraba la sesión con un solo toque, sin avisar — pasaba
+            de verdad por error. Cerrar sesión ahora vive solo dentro de
+            "Más", como su propio botón con confirmación. */}
         {!enSesion && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "calc(8px + env(safe-area-inset-top)) 16px 4px" }}>
-            <button onClick={logout} style={{ textAlign: "left", minWidth: 0 }}>
+            <div style={{ textAlign: "left", minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{identityName}</div>
-              <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>{delegate ? "cerrar sesión" : `modo ${mode} · cerrar sesión`}</div>
-            </button>
+              <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>{delegate ? "perfil con acceso" : `modo ${mode}`}</div>
+            </div>
             <button onClick={() => setMoreOpen(true)} aria-label="Perfil y más opciones"
               style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
                 background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
