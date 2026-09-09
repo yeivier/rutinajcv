@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v250";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v251";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1677,6 +1677,47 @@ async function hashClave(txt) {
 }
 const loadAccess = async () => { const a = await sGet(ACCESS_KEY); return (a && Array.isArray(a.profiles)) ? a : { profiles: [] }; };
 const saveAccess = (a) => sSet(ACCESS_KEY, a);
+
+/* Identidades con las que YA se inició sesión en ESTE dispositivo:
+   "owner" y/o "delegate:<id>" por cada perfil con acceso usado acá. A
+   diferencia del marcador viejo (uno solo, dueño XOR un alumno), esto es
+   una lista — así, en el teléfono de quien es dueño Y ADEMÁS entrena con
+   su propio perfil de alumno (el caso real: Javier coach + Javier
+   atleta), las dos quedan recordadas. Con 2 o más recordadas, el arranque
+   muestra un selector ANTES de la pantalla de usuario y clave — con 0 o 1
+   (el caso normal de cualquier otra persona, en su propio teléfono) el
+   comportamiento sigue exactamente igual que siempre: entra directo o
+   pide login, sin selector de por medio. Es local (no sincroniza a
+   Supabase: es de este aparato) y puramente informativa — no reemplaza
+   ninguna traba real (clave, Face ID), solo evita tener que cerrar sesión
+   y volver a escribir la clave para cambiar de una identidad a otra en el
+   mismo teléfono. */
+function deviceIdentities() {
+  const v = lsGetRaw("forja-device-identities");
+  if (Array.isArray(v)) return v;
+  // Primera vez con esta lista: migra el marcador viejo, si había uno.
+  const migrated = [];
+  if (lsGetRaw("forja-owner-device")) migrated.push("owner");
+  const delId = lsGetRaw("forja-delegate-device");
+  if (delId) migrated.push(`delegate:${delId}`);
+  return migrated;
+}
+function rememberDeviceIdentity(key) {
+  const cur = deviceIdentities();
+  // SIEMPRE escribe la lista real, aunque `key` ya estuviera incluida —
+  // no es una optimización inocua: mientras no exista la clave real
+  // `forja-device-identities`, `deviceIdentities()` reconstruye la lista
+  // cada vez desde los marcadores viejos (uno solo, dueño XOR un
+  // alumno) — y esos dos, `enterOwner`/`enterDelegate` los borran
+  // mutuamente al cambiar de identidad. Si acá se corta sin escribir
+  // "porque ya estaba", la lista real nunca llega a existir y la
+  // siguiente vez que se borre el marcador del OTRO perfil (el que no es
+  // el que se acaba de recordar), esa identidad desaparece de la
+  // reconstrucción y el selector deja de verla — pasaba de verdad.
+  const next = cur.includes(key) ? cur : [...cur, key];
+  lsSetRaw("forja-device-identities", next);
+}
+function forgetDeviceIdentities() { lsDelRaw("forja-device-identities"); }
 
 /* Face ID / Touch ID como traba EXTRA de este teléfono, aparte de la
    clave — no la reemplaza: si el aparato no lo soporta, la persona
@@ -6487,12 +6528,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const tablaDe = (block, bi) => {
     const consignas = block.group ? null : consignasPorSerie(exs[block.ei]);
     const titulo = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
-    const objetivo = (() => {
-      const st = block.rows.map((r) => exs[r.ei].sets[r.si]);
-      const reps = [...new Set(st.map((x) => x.repsT).filter(Boolean))];
-      return reps.length === 1 ? `${st.length} × ${reps[0]}` : `${st.length} series`;
-    })();
-    const descanso = block.group ? exs[block.members[0]].rest : exs[block.ei].rest;
     // La primera serie sin marcar DE ESTE ejercicio: es la que se resalta.
     // Se deriva del dato en cada render, así marcar una serie abre la
     // siguiente sola, sin estado de "página" que sincronizar.
@@ -6521,10 +6556,19 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             background: SES.campo, fontSize: 12.5, fontWeight: 700, color: SES.dim, marginTop: 1 }}>{bi + 1}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 15.5, fontWeight: 700, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.01em" }}>{titulo}</div>
-            <div className="mono" style={{ fontSize: 11, color: SES.faint, marginTop: 3 }}>
-              Objetivo {objetivo}{descanso ? ` · descanso ${descanso} s` : ""}
-              {block.group ? ` · ${GROUP_KINDS[block.kind].label.toLowerCase()} · ${block.rounds} rondas` : ""}
-            </div>
+            {/* Antes acá decía "Objetivo N series · descanso Y s" — un dato
+                que ya está en cada fila (reps/RIR objetivo) y en el propio
+                cronómetro de descanso al tocar la serie. En su lugar, este
+                espacio es ahora para lo que de verdad hace falta ver de
+                entrada: las indicaciones del coach para este ejercicio
+                (más abajo, si las hay) — con superserie/ronda, ese dato de
+                estructura sí se mantiene, porque no está en ningún otro
+                lado de la tarjeta. */}
+            {block.group && (
+              <div className="mono" style={{ fontSize: 11, color: SES.faint, marginTop: 3 }}>
+                {GROUP_KINDS[block.kind].label.toLowerCase()} · {block.rounds} rondas
+              </div>
+            )}
           </div>
           <button onClick={() => setFicha(block.group ? block.members[0] : block.ei)} aria-label={`Ver la técnica de ${titulo}`}
             style={{ width: 26, height: 26, borderRadius: 13, flexShrink: 0, background: SES.campo, border: "none",
@@ -7121,8 +7165,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>RIR / RM</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Estimar tu máximo</div>
                 <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>e1RM estimado</div>
+                <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.45 }}>
+                  "e1RM" = tu máximo para UNA repetición (1RM), estimado — sin tener que probarlo de verdad, que es
+                  riesgoso y cansador. Se calcula desde una serie real: cuánto peso usaste, cuántas repeticiones
+                  hiciste, y el <b>RIR</b> (repeticiones en reserva: cuántas más te quedaban antes de llegar al fallo
+                  — RIR 0 es "hasta el fallo", RIR 2 es "paré pudiendo hacer 2 más").
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("Peso", c1w, setC1w)}
                   {calcField("Reps", c1r, setC1r)}
@@ -7132,8 +7182,13 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               </Card>
 
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Peso objetivo</div>
-                <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>RM + RIR</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Peso para una serie</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>¿Qué peso uso?</div>
+                <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.45 }}>
+                  Es la calculadora al revés de la de arriba: en vez de estimar tu máximo, parte de un e1RM que ya
+                  tienes (el de arriba, o cualquier estimado que manejes) y te dice qué peso usar para una serie
+                  específica, según cuántas repeticiones y con qué RIR querés hacerla.
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("e1RM", c2e, setC2e)}
                   {calcField("Reps", c2r, setC2r)}
@@ -7143,8 +7198,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               </Card>
 
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>PR</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Comparar con tu mejor marca</div>
                 <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>¿Fue récord?</div>
+                <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.45 }}>
+                  Compara el e1RM de hoy con tu mejor e1RM anterior en ese ejercicio, y te dice si lo superaste (PR =
+                  récord personal) y por cuánto.
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("Mejor e1RM previo", c3prev, setC3prev)}
                   {calcField("e1RM actual", c3cur, setC3cur)}
@@ -7155,6 +7214,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>% del top set</div>
                 <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>Peso de trabajo</div>
+                <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.45 }}>
+                  Para series de aproximación o de bajada: a partir del peso de tu serie más pesada del día (el "top
+                  set"), calcula cuánto pesa un porcentaje de esa — por ejemplo, 80% del top set.
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("Top set", c4top, setC4top)}
                   {calcField("%", c4pct, setC4pct)}
@@ -9540,7 +9603,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
       <ScreenTitle title="Progreso" />
 
       <SectionSwitch value={sub} onChange={setSub}
-        items={[{ id: "fuerza", label: "Fuerza" }, { id: "cuerpo", label: "Cuerpo" }, { id: "volumen", label: "Volumen" }, { id: "logros", label: "Logros" }]} />
+        items={[{ id: "fuerza", label: "Fuerza" }, { id: "cuerpo", label: "Cuerpo" }, { id: "volumen", label: "Volumen" }, { id: "logros", label: "Logros" }, { id: "historial", label: "Historial" }]} />
 
       {sub === "fuerza" && (
         <>
@@ -9610,6 +9673,11 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
       {sub === "volumen" && <AthleteVolumePanel plan={plan} history={history} />}
 
       {sub === "logros" && <AchievementGrid history={history} />}
+
+      {/* Mismo visor que usa el coach para revisar la actividad de un
+          alumno (sesión por sesión, por ejercicio, y el registro de
+          entradas/salidas) — acá es el propio alumno viendo lo suyo. */}
+      {sub === "historial" && <ActivityTab plan={plan} history={history} />}
 
       <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} />
       <PhotoCompareSheet open={compareOpen} onClose={() => setCompareOpen(false)} photos={photos} bodyweight={bwEntries} />
@@ -12697,6 +12765,30 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
   );
 };
 
+/* Agrupa las sesiones por gimnasio (según en cuál se hizo cada una) —
+   así el historial se lee de un vistazo por sede, en vez de una sola
+   lista con todo mezclado. Los grupos van del gimnasio donde se entrenó
+   más recientemente al que hace más que no se pisa; dentro de cada uno,
+   más reciente primero (igual que la lista de siempre). Las sesiones sin
+   gimnasio registrado (de antes de que existiera este dato, o sin
+   elegir) quedan en un grupo aparte al final. */
+function groupSessionsByGym(sessions) {
+  const porGym = new Map(); // gym -> sesiones en orden cronológico (asc)
+  const sinGym = [];
+  (sessions || []).forEach((s) => {
+    const g = (s.gym || "").trim();
+    if (!g) { sinGym.push(s); return; }
+    if (!porGym.has(g)) porGym.set(g, []);
+    porGym.get(g).push(s);
+  });
+  const grupos = [...porGym.entries()].map(([gym, ses]) => ({
+    gym, sesiones: [...ses].reverse(), ultima: ses[ses.length - 1].date,
+  }));
+  grupos.sort((a, b) => new Date(b.ultima) - new Date(a.ultima));
+  if (sinGym.length) grupos.push({ gym: "", sesiones: [...sinGym].reverse(), ultima: sinGym[sinGym.length - 1].date });
+  return grupos;
+}
+
 /* ============================================================
    MODO COACH — actividad del alumno
    ============================================================ */
@@ -12740,20 +12832,26 @@ const ActivityTab = ({ plan, history }) => {
       </div>
       {sub === "ses" && (history.sessions.length === 0 ? (
         <Empty icon={Users} title="Aún no hay sesiones" body="Cuando el alumno termine su primera sesión, acá verás todo el detalle: series, comentarios y adjuntos." />
-      ) : [...history.sessions].reverse().map((s) => (
-        <Card key={s.id} style={{ marginBottom: 10 }}>
-          <button onClick={() => setOpenSession(s)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.dayName}</div>
-              <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>{fmtDateFull(s.date)} · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg</div>
-              {/* Dónde se entrenó. Es lo que permite leer el historial por sede. */}
-              {s.gym && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}><Home size={12} /> {s.gym}</div>}
-            </div>
-            {s.hasComments && <MessageSquare size={15} color={P.ember2} />}
-            {(s.prs || []).length > 0 && <Award size={15} color={P.ember2} />}
-            <ChevronRight size={16} color={P.faint} />
-          </button>
-        </Card>
+      ) : groupSessionsByGym(history.sessions).map((grp) => (
+        <div key={grp.gym || "_sin_gym_"} style={{ marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, color: P.faint,
+            textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>
+            <Home size={13} /> {grp.gym || "Sin gimnasio registrado"}
+          </div>
+          {grp.sesiones.map((s) => (
+            <Card key={s.id} style={{ marginBottom: 10 }}>
+              <button onClick={() => setOpenSession(s)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.dayName}</div>
+                  <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>{fmtDateFull(s.date)} · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg</div>
+                </div>
+                {s.hasComments && <MessageSquare size={15} color={P.ember2} />}
+                {(s.prs || []).length > 0 && <Award size={15} color={P.ember2} />}
+                <ChevronRight size={16} color={P.faint} />
+              </button>
+            </Card>
+          ))}
+        </div>
       )))}
       {sub === "ex" && (
         <div>
@@ -13360,11 +13458,10 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
 
   return (
     <div style={{ padding: "10px 20px 32px" }}>
-      <ScreenTitle title="Panel" right={
-        <span className="disp" style={{ width: 40, height: 40, borderRadius: "50%", background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
-          {initialsOf(coachName || "Tú")}
-        </span>
-      } />
+      {/* Sin avatar acá: ya está el de la cabecera de la app (arriba a la
+          derecha, el que abre "Más") — este quedaba repetido y, a
+          diferencia de aquel, no hacía nada al tocarlo. */}
+      <ScreenTitle title="Panel" />
 
       {/* Las mismas cuatro cifras que ya había, pero en `KpiTile`, que es
           la ficha que usa "Estado de hoy" del alumno: una sola ficha de
@@ -17616,7 +17713,7 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
 /* Hoja "Más": lo que salió de la barra de pestañas. Herramientas de
    referencia, gestión (alumnos/equipo) y los ajustes de apariencia —
    agrupados en filas de sistema, como los Ajustes de iOS. */
-const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha }) => {
   const [theme, setTheme] = useTheme();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
@@ -17733,6 +17830,14 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
       )}
 
       <SettingGroup>
+        {/* Solo para el dueño: entrar (o sumar) otra cuenta en este mismo
+            teléfono sin perder la que ya está — a diferencia de "Cerrar
+            sesión", esto no olvida nada. Con 2+ cuentas usadas acá, la
+            próxima vez que se abra la app aparece un selector para elegir
+            con cuál entrar, antes de pedir usuario y clave. */}
+        {!isDelegate && onSwitchAccount && (
+          <SettingRow Icon={Users} label="Cambiar de cuenta" hint="Entrar con otro usuario en este teléfono, sin cerrar esta sesión del todo" onClick={onSwitchAccount} />
+        )}
         <SettingRow Icon={LogOut} label="Cerrar sesión" last onClick={() => setConfirmLogout(true)} />
       </SettingGroup>
 
@@ -19775,6 +19880,45 @@ const FaceIdOfferSheet = ({ offer, onClose }) => {
     </div>
   );
 };
+
+/* Selector de identidades recordadas en ESTE dispositivo — se muestra
+   SOLO cuando hay 2 o más (ver `deviceIdentities` arriba: el caso real es
+   el dueño que además entrena con su propio perfil de alumno). Tocar una
+   entra directo, sin volver a pedir clave — mismo nivel de confianza que
+   ya tenía el dispositivo con una sola identidad recordada, Face ID de
+   por medio si esa identidad puntual lo tiene activado. "Otro usuario"
+   lleva a la pantalla de login de siempre, para sumar una identidad
+   nueva en este mismo aparato (la próxima vez, si llega a haber 2+ de
+   nuevo, vuelve a aparecer este selector). */
+const DeviceIdentityPicker = ({ items, onPick, onOther }) => (
+  <div className="fj" style={{ minHeight: "100vh", background: P.bgGrad, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    <GlobalStyle />
+    <div style={{ width: "100%", maxWidth: 420 }}>
+      <div style={{ textAlign: "center", marginBottom: 18 }}><Logo size={34} /></div>
+      <h1 style={{ fontSize: 27, letterSpacing: "-.022em", textAlign: "center", margin: "0 0 6px" }}>¿Con cuál entras?</h1>
+      <div style={{ fontSize: 14, color: P.faint2, textAlign: "center", marginBottom: 24 }}>Este teléfono ya inició sesión con estas cuentas.</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20, justifyItems: "center" }}>
+        {items.map((it) => (
+          <GateTile key={it.key} onClick={() => onPick(it.key)} label={it.name}
+            avatar={
+              <div style={{ width: GATE_TILE, height: GATE_TILE, borderRadius: GATE_TILE_R,
+                background: it.isOwner ? PLATE_GRAD : P.s3, border: it.isOwner ? "none" : `1px solid ${P.line}`,
+                display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 24,
+                color: it.isOwner ? PLATE_FG : P.ember2 }}>
+                {it.isOwner ? <ClipboardList size={26} color={PLATE_FG} /> : it.name.slice(0, 1).toUpperCase()}
+              </div>
+            } />
+        ))}
+      </div>
+      <div style={{ textAlign: "center", marginTop: 28 }}>
+        <button onClick={onOther} style={{ display: "inline-flex", alignItems: "center", gap: 6, color: P.dim, fontSize: 13.5, fontWeight: 600 }}>
+          <Lock size={14} /> Otro usuario
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd, onLogin, startLogin }) => {
   // Si ya hay equipo armado (más de un coach/staff), "Coach" no entra
   // directo: primero pregunta quién de todos es. Sin equipo (el caso de
@@ -19789,6 +19933,7 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd, onLogin, startLogin }
   const [lPass, setLPass] = useState("");
   const [lErr, setLErr] = useState("");
   const [lBusy, setLBusy] = useState(false);
+  const [lShowPass, setLShowPass] = useState(false);
   const doLogin = async () => {
     if (!lUser.trim() || !lPass) { setLErr("Escribe tu usuario y tu clave."); return; }
     setLBusy(true); setLErr("");
@@ -19812,8 +19957,18 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd, onLogin, startLogin }
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Field label="Usuario"><Inp value={lUser} autoCapitalize="none" autoCorrect="off" onChange={(e) => setLUser(e.target.value)} placeholder="usuario"
               onKeyDown={(e) => { if (e.key === "Enter") doLogin(); }} /></Field>
-            <Field label="Clave"><Inp type="password" value={lPass} onChange={(e) => setLPass(e.target.value)} placeholder="clave"
-              onKeyDown={(e) => { if (e.key === "Enter") doLogin(); }} /></Field>
+            <Field label="Clave">
+              <div style={{ position: "relative" }}>
+                <Inp type={lShowPass ? "text" : "password"} value={lPass} autoCapitalize="none" autoCorrect="off"
+                  onChange={(e) => setLPass(e.target.value)} placeholder="clave" style={{ paddingRight: 40 }}
+                  onKeyDown={(e) => { if (e.key === "Enter") doLogin(); }} />
+                <button type="button" onClick={() => setLShowPass((v) => !v)} aria-label={lShowPass ? "Ocultar clave" : "Mostrar clave"}
+                  style={{ position: "absolute", right: 2, top: "50%", transform: "translateY(-50%)", width: 34, height: 34,
+                    display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, background: "none", border: "none" }}>
+                  {lShowPass ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </div>
+            </Field>
             {lErr && <div style={{ fontSize: 13, color: P.red }}>{lErr}</div>}
             <Btn kind="ember" onClick={doLogin} disabled={lBusy} style={{ width: "100%" }}>{lBusy ? "Entrando…" : "Entrar"}</Btn>
           </div>
@@ -20558,6 +20713,11 @@ const App = () => {
   // entrar directo como siempre hace falta que lo desbloquee. Null =
   // nada pendiente, sigue el flujo normal.
   const [faceLock, setFaceLock] = useState(null);
+  // Selector de identidades recordadas en ESTE dispositivo (ver
+  // `deviceIdentities`): null = no corresponde mostrarlo (0 o 1
+  // recordada — el comportamiento de siempre); un array con 2+ items
+  // ({key,name,isOwner}) = hay que preguntar antes de entrar a ninguna.
+  const [identityPicker, setIdentityPicker] = useState(null);
   // Oferta de Face ID: en vez de escondida en Ajustes esperando a que
   // alguien la encuentre, se ofrece SOLA justo al entrar (recién logueado
   // a mano, o al reabrir en un teléfono ya recordado que todavía no la
@@ -20801,6 +20961,7 @@ const App = () => {
     // Marca LOCAL y persistente (no se sincroniza a Supabase: es de ESTE
     // dispositivo), para que la próxima vez entre directo a su perfil.
     lsSetRaw("forja-delegate-device", prof.id);
+    rememberDeviceIdentity(`delegate:${prof.id}`);
     // Registro de actividad: esta llamada cubre TANTO el login explícito
     // (usuario+clave) COMO el reingreso silencioso al reabrir la app ya
     // logueada (el dispositivo la recuerda) — cualquiera de los dos es
@@ -20822,6 +20983,7 @@ const App = () => {
     setShowLogin(false);
     lsDelRaw("forja-delegate-device");
     lsSetRaw("forja-owner-device", "1");
+    rememberDeviceIdentity("owner");
     await openIdentity("coach", rr.students[0]?.id, rr, null);
   };
   const onLogin = async (user, clave) => {
@@ -20842,11 +21004,12 @@ const App = () => {
     maybeOfferFaceId(prof.id, prof.name);
     return null;
   };
-  // Cerrar sesión: vuelve a la pantalla de login, sea dueño o alumno.
-  const logout = () => {
-    // Si quien cierra sesión es un perfil con acceso (no el dueño), se
-    // registra el cierre con la duración de esta apertura — de fondo, sin
-    // esperarlo, para no demorar la vuelta al login.
+  // Lo que comparten "Cerrar sesión" y "Cambiar de cuenta": terminar la
+  // sesión actual (si es un perfil con acceso, registrar la duración de
+  // esta apertura) y volver a la pantalla de login. La diferencia entre
+  // las dos vive en lo que cada una decide sobre lo recordado en el
+  // dispositivo — eso lo hace quien llama, después de esto.
+  const closeCurrentSession = () => {
     if (delegateRef.current && delegateSessionStartRef.current) {
       const dur = Date.now() - delegateSessionStartRef.current;
       logActivityFor(delegateRef.current.id, `Cerró sesión (estuvo ${fmtDuracion(dur)})`, "logout");
@@ -20854,13 +21017,47 @@ const App = () => {
     delegateRef.current = null;
     delegateSessionStartRef.current = null;
     setDelegate(null);
-    lsDelRaw("forja-delegate-device");
-    lsDelRaw("forja-owner-device");
     sSet("forja-device", null, false);
     setReady(false);
+  };
+  // Cerrar sesión: vuelve a la pantalla de login y OLVIDA por completo lo
+  // recordado en este dispositivo (dueño y cualquier perfil con acceso)
+  // — la próxima vez hay que escribir usuario y clave desde cero.
+  const logout = () => {
+    closeCurrentSession();
+    lsDelRaw("forja-delegate-device");
+    lsDelRaw("forja-owner-device");
+    forgetDeviceIdentities();
     setShowLogin(true);
   };
   const logoutDelegate = logout; // alias, todo el ingreso va por login ahora
+  // Cambiar de cuenta: vuelve a la pantalla de login SIN olvidar nada de
+  // lo recordado — solo para sumar (o volver a entrar con) otra
+  // identidad en este mismo aparato, sin perder la que ya había. La
+  // próxima vez que se abra la app acá, si quedan 2 o más recordadas,
+  // aparece el selector (`DeviceIdentityPicker`) en vez de entrar
+  // directo a la última.
+  const switchAccount = () => {
+    closeCurrentSession();
+    setShowLogin(true);
+  };
+  // Se tocó una ficha del selector de identidades recordadas: entra
+  // directo a esa (mismo nivel de confianza que ya tenía el dispositivo —
+  // Face ID de por medio si esa identidad puntual lo tiene activado,
+  // igual que en el arranque de siempre con una sola recordada).
+  const pickIdentity = async (key) => {
+    setIdentityPicker(null);
+    if (key === "owner") {
+      if (faceIdEnabled("owner")) { setFaceLock({ who: "owner", label: "Bienvenido de nuevo", run: () => enterOwner() }); return; }
+      await enterOwner(); maybeOfferFaceId("owner", "Tú"); return;
+    }
+    const id = key.slice("delegate:".length);
+    const a = await loadAccess();
+    const prof = a.profiles.find((p) => p.id === id);
+    if (!prof) { setShowLogin(true); return; } // lo borraron justo ahora: a login normal
+    if (faceIdEnabled(prof.id)) { setFaceLock({ who: prof.id, label: `Hola, ${prof.name}`, run: () => enterDelegate(prof) }); return; }
+    await enterDelegate(prof); maybeOfferFaceId(prof.id, prof.name);
+  };
 
   useEffect(() => {
     // Red de seguridad del arranque: si CUALQUIER cosa inesperada truena acá
@@ -20876,6 +21073,42 @@ const App = () => {
     const aSalvo = () => { resuelto = true; };
     (async () => {
       try {
+        // Dos o más identidades recordadas en este mismo teléfono (el caso
+        // real: el dueño que además entrena con su propio perfil de
+        // alumno) — antes de entrar a cualquiera, se pregunta a cuál.
+        // Carga lo mínimo para resolver el nombre de cada una y, si el
+        // dueño es una de ellas, el roster (para que `pickIdentity` pueda
+        // entrar sin recargar nada). Con 0 o 1 recordada (cualquier otra
+        // persona en su propio teléfono) esto no hace nada y sigue el
+        // flujo de siempre, sin selector de por medio.
+        const idents = deviceIdentities();
+        if (idents.length >= 2) {
+          const a = await loadAccess();
+          let hayRosterDueño = false;
+          if (idents.includes("owner")) {
+            const got = await sGetKnown("forja-roster");
+            const r = got.value;
+            if (r && r.v === ROSTER_VERSION && r.students && r.students.length > 0) {
+              hayRosterDueño = true;
+              setRoster(r);
+              const t = await sGet("forja-team"); if (t && Array.isArray(t.members)) setTeam(t);
+              const lib = await sGet("forja-library"); if (lib && Array.isArray(lib.exercises)) setLibrary(lib.exercises);
+              const bk = await sGet("forja-bookings"); if (bk && Array.isArray(bk.slots)) setBookings({ slots: bk.slots });
+              const av = await sGet("forja-availability"); if (av) setAvailability((x) => ({ ...x, ...av }));
+            }
+          }
+          const items = idents.map((key) => {
+            if (key === "owner") return hayRosterDueño ? { key, name: "Coach", isOwner: true } : null;
+            const prof = a.profiles.find((p) => p.id === key.slice("delegate:".length));
+            return prof ? { key, name: prof.name, isOwner: false } : null;
+          }).filter(Boolean);
+          if (items.length >= 2) {
+            setIdentityPicker(items); setLoading(false); aSalvo(); return;
+          }
+          // Se depuró a menos de 2 items reales (un perfil borrado, o sin
+          // señal para el roster del dueño): sigue el flujo normal de
+          // abajo, que resuelve solo con lo que sí tiene.
+        }
         // Si este dispositivo ya entró con un perfil con acceso, va directo a
         // ese espacio aislado — nunca ve el roster del dueño.
         const delId = lsGetRaw("forja-delegate-device");
@@ -21222,6 +21455,11 @@ const App = () => {
       onUsePassword={() => { setFaceLock(null); setShowLogin(true); }} />;
   }
 
+  if (identityPicker) {
+    return <DeviceIdentityPicker items={identityPicker} onPick={pickIdentity}
+      onOther={() => { setIdentityPicker(null); setShowLogin(true); }} />;
+  }
+
   if (!ready) {
     return <Gate roster={roster} team={team} onLogin={onLogin} startLogin={showLogin}
       onEnter={(m, id) => openIdentity(m, id)}
@@ -21438,6 +21676,7 @@ const App = () => {
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode} isDelegate={!!delegate}
         studentName={identityName} managedStudentName={currentStudent?.name}
         onSwitchIdentity={() => { setMoreOpen(false); logout(); }}
+        onSwitchAccount={() => { setMoreOpen(false); switchAccount(); }}
         onManageAccess={() => { setMoreOpen(false); setAccessOpen(true); }}
         canManageTeam={myRoleMeta.manageTeam}
         routineView={routineView} onChangeRoutineView={setRoutineView}
