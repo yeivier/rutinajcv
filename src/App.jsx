@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v249";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v250";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4626,8 +4626,18 @@ const MultiAttachButton = ({ onAttached, onError, label = "Adjuntar", accept, sm
       URL.revokeObjectURL(objUrl);
       await sSet(`attach:${id}`, { dataUrl: src, poster, kind: "video", date: todayISO() });
     } else if (f.type && f.type.startsWith("image")) {
+      // Se sube al bucket (URL real, pública) igual que video/archivo — así
+      // se puede abrir desde afuera de la app (exportar la Ficha, compartir
+      // por WhatsApp). Si falla la subida, queda el dataURL como respaldo:
+      // se ve bien adentro de la app, aunque no se pueda abrir como link
+      // suelto fuera de ella.
       const dataUrl = await compressImage(f);
-      await sSet(`attach:${id}`, { dataUrl, kind: "image", date: todayISO() });
+      let src = dataUrl;
+      try {
+        const blob = await (await fetch(dataUrl)).blob();
+        src = await uploadToBucket(new File([blob], (f.name || "foto").replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
+      } catch { /* se queda con el dataURL de respaldo */ }
+      await sSet(`attach:${id}`, { dataUrl: src, kind: "image", date: todayISO() });
     } else {
       if (f.size > MAX_FILE_BYTES) throw new Error(`"${f.name}" pesa ${(f.size / 1048576).toFixed(1)} MB — el máximo por archivo es 25 MB.`);
       let src = null;
@@ -14598,7 +14608,13 @@ const FichaCheckin = ({ history, notes, onNotesChange, toast }) => {
    (plan.athlete + la ficha + un resumen en vivo del check-in), nunca de
    una copia aparte — lo que se exporta es exactamente lo cargado. Los
    adjuntos viajan como link directo (el bucket de Supabase es público),
-   así que quien reciba el archivo puede abrirlos sin entrar a la app. */
+   así que quien reciba el archivo puede abrirlos sin entrar a la app.
+   Las fotos/videos, además, se incrustan de verdad (<img>/<video>) en
+   vez de solo enlazarse: un adjunto viejo que haya quedado guardado como
+   dataURL (antes de que las fotos también se subieran al bucket) no es
+   un link que el navegador deje abrir con un clic — los navegadores
+   bloquean navegar a una data: URL así —, pero SÍ se puede mostrar
+   incrustado, que es exactamente lo que se necesita para "poder verlo". */
 async function gatherAttachMap(ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
   const map = new Map();
@@ -14607,7 +14623,7 @@ async function gatherAttachMap(ids) {
 }
 function buildFichaSections(a, ficha, student, history, map) {
   const att = (ids) => (ids || []).map((id) => map.get(id)).filter(Boolean).map((m) => ({
-    text: m.kind === "file" ? (m.name || "Archivo") : m.kind === "video" ? "Video" : "Foto", url: m.dataUrl,
+    text: m.kind === "file" ? (m.name || "Archivo") : m.kind === "video" ? "Video" : "Foto", url: m.dataUrl, kind: m.kind,
   }));
   const noteLines = (note) => {
     const out = [];
@@ -14684,23 +14700,49 @@ function buildFichaSections(a, ficha, student, history, map) {
   });
   return sections;
 }
+// Foto/video: sintaxis de imagen de Markdown, así los visores que la
+// soportan (Obsidian, Typora, GitHub…) la muestran incrustada de
+// verdad — un link normal a una foto vieja guardada como dataURL no se
+// puede "abrir" con un clic (los navegadores bloquean navegar a una
+// data: URL), pero sí renderizarla incrustada.
+function mdItem(b) {
+  if (!b.url) return null;
+  return b.kind === "image" ? `![${b.text}](${b.url})` : `[${b.text}](${b.url})`;
+}
 function mdFromSections(sections, student) {
   const lines = [`# Ficha de atleta — ${student?.name || "Sin nombre"}`, `_Exportada el ${fmtDate(todayISO())} desde FORJA_`, ""];
   sections.forEach((s) => {
     lines.push(`## ${s.title}`);
-    s.bullets.forEach((b) => lines.push(b.url ? `- [${b.text}](${b.url})` : `- ${b.text}`));
-    s.extra.forEach((b) => lines.push(b.url ? `  - 📎 [${b.text}](${b.url})` : `  > ${b.text}`));
+    s.bullets.forEach((b) => lines.push(b.url ? `- ${mdItem(b)}` : `- ${b.text}`));
+    s.extra.forEach((b) => lines.push(b.url ? `  - 📎 ${mdItem(b)}` : `  > ${b.text}`));
     lines.push("");
   });
   return lines.join("\n");
 }
 function fichaEsc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+// Una foto o video se incrusta de verdad (<img>/<video>) en vez de solo
+// enlazarse: un adjunto viejo guardado como dataURL (antes de que las
+// fotos también se subieran al bucket) no es un link que un clic pueda
+// "abrir" — los navegadores bloquean navegar a una data: URL —, pero sí
+// se puede mostrar incrustado. Un archivo (PDF, zip…) sí lleva
+// `download`: eso convierte el clic en "Guardar como" en vez de
+// navegación, así que abre igual aunque sea una data: URL.
+function attachHtml(b) {
+  if (!b.url) return `<div class="quote">${fichaEsc(b.text)}</div>`;
+  if (b.kind === "image") {
+    return `<a href="${fichaEsc(b.url)}" download="${fichaEsc(b.text)}"><img src="${fichaEsc(b.url)}" alt="${fichaEsc(b.text)}" style="max-width:260px;max-height:260px;border-radius:10px;display:block;margin:6px 0;object-fit:cover;" /></a>`;
+  }
+  if (b.kind === "video") {
+    return `<div style="margin:6px 0;">🎬 ${fichaEsc(b.text)}<br/><video src="${fichaEsc(b.url)}" controls style="max-width:320px;border-radius:10px;display:block;margin-top:4px;"></video></div>`;
+  }
+  return `<div style="margin:4px 0;">📎 <a href="${fichaEsc(b.url)}" download="${fichaEsc(b.text)}">${fichaEsc(b.text)}</a></div>`;
+}
 function htmlFromSections(sections, student) {
   const body = sections.map((s) => `
     <section>
       <h2>${fichaEsc(s.title)}</h2>
-      <ul>${s.bullets.map((b) => `<li>${b.url ? `<a href="${fichaEsc(b.url)}">${fichaEsc(b.text)}</a>` : fichaEsc(b.text)}</li>`).join("")}</ul>
-      ${s.extra.length ? `<div class="notas">${s.extra.map((b) => b.url ? `<div>📎 <a href="${fichaEsc(b.url)}">${fichaEsc(b.text)}</a></div>` : `<div class="quote">${fichaEsc(b.text)}</div>`).join("")}</div>` : ""}
+      <ul>${s.bullets.map((b) => `<li>${b.url ? attachHtml(b) : fichaEsc(b.text)}</li>`).join("")}</ul>
+      ${s.extra.length ? `<div class="notas">${s.extra.map((b) => attachHtml(b)).join("")}</div>` : ""}
     </section>`).join("\n");
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Ficha — ${fichaEsc(student?.name || "Atleta")}</title>
 <style>
