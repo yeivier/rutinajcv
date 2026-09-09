@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v251";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v252";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1700,6 +1700,8 @@ function deviceIdentities() {
   if (lsGetRaw("forja-owner-device")) migrated.push("owner");
   const delId = lsGetRaw("forja-delegate-device");
   if (delId) migrated.push(`delegate:${delId}`);
+  const teamId = lsGetRaw("forja-team-device");
+  if (teamId) migrated.push(`team:${teamId}`);
   return migrated;
 }
 function rememberDeviceIdentity(key) {
@@ -20409,16 +20411,65 @@ const RolePermissionsSheet = ({ role, onClose }) => {
   );
 };
 
-const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove }) => {
+const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove, onSaveCredentials }) => {
   const [name, setName] = useState("");
   const [role, setRole] = useState("coach_asistente");
+  const [user, setUser] = useState("");
+  const [clave, setClave] = useState("");
+  const [showPass, setShowPass] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const [openMember, setOpenMember] = useState(null); // team.members[i]
   const [permRole, setPermRole] = useState(null); // id de rol para ver su matriz
-  const add = () => {
+  // Edición de acceso (usuario/clave) del miembro abierto: `credEdit` abre
+  // el campo de "cambiar clave" cuando ya tiene usuario; con miembros
+  // viejos sin usuario (de antes de que esto existiera), el formulario de
+  // abajo pide los dos de una — no hay nada que "cambiar" todavía.
+  const [credEdit, setCredEdit] = useState(false);
+  const [credUser, setCredUser] = useState("");
+  const [credClave, setCredClave] = useState("");
+  useEffect(() => {
+    setCredEdit(false); setCredUser(""); setCredClave(""); setErr("");
+  }, [openMember && openMember.id]);
+  // Un usuario tiene que ser único en TODA la app — dueño, alumnos con
+  // acceso y equipo comparten el mismo login — si no, "usuario" ya no
+  // identifica a nadie en particular y el login de uno pisa al del otro.
+  const usuarioLibre = async (u, exceptoId) => {
+    const a = await loadAccess();
+    const ownerProf = a.profiles.find((p) => p.role === "owner");
+    const ownerUser = ownerProf ? ownerProf.user : OWNER_USER;
+    if (u === ownerUser) return false;
+    if (a.profiles.some((p) => p.user === u)) return false;
+    if (team.members.some((m) => m.user === u && m.id !== exceptoId)) return false;
+    return true;
+  };
+  const add = async () => {
     const n = name.trim();
-    if (!n) return;
-    onAdd({ id: uid(), name: n, role, addedAt: todayISO() });
-    setName(""); setRole("coach_asistente");
+    const u = user.trim().toLowerCase();
+    if (!n || !u || clave.length < 4) { setErr("Completá nombre, usuario y una clave de al menos 4 caracteres."); return; }
+    setBusy(true); setErr("");
+    if (!(await usuarioLibre(u))) { setErr("Ya existe un usuario con ese nombre."); setBusy(false); return; }
+    const passHash = await hashClave(clave);
+    onAdd({ id: uid(), name: n, role, user: u, passHash, addedAt: todayISO() });
+    setName(""); setUser(""); setClave(""); setRole("coach_asistente"); setBusy(false);
+  };
+  const crearAcceso = async () => {
+    const u = credUser.trim().toLowerCase();
+    if (!u || credClave.length < 4) { setErr("Completá usuario y una clave de al menos 4 caracteres."); return; }
+    setBusy(true); setErr("");
+    if (!(await usuarioLibre(u, openMember.id))) { setErr("Ya existe un usuario con ese nombre."); setBusy(false); return; }
+    const passHash = await hashClave(credClave);
+    onSaveCredentials(openMember.id, { user: u, passHash });
+    setOpenMember({ ...openMember, user: u, passHash });
+    setBusy(false); setCredUser(""); setCredClave("");
+  };
+  const guardarClave = async () => {
+    if (credClave.length < 4) { setErr("La clave nueva necesita al menos 4 caracteres."); return; }
+    setBusy(true); setErr("");
+    const passHash = await hashClave(credClave);
+    onSaveCredentials(openMember.id, { passHash });
+    setOpenMember({ ...openMember, passHash });
+    setBusy(false); setCredEdit(false); setCredClave("");
   };
   return (
     <Sheet open={open} onClose={onClose} title="Equipo" tall>
@@ -20456,14 +20507,28 @@ const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove }) => 
         <Card style={{ padding: 14 }}>
           <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>Agregar al equipo</div>
           <Inp value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" style={{ marginBottom: 8 }} />
-          <select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: "100%", padding: "9px 9px", fontSize: 14, marginBottom: 10 }}>
+          <select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: "100%", padding: "9px 9px", fontSize: 14, marginBottom: 8 }}>
             {ROLE_ORDER.map((r) => <option key={r} value={r}>{ROLE_META[r].label}</option>)}
           </select>
-          <Btn kind="ember" onClick={add} disabled={!name.trim()} style={{ width: "100%" }}><Plus size={15} /> Agregar</Btn>
+          <Inp value={user} autoCapitalize="none" autoCorrect="off" onChange={(e) => setUser(e.target.value)} placeholder="usuario para entrar" style={{ marginBottom: 8 }} />
+          <div style={{ position: "relative", marginBottom: 10 }}>
+            <Inp type={showPass ? "text" : "password"} value={clave} onChange={(e) => setClave(e.target.value)} placeholder="clave (mínimo 4 caracteres)" style={{ paddingRight: 40 }} />
+            <button type="button" onClick={() => setShowPass((v) => !v)} aria-label={showPass ? "Ocultar clave" : "Mostrar clave"}
+              style={{ position: "absolute", right: 2, top: "50%", transform: "translateY(-50%)", width: 34, height: 34,
+                display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, background: "none", border: "none" }}>
+              {showPass ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </div>
+          {err && <div style={{ fontSize: 13, color: P.red, marginBottom: 8 }}>{err}</div>}
+          <Btn kind="ember" onClick={add} disabled={busy || !name.trim() || !user.trim() || clave.length < 4} style={{ width: "100%" }}>
+            <Plus size={15} /> {busy ? "Agregando…" : "Agregar"}
+          </Btn>
         </Card>
 
         <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.4 }}>
-          FORJA no pide contraseña: la identidad se elige tocando un nombre, igual que con los alumnos.
+          Cada quien entra por el mismo link, con su propio usuario y clave — a diferencia de un alumno con acceso
+          (espacio propio y aislado), un miembro del equipo ve el roster real y puede editar según lo que le deje su
+          rol. Podés cambiarle la clave cuando quieras.
         </div>
       </div>
 
@@ -20479,6 +20544,45 @@ const EquipoSheet = ({ open, onClose, team, onAdd, onChangeRole, onRemove }) => 
             <SettingGroup>
               <SettingRow Icon={Lock} label="Ver permisos de este rol" onClick={() => setPermRole(openMember.role)} last />
             </SettingGroup>
+
+            {/* Usuario y clave para que esta persona entre por su cuenta —
+                miembros agregados antes de que esto existiera quedan sin
+                ninguno de los dos hasta que se les crea acá. */}
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, marginBottom: 8 }}>Acceso a la app</div>
+              <Card style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                {openMember.user ? (
+                  <>
+                    <div style={{ fontSize: 13.5, color: P.faint2 }}>usuario: <span style={{ color: P.text, fontWeight: 600 }}>{openMember.user}</span></div>
+                    {credEdit ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <Inp type="password" value={credClave} autoFocus onChange={(e) => setCredClave(e.target.value)} placeholder="clave nueva (mín. 4)"
+                          onKeyDown={(e) => { if (e.key === "Enter") guardarClave(); }} />
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <Btn kind="ember" small onClick={guardarClave} disabled={busy} style={{ flex: 1 }}>{busy ? "Guardando…" : "Guardar clave"}</Btn>
+                          <Btn kind="line" small onClick={() => { setCredEdit(false); setCredClave(""); setErr(""); }} style={{ flex: 1 }}>Cancelar</Btn>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setCredEdit(true); setCredClave(""); setErr(""); }} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: P.dim }}>
+                        <Lock size={13} /> Cambiar clave
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13, color: P.faint2, lineHeight: 1.4 }}>Todavía no tiene cómo entrar — creale un usuario y clave.</div>
+                    <Inp value={credUser} autoCapitalize="none" autoCorrect="off" onChange={(e) => setCredUser(e.target.value)} placeholder="usuario para entrar" />
+                    <Inp type="password" value={credClave} onChange={(e) => setCredClave(e.target.value)} placeholder="clave (mínimo 4 caracteres)" />
+                    <Btn kind="ember" small onClick={crearAcceso} disabled={busy || !credUser.trim() || credClave.length < 4} style={{ width: "100%" }}>
+                      {busy ? "Creando…" : "Crear acceso"}
+                    </Btn>
+                  </>
+                )}
+                {err && <div style={{ fontSize: 12.5, color: P.red }}>{err}</div>}
+              </Card>
+            </div>
+
             <Btn kind="line" onClick={() => { onRemove(openMember); setOpenMember(null); }} style={{ width: "100%", color: P.red }}>
               <Trash2 size={15} /> Quitar del equipo
             </Btn>
@@ -20960,6 +21064,8 @@ const App = () => {
     await openIdentity("alumno", prof.id, synth, null);
     // Marca LOCAL y persistente (no se sincroniza a Supabase: es de ESTE
     // dispositivo), para que la próxima vez entre directo a su perfil.
+    lsDelRaw("forja-owner-device");
+    lsDelRaw("forja-team-device");
     lsSetRaw("forja-delegate-device", prof.id);
     rememberDeviceIdentity(`delegate:${prof.id}`);
     // Registro de actividad: esta llamada cubre TANTO el login explícito
@@ -20982,9 +21088,28 @@ const App = () => {
     delegateSessionStartRef.current = null;
     setShowLogin(false);
     lsDelRaw("forja-delegate-device");
+    lsDelRaw("forja-team-device");
     lsSetRaw("forja-owner-device", "1");
     rememberDeviceIdentity("owner");
     await openIdentity("coach", rr.students[0]?.id, rr, null);
+  };
+  // Entrar como miembro del EQUIPO: igual que el dueño, la app completa
+  // con el roster real (no un espacio aislado como un perfil con
+  // acceso) — lo que ve y puede editar lo decide su rol (`ROLE_META`,
+  // vía `myTeamId`). Se recuerda en el dispositivo para no volver a
+  // pedir la clave hasta cerrar sesión, igual que el dueño.
+  const enterTeamMember = async (member, teamArg, rosterArg) => {
+    if (teamArg) setTeam(teamArg);
+    const rr = rosterArg || roster;
+    setDelegate(null);
+    delegateRef.current = null;
+    delegateSessionStartRef.current = null;
+    setShowLogin(false);
+    lsDelRaw("forja-delegate-device");
+    lsDelRaw("forja-owner-device");
+    lsSetRaw("forja-team-device", member.id);
+    rememberDeviceIdentity(`team:${member.id}`);
+    await openIdentity("coach", rr.students[0]?.id, rr, member.id);
   };
   const onLogin = async (user, clave) => {
     const u = String(user).trim().toLowerCase();
@@ -20997,6 +21122,17 @@ const App = () => {
     const ownerUser = ownerProf ? ownerProf.user : OWNER_USER;
     const ownerHash = ownerProf ? ownerProf.passHash : OWNER_HASH;
     if (u === ownerUser && h === ownerHash) { await enterOwner(); maybeOfferFaceId("owner", "Tú"); return null; }
+    // Equipo: coach con acceso a todo el roster real, según su rol — se
+    // lee `forja-team` fresco acá (no del estado, que puede no estar
+    // cargado todavía si este es el primer login en este dispositivo).
+    const t = await sGet("forja-team");
+    const teamMember = t && Array.isArray(t.members) ? t.members.find((m) => m.user && m.user === u) : null;
+    if (teamMember) {
+      if (h !== teamMember.passHash) return "Usuario o clave incorrectos.";
+      await enterTeamMember(teamMember, t);
+      maybeOfferFaceId(`team:${teamMember.id}`, teamMember.name);
+      return null;
+    }
     // Alumno: perfil con acceso creado por el dueño → espacio aislado.
     const prof = a.profiles.find((p) => p.user === u && p.role !== "owner");
     if (!prof || h !== prof.passHash) return "Usuario o clave incorrectos.";
@@ -21027,6 +21163,7 @@ const App = () => {
     closeCurrentSession();
     lsDelRaw("forja-delegate-device");
     lsDelRaw("forja-owner-device");
+    lsDelRaw("forja-team-device");
     forgetDeviceIdentities();
     setShowLogin(true);
   };
@@ -21050,6 +21187,15 @@ const App = () => {
     if (key === "owner") {
       if (faceIdEnabled("owner")) { setFaceLock({ who: "owner", label: "Bienvenido de nuevo", run: () => enterOwner() }); return; }
       await enterOwner(); maybeOfferFaceId("owner", "Tú"); return;
+    }
+    if (key.startsWith("team:")) {
+      const id = key.slice("team:".length);
+      const t = await sGet("forja-team");
+      const m = t && Array.isArray(t.members) ? t.members.find((x) => x.id === id) : null;
+      if (!m) { setShowLogin(true); return; } // lo sacaron del equipo justo ahora: a login normal
+      const who = `team:${m.id}`;
+      if (faceIdEnabled(who)) { setFaceLock({ who, label: `Hola, ${m.name}`, run: () => enterTeamMember(m, t) }); return; }
+      await enterTeamMember(m, t); maybeOfferFaceId(who, m.name); return;
     }
     const id = key.slice("delegate:".length);
     const a = await loadAccess();
@@ -21084,21 +21230,30 @@ const App = () => {
         const idents = deviceIdentities();
         if (idents.length >= 2) {
           const a = await loadAccess();
-          let hayRosterDueño = false;
-          if (idents.includes("owner")) {
+          // El dueño y cualquier miembro del EQUIPO ven el roster real (a
+          // diferencia de un perfil con acceso, que usa un espacio
+          // aislado) — se carga una sola vez si hace falta para alguno.
+          let hayRosterReal = false;
+          let teamData = null;
+          if (idents.includes("owner") || idents.some((k) => k.startsWith("team:"))) {
             const got = await sGetKnown("forja-roster");
             const r = got.value;
             if (r && r.v === ROSTER_VERSION && r.students && r.students.length > 0) {
-              hayRosterDueño = true;
+              hayRosterReal = true;
               setRoster(r);
-              const t = await sGet("forja-team"); if (t && Array.isArray(t.members)) setTeam(t);
+              const t = await sGet("forja-team"); if (t && Array.isArray(t.members)) { setTeam(t); teamData = t; }
               const lib = await sGet("forja-library"); if (lib && Array.isArray(lib.exercises)) setLibrary(lib.exercises);
               const bk = await sGet("forja-bookings"); if (bk && Array.isArray(bk.slots)) setBookings({ slots: bk.slots });
               const av = await sGet("forja-availability"); if (av) setAvailability((x) => ({ ...x, ...av }));
             }
           }
           const items = idents.map((key) => {
-            if (key === "owner") return hayRosterDueño ? { key, name: "Coach", isOwner: true } : null;
+            if (key === "owner") return hayRosterReal ? { key, name: "Coach", isOwner: true } : null;
+            if (key.startsWith("team:")) {
+              if (!hayRosterReal || !teamData) return null;
+              const m = teamData.members.find((x) => x.id === key.slice("team:".length));
+              return m ? { key, name: m.name, isOwner: false } : null;
+            }
             const prof = a.profiles.find((p) => p.id === key.slice("delegate:".length));
             return prof ? { key, name: prof.name, isOwner: false } : null;
           }).filter(Boolean);
@@ -21106,8 +21261,8 @@ const App = () => {
             setIdentityPicker(items); setLoading(false); aSalvo(); return;
           }
           // Se depuró a menos de 2 items reales (un perfil borrado, o sin
-          // señal para el roster del dueño): sigue el flujo normal de
-          // abajo, que resuelve solo con lo que sí tiene.
+          // señal para el roster real): sigue el flujo normal de abajo,
+          // que resuelve solo con lo que sí tiene.
         }
         // Si este dispositivo ya entró con un perfil con acceso, va directo a
         // ese espacio aislado — nunca ve el roster del dueño.
@@ -21175,6 +21330,24 @@ const App = () => {
             setLoading(false); aSalvo(); return;
           }
           await enterOwner(r); maybeOfferFaceId("owner", "Tú"); aSalvo(); return;
+        }
+        // Mismo trato para un miembro del EQUIPO recordado en este
+        // dispositivo — entra directo con acceso al roster real, según
+        // lo que le deje su rol.
+        const teamDevId = lsGetRaw("forja-team-device");
+        if (teamDevId) {
+          const m = t && Array.isArray(t.members) ? t.members.find((x) => x.id === teamDevId) : null;
+          if (m) {
+            const who = `team:${m.id}`;
+            if (faceIdEnabled(who)) {
+              setFaceLock({ who, label: `Hola, ${m.name}`, run: () => enterTeamMember(m, t, r) });
+              setLoading(false); aSalvo(); return;
+            }
+            await enterTeamMember(m, t, r); maybeOfferFaceId(who, m.name); aSalvo(); return;
+          }
+          // Lo sacaron del equipo desde otro lado: a la pantalla de login.
+          lsDelRaw("forja-team-device");
+          setShowLogin(true); setLoading(false); aSalvo(); return;
         }
         setShowLogin(true); setLoading(false); aSalvo();
       } catch (e) {
@@ -21686,7 +21859,7 @@ const App = () => {
         onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
         onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
         onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }}
-        faceIdWho={delegate ? delegate.id : "owner"}
+        faceIdWho={delegate ? delegate.id : myTeamId ? `team:${myTeamId}` : "owner"}
         onOpenFicha={() => { setMoreOpen(false); setFichaOpen(true); }} />
       <FichaSheet open={fichaOpen} onClose={() => setFichaOpen(false)} plan={plan} savePlan={savePlan}
         history={history} currentStudent={currentStudent} toast={toast} />
@@ -21699,6 +21872,7 @@ const App = () => {
       <EquipoSheet open={equipoOpen} onClose={() => setEquipoOpen(false)} team={team}
         onAdd={(member) => { const t = { members: [...team.members, member] }; setTeam(t); sSet("forja-team", t); }}
         onChangeRole={(id, role) => { const t = { members: team.members.map((m) => m.id === id ? { ...m, role } : m) }; setTeam(t); sSet("forja-team", t); }}
+        onSaveCredentials={(id, patch) => { const t = { members: team.members.map((m) => m.id === id ? { ...m, ...patch } : m) }; setTeam(t); sSet("forja-team", t); }}
         onRemove={(m) => { const t = { members: team.members.filter((x) => x.id !== m.id) }; setTeam(t); sSet("forja-team", t);
           if (myTeamId === m.id) setMyTeamId(null); }} />
       <Confirm open={!!confirmDel} danger title="Eliminar alumno"
