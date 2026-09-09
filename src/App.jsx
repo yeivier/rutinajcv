@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v252";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v253";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -20029,7 +20029,7 @@ const Gate = ({ roster, team, onEnter, onEnterTeam, onAdd, onLogin, startLogin }
 
 /* Gestión de perfiles con acceso — el dueño crea/borra los usuarios a los
    que les delega la app. Ver hashClave/loadAccess arriba. */
-const AccessProfilesSheet = ({ open, onClose }) => {
+const AccessProfilesSheet = ({ open, onClose, onEnterAs }) => {
   const [profiles, setProfiles] = useState([]);   // solo alumnos
   const [ownerProf, setOwnerProf] = useState(null); // perfil dueño guardado (o null = usa la constante)
   const [nombre, setNombre] = useState("");
@@ -20041,6 +20041,25 @@ const AccessProfilesSheet = ({ open, onClose }) => {
   // campo abierto; `newClave` lo que se escribe.
   const [editId, setEditId] = useState(null);
   const [newClave, setNewClave] = useState("");
+  // Cambio de USUARIO inline — mismo patrón que la clave, pero en su
+  // propio estado (independiente): así se puede editar uno sin cerrar el
+  // otro, y nunca aparecen los dos formularios abiertos en la misma
+  // tarjeta a la vez (se controla al armar la fila de acciones).
+  const [editUserId, setEditUserId] = useState(null);
+  const [newUser, setNewUser] = useState("");
+  // El usuario es único en TODA la app — dueño, alumnos con acceso y
+  // equipo comparten el mismo login — si no, un usuario repetido ya no
+  // identifica a nadie en particular y el login de uno pisa al de otro.
+  const usuarioLibre = async (u, { exceptoOwner, exceptoProfileId } = {}) => {
+    const a = await loadAccess();
+    const op = a.profiles.find((p) => p.role === "owner");
+    const ownerUserVal = op ? op.user : OWNER_USER;
+    if (!exceptoOwner && u === ownerUserVal) return false;
+    if (a.profiles.some((p) => p.role !== "owner" && p.user === u && p.id !== exceptoProfileId)) return false;
+    const t = await sGet("forja-team");
+    if (t && Array.isArray(t.members) && t.members.some((m) => m.user === u)) return false;
+    return true;
+  };
   // Actividad de un perfil con acceso: estos espacios NO viven en
   // roster.students (son aislados), así que no aparecen en Atletas →
   // Actividad — acá es donde el dueño puede revisar el detalle de
@@ -20058,13 +20077,13 @@ const AccessProfilesSheet = ({ open, onClose }) => {
     setProfiles(a.profiles.filter((p) => p.role !== "owner"));
     setOwnerProf(a.profiles.find((p) => p.role === "owner") || null);
   };
-  useEffect(() => { if (open) { refresh(); setNombre(""); setUser(""); setClave(""); setErr(""); setEditId(null); setNewClave(""); } }, [open]);
+  useEffect(() => { if (open) { refresh(); setNombre(""); setUser(""); setClave(""); setErr(""); setEditId(null); setNewClave(""); setEditUserId(null); setNewUser(""); } }, [open]);
   const crear = async () => {
     const n = nombre.trim(), u = user.trim().toLowerCase();
     if (!n || !u || clave.length < 4) { setErr("Completá nombre, usuario y una clave de al menos 4 caracteres."); return; }
     setBusy(true); setErr("");
+    if (!(await usuarioLibre(u))) { setErr("Ya existe un usuario con ese nombre."); setBusy(false); return; }
     const a = await loadAccess();
-    if (a.profiles.some((p) => p.user === u)) { setErr("Ya existe un perfil con ese usuario."); setBusy(false); return; }
     const passHash = await hashClave(clave);
     a.profiles = [...a.profiles, { id: "acc_" + uid(), user: u, passHash, name: n, role: "alumno", createdAt: todayISO() }];
     await saveAccess(a);
@@ -20095,7 +20114,45 @@ const AccessProfilesSheet = ({ open, onClose }) => {
     await saveAccess(a);
     setBusy(false); setEditId(null); setNewClave(""); refresh();
   };
+  // Cambiar el USUARIO de un alumno (target = id) o el del dueño
+  // (target = "owner") — antes no se podía editar una vez creado, solo
+  // la clave. Mismo patrón: si el dueño todavía no tiene perfil guardado
+  // (usa la constante del código), este cambio lo crea recién acá.
+  const cambiarUsuario = async (target) => {
+    const u = newUser.trim().toLowerCase();
+    if (!u) { setErr("Escribe un usuario."); return; }
+    setBusy(true); setErr("");
+    const libre = target === "owner" ? await usuarioLibre(u, { exceptoOwner: true }) : await usuarioLibre(u, { exceptoProfileId: target });
+    if (!libre) { setErr("Ya existe un usuario con ese nombre."); setBusy(false); return; }
+    const a = await loadAccess();
+    if (target === "owner") {
+      const op = a.profiles.find((p) => p.role === "owner");
+      if (op) op.user = u;
+      else a.profiles = [{ id: "owner_root", user: u, name: "Javier", role: "owner", createdAt: todayISO(), passHash: OWNER_HASH }, ...a.profiles];
+    } else {
+      const p = a.profiles.find((x) => x.id === target);
+      if (p) p.user = u;
+    }
+    await saveAccess(a);
+    setBusy(false); setEditUserId(null); setNewUser(""); refresh();
+  };
   const ownerUser = ownerProf ? ownerProf.user : OWNER_USER;
+  const cambiaUsuarioUI = (target, currentUser) => (
+    editUserId === target ? (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+        <Inp value={newUser} autoCapitalize="none" autoCorrect="off" autoFocus onChange={(e) => setNewUser(e.target.value)} placeholder="usuario nuevo"
+          onKeyDown={(e) => { if (e.key === "Enter") cambiarUsuario(target); }} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn kind="ember" small onClick={() => cambiarUsuario(target)} disabled={busy} style={{ flex: 1 }}>{busy ? "Guardando…" : "Guardar usuario"}</Btn>
+          <Btn kind="line" small onClick={() => { setEditUserId(null); setNewUser(""); setErr(""); }} style={{ flex: 1 }}>Cancelar</Btn>
+        </div>
+      </div>
+    ) : (
+      <button onClick={() => { setEditUserId(target); setNewUser(currentUser); setErr(""); }} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: P.dim, flexShrink: 0 }}>
+        <PencilLine size={13} /> Cambiar usuario
+      </button>
+    )
+  );
   const cambiaClaveUI = (target) => (
     editId === target ? (
       <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
@@ -20119,8 +20176,9 @@ const AccessProfilesSheet = ({ open, onClose }) => {
           Creá un usuario y clave para darle acceso a otra persona. Entra por el mismo link con su
           usuario y clave, a un espacio propio y vacío: sus rutinas, su IA y su progreso. Solo entra
           a su <b>modo alumno</b> — no ve tus datos ni los de otros alumnos, no puede pasar a coach
-          ni gestionar nada. Podés <b>cambiar la clave</b> de cualquiera (y la tuya) cuando quieras.
-          Es un candado de la app, no de nivel bancario.
+          ni gestionar nada. Podés <b>cambiar el usuario y la clave</b> de cualquiera (y los tuyos)
+          cuando quieras, y <b>entrar directo</b> a cualquier perfil para ver exactamente lo que esa
+          persona ve, sin necesitar su clave. Es un candado de la app, no de nivel bancario.
         </div>
 
         {/* Tu propia cuenta de dueño: cambiar tu clave sin tocar código.
@@ -20138,7 +20196,12 @@ const AccessProfilesSheet = ({ open, onClose }) => {
                 <div style={{ fontSize: 12.5, color: P.faint2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>usuario: {ownerUser}</div>
               </div>
             </div>
-            {cambiaClaveUI("owner")}
+            {editUserId === "owner" ? cambiaUsuarioUI("owner", ownerUser) : editId === "owner" ? cambiaClaveUI("owner") : (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {cambiaUsuarioUI("owner", ownerUser)}
+                {cambiaClaveUI("owner")}
+              </div>
+            )}
           </Card>
         </div>
 
@@ -20168,11 +20231,21 @@ const AccessProfilesSheet = ({ open, onClose }) => {
                     <div style={{ fontSize: 12.5, color: P.faint2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>usuario: {p.user}</div>
                   </div>
                 </div>
-                {editId === p.id ? cambiaClaveUI(p.id) : (
+                {editId === p.id ? cambiaClaveUI(p.id) : editUserId === p.id ? cambiaUsuarioUI(p.id, p.user) : (
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    {/* Entra directo a este perfil — el mismo espacio aislado
+                        que ve esa persona, sin necesitar su clave: el dueño
+                        ya tiene autoridad sobre él. Deja la app en esa
+                        identidad (se puede volver con "Cambiar de cuenta"
+                        en Más, sin perder lo que ya está recordado en este
+                        dispositivo). */}
+                    <button onClick={() => onEnterAs(p)} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: P.ember2 }}>
+                      <LogIn size={13} /> Entrar como {p.name.split(" ")[0]}
+                    </button>
                     <button onClick={() => abrirActividad(p)} disabled={loadingActivity} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: P.dim }}>
                       <History size={13} /> Actividad
                     </button>
+                    {cambiaUsuarioUI(p.id, p.user)}
                     {cambiaClaveUI(p.id)}
                     <button onClick={() => borrar(p.id)} aria-label={`Borrar el perfil de ${p.name}`} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: P.red, marginLeft: "auto" }}>
                       <Trash2 size={13} /> Eliminar
@@ -21844,7 +21917,8 @@ const App = () => {
 
       {compareOpen && <RoutineCompareScreen onClose={() => setCompareOpen(false)} plan={plan} />}
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
-      <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)} />
+      <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)}
+        onEnterAs={(prof) => { setAccessOpen(false); enterDelegate(prof); }} />
       <FaceIdOfferSheet offer={faceOffer} onClose={() => setFaceOffer(null)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode} isDelegate={!!delegate}
         studentName={identityName} managedStudentName={currentStudent?.name}
