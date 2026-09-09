@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v248";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v249";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4611,7 +4611,7 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", captu
    app Archivos, se entra a la carpeta y se usa "Elegir todo" — manda
    cada archivo suyo en la misma tanda. Mismo almacenamiento que
    AttachButton (`attach:<id>`), así que AttachThumb los muestra igual. */
-const MultiAttachButton = ({ onAttached, onError, label = "Adjuntar", accept, small }) => {
+const MultiAttachButton = ({ onAttached, onError, label = "Adjuntar", accept, small, style }) => {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const guardarUno = async (f) => {
@@ -4653,7 +4653,7 @@ const MultiAttachButton = ({ onAttached, onError, label = "Adjuntar", accept, sm
           if (ids.length) onAttached(ids);
           setBusy(false);
         }} />
-      <Btn kind="line" small={small} disabled={busy} onClick={() => ref.current && ref.current.click()}>
+      <Btn kind="line" small={small} disabled={busy} onClick={() => ref.current && ref.current.click()} style={style}>
         <Paperclip size={13} /> {busy ? "Subiendo…" : label}
       </Btn>
     </>
@@ -4680,9 +4680,9 @@ const SectionNotes = ({ value, onChange, toast, label = "Comentarios y observaci
           {v.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={setViewImg} onRemove={() => removeId(id)} size={58} />)}
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <MultiAttachButton label="Fotos/videos" accept="image/*,video/*" onAttached={addIds} onError={err} small />
-        <MultiAttachButton label="Archivos (PDF, zip…)" accept="*/*" onAttached={addIds} onError={err} small />
+      <div style={{ display: "flex", gap: 8 }}>
+        <MultiAttachButton label="Fotos/videos" accept="image/*,video/*" onAttached={addIds} onError={err} small style={{ flex: 1 }} />
+        <MultiAttachButton label="Archivos (PDF, zip…)" accept="*/*" onAttached={addIds} onError={err} small style={{ flex: 1 }} />
       </div>
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
@@ -14476,11 +14476,17 @@ const FichaAttachRow = ({ ids, onChange, toast, label }) => {
           {ids.map((id) => <AttachThumb key={id} id={id} size={44} onOpen={setViewImg} onRemove={() => remove(id)} />)}
         </div>
       )}
-      <MultiAttachButton label={label} accept="*/*" onAttached={add} onError={(m) => toast && toast(m)} small />
+      <MultiAttachButton label={label} accept="*/*" onAttached={add} onError={(m) => toast && toast(m)} small style={{ width: "100%" }} />
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
   );
 };
+
+// Columna de ancho igual dentro de una fila de campos — sin esto, cada
+// <Field> se angosta o ensancha según lo largo de su propio texto (la
+// etiqueta o el control nativo), y las columnas quedan disparejas,
+// apretadas o con el texto cortado.
+const FCol = ({ children }) => <div style={{ flex: 1, minWidth: 0 }}>{children}</div>;
 
 // Envoltorio de cada sección: título + reordenar (subir/bajar) +
 // contenido + comentarios/adjuntos finales (salvo Check-in, que trae
@@ -14846,49 +14852,50 @@ const FichaCompleta = ({ plan, savePlan, history, currentStudent, toast }) => {
         notes={ficha.notes[id]} onNotesChange={(v) => setNote(id, v)} toast={toast}>
         {id === "datos" && (
           <>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Field label="Sexo"><select value={a.sex} onChange={(e) => setA("sex", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
+            <div style={{ display: "flex", gap: 10 }}>
+              <FCol><Field label="Sexo"><select value={a.sex} onChange={(e) => setA("sex", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
                 <option value="">—</option><option value="hombre">Hombre</option><option value="mujer">Mujer</option>
-              </select></Field>
-              <Field label="Fecha de nacimiento"><Inp type="date" value={a.birthDate} onChange={(e) => setA("birthDate", e.target.value)} /></Field>
-              <Field label="Edad">
+              </select></Field></FCol>
+              <FCol><Field label="Edad">
                 <Inp value={a.birthDate ? String(calcAge(a.birthDate)) : a.age} disabled={!!a.birthDate}
-                  onChange={(e) => setA("age", e.target.value)} placeholder="27" />
-              </Field>
+                  onChange={(e) => setA("age", e.target.value)} placeholder="27"
+                  style={a.birthDate ? { color: P.text, WebkitTextFillColor: P.text, opacity: 1 } : undefined} />
+              </Field></FCol>
             </div>
+            <Field label="Fecha de nacimiento"><Inp type="date" value={a.birthDate} onChange={(e) => setA("birthDate", e.target.value)} /></Field>
             <Field label="Estatura (cm)"><Inp value={a.height} onChange={(e) => setA("height", e.target.value)} placeholder="177" /></Field>
 
-            <Card style={{ padding: 12, marginBottom: 10, background: P.s2 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <Card style={{ padding: 14, marginBottom: 10, background: P.s2 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>Peso</div>
                 <div style={{ fontSize: 12, color: P.faint }}>
                   {a.weightDate ? `Registrado ${fmtDate(a.weightDate)}` : lastBW ? `Detectado en check-in: ${fmtDate(lastBW.date)}` : "Sin registro"}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Field label="Kg"><Inp value={a.weight} onChange={(e) => setA("weight", e.target.value)} placeholder={lastBW ? String(lastBW.kg) : "90"} /></Field>
-                <Field label="Fecha"><Inp type="date" value={a.weightDate} onChange={(e) => setA("weightDate", e.target.value)} /></Field>
+              <div style={{ display: "flex", gap: 10 }}>
+                <FCol><Field label="Kg"><Inp value={a.weight} onChange={(e) => setA("weight", e.target.value)} placeholder={lastBW ? String(lastBW.kg) : "90"} /></Field></FCol>
+                <FCol><Field label="Fecha"><Inp type="date" value={a.weightDate} onChange={(e) => setA("weightDate", e.target.value)} /></Field></FCol>
               </div>
               <FichaAttachRow ids={a.weightAttachIds || []} onChange={(ids) => setA("weightAttachIds", ids)} toast={toast} label="Adjuntar registro de pesos" />
             </Card>
 
-            <Card style={{ padding: 12, marginBottom: 10, background: P.s2 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <Card style={{ padding: 14, marginBottom: 10, background: P.s2 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>% graso</div>
                 <div style={{ fontSize: 12, color: P.faint }}>{a.bfDate ? `Registrado ${fmtDate(a.bfDate)}` : "Sin registro"}</div>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Field label="%"><Inp value={a.bf} onChange={(e) => setA("bf", e.target.value)} placeholder="14" /></Field>
-                <Field label="Fecha"><Inp type="date" value={a.bfDate} onChange={(e) => setA("bfDate", e.target.value)} /></Field>
+              <div style={{ display: "flex", gap: 10 }}>
+                <FCol><Field label="%"><Inp value={a.bf} onChange={(e) => setA("bf", e.target.value)} placeholder="14" /></Field></FCol>
+                <FCol><Field label="Fecha"><Inp type="date" value={a.bfDate} onChange={(e) => setA("bfDate", e.target.value)} /></Field></FCol>
               </div>
               <FichaAttachRow ids={a.bfAttachIds || []} onChange={(ids) => setA("bfAttachIds", ids)} toast={toast} label="Adjuntar registro (DEXA, planilla…)" />
             </Card>
 
-            <div style={{ display: "flex", gap: 8 }}>
-              <Field label="Años entrenando"><Inp value={a.years} onChange={(e) => setA("years", e.target.value)} placeholder="5" /></Field>
-              <Field label="Meses"><Inp value={a.trainingMonths} onChange={(e) => setA("trainingMonths", e.target.value)} placeholder="6" /></Field>
-              <Field label="Desde"><Inp type="date" value={a.trainingStart} onChange={(e) => setA("trainingStart", e.target.value)} /></Field>
+            <div style={{ display: "flex", gap: 10 }}>
+              <FCol><Field label="Años"><Inp value={a.years} onChange={(e) => setA("years", e.target.value)} placeholder="5" /></Field></FCol>
+              <FCol><Field label="Meses"><Inp value={a.trainingMonths} onChange={(e) => setA("trainingMonths", e.target.value)} placeholder="6" /></Field></FCol>
             </div>
+            <Field label="Entrena desde (opcional)"><Inp type="date" value={a.trainingStart} onChange={(e) => setA("trainingStart", e.target.value)} /></Field>
             <Field label="Nivel"><select value={a.level} onChange={(e) => setA("level", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
               <option value="principiante">Principiante</option><option value="intermedio">Intermedio</option>
               <option value="avanzado">Avanzado</option><option value="competidor">Competidor</option>
@@ -14954,10 +14961,8 @@ const FichaCompleta = ({ plan, savePlan, history, currentStudent, toast }) => {
 
         {id === "contexto" && (
           <>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Field label="Días disponibles"><Inp value={a.daysWeek} onChange={(e) => setA("daysWeek", e.target.value)} placeholder="5" /></Field>
-              <Field label="Tiempo disponible por sesión"><Inp value={a.sessionMin} onChange={(e) => setA("sessionMin", e.target.value)} placeholder="75 min" /></Field>
-            </div>
+            <Field label="Días disponibles"><Inp value={a.daysWeek} onChange={(e) => setA("daysWeek", e.target.value)} placeholder="5" /></Field>
+            <Field label="Tiempo disponible por sesión"><Inp value={a.sessionMin} onChange={(e) => setA("sessionMin", e.target.value)} placeholder="75 min" /></Field>
             <Field label="Lesiones o molestias"><Txt rows={2} value={a.injuries} onChange={(e) => setA("injuries", e.target.value)} placeholder="Sin límite." /></Field>
             <Field label="Equipamiento disponible"><Txt rows={2} value={a.equipment} onChange={(e) => setA("equipment", e.target.value)} placeholder="Sin límite." /></Field>
             <Field label="Notas del coach"><Txt rows={3} value={a.notes} onChange={(e) => setA("notes", e.target.value)} placeholder="Sin límite." /></Field>
