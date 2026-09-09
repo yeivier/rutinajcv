@@ -7,7 +7,8 @@ import {
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText,
-  UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace
+  UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, Pill,
+  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal
 } from "lucide-react";
 
 /* ============================================================
@@ -16,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v247";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v248";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2948,6 +2949,51 @@ const emptyAthlete = () => ({
   sex: "", age: "", height: "", weight: "", bf: "", years: "", level: "intermedio",
   phase: "volumen", category: "", compDate: "", weakPoints: [], injuries: "",
   daysWeek: "", sessionMin: "", equipment: "", notes: "", enhanced: "natural",
+  // Campos de la Ficha completa (v247+) — se suman sin tocar los de
+  // arriba, que ya viajan al agente IA tal cual. birthDate/weightDate/
+  // bfDate/trainingStart quedan vacíos por defecto: "sin dato", nunca
+  // "0" ni una fecha inventada.
+  birthDate: "", weightDate: "", bfDate: "",
+  trainingStart: "", trainingMonths: "",
+  illnesses: "", categories: [], compStatus: "fecha", // "fecha" | "por_definir" | "sin_intencion"
+  weakPointsDetail: "",
+});
+
+/* ---- Ficha completa del atleta (nivel profesional) ----
+   Vive aparte del plan, en `forja-ficha:<id>`: es el historial y el
+   expediente de la persona, no algo que deba borrarse o reescribirse al
+   vaciar o reimportar una rutina. Cada sección tiene su propio texto
+   libre (sin límite de extensión, acepta números con coma o punto igual
+   que texto — son campos de texto, no <input type="number">) y su
+   propio "comentarios y adjuntos": una nota final más archivos de
+   cualquier tipo (fotos, videos, PDF, zip…), reusando el mismo
+   almacenamiento (`attach:<id>`) que ya usa el resto de la app. */
+const FICHA_SECTIONS = [
+  { id: "datos", label: "Datos básicos", Icon: UserPlus },
+  { id: "suplementacion", label: "Suplementación", Icon: Pill },
+  { id: "objetivo", label: "Objetivo", Icon: Trophy },
+  { id: "puntosDebiles", label: "Puntos débiles", Icon: AlertTriangle },
+  { id: "contexto", label: "Contexto y limitaciones", Icon: ClipboardList },
+  { id: "preferencias", label: "Preferencias y sensaciones", Icon: Smile },
+  { id: "historial", label: "Historial de entrenamiento", Icon: History },
+  { id: "analiticas", label: "Analíticas", Icon: BarChart3 },
+  { id: "nutricion", label: "Nutrición actual", Icon: Utensils },
+  { id: "checkin", label: "Check-in", Icon: HeartPulse },
+];
+const CHECKIN_NOTE_KEYS = ["peso", "sueno", "pasos", "sensaciones", "medidas", "fotos"];
+const emptySectionNote = () => ({ note: "", attachIds: [] });
+const emptyFicha = () => ({
+  v: 1,
+  order: FICHA_SECTIONS.map((s) => s.id),
+  notes: Object.fromEntries(FICHA_SECTIONS.map((s) => [s.id, emptySectionNote()])),
+  // Texto libre de las secciones que no tienen campos propios en
+  // `plan.athlete` (Datos básicos, Objetivo, Puntos débiles y Contexto sí
+  // los tienen — viven ahí desde antes, así el agente IA los sigue leyendo).
+  free: { suplementacion: "", preferencias: "", historial: "", analiticas: "", nutricion: "" },
+  // Check-in: un comentario+adjuntos POR MÉTRICA (peso, sueño, pasos…),
+  // aparte del comentario general de la sección — el dato en sí se lee
+  // en vivo de `history`, nunca se duplica acá.
+  checkinNotes: Object.fromEntries(CHECKIN_NOTE_KEYS.map((k) => [k, emptySectionNote()])),
 });
 
 /* Convierte los días que devuelve la IA (o el importador) al formato interno del plan */
@@ -4554,6 +4600,92 @@ const AttachButton = ({ onAttached, onAdd, onError, label, mode = "photo", captu
         </Btn>
       )}
     </>
+  );
+};
+
+/* Adjuntar VARIOS archivos de un tirón — a diferencia de AttachButton
+   (uno por toque, para no arriesgar nada de lo que ya lo usa en otras
+   partes), acá el selector nativo deja elegir varios juntos. Es lo más
+   parecido a "adjuntar una carpeta" que hay sin depender de que el
+   navegador soporte elegir carpetas (iOS Safari no lo soporta): en la
+   app Archivos, se entra a la carpeta y se usa "Elegir todo" — manda
+   cada archivo suyo en la misma tanda. Mismo almacenamiento que
+   AttachButton (`attach:<id>`), así que AttachThumb los muestra igual. */
+const MultiAttachButton = ({ onAttached, onError, label = "Adjuntar", accept, small }) => {
+  const ref = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const guardarUno = async (f) => {
+    const id = uid();
+    if (f.type && f.type.startsWith("video")) {
+      if (f.size > MAX_VIDEO_BYTES) throw new Error(`"${f.name}" pesa ${(f.size / 1048576).toFixed(1)} MB — el máximo para video es 50 MB.`);
+      const objUrl = URL.createObjectURL(f);
+      const poster = await videoPoster(objUrl);
+      let src = null;
+      try { src = await uploadToBucket(f); }
+      catch { if (f.size > 3.5 * 1024 * 1024) { URL.revokeObjectURL(objUrl); throw new Error(`No se pudo subir "${f.name}". Revisa la conexión.`); } src = await readFileDataUrl(f); }
+      URL.revokeObjectURL(objUrl);
+      await sSet(`attach:${id}`, { dataUrl: src, poster, kind: "video", date: todayISO() });
+    } else if (f.type && f.type.startsWith("image")) {
+      const dataUrl = await compressImage(f);
+      await sSet(`attach:${id}`, { dataUrl, kind: "image", date: todayISO() });
+    } else {
+      if (f.size > MAX_FILE_BYTES) throw new Error(`"${f.name}" pesa ${(f.size / 1048576).toFixed(1)} MB — el máximo por archivo es 25 MB.`);
+      let src = null;
+      try { src = await uploadToBucket(f); }
+      catch { if (f.size > 3.5 * 1024 * 1024) throw new Error(`No se pudo subir "${f.name}". Revisa la conexión.`); src = await readFileDataUrl(f); }
+      await sSet(`attach:${id}`, { dataUrl: src, kind: "file", name: f.name || "Archivo", mime: f.type || "", date: todayISO() });
+    }
+    return id;
+  };
+  return (
+    <>
+      <input ref={ref} type="file" multiple accept={accept} style={{ display: "none" }}
+        onChange={async (e) => {
+          const files = Array.from(e.target.files || []);
+          e.target.value = "";
+          if (!files.length) return;
+          setBusy(true);
+          const ids = [];
+          for (const f of files) {
+            try { ids.push(await guardarUno(f)); }
+            catch (err) { onError && onError(err.message); }
+          }
+          if (ids.length) onAttached(ids);
+          setBusy(false);
+        }} />
+      <Btn kind="line" small={small} disabled={busy} onClick={() => ref.current && ref.current.click()}>
+        <Paperclip size={13} /> {busy ? "Subiendo…" : label}
+      </Btn>
+    </>
+  );
+};
+
+/* Comentarios y adjuntos al pie de cada sección de la Ficha — sin
+   límite de extensión (textarea común, no numérico) y con fotos, videos
+   y archivos de cualquier tipo juntos en una sola fila de miniaturas. */
+const SectionNotes = ({ value, onChange, toast, label = "Comentarios y observaciones" }) => {
+  const v = value && typeof value === "object" ? value : emptySectionNote();
+  const [viewImg, setViewImg] = useState(null);
+  const addIds = (ids) => onChange({ ...v, attachIds: [...(v.attachIds || []), ...ids] });
+  const removeId = (id) => onChange({ ...v, attachIds: (v.attachIds || []).filter((x) => x !== id) });
+  const err = (msg) => toast && toast(msg);
+  return (
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
+      <Field label={label}>
+        <Txt rows={2} value={v.note} onChange={(e) => onChange({ ...v, note: e.target.value })}
+          placeholder="Sin límite — todo lo que haga falta." />
+      </Field>
+      {(v.attachIds || []).length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+          {v.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={setViewImg} onRemove={() => removeId(id)} size={58} />)}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <MultiAttachButton label="Fotos/videos" accept="image/*,video/*" onAttached={addIds} onError={err} small />
+        <MultiAttachButton label="Archivos (PDF, zip…)" accept="*/*" onAttached={addIds} onError={err} small />
+      </div>
+      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
+    </div>
   );
 };
 
@@ -14311,95 +14443,571 @@ ${ctx}`;
 }
 
 /* ---- Ficha del atleta ---- */
-const AthleteForm = ({ plan, savePlan }) => {
+/* ============================================================
+   Ficha completa del atleta — nivel profesional / competidor.
+   Reemplaza al viejo AthleteForm (solo Datos/Objetivo/Contexto, sin
+   comentarios ni adjuntos): mismos campos de siempre —viven en
+   plan.athlete, el agente IA los sigue leyendo tal cual— más todo lo
+   nuevo (fechas, adjuntos por campo, secciones libres, check-in en
+   vivo) en `forja-ficha:<id>`, aparte, para no arriesgar nada de lo que
+   ya depende de plan.athlete. Reordenable, exportable y compartible.
+   ============================================================ */
+function calcAge(birthISO) {
+  if (!birthISO) return "";
+  const b = new Date(birthISO);
+  if (isNaN(b.getTime())) return "";
+  const t = new Date();
+  let age = t.getFullYear() - b.getFullYear();
+  const m = t.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && t.getDate() < b.getDate())) age--;
+  return age >= 0 ? age : "";
+}
+
+// Adjuntos propios de UN campo puntual (peso, % graso…), aparte de los
+// "comentarios y adjuntos" generales de toda la sección.
+const FichaAttachRow = ({ ids, onChange, toast, label }) => {
+  const [viewImg, setViewImg] = useState(null);
+  const add = (newIds) => onChange([...(ids || []), ...newIds]);
+  const remove = (id) => onChange((ids || []).filter((x) => x !== id));
+  return (
+    <div style={{ marginTop: 8 }}>
+      {(ids || []).length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {ids.map((id) => <AttachThumb key={id} id={id} size={44} onOpen={setViewImg} onRemove={() => remove(id)} />)}
+        </div>
+      )}
+      <MultiAttachButton label={label} accept="*/*" onAttached={add} onError={(m) => toast && toast(m)} small />
+      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
+    </div>
+  );
+};
+
+// Envoltorio de cada sección: título + reordenar (subir/bajar) +
+// contenido + comentarios/adjuntos finales (salvo Check-in, que trae
+// los suyos propios por métrica).
+const FichaSectionShell = ({ id, label, Icon, order, onMove, children, notes, onNotesChange, toast, noNotes }) => {
+  const idx = order.indexOf(id);
+  return (
+    <Card style={{ padding: "16px 16px 14px", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <span style={{ width: 30, height: 30, borderRadius: 9, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Icon size={15} color={P.text} />
+        </span>
+        <div style={{ fontSize: 16, fontWeight: 700, flex: 1 }}>{label}</div>
+        <div style={{ display: "flex", gap: 2 }}>
+          <button onClick={() => onMove(id, -1)} disabled={idx === 0} aria-label={`Subir ${label}`}
+            style={{ width: 26, height: 26, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", color: P.dim, opacity: idx === 0 ? .35 : 1 }}>
+            <ArrowUp size={14} />
+          </button>
+          <button onClick={() => onMove(id, 1)} disabled={idx === order.length - 1} aria-label={`Bajar ${label}`}
+            style={{ width: 26, height: 26, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", color: P.dim, opacity: idx === order.length - 1 ? .35 : 1 }}>
+            <ArrowDown size={14} />
+          </button>
+        </div>
+      </div>
+      {children}
+      {!noNotes && <SectionNotes value={notes} onChange={onNotesChange} toast={toast} />}
+    </Card>
+  );
+};
+
+// Fila de una métrica de Check-in: dato en vivo (leído de `history`,
+// nunca duplicado) + su propio comentario/adjuntos.
+const FichaCheckinRow = ({ label, value, date, note, onChange, toast, children }) => (
+  <div style={{ padding: "12px 0", borderBottom: `1px solid ${P.line}` }}>
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+      <div style={{ fontSize: 15, fontWeight: 700 }}>{label}</div>
+      <div style={{ fontSize: 12, color: P.faint }}>{date ? fmtDate(date) : ""}</div>
+    </div>
+    <div style={{ fontSize: 14, color: P.dim, marginTop: 2 }}>{value}</div>
+    {children}
+    <SectionNotes value={note} onChange={onChange} toast={toast} label={`Comentarios sobre ${label.toLowerCase()}`} />
+  </div>
+);
+
+const FichaCheckin = ({ history, notes, onNotesChange, toast }) => {
+  const h = history || emptyHistory();
+  const lastBW = (h.bodyweight || [])[(h.bodyweight || []).length - 1];
+  const lastSleep = (h.sleep || [])[(h.sleep || []).length - 1];
+  const lastSteps = (h.steps || [])[(h.steps || []).length - 1];
+  const lastRec = (h.recovery || [])[(h.recovery || []).length - 1];
+  const lastMeasure = (h.measurements || [])[(h.measurements || []).length - 1];
+  const photosByDate = useMemo(() => {
+    const m = new Map();
+    (h.bodyPhotos || []).forEach((p) => {
+      const d = (p.date || "").slice(0, 10);
+      if (!m.has(d)) m.set(d, []);
+      m.get(d).push(p);
+    });
+    return [...m.entries()].sort((x, y) => y[0].localeCompare(x[0]));
+  }, [h.bodyPhotos]);
+  const [viewImg, setViewImg] = useState(null);
+  return (
+    <div>
+      <div style={{ fontSize: 13, color: P.faint, marginBottom: 8, lineHeight: 1.5 }}>
+        Se lee en vivo de lo que ya registra el alumno en su Check-in — no se duplica acá. Cada fila admite su propio comentario y adjuntos.
+      </div>
+      <FichaCheckinRow label="Peso" value={lastBW ? `${kg(lastBW.kg)} kg` : "Sin registros"} date={lastBW?.date}
+        note={notes.peso} onChange={(v) => onNotesChange("peso", v)} toast={toast} />
+      <FichaCheckinRow label="Sueño" value={lastSleep ? `${kg(lastSleep.hours)} h` : "Sin registros"} date={lastSleep?.date}
+        note={notes.sueno} onChange={(v) => onNotesChange("sueno", v)} toast={toast} />
+      <FichaCheckinRow label="Pasos" value={lastSteps ? Math.round(lastSteps.count).toLocaleString("es-CL") : "Sin registros"} date={lastSteps?.date}
+        note={notes.pasos} onChange={(v) => onNotesChange("pasos", v)} toast={toast} />
+      <FichaCheckinRow label="Sensaciones"
+        value={lastRec?.scores ? `Energía ${lastRec.scores.energia ?? "—"}/10 · Dolor ${lastRec.scores.dolor ?? "—"}/10 · Estrés ${lastRec.scores.estres ?? "—"}/10` : "Sin registros"}
+        date={lastRec?.date} note={notes.sensaciones} onChange={(v) => onNotesChange("sensaciones", v)} toast={toast} />
+      <FichaCheckinRow label="Medidas" value={lastMeasure ? "Último registro" : "Sin registros"} date={lastMeasure?.date}
+        note={notes.medidas} onChange={(v) => onNotesChange("medidas", v)} toast={toast}>
+        {lastMeasure && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+            {Object.entries(lastMeasure).filter(([k, v]) => k !== "date" && v != null && v !== "").map(([k, v]) => (
+              <span key={k} style={{ fontSize: 12, color: P.dim, background: P.s3, borderRadius: 7, padding: "3px 8px" }}>{k}: {v}</span>
+            ))}
+          </div>
+        )}
+      </FichaCheckinRow>
+      <div style={{ marginTop: 14 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Fotos de progreso</div>
+        {photosByDate.length === 0 ? (
+          <div style={{ fontSize: 13.5, color: P.faint, marginBottom: 8 }}>Sin fotos todavía.</div>
+        ) : photosByDate.map(([date, photos]) => (
+          <div key={date} style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: P.faint, fontWeight: 600, marginBottom: 6 }}>
+              <FolderOpen size={13} /> {fmtDate(date)}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {photos.map((p) => <AttachThumb key={p.id} id={p.id} size={58} onOpen={setViewImg} />)}
+            </div>
+          </div>
+        ))}
+        <SectionNotes value={notes.fotos} onChange={(v) => onNotesChange("fotos", v)} toast={toast} label="Comentarios sobre las fotos de progreso" />
+      </div>
+      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
+    </div>
+  );
+};
+
+/* ---- Exportar / compartir ----
+   Todo se arma a partir de los mismos datos que ya se ven en pantalla
+   (plan.athlete + la ficha + un resumen en vivo del check-in), nunca de
+   una copia aparte — lo que se exporta es exactamente lo cargado. Los
+   adjuntos viajan como link directo (el bucket de Supabase es público),
+   así que quien reciba el archivo puede abrirlos sin entrar a la app. */
+async function gatherAttachMap(ids) {
+  const unique = [...new Set((ids || []).filter(Boolean))];
+  const map = new Map();
+  await Promise.all(unique.map(async (id) => { const m = await sGet(`attach:${id}`); if (m) map.set(id, m); }));
+  return map;
+}
+function buildFichaSections(a, ficha, student, history, map) {
+  const att = (ids) => (ids || []).map((id) => map.get(id)).filter(Boolean).map((m) => ({
+    text: m.kind === "file" ? (m.name || "Archivo") : m.kind === "video" ? "Video" : "Foto", url: m.dataUrl,
+  }));
+  const noteLines = (note) => {
+    const out = [];
+    if (note?.note?.trim()) out.push({ text: note.note.trim(), quote: true });
+    return [...out, ...att(note?.attachIds)];
+  };
+  const catLabel = (a.categories && a.categories.length)
+    ? a.categories.map((id) => BB_CATEGORIES.find((c) => c.id === id)?.label || id).join(", ")
+    : (a.category ? (BB_CATEGORIES.find((c) => c.id === a.category)?.label || a.category) : "No compite / sin definir");
+  const compLabel = a.compStatus === "por_definir" ? "Por definir" : a.compStatus === "sin_intencion" ? "Sin intención de competir por ahora" : (a.compDate ? fmtDate(a.compDate) : "Sin fecha");
+  const txt = (s) => (s && String(s).trim()) || "Sin información cargada.";
+
+  const bySectionId = {
+    datos: [
+      { text: `Sexo: ${a.sex || "—"}` },
+      { text: `Fecha de nacimiento: ${a.birthDate ? `${fmtDate(a.birthDate)} (edad ${calcAge(a.birthDate)})` : (a.age ? `sin fecha · edad ${a.age}` : "—")}` },
+      { text: `Estatura: ${a.height || "—"} cm` },
+      { text: `Peso: ${a.weight || "—"} kg${a.weightDate ? ` · registrado ${fmtDate(a.weightDate)}` : ""}` }, ...att(a.weightAttachIds),
+      { text: `% graso: ${a.bf || "—"}%${a.bfDate ? ` · registrado ${fmtDate(a.bfDate)}` : ""}` }, ...att(a.bfAttachIds),
+      { text: `Años entrenando: ${a.years || "—"}${a.trainingMonths ? ` años y ${a.trainingMonths} meses` : ""}${a.trainingStart ? ` · desde ${fmtDate(a.trainingStart)}` : ""}` },
+      { text: `Nivel: ${a.level || "—"}` },
+      { text: `Preparación: ${a.enhanced === "asistido" ? "Con química" : "Natural"}` },
+      { text: `Lesiones / molestias / enfermedades: ${a.illnesses || "—"}` },
+    ],
+    suplementacion: [{ text: txt(ficha.free.suplementacion) }],
+    objetivo: [
+      { text: `Fase actual: ${BB_PHASES.find((p) => p.id === a.phase)?.label || a.phase || "—"}` },
+      { text: `Categorías objetivo: ${catLabel}` },
+      { text: `Competencia: ${compLabel}` },
+    ],
+    puntosDebiles: [
+      { text: `Grupos priorizados: ${(a.weakPoints || []).join(", ") || "ninguno declarado"}` },
+      { text: `Detalle: ${a.weakPointsDetail || "—"}` },
+    ],
+    contexto: [
+      { text: `Días disponibles: ${a.daysWeek || "—"}` },
+      { text: `Tiempo disponible por sesión: ${a.sessionMin || "—"}` },
+      { text: `Lesiones o molestias: ${a.injuries || "—"}` },
+      { text: `Equipamiento disponible: ${a.equipment || "—"}` },
+      { text: `Notas del coach: ${a.notes || "—"}` },
+    ],
+    preferencias: [{ text: txt(ficha.free.preferencias) }],
+    historial: [{ text: txt(ficha.free.historial) }],
+    analiticas: [{ text: txt(ficha.free.analiticas) }],
+    nutricion: [{ text: txt(ficha.free.nutricion) }],
+  };
+
+  const sections = [];
+  (ficha.order || FICHA_SECTIONS.map((s) => s.id)).forEach((id) => {
+    if (id === "checkin") return;
+    const meta = FICHA_SECTIONS.find((s) => s.id === id);
+    if (!meta) return;
+    sections.push({ id, title: meta.label, bullets: bySectionId[id] || [], extra: noteLines(ficha.notes[id]) });
+  });
+
+  const h = history || emptyHistory();
+  const lastBW = (h.bodyweight || [])[(h.bodyweight || []).length - 1];
+  const lastSleep = (h.sleep || [])[(h.sleep || []).length - 1];
+  const lastSteps = (h.steps || [])[(h.steps || []).length - 1];
+  const lastRec = (h.recovery || [])[(h.recovery || []).length - 1];
+  const lastMeasure = (h.measurements || [])[(h.measurements || []).length - 1];
+  const ck = ficha.checkinNotes || {};
+  sections.push({
+    id: "checkin", title: "Check-in",
+    bullets: [
+      { text: `Peso: ${lastBW ? `${kg(lastBW.kg)} kg (${fmtDate(lastBW.date)})` : "sin registros"}` },
+      { text: `Sueño: ${lastSleep ? `${kg(lastSleep.hours)} h (${fmtDate(lastSleep.date)})` : "sin registros"}` },
+      { text: `Pasos: ${lastSteps ? `${Math.round(lastSteps.count).toLocaleString("es-CL")} (${fmtDate(lastSteps.date)})` : "sin registros"}` },
+      { text: `Sensaciones: ${lastRec?.scores ? `energía ${lastRec.scores.energia ?? "—"}/10, dolor ${lastRec.scores.dolor ?? "—"}/10, estrés ${lastRec.scores.estres ?? "—"}/10 (${fmtDate(lastRec.date)})` : "sin registros"}` },
+      { text: `Medidas: ${lastMeasure ? `último registro ${fmtDate(lastMeasure.date)}` : "sin registros"}` },
+      { text: `Fotos de progreso: ${(h.bodyPhotos || []).length} en total` },
+    ],
+    extra: [...noteLines(ck.peso), ...noteLines(ck.sueno), ...noteLines(ck.pasos), ...noteLines(ck.sensaciones), ...noteLines(ck.medidas), ...noteLines(ck.fotos)],
+  });
+  return sections;
+}
+function mdFromSections(sections, student) {
+  const lines = [`# Ficha de atleta — ${student?.name || "Sin nombre"}`, `_Exportada el ${fmtDate(todayISO())} desde FORJA_`, ""];
+  sections.forEach((s) => {
+    lines.push(`## ${s.title}`);
+    s.bullets.forEach((b) => lines.push(b.url ? `- [${b.text}](${b.url})` : `- ${b.text}`));
+    s.extra.forEach((b) => lines.push(b.url ? `  - 📎 [${b.text}](${b.url})` : `  > ${b.text}`));
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+function fichaEsc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function htmlFromSections(sections, student) {
+  const body = sections.map((s) => `
+    <section>
+      <h2>${fichaEsc(s.title)}</h2>
+      <ul>${s.bullets.map((b) => `<li>${b.url ? `<a href="${fichaEsc(b.url)}">${fichaEsc(b.text)}</a>` : fichaEsc(b.text)}</li>`).join("")}</ul>
+      ${s.extra.length ? `<div class="notas">${s.extra.map((b) => b.url ? `<div>📎 <a href="${fichaEsc(b.url)}">${fichaEsc(b.text)}</a></div>` : `<div class="quote">${fichaEsc(b.text)}</div>`).join("")}</div>` : ""}
+    </section>`).join("\n");
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Ficha — ${fichaEsc(student?.name || "Atleta")}</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Segoe UI,Roboto,sans-serif;max-width:720px;margin:0 auto;padding:32px 20px;color:#101012;background:#fff;}
+h1{font-size:26px;margin:0 0 4px;} .sub{color:#8a8a92;font-size:13px;margin-bottom:28px;}
+h2{font-size:16px;text-transform:uppercase;letter-spacing:.04em;color:#55555D;border-bottom:1px solid #E5E5EA;padding-bottom:6px;margin:28px 0 10px;}
+ul{margin:0;padding-left:20px;} li{margin-bottom:4px;font-size:14.5px;}
+.notas{margin-top:8px;padding:10px 12px;background:#F2F2F7;border-radius:10px;font-size:13.5px;}
+.quote{color:#2B2B30;margin-bottom:4px;} a{color:#DB2777;}
+@media print{ body{padding:0;} }
+</style></head><body>
+<h1>Ficha de atleta — ${fichaEsc(student?.name || "Sin nombre")}</h1>
+<div class="sub">Exportada el ${fichaEsc(fmtDate(todayISO()))} desde FORJA</div>
+${body}
+</body></html>`;
+}
+function wordDocFromHtml(html) {
+  const inner = html.replace(/^[\s\S]*?<body>/i, "").replace(/<\/body>[\s\S]*$/i, "");
+  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Ficha</title></head><body>${inner}</body></html>`;
+}
+function downloadTextFile(filename, mime, content) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = filename;
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function openPrintable(html) {
+  const w = window.open("", "_blank");
+  if (!w) return false;
+  w.document.open(); w.document.write(html); w.document.close();
+  setTimeout(() => { try { w.focus(); w.print(); } catch {} }, 400);
+  return true;
+}
+async function shareFichaFile(filename, mime, content, title) {
+  try {
+    const file = new File([content], filename, { type: mime });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title }); return true; }
+  } catch (e) { if (e && e.name === "AbortError") return true; }
+  return false;
+}
+const FichaExportBar = ({ a, ficha, student, history, toast }) => {
+  const [busy, setBusy] = useState("");
+  const run = async (kind) => {
+    setBusy(kind);
+    try {
+      const allIds = [
+        ...Object.values(ficha.notes || {}).flatMap((n) => n.attachIds || []),
+        ...Object.values(ficha.checkinNotes || {}).flatMap((n) => n.attachIds || []),
+        ...(a.weightAttachIds || []), ...(a.bfAttachIds || []),
+      ];
+      const map = await gatherAttachMap(allIds);
+      const sections = buildFichaSections(a, ficha, student, history, map);
+      const base = (student?.name || "atleta").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").slice(0, 40) || "atleta";
+      if (kind === "md") downloadTextFile(`ficha_${base}.md`, "text/markdown", mdFromSections(sections, student));
+      else if (kind === "html") downloadTextFile(`ficha_${base}.html`, "text/html", htmlFromSections(sections, student));
+      else if (kind === "word") downloadTextFile(`ficha_${base}.doc`, "application/msword", wordDocFromHtml(htmlFromSections(sections, student)));
+      else if (kind === "pdf") { if (!openPrintable(htmlFromSections(sections, student))) toast && toast("El navegador bloqueó la ventana. Habilita ventanas emergentes e intenta de nuevo."); }
+      else if (kind === "share") {
+        const html = htmlFromSections(sections, student);
+        const shared = await shareFichaFile(`ficha_${base}.html`, "text/html", html, `Ficha de ${student?.name || "atleta"}`);
+        if (!shared) { downloadTextFile(`ficha_${base}.html`, "text/html", html); toast && toast("Este navegador no comparte archivos directo — se descargó para adjuntarla donde quieras (WhatsApp incluido)."); }
+      }
+    } catch { toast && toast("No se pudo exportar. Intenta de nuevo."); }
+    setBusy("");
+  };
+  return (
+    <Card style={{ padding: 14, marginBottom: 14, background: P.s1 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", marginBottom: 10 }}>Compartir y exportar</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <Btn kind="ember" small onClick={() => run("share")} disabled={!!busy}><Share2 size={13} /> {busy === "share" ? "…" : "Compartir"}</Btn>
+        <Btn kind="line" small onClick={() => run("pdf")} disabled={!!busy}><FileDown size={13} /> {busy === "pdf" ? "…" : "PDF"}</Btn>
+        <Btn kind="line" small onClick={() => run("word")} disabled={!!busy}><FileDown size={13} /> {busy === "word" ? "…" : "Word"}</Btn>
+        <Btn kind="line" small onClick={() => run("html")} disabled={!!busy}><FileDown size={13} /> {busy === "html" ? "…" : "HTML"}</Btn>
+        <Btn kind="line" small onClick={() => run("md")} disabled={!!busy}><FileDown size={13} /> {busy === "md" ? "…" : "Markdown"}</Btn>
+      </div>
+      <div style={{ fontSize: 12, color: P.faint, marginTop: 8, lineHeight: 1.4 }}>
+        "Compartir" abre el panel de siempre del teléfono (WhatsApp incluido) con la ficha como archivo. "PDF" abre el diálogo de impresión — "Guardar como PDF" desde ahí.
+      </div>
+    </Card>
+  );
+};
+
+const FichaCompleta = ({ plan, savePlan, history, currentStudent, toast }) => {
+  const studentId = currentStudent?.id;
+  const [ficha, setFicha] = useState(null);
+  useEffect(() => {
+    let on = true;
+    setFicha(null);
+    (async () => {
+      const base = emptyFicha();
+      if (!studentId) { if (on) setFicha(base); return; }
+      const v = await sGet(`forja-ficha:${studentId}`);
+      if (!on) return;
+      const f = (v && typeof v === "object") ? v : base;
+      if (!Array.isArray(f.order)) f.order = base.order;
+      FICHA_SECTIONS.forEach((s) => { if (!f.order.includes(s.id)) f.order.push(s.id); });
+      if (!f.notes) f.notes = {};
+      FICHA_SECTIONS.forEach((s) => { if (!f.notes[s.id]) f.notes[s.id] = emptySectionNote(); });
+      if (!f.free) f.free = {};
+      Object.keys(base.free).forEach((k) => { if (f.free[k] == null) f.free[k] = ""; });
+      if (!f.checkinNotes) f.checkinNotes = {};
+      CHECKIN_NOTE_KEYS.forEach((k) => { if (!f.checkinNotes[k]) f.checkinNotes[k] = emptySectionNote(); });
+      setFicha(f);
+    })();
+    return () => { on = false; };
+  }, [studentId]);
+
+  const saveFicha = (next) => { setFicha(next); if (studentId) sSet(`forja-ficha:${studentId}`, next); };
+  const setNote = (id, v) => saveFicha({ ...ficha, notes: { ...ficha.notes, [id]: v } });
+  const setFree = (id, v) => saveFicha({ ...ficha, free: { ...ficha.free, [id]: v } });
+  const setCheckinNote = (k, v) => saveFicha({ ...ficha, checkinNotes: { ...ficha.checkinNotes, [k]: v } });
+  const move = (id, dir) => {
+    const order = [...ficha.order];
+    const i = order.indexOf(id), j = i + dir;
+    if (j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    saveFicha({ ...ficha, order });
+  };
+
   const a = plan.athlete || emptyAthlete();
-  const set = (k, v) => {
+  const setA = (k, v) => {
     const p = structuredClone(plan);
     if (!p.athlete) p.athlete = emptyAthlete();
-    // Migración: planes anteriores al mesociclo
     if (!p.meso || !Array.isArray(p.meso.weeks) || !p.meso.weeks.length) p.meso = emptyMeso();
     p.athlete[k] = v;
     p.updatedAt = todayISO();
     savePlan(p);
   };
-  const toggleWeak = (m) => {
-    const cur = a.weakPoints || [];
-    set("weakPoints", cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m]);
+  const toggleWeak = (m) => { const cur = a.weakPoints || []; setA("weakPoints", cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m]); };
+  const toggleCategory = (id) => { const cur = a.categories || []; setA("categories", cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]); };
+  const lastBW = (history?.bodyweight || [])[(history?.bodyweight || []).length - 1];
+
+  if (!ficha) return <LoadingBlock label="Cargando ficha…" />;
+
+  const renderSection = (id) => {
+    const meta = FICHA_SECTIONS.find((s) => s.id === id);
+    if (!meta) return null;
+    if (id === "checkin") {
+      return (
+        <FichaSectionShell key={id} id={id} label={meta.label} Icon={meta.Icon} order={ficha.order} onMove={move} noNotes>
+          <FichaCheckin history={history} notes={ficha.checkinNotes} onNotesChange={setCheckinNote} toast={toast} />
+        </FichaSectionShell>
+      );
+    }
+    return (
+      <FichaSectionShell key={id} id={id} label={meta.label} Icon={meta.Icon} order={ficha.order} onMove={move}
+        notes={ficha.notes[id]} onNotesChange={(v) => setNote(id, v)} toast={toast}>
+        {id === "datos" && (
+          <>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Field label="Sexo"><select value={a.sex} onChange={(e) => setA("sex", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
+                <option value="">—</option><option value="hombre">Hombre</option><option value="mujer">Mujer</option>
+              </select></Field>
+              <Field label="Fecha de nacimiento"><Inp type="date" value={a.birthDate} onChange={(e) => setA("birthDate", e.target.value)} /></Field>
+              <Field label="Edad">
+                <Inp value={a.birthDate ? String(calcAge(a.birthDate)) : a.age} disabled={!!a.birthDate}
+                  onChange={(e) => setA("age", e.target.value)} placeholder="27" />
+              </Field>
+            </div>
+            <Field label="Estatura (cm)"><Inp value={a.height} onChange={(e) => setA("height", e.target.value)} placeholder="177" /></Field>
+
+            <Card style={{ padding: 12, marginBottom: 10, background: P.s2 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700 }}>Peso</div>
+                <div style={{ fontSize: 12, color: P.faint }}>
+                  {a.weightDate ? `Registrado ${fmtDate(a.weightDate)}` : lastBW ? `Detectado en check-in: ${fmtDate(lastBW.date)}` : "Sin registro"}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Field label="Kg"><Inp value={a.weight} onChange={(e) => setA("weight", e.target.value)} placeholder={lastBW ? String(lastBW.kg) : "90"} /></Field>
+                <Field label="Fecha"><Inp type="date" value={a.weightDate} onChange={(e) => setA("weightDate", e.target.value)} /></Field>
+              </div>
+              <FichaAttachRow ids={a.weightAttachIds || []} onChange={(ids) => setA("weightAttachIds", ids)} toast={toast} label="Adjuntar registro de pesos" />
+            </Card>
+
+            <Card style={{ padding: 12, marginBottom: 10, background: P.s2 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700 }}>% graso</div>
+                <div style={{ fontSize: 12, color: P.faint }}>{a.bfDate ? `Registrado ${fmtDate(a.bfDate)}` : "Sin registro"}</div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Field label="%"><Inp value={a.bf} onChange={(e) => setA("bf", e.target.value)} placeholder="14" /></Field>
+                <Field label="Fecha"><Inp type="date" value={a.bfDate} onChange={(e) => setA("bfDate", e.target.value)} /></Field>
+              </div>
+              <FichaAttachRow ids={a.bfAttachIds || []} onChange={(ids) => setA("bfAttachIds", ids)} toast={toast} label="Adjuntar registro (DEXA, planilla…)" />
+            </Card>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <Field label="Años entrenando"><Inp value={a.years} onChange={(e) => setA("years", e.target.value)} placeholder="5" /></Field>
+              <Field label="Meses"><Inp value={a.trainingMonths} onChange={(e) => setA("trainingMonths", e.target.value)} placeholder="6" /></Field>
+              <Field label="Desde"><Inp type="date" value={a.trainingStart} onChange={(e) => setA("trainingStart", e.target.value)} /></Field>
+            </div>
+            <Field label="Nivel"><select value={a.level} onChange={(e) => setA("level", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
+              <option value="principiante">Principiante</option><option value="intermedio">Intermedio</option>
+              <option value="avanzado">Avanzado</option><option value="competidor">Competidor</option>
+            </select></Field>
+            <Field label="Natural / con química">
+              <SectionSwitch items={[{ id: "natural", label: "Natural" }, { id: "asistido", label: "Con química" }]}
+                value={a.enhanced || "natural"} onChange={(v) => setA("enhanced", v)} />
+            </Field>
+            <Field label="Lesiones, molestias o enfermedades">
+              <Txt rows={2} value={a.illnesses} onChange={(e) => setA("illnesses", e.target.value)} placeholder="Sin límite — lo que haga falta." />
+            </Field>
+          </>
+        )}
+
+        {id === "suplementacion" && (
+          <Field label="Suplementación actual">
+            <Txt rows={4} value={ficha.free.suplementacion} onChange={(e) => setFree("suplementacion", e.target.value)} placeholder="Qué toma, dosis, horarios…" />
+          </Field>
+        )}
+
+        {id === "objetivo" && (
+          <>
+            <Field label="Fase actual" hint={BB_PHASES.find((p) => p.id === a.phase)?.note}>
+              <select value={a.phase} onChange={(e) => setA("phase", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
+                {BB_PHASES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Categorías objetivo" hint="Se puede elegir más de una.">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {BB_CATEGORIES.map((c) => {
+                  const on = (a.categories || []).includes(c.id);
+                  return <button key={c.id} onClick={() => toggleCategory(c.id)} style={{ padding: "6px 10px", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
+                    background: on ? P.line : P.s2, border: `1px solid ${on ? P.dim : P.line}`, color: on ? P.ember2 : P.dim }}>{c.label}</button>;
+                })}
+              </div>
+            </Field>
+            <Field label="Competencia">
+              <SectionSwitch items={[{ id: "fecha", label: "Con fecha" }, { id: "por_definir", label: "Por definir" }, { id: "sin_intencion", label: "Sin intención por ahora" }]}
+                value={a.compStatus || "fecha"} onChange={(v) => setA("compStatus", v)} />
+            </Field>
+            {a.compStatus !== "sin_intencion" && (
+              <Field label="Fecha de competencia"><Inp type="date" value={a.compDate} onChange={(e) => setA("compDate", e.target.value)} /></Field>
+            )}
+          </>
+        )}
+
+        {id === "puntosDebiles" && (
+          <>
+            <Field label="Grupos musculares" hint="Los que el agente priorizará al proponer volumen o especializaciones.">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {MUSCLES.filter((m) => m !== "Otro").map((m) => {
+                  const on = (a.weakPoints || []).includes(m);
+                  return <button key={m} onClick={() => toggleWeak(m)} style={{ padding: "6px 10px", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
+                    background: on ? P.line : P.s2, border: `1px solid ${on ? P.dim : P.line}`, color: on ? P.ember2 : P.dim }}>{m}</button>;
+                })}
+              </div>
+            </Field>
+            <Field label="Detalle específico" hint="Ej.: cabeza larga del tríceps, deltoide posterior, vasto interno…">
+              <Txt rows={2} value={a.weakPointsDetail} onChange={(e) => setA("weakPointsDetail", e.target.value)} placeholder="Sin límite." />
+            </Field>
+          </>
+        )}
+
+        {id === "contexto" && (
+          <>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Field label="Días disponibles"><Inp value={a.daysWeek} onChange={(e) => setA("daysWeek", e.target.value)} placeholder="5" /></Field>
+              <Field label="Tiempo disponible por sesión"><Inp value={a.sessionMin} onChange={(e) => setA("sessionMin", e.target.value)} placeholder="75 min" /></Field>
+            </div>
+            <Field label="Lesiones o molestias"><Txt rows={2} value={a.injuries} onChange={(e) => setA("injuries", e.target.value)} placeholder="Sin límite." /></Field>
+            <Field label="Equipamiento disponible"><Txt rows={2} value={a.equipment} onChange={(e) => setA("equipment", e.target.value)} placeholder="Sin límite." /></Field>
+            <Field label="Notas del coach"><Txt rows={3} value={a.notes} onChange={(e) => setA("notes", e.target.value)} placeholder="Sin límite." /></Field>
+          </>
+        )}
+
+        {id === "preferencias" && (
+          <Field label="Preferencias y sensaciones">
+            <Txt rows={4} value={ficha.free.preferencias} onChange={(e) => setFree("preferencias", e.target.value)}
+              placeholder="Ejercicios que disfruta o rechaza, respuesta a distintos estímulos, horarios, ambiente…" />
+          </Field>
+        )}
+        {id === "historial" && (
+          <Field label="Historial de entrenamiento">
+            <Txt rows={4} value={ficha.free.historial} onChange={(e) => setFree("historial", e.target.value)}
+              placeholder="Rutinas y coaches previos, mesociclos completados, competencias previas…" />
+          </Field>
+        )}
+        {id === "analiticas" && (
+          <Field label="Analíticas">
+            <Txt rows={4} value={ficha.free.analiticas} onChange={(e) => setFree("analiticas", e.target.value)}
+              placeholder="Exámenes de sangre, DEXA, InBody, marcadores hormonales…" />
+          </Field>
+        )}
+        {id === "nutricion" && (
+          <Field label="Nutrición actual">
+            <Txt rows={4} value={ficha.free.nutricion} onChange={(e) => setFree("nutricion", e.target.value)}
+              placeholder="Plan actual, macros, comidas, adherencia…" />
+          </Field>
+        )}
+      </FichaSectionShell>
+    );
   };
+
   return (
     <div>
       <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 14, lineHeight: 1.5 }}>
-        Todo lo que cargues acá viaja con cada consulta al agente. Mientras más completa esté la ficha, menos preguntas te hará y más específicas serán sus respuestas.
+        Todo lo que cargues acá viaja con cada consulta al agente IA, y es lo que se exporta o comparte con "Compartir y exportar". Sin límites de extensión en ningún campo — texto, números, comas o puntos, lo que haga falta.
       </div>
-
-      <Card style={{ padding: "13px 14px", marginBottom: 12 }}>
-        <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Datos básicos</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Field label="Sexo"><select value={a.sex} onChange={(e) => set("sex", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
-            <option value="">—</option><option value="hombre">Hombre</option><option value="mujer">Mujer</option>
-          </select></Field>
-          <Field label="Edad"><Inp type="number" inputMode="numeric" value={a.age} onChange={(e) => set("age", e.target.value)} placeholder="27" /></Field>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Field label="Estatura (cm)"><Inp type="number" inputMode="decimal" value={a.height} onChange={(e) => set("height", e.target.value)} placeholder="177" /></Field>
-          <Field label="Peso (kg)"><Inp type="number" inputMode="decimal" value={a.weight} onChange={(e) => set("weight", e.target.value)} placeholder="90" /></Field>
-          <Field label="% graso"><Inp value={a.bf} onChange={(e) => set("bf", e.target.value)} placeholder="14" /></Field>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Field label="Años entrenando"><Inp type="number" inputMode="numeric" value={a.years} onChange={(e) => set("years", e.target.value)} placeholder="5" /></Field>
-          <Field label="Nivel"><select value={a.level} onChange={(e) => set("level", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
-            <option value="principiante">Principiante</option><option value="intermedio">Intermedio</option>
-            <option value="avanzado">Avanzado</option><option value="competidor">Competidor</option>
-          </select></Field>
-        </div>
-        <Field label="Preparación" hint="Cambia los landmarks de volumen (MEV/MAV/MRV) que se usan en Progreso → Volumen y en el contexto del agente IA: los atletas asistidos recuperan más y toleran bastante más volumen semanal.">
-          <select value={a.enhanced || "natural"} onChange={(e) => set("enhanced", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
-            <option value="natural">Natural</option>
-            <option value="asistido">Asistido (en ciclo)</option>
-          </select>
-        </Field>
-      </Card>
-
-      <Card style={{ padding: "13px 14px", marginBottom: 12 }}>
-        <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Objetivo</div>
-        <Field label="Fase actual" hint={BB_PHASES.find((p) => p.id === a.phase)?.note}>
-          <select value={a.phase} onChange={(e) => set("phase", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
-            {BB_PHASES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-          </select>
-        </Field>
-        <Field label="Categoría objetivo" hint={BB_CATEGORIES.find((c) => c.id === a.category)?.focus}>
-          <select value={a.category} onChange={(e) => set("category", e.target.value)} style={{ width: "100%", padding: "10px 8px" }}>
-            <option value="">No compite / sin definir</option>
-            {BB_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </select>
-        </Field>
-        <Field label="Fecha de competencia"><Inp type="date" value={a.compDate} onChange={(e) => set("compDate", e.target.value)} /></Field>
-        <Field label="Puntos débiles" hint="Los grupos que el agente priorizará al proponer volumen o especializaciones.">
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {MUSCLES.filter((m) => m !== "Otro").map((m) => {
-              const on = (a.weakPoints || []).includes(m);
-              return (
-                <button key={m} onClick={() => toggleWeak(m)} style={{ padding: "6px 10px", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
-                  background: on ? `${P.line}` : P.s2, border: `1px solid ${on ? `${P.dim}` : P.line}`, color: on ? P.ember2 : P.dim }}>{m}</button>
-              );
-            })}
-          </div>
-        </Field>
-      </Card>
-
-      <Card style={{ padding: "13px 14px", marginBottom: 12 }}>
-        <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Contexto y limitaciones</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Field label="Días/semana"><Inp type="number" inputMode="numeric" value={a.daysWeek} onChange={(e) => set("daysWeek", e.target.value)} placeholder="5" /></Field>
-          <Field label="Min/sesión"><Inp type="number" inputMode="numeric" value={a.sessionMin} onChange={(e) => set("sessionMin", e.target.value)} placeholder="75" /></Field>
-        </div>
-        <Field label="Lesiones o molestias"><Txt rows={2} value={a.injuries} onChange={(e) => set("injuries", e.target.value)} placeholder="Ej: pinzamiento de hombro derecho en press por encima de la cabeza." /></Field>
-        <Field label="Equipamiento disponible"><Txt rows={2} value={a.equipment} onChange={(e) => set("equipment", e.target.value)} placeholder="Ej: gimnasio completo, sin prensa horizontal ni hack." /></Field>
-        <Field label="Notas del coach"><Txt rows={3} value={a.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Cualquier cosa relevante: trabajo por turnos, historial de dietas, adherencia, etc." /></Field>
-      </Card>
+      <FichaExportBar a={a} ficha={ficha} student={currentStudent} history={history} toast={toast} />
+      {ficha.order.map(renderSection)}
     </div>
   );
 };
+
+const FichaSheet = ({ open, onClose, plan, savePlan, history, currentStudent, toast }) => (
+  <Sheet open={open} onClose={onClose} title={currentStudent ? `Ficha de ${currentStudent.name}` : "Ficha"} tall>
+    <FichaCompleta plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast} />
+  </Sheet>
+);
 
 /* ---- Volumen por grupo muscular ---- */
 // `compact` es la variante del alumno: los mismos landmarks en una sola
@@ -15113,7 +15721,7 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
         <BodybuildingChat plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent}
           apiKey={apiKey} onNeedKey={() => setShowKeyEdit(true)} toast={toast} />
       )}
-      {sub === "ficha" && <AthleteForm plan={plan} savePlan={savePlan} />}
+      {sub === "ficha" && <FichaCompleta plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast} />}
       {sub === "volumen" && <VolumePanel plan={plan} />}
       {sub === "saber" && <KnowledgePanel />}
     </div>
@@ -16961,7 +17569,7 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
 /* Hoja "Más": lo que salió de la barra de pestañas. Herramientas de
    referencia, gestión (alumnos/equipo) y los ajustes de apariencia —
    agrupados en filas de sistema, como los Ajustes de iOS. */
-const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha }) => {
   const [theme, setTheme] = useTheme();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
@@ -17004,6 +17612,26 @@ const MoreSheet = ({ open, onClose, mode, studentName, onSwitchIdentity, canMana
           <div style={{ fontSize: 13, color: P.faint }}>{isDelegate ? "perfil con acceso" : `modo ${mode}`}</div>
         </div>
       </div>
+      {/* Ficha completa: tarjeta propia y prominente (no una fila más de
+          ajustes) — es lo que se pidió que apareciera acá, no solo
+          adentro de Coach IA. Solo en modo coach, gestionando a alguien
+          puntual (el nombre de arriba dice a quién). */}
+      {mode === "coach" && !isDelegate && onOpenFicha && (
+        <button onClick={onOpenFicha} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+          padding: "14px 16px", marginBottom: 16, borderRadius: R_CARD, background: PLATE_GRAD, color: PLATE_FG }}>
+          <span style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(255,255,255,.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <ClipboardList size={19} />
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>Ficha completa</div>
+            <div style={{ fontSize: 12.5, opacity: .85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {managedStudentName ? `De ${managedStudentName} — datos, historial y check-in` : "Datos, historial y check-in"}
+            </div>
+          </div>
+          <ChevronRight size={17} />
+        </button>
+      )}
+
       <SettingGroup label="Herramientas">
         <SettingRow Icon={Timer} label="Temporizador" hint="Intervalos, cuenta regresiva y cronómetro" onClick={() => onOpenUtility("timer")} />
         <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} last={mode === "coach"} />
@@ -19962,6 +20590,7 @@ const App = () => {
   const [section, setSection] = useState({});
   const [moreOpen, setMoreOpen] = useState(false);
   const [accessOpen, setAccessOpen] = useState(false);
+  const [fichaOpen, setFichaOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [compPrepOpen, setCompPrepOpen] = useState(false);
   const [atlasOpen, setAtlasOpen] = useState(false);
@@ -20760,7 +21389,8 @@ const App = () => {
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)} />
       <FaceIdOfferSheet offer={faceOffer} onClose={() => setFaceOffer(null)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode} isDelegate={!!delegate}
-        studentName={identityName} onSwitchIdentity={() => { setMoreOpen(false); logout(); }}
+        studentName={identityName} managedStudentName={currentStudent?.name}
+        onSwitchIdentity={() => { setMoreOpen(false); logout(); }}
         onManageAccess={() => { setMoreOpen(false); setAccessOpen(true); }}
         canManageTeam={myRoleMeta.manageTeam}
         routineView={routineView} onChangeRoutineView={setRoutineView}
@@ -20770,7 +21400,10 @@ const App = () => {
         onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
         onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
         onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }}
-        faceIdWho={delegate ? delegate.id : "owner"} />
+        faceIdWho={delegate ? delegate.id : "owner"}
+        onOpenFicha={() => { setMoreOpen(false); setFichaOpen(true); }} />
+      <FichaSheet open={fichaOpen} onClose={() => setFichaOpen(false)} plan={plan} savePlan={savePlan}
+        history={history} currentStudent={currentStudent} toast={toast} />
       <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast}
         history={history} saveHistory={saveHistory} />
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
