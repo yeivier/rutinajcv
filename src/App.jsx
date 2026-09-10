@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v256";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v257";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -18134,10 +18134,31 @@ const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
     { key: "ia", Icon: Sparkles, label: "Coach IA", onClick: go(onAIChat) },
     modoItem, themeItem, cuentaItem,
   ].filter(Boolean);
+  // Reordenar las fichas manteniendo presionado y arrastrando, igual que el
+  // Centro de Control y la pantalla de inicio de iOS. Reusa `OrderableGrid`
+  // (la misma pieza de "Más"): mantener pulsada ~0,4 s entra en modo edición
+  // (las fichas tiemblan) y se arrastran 1:1 con el dedo; el orden se guarda
+  // en este dispositivo. La clave difiere por modo (coach/alumno) porque las
+  // fichas no son las mismas.
+  const [modoOrden, setModoOrden] = useState(null);
+  useExitEditOnOutside(!!modoOrden, () => setModoOrden(null));
+  const clave = "cc-" + (mode === "coach" ? "coach" : "alumno");
+  // Al cerrar la hoja, salir del modo edición para no reabrir temblando.
+  useEffect(() => { if (!open) setModoOrden(null); }, [open]);
   return (
     <Sheet open={open} onClose={onClose} title="Centro de control">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-        {items.map((it) => <Tile key={it.key} Icon={it.Icon} label={it.label} onClick={it.onClick} />)}
+      <OrderableGrid clave={clave} items={items} cols={3} gap={10}
+        modoOrden={modoOrden} setModoOrden={setModoOrden}
+        render={(it, ed) => <Tile Icon={it.Icon} label={it.label} onClick={ed ? undefined : it.onClick} />} />
+      <div style={{ textAlign: "center", marginTop: 16 }}>
+        {modoOrden ? (
+          <button data-order-done onClick={() => setModoOrden(null)}
+            style={{ background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 15, padding: "10px 30px", borderRadius: 999 }}>
+            Listo
+          </button>
+        ) : (
+          <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionada una ficha para reordenar</div>
+        )}
       </div>
     </Sheet>
   );
