@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v255";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v256";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15270,7 +15270,10 @@ const MuscleVolumeRow = ({ r, max, compact, days }) => {
   const col = volStatusColor(r.status);
   const [open, setOpen] = useState(false);
   const expandable = !!days;
-  const detail = useMemo(() => (open && expandable ? muscleDetail(days, r.muscle) : null), [open, expandable, days, r.muscle]);
+  // El detalle se calcula SIEMPRE que haya días (no solo al abrir): así el
+  // desglose por sub-zona (hombro posterior/lateral/anterior…) se ve inline,
+  // sin tener que tocar. Al tocar se abre además la lista de ejercicios.
+  const detail = useMemo(() => (expandable ? muscleDetail(days, r.muscle) : null), [expandable, days, r.muscle]);
   const maxRegion = detail && detail.regions ? Math.max(...detail.regions.map((x) => x.sets), 1) : 1;
   return (
   <Card style={{ padding: "11px 13px", marginBottom: 8 }}>
@@ -15296,6 +15299,21 @@ const MuscleVolumeRow = ({ r, max, compact, days }) => {
         <div style={{ fontSize: 12.5, color: P.faint, marginTop: 6, whiteSpace: compact ? "nowrap" : "normal", overflow: "hidden", textOverflow: "ellipsis" }}>
           MEV {r.ref.mev} · óptimo {r.ref.mav[0]}–{r.ref.mav[1]} · MRV {r.ref.mrv}{compact ? "" : ` · frecuencia sugerida ${r.ref.freq}`}
         </div>
+      )}
+      {/* Chips de sub-zona SIEMPRE visibles (si el grupo se puede desglosar):
+          el "cuántas de hombro posterior/lateral/anterior" se ve de un vistazo,
+          sin abrir. Tocar la fila agrega la lista de ejercicios. */}
+      {!open && detail && detail.regions && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+          {detail.regions.map((rg) => (
+            <span key={rg.region} style={{ fontSize: 12, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 7, padding: "3px 8px" }}>
+              {rg.region} <b style={{ color: P.text }}>{fmtSets(rg.sets)}</b>
+            </span>
+          ))}
+        </div>
+      )}
+      {expandable && !open && (
+        <div style={{ fontSize: 11.5, color: P.ember2, marginTop: 8, fontWeight: 600 }}>Toca para ver ejercicios y reps →</div>
       )}
     </button>
     {open && detail && (
@@ -15388,6 +15406,9 @@ const VolumePanel = ({ plan }) => {
   const scopeLabel = activeScope === "week" ? "la semana real (según el cronograma)"
     : activeScope === "ciclo" ? "una vuelta completa a TODAS las rutinas juntas"
     : `${(groups.find((g) => "r:" + g.key === activeScope) || {}).label || "la rutina"} (una vuelta = una semana)`;
+  const scopeTitle = activeScope === "week" ? "Semana real"
+    : activeScope === "ciclo" ? "Todas las rutinas"
+    : (groups.find((g) => "r:" + g.key === activeScope) || {}).label || "Rutina";
   if (!plan.days || !plan.days.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Carga la rutina del alumno para ver el volumen efectivo por grupo muscular." />;
   const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
 
@@ -15408,9 +15429,19 @@ const VolumePanel = ({ plan }) => {
 
       {sub === "semana" && (
         <>
+          {/* Encabezado prominente: deja clarísimo A QUÉ corresponde el volumen
+              (qué rutina/semana, cuántas sesiones, cuántas series) — era lo que
+              antes no se sabía leyendo la lista de barras a secas. */}
+          <Card style={{ padding: "13px 15px", marginBottom: 10, background: PLATE_GRAD, color: PLATE_FG }}>
+            <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", opacity: .75, marginBottom: 3 }}>VOLUMEN SEMANAL DE</div>
+            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.02em" }}>{scopeTitle}</div>
+            <div style={{ fontSize: 13, opacity: .85, marginTop: 2 }}>
+              {countedDays.length} {countedDays.length === 1 ? "sesión" : "sesiones"} · {fmtSets(vol.total)} series efectivas{activeScope !== "week" && activeScope !== "ciclo" ? " · una vuelta = una semana" : ""}
+            </div>
+          </Card>
           {scopeOpts.length > 1 && (
             <div style={{ marginBottom: 10 }}>
-              <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", color: P.faint2, marginBottom: 6 }}>VOLUMEN DE</div>
+              <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", color: P.faint2, marginBottom: 6 }}>VER VOLUMEN DE</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {scopeOpts.map((o) => {
                   const on = o.id === activeScope;
@@ -15423,9 +15454,9 @@ const VolumePanel = ({ plan }) => {
             </div>
           )}
           <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 12, lineHeight: 1.5 }}>
-            Series efectivas (sin contar aproximaciones) por semana en <b>{scopeLabel}</b>. Total: {fmtSets(vol.total)} series.
+            Series efectivas (sin contar aproximaciones) por semana en <b>{scopeLabel}</b>.
             {activeScope === "ciclo" && " Ojo: suma rutinas distintas; para leer el volumen semanal real elige una rutina o carga el cronograma en Agenda."}
-            {" "}Toca un grupo muscular para ver los ejercicios, series, sesiones y el desglose por zona. Incluye el aporte parcial de los músculos secundarios que marques en cada ejercicio.
+            {" "}Toca un grupo muscular para ver los ejercicios, series, sesiones y reps. El desglose por zona (posterior/lateral/anterior…) aparece bajo cada músculo. Incluye el aporte parcial de los músculos secundarios que marques en cada ejercicio.
           </div>
           <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 12, lineHeight: 1.45, padding: "8px 10px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10 }}>
             {prep === "asistido" ? (
@@ -18069,7 +18100,7 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
    (mismo gate que ya usa el resto de la app: un perfil de alumno no tiene
    otra cuenta a la que cambiar). */
 const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
-  onTrain, onViewSession, onProgress, onCheckin, onAIChat, onSwitchAccount,
+  onTrain, onViewSession, onProgress, onCheckin, onAIChat, onSwitchAccount, onSwitchMode,
   onOpenPanel, onOpenAtletas, onNewRoutine, onOpenMensajes, onOpenAgenda }) => {
   const [themeMode, setThemeMode] = useTheme();
   const isDark = themeMode === "dark";
@@ -18078,6 +18109,14 @@ const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
     label: isDark ? "Modo claro" : "Modo oscuro",
     onClick: go(() => setThemeMode(isDark ? "light" : "dark")) };
   const cuentaItem = !isDelegate && { key: "cuenta", Icon: Users, label: "Cambiar de cuenta", onClick: go(onSwitchAccount) };
+  // "Entrar como…" — pasar de coach a alumno y viceversa de un toque. Solo el
+  // dueño (no un perfil con acceso, que es alumno y punto) puede cambiar de
+  // modo. En coach ofrece "Entrar como alumno"; en alumno, "Entrar como coach".
+  const modoItem = !isDelegate && onSwitchMode && {
+    key: "modo", Icon: mode === "coach" ? Dumbbell : LayoutDashboard,
+    label: mode === "coach" ? "Entrar como alumno" : "Entrar como coach",
+    onClick: go(() => onSwitchMode(mode === "coach" ? "alumno" : "coach")),
+  };
   const items = mode === "coach" ? [
     { key: "panel", Icon: LayoutDashboard, label: "Panel", onClick: go(onOpenPanel) },
     { key: "atletas", Icon: Users, label: "Atletas", onClick: go(onOpenAtletas) },
@@ -18085,7 +18124,7 @@ const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
     { key: "mensajes", Icon: MessageSquare, label: "Mensajes", onClick: go(onOpenMensajes) },
     { key: "agenda", Icon: Calendar, label: "Agenda", onClick: go(onOpenAgenda) },
     { key: "ia", Icon: Sparkles, label: "Coach IA", onClick: go(onAIChat) },
-    themeItem, cuentaItem,
+    modoItem, themeItem, cuentaItem,
   ].filter(Boolean) : [
     hasActiveSession
       ? { key: "sesion", Icon: Dumbbell, label: "Ver sesión", onClick: go(onViewSession) }
@@ -18093,7 +18132,7 @@ const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
     { key: "progreso", Icon: BarChart3, label: "Progreso", onClick: go(onProgress) },
     { key: "checkin", Icon: Camera, label: "Check-in", onClick: go(onCheckin) },
     { key: "ia", Icon: Sparkles, label: "Coach IA", onClick: go(onAIChat) },
-    themeItem, cuentaItem,
+    modoItem, themeItem, cuentaItem,
   ].filter(Boolean);
   return (
     <Sheet open={open} onClose={onClose} title="Centro de control">
@@ -22183,7 +22222,7 @@ const App = () => {
         onTrain={() => setTab("entrenar")} onViewSession={() => setTab("entrenar")}
         onProgress={() => setTab("progreso")} onCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
         onAIChat={() => { if (mode === "coach") { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); } else { setAiChatOpenSignal((n) => n + 1); } }}
-        onSwitchAccount={switchAccount}
+        onSwitchAccount={switchAccount} onSwitchMode={switchMode}
         onOpenPanel={() => setTab("dashboard")}
         onOpenAtletas={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "actividad" })); }}
         onNewRoutine={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "rutina" })); }}
