@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v254";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v255";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15165,28 +15165,178 @@ const FichaSheet = ({ open, onClose, plan, savePlan, history, currentStudent, to
 // `compact` es la variante del alumno: los mismos landmarks en una sola
 // línea, sin la frecuencia sugerida (eso es dato de planificación, lo usa
 // el coach al armar la rutina, no el alumno al mirar cómo va).
-const MuscleVolumeRow = ({ r, max, compact }) => {
+/* Sub-zonas (cabezas / porciones) de cada grupo muscular donde el desglose
+   importa de verdad en culturismo. Se ESTIMAN por palabras clave del nombre
+   del ejercicio: el modelo no tiene un campo de sub-zona, así que esto es una
+   aproximación (se rotula como tal en la interfaz), no un dato duro. Los
+   grupos que no están acá no muestran desglose por zona (solo por ejercicio),
+   que es lo honesto cuando el nombre no permite inferirla con confianza. */
+const MUSCLE_REGION_ORDER = {
+  Hombro: ["Anterior", "Lateral", "Posterior"],
+  Pecho: ["Superior", "Medio", "Inferior"],
+  Espalda: ["Anchura (dorsal)", "Grosor (media)"],
+  Tríceps: ["Cabeza larga", "Lateral / medial"],
+  Bíceps: ["Cabeza larga", "Cabeza corta", "Braquial"],
+};
+function classifyRegion(muscle, name) {
+  const n = searchNorm(name);
+  const has = (...ws) => ws.some((w) => n.includes(w));
+  switch (muscle) {
+    case "Hombro":
+      if (has("poster", "trasero", "reverse", "pajaro", "face pull", "facepull")) return "Posterior";
+      if (has("lateral", "egipcia")) return "Lateral";
+      if (has("frontal", "anterior", "militar", "military", "arnold", "overhead", "sobre cabeza", "push press", "press hombro", "press de hombro")) return "Anterior";
+      if (has("press")) return "Anterior";
+      return null;
+    case "Pecho":
+      if (has("inclinad", "incline", "superior")) return "Superior";
+      if (has("declinad", "decline", "inferior", "fondo", "dips")) return "Inferior";
+      if (has("press", "apertura", "fly", "pec", "contractor", "cruce", "crossover", "banca", "bench", "peck")) return "Medio";
+      return null;
+    case "Espalda":
+      if (has("jalon", "dominad", "pull up", "pull-up", "pullup", "pulldown", "pull down", "al pecho", "tras nuca", "lat ")) return "Anchura (dorsal)";
+      if (has("remo", "row", "pullover")) return "Grosor (media)";
+      return null;
+    case "Tríceps":
+      if (has("frances", "overhead", "copa", "sobre cabeza", "katana", "extension tras", "por encima")) return "Cabeza larga";
+      if (has("pushdown", "push down", "jalon", "cuerda", "polea", "patada", "kickback", "fondo", "dips")) return "Lateral / medial";
+      return null;
+    case "Bíceps":
+      if (has("martillo", "hammer", "soga")) return "Braquial";
+      if (has("predicador", "scott", "spider", "apoyad")) return "Cabeza corta";
+      if (has("inclinad", "incline", "arrastre")) return "Cabeza larga";
+      return null;
+    default:
+      return null;
+  }
+}
+// Reps de un ejercicio resumidas: colapsa repeticiones consecutivas iguales
+// ("8-10 ×3" en vez de "8-10 · 8-10 · 8-10").
+function repsSummary(reps) {
+  const parts = []; let last = null, cnt = 0;
+  (reps || []).forEach((r) => {
+    if (r === last) { cnt++; }
+    else { if (last != null) parts.push(cnt > 1 ? `${last}×${cnt}` : last); last = r; cnt = 1; }
+  });
+  if (last != null) parts.push(cnt > 1 ? `${last}×${cnt}` : last);
+  return parts.join(" · ");
+}
+/* Detalle de un grupo muscular dentro de un conjunto de días (los que forman
+   la "semana" que se está viendo): qué ejercicios lo trabajan, cuántas series
+   aporta cada uno (completas si es el músculo principal del ejercicio,
+   parciales según el % si es secundario), sus reps, en qué sesión, y la
+   sub-zona estimada. Además: en cuántas sesiones distintas aparece y el
+   agregado por sub-zona. */
+function muscleDetail(days, muscle) {
+  const items = [];
+  (days || []).forEach((day) => {
+    (day.exs || []).forEach((ex) => {
+      const eff = (ex.sets || []).filter((s) => s.type !== "warmup").length;
+      if (!eff) return;
+      const m = ex.muscle || "Otro";
+      let contrib = 0, primary = false, pct = 100;
+      if (m === muscle) { contrib = eff; primary = true; }
+      else {
+        const sec = (ex.secondary || []).find((s) => s && s.muscle === muscle);
+        if (sec) { pct = sec.pct != null ? sec.pct : 50; contrib = eff * pct / 100; }
+      }
+      if (contrib <= 0) return;
+      const reps = (ex.sets || []).filter((s) => s.type !== "warmup").map((s) => s.repsT).filter(Boolean);
+      items.push({ dayName: day.name || "Sesión", exName: ex.name || "Ejercicio", eff, contrib, primary, pct, reps, region: classifyRegion(muscle, ex.name || "") });
+    });
+  });
+  const sessions = new Set(items.map((it) => it.dayName)).size;
+  const regionOrder = MUSCLE_REGION_ORDER[muscle];
+  let regions = null;
+  if (regionOrder) {
+    const acc = {}; let anyClassified = false;
+    items.forEach((it) => {
+      const key = it.region || "Sin clasificar";
+      if (it.region) anyClassified = true;
+      acc[key] = (acc[key] || 0) + it.contrib;
+    });
+    if (anyClassified) {
+      regions = [...regionOrder.filter((r) => acc[r]), ...(acc["Sin clasificar"] ? ["Sin clasificar"] : [])]
+        .map((r) => ({ region: r, sets: acc[r] }));
+    }
+  }
+  return { items, sessions, regions };
+}
+
+// Fila de volumen de un grupo muscular. Si recibe `days`, se vuelve
+// desplegable: al tocarla muestra el detalle (ejercicios, series, sesiones,
+// reps y sub-zonas) de ESE conjunto de días.
+const MuscleVolumeRow = ({ r, max, compact, days }) => {
   const col = volStatusColor(r.status);
+  const [open, setOpen] = useState(false);
+  const expandable = !!days;
+  const detail = useMemo(() => (open && expandable ? muscleDetail(days, r.muscle) : null), [open, expandable, days, r.muscle]);
+  const maxRegion = detail && detail.regions ? Math.max(...detail.regions.map((x) => x.sets), 1) : 1;
   return (
   <Card style={{ padding: "11px 13px", marginBottom: 8 }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
-      <div style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>{r.muscle}</div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: P.text }}>{fmtSets(r.sets)} series</div>
-      <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em",
-        color: col, background: `${col}1E`, border: `1px solid ${col}55`,
-        borderRadius: 7, padding: "2px 7px" }}>{r.status}</div>
-    </div>
-    <div style={{ position: "relative", height: 8, background: P.s3, borderRadius: 5, overflow: "hidden" }}>
+    <button onClick={expandable ? () => setOpen((o) => !o) : undefined} disabled={!expandable}
+      style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", padding: 0, cursor: expandable ? "pointer" : "default" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>{r.muscle}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: P.text }}>{fmtSets(r.sets)} series</div>
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em",
+          color: col, background: `${col}1E`, border: `1px solid ${col}55`,
+          borderRadius: 7, padding: "2px 7px" }}>{r.status}</div>
+        {expandable && (open ? <ChevronUp size={16} color={P.faint} /> : <ChevronDown size={16} color={P.faint} />)}
+      </div>
+      <div style={{ position: "relative", height: 8, background: P.s3, borderRadius: 5, overflow: "hidden" }}>
+        {r.ref && (
+          <div style={{ position: "absolute", left: `${(r.ref.mav[0] / max) * 100}%`, width: `${((r.ref.mav[1] - r.ref.mav[0]) / max) * 100}%`,
+            top: 0, bottom: 0, background: `${P.green}33` }} />
+        )}
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(100, (r.sets / max) * 100)}%`,
+          background: col, opacity: .85, borderRadius: 5 }} />
+      </div>
       {r.ref && (
-        <div style={{ position: "absolute", left: `${(r.ref.mav[0] / max) * 100}%`, width: `${((r.ref.mav[1] - r.ref.mav[0]) / max) * 100}%`,
-          top: 0, bottom: 0, background: `${P.green}33` }} />
+        <div style={{ fontSize: 12.5, color: P.faint, marginTop: 6, whiteSpace: compact ? "nowrap" : "normal", overflow: "hidden", textOverflow: "ellipsis" }}>
+          MEV {r.ref.mev} · óptimo {r.ref.mav[0]}–{r.ref.mav[1]} · MRV {r.ref.mrv}{compact ? "" : ` · frecuencia sugerida ${r.ref.freq}`}
+        </div>
       )}
-      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(100, (r.sets / max) * 100)}%`,
-        background: col, opacity: .85, borderRadius: 5 }} />
-    </div>
-    {r.ref && (
-      <div style={{ fontSize: 12.5, color: P.faint, marginTop: 6, whiteSpace: compact ? "nowrap" : "normal", overflow: "hidden", textOverflow: "ellipsis" }}>
-        MEV {r.ref.mev} · óptimo {r.ref.mav[0]}–{r.ref.mav[1]} · MRV {r.ref.mrv}{compact ? "" : ` · frecuencia sugerida ${r.ref.freq}`}
+    </button>
+    {open && detail && (
+      <div style={{ marginTop: 11, paddingTop: 11, borderTop: `1px solid ${P.line}` }}>
+        <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 10 }}>
+          En {detail.sessions} {detail.sessions === 1 ? "sesión" : "sesiones"} · {detail.items.length} {detail.items.length === 1 ? "ejercicio" : "ejercicios"}
+          {r.ref ? ` · frecuencia sugerida ${r.ref.freq}` : ""}
+        </div>
+
+        {detail.regions && (
+          <div style={{ marginBottom: 12 }}>
+            <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", color: P.faint2, marginBottom: 6 }}>POR ZONA · ESTIMADO POR EL NOMBRE</div>
+            {detail.regions.map((rg) => (
+              <div key={rg.region} style={{ marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
+                  <div style={{ flex: 1, fontSize: 13, color: P.dim }}>{rg.region}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: P.text }}>{fmtSets(rg.sets)} series</div>
+                </div>
+                <div style={{ height: 5, background: P.s3, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(rg.sets / maxRegion) * 100}%`, background: P.ember2, borderRadius: 3 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", color: P.faint2, marginBottom: 6 }}>EJERCICIOS QUE LO TRABAJAN</div>
+        {detail.items.map((it, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "7px 0", borderTop: i ? `1px solid ${P.line}55` : "none" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: P.text }}>{it.exName}</div>
+              <div style={{ fontSize: 12, color: P.faint, marginTop: 1 }}>
+                {it.dayName}{it.region ? ` · ${it.region}` : ""}{it.reps.length ? ` · ${repsSummary(it.reps)} reps` : ""}
+              </div>
+            </div>
+            <div style={{ textAlign: "right", flexShrink: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: P.text }}>{fmtSets(it.contrib)} series</div>
+              {!it.primary && <div style={{ fontSize: 11, color: P.faint }}>secundario {it.pct}% · {it.eff} totales</div>}
+            </div>
+          </div>
+        ))}
       </div>
     )}
   </Card>
@@ -15200,13 +15350,45 @@ const VolumePanel = ({ plan }) => {
   // sin tener que ir a editar el perfil.
   const [prep, setPrep] = useState((plan.athlete || {}).enhanced === "asistido" ? "asistido" : "natural");
   const refTable = prep === "asistido" ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
-  const vol = useMemo(() => volumeByMuscle(plan, refTable), [plan, refTable]);
   // Agrupado por rutina (A, B, C…), igual que en la pestaña Rutina, para no
   // mezclar sesiones de rutinas distintas en una sola lista.
-  const groups = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames).map((g) => ({
+  const groups = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames), [plan.days, plan.routineNames]);
+  const groupsSesion = useMemo(() => groups.map((g) => ({
     ...g, perDay: g.days.map((d) => ({ day: d, ...volumeByMuscleForDay(d, refTable) })),
-  })), [plan.days, plan.routineNames, refTable]);
-  if (!vol.rows.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Carga la rutina del alumno para ver el volumen efectivo por grupo muscular." />;
+  })), [groups, refTable]);
+  // Días que forman la "semana" que se está viendo. El volumen de referencia
+  // (MEV/MAV/MRV) es SEMANAL, así que hay que dejar claro qué se cuenta como
+  // una semana. Con cronograma cargado, la semana real; si no, cada rutina
+  // (una vuelta = una semana) — antes se sumaban TODAS las rutinas juntas y
+  // el total no significaba nada ("85 series" mezclando A+B+C).
+  const scheduledIds = useMemo(() => {
+    const s = plan.schedule || {}, s2 = plan.schedule2 || {};
+    return ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].flatMap((k) => [s[k], s2[k]]).filter(Boolean);
+  }, [plan.schedule, plan.schedule2]);
+  const hasSchedule = scheduledIds.length > 0;
+  const multi = groups.length > 1;
+  const scopeOpts = [
+    ...(hasSchedule ? [{ id: "week", label: "Semana real" }] : []),
+    ...groups.map((g) => ({ id: "r:" + g.key, label: g.label })),
+    ...(multi ? [{ id: "ciclo", label: "Todas" }] : []),
+  ];
+  const [scope, setScope] = useState(hasSchedule ? "week" : (groups[0] ? "r:" + groups[0].key : "ciclo"));
+  const activeScope = scopeOpts.some((o) => o.id === scope) ? scope : (scopeOpts[0] ? scopeOpts[0].id : "ciclo");
+  const countedDays = useMemo(() => {
+    if (activeScope === "week") return scheduledIds.map((id) => (plan.days || []).find((d) => d.id === id)).filter(Boolean);
+    if (activeScope === "ciclo") return plan.days || [];
+    const key = activeScope.startsWith("r:") ? activeScope.slice(2) : null;
+    const g = groups.find((x) => x.key === key);
+    return g ? g.days : (plan.days || []);
+  }, [activeScope, scheduledIds, plan.days, groups]);
+  const vol = useMemo(() => {
+    const rows = volumeByMuscleForDays(countedDays, refTable);
+    return { rows, total: rows.reduce((a, r) => a + r.sets, 0) };
+  }, [countedDays, refTable]);
+  const scopeLabel = activeScope === "week" ? "la semana real (según el cronograma)"
+    : activeScope === "ciclo" ? "una vuelta completa a TODAS las rutinas juntas"
+    : `${(groups.find((g) => "r:" + g.key === activeScope) || {}).label || "la rutina"} (una vuelta = una semana)`;
+  if (!plan.days || !plan.days.length) return <Empty icon={Dumbbell} title="Sin series que analizar" body="Carga la rutina del alumno para ver el volumen efectivo por grupo muscular." />;
   const max = Math.max(...vol.rows.map((r) => Math.max(r.sets, r.ref ? r.ref.mrv : 0)), 1);
 
   return (
@@ -15226,10 +15408,24 @@ const VolumePanel = ({ plan }) => {
 
       {sub === "semana" && (
         <>
+          {scopeOpts.length > 1 && (
+            <div style={{ marginBottom: 10 }}>
+              <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", color: P.faint2, marginBottom: 6 }}>VOLUMEN DE</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {scopeOpts.map((o) => {
+                  const on = o.id === activeScope;
+                  return (
+                    <button key={o.id} onClick={() => setScope(o.id)} style={{ padding: "6px 11px", borderRadius: 9, fontSize: 13, fontWeight: 600,
+                      background: on ? P.s3 : P.s1, color: on ? P.text : P.faint, border: `1px solid ${on ? P.line : "transparent"}` }}>{o.label}</button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 12, lineHeight: 1.5 }}>
-            Series efectivas (sin contar aproximaciones) por <b>{vol.basis === "semana" ? "semana según el cronograma" : "vuelta completa a la rutina"}</b>. Total: {fmtSets(vol.total)} series.
-            {vol.basis === "ciclo" && " Asigna los días en la pestaña Agenda para verlo en base semanal."}
-            {" "}Incluye el aporte parcial de los músculos secundarios que marques en cada ejercicio.
+            Series efectivas (sin contar aproximaciones) por semana en <b>{scopeLabel}</b>. Total: {fmtSets(vol.total)} series.
+            {activeScope === "ciclo" && " Ojo: suma rutinas distintas; para leer el volumen semanal real elige una rutina o carga el cronograma en Agenda."}
+            {" "}Toca un grupo muscular para ver los ejercicios, series, sesiones y el desglose por zona. Incluye el aporte parcial de los músculos secundarios que marques en cada ejercicio.
           </div>
           <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 12, lineHeight: 1.45, padding: "8px 10px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10 }}>
             {prep === "asistido" ? (
@@ -15238,7 +15434,7 @@ const VolumePanel = ({ plan }) => {
               <>MEV / zona óptima (MAV) / MRV según los landmarks de volumen de <b style={{ color: P.dim }}>Renaissance Periodization (Dr. Mike Israetel)</b> — la referencia más usada en coaching de hipertrofia basado en evidencia. Son rangos orientativos: el punto de partida real se ajusta siempre según cómo responda cada atleta.</>
             )}
           </div>
-          {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} />)}
+          {vol.rows.map((r) => <MuscleVolumeRow key={r.muscle} r={r} max={max} days={countedDays} />)}
         </>
       )}
 
@@ -15247,8 +15443,8 @@ const VolumePanel = ({ plan }) => {
           <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 12, lineHeight: 1.5 }}>
             Series efectivas totales de cada sesión, con el desglose por grupo muscular (incluye el aporte parcial de músculos secundarios), separadas por rutina.
           </div>
-          {groups.length === 0 && <Empty icon={ClipboardList} title="Sin días cargados" body="Crea los días de la rutina para ver el detalle por sesión." />}
-          {groups.map((g) => (
+          {groupsSesion.length === 0 && <Empty icon={ClipboardList} title="Sin días cargados" body="Crea los días de la rutina para ver el detalle por sesión." />}
+          {groupsSesion.map((g) => (
             <div key={g.key} style={{ marginBottom: 18 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${P.line}` }}>
                 <div className="disp" style={{ fontSize: 16, fontWeight: 700, textTransform: "uppercase", color: P.ember2 }}>{g.label}</div>
