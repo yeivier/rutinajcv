@@ -8,7 +8,7 @@ import {
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText,
   UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, Pill,
-  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal
+  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid
 } from "lucide-react";
 
 /* ============================================================
@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v253";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v254";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -120,18 +120,22 @@ const DARK_THEME = {
   P: {
     bg: "#0F0F11", s1: "#18181B", s2: "#1F1F23", s3: "#27272B", s4: "#33333A",
     line: "#35353C", text: "#FFFFFF", dim: "#E4E4E7", faint: "#A1A1AA", faint2: "#8A8A94",
-    ember: "#FFFFFF", ember2: "#FFFFFF", glow: "#FFFFFF",
-    green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
+    // Acento verde oscuro (antes monocromo blanco, "sin colores") — el
+    // mismo verde ya probado y con buen contraste sobre fondo oscuro en
+    // la pantalla de sesión (`teColors`, más abajo), ahora también como
+    // acento de toda la app en este tema.
+    ember: "#2FCB78", ember2: "#2FCB78", glow: "#2FCB78",
+    green: "#2FCB78", blue: "#A1A1AA", red: "#FF453A",
     frame: "#35353C", bgGrad: "#0F0F11",
     // Mismos 5 tokens nuevos, invertidos para el tema oscuro siguiendo el
     // mismo criterio que el resto de la paleta (s3/s4/line de arriba).
     fillTertiary: "#2C2C31", separatorStrong: "#48484F",
     textQuaternary: "#7A7A83", chevron: "#5A5A63", dotInactive: "#3A3A41",
   },
-  plateGrad: "#FFFFFF",
-  plateFg: "#101012",
-  plateDim: "#5A5A63",
-  plateBorder: "#FFFFFF",
+  plateGrad: "#2FCB78",
+  plateFg: "#062114", // mismo "accInk" oscuro que ya usa la sesión sobre este verde
+  plateDim: "#1E5B3A",
+  plateBorder: "#2FCB78",
 };
 // Tercer tema, a pedido (blanco y rosado): mismas tarjetas blancas que
 // LIGHT_THEME —el contenido sigue leyéndose igual de limpio— pero el
@@ -2051,7 +2055,7 @@ const UnitToggle = () => {
   return (
     <button onClick={() => setUnit(unit === "kg" ? "lb" : "kg")}
       title="Cambiar unidad de peso" aria-label={`Unidad de peso: ${unit}. Toca para cambiar a ${unit === "kg" ? "libras" : "kilogramos"}`}
-      style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 800, letterSpacing: ".03em",
+      style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 700, letterSpacing: ".03em",
         padding: "4px 8px", borderRadius: 8, border: `1px solid ${P.line}`, color: P.dim, flexShrink: 0 }}>
       <span style={{ color: unit === "kg" ? P.ember2 : P.faint }}>KG</span>
       <span style={{ color: P.faint }}>/</span>
@@ -3229,7 +3233,7 @@ const GlobalStyle = () => {
        experiencia móvil en absoluto. */
     /* brightness() aclaraba: sobre fondo blanco eso no realza nada, lo lava.
        El realce ahora es una baja de opacidad, que funciona igual en claro
-       y en modo gimnasio. En touch, la respuesta al toque es el mismo
+       y en modo oscuro. En touch, la respuesta al toque es el mismo
        atenuado que usa iOS, no un rebote de escala. */
     @media (hover: hover) and (pointer: fine) {
       .fj button:not(:disabled) { transition: opacity .12s ease; }
@@ -3239,15 +3243,17 @@ const GlobalStyle = () => {
     @keyframes fjSpin { to { transform: rotate(360deg); } }
     .fj-spin { animation: fjSpin .85s linear infinite; }
     .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
       color: ${P.text}; font-variant-numeric: tabular-nums;
       line-height: 1.42; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
     /* Los títulos ya no cambian de familia — solo de tamaño, peso y
        tracking. A partir de 22px iOS aprieta el interletrado; acá se hace
-       igual. El peso sube a 800: a diferencia de SF Pro (que no tiene un
-       800 real y el navegador lo falseaba engordando el trazo), Inter sí
-       trae ese corte dibujado — se nota, sobre todo en los títulos. */
-    .fj h1,.fj h2,.fj .disp { font-family: inherit; letter-spacing: -.022em; font-weight: 800; }
+       igual. El peso se queda en 700 (Bold real, no 800/900): es el mismo
+       peso que usa un large title de iOS de verdad, y el único que tiene
+       un corte dibujado genuino en absolutamente cualquier fuente de
+       sistema (Apple, Windows, Android) — 800/900 sin Inter de por medio
+       el navegador los "engorda" a mano (negrita falsa), y eso sí se nota. */
+    .fj h1,.fj h2,.fj .disp { font-family: inherit; letter-spacing: -.022em; font-weight: 700; }
     .fj h1 { font-size: 34px; line-height: 1.06; }
     .fj b, .fj strong { font-weight: 600; }
     /* Micro-etiquetas en versalitas (ENTRENO DE HOY, VOLUMEN, ADHERENCIA…):
@@ -3644,7 +3650,7 @@ const UnitToggleMini = () => {
     <button onClick={() => setUnit(unit === "kg" ? "lb" : "kg")}
       aria-label={`Unidad: ${unit === "kg" ? "kilos" : "libras"}. Tocar para cambiar a ${unit === "kg" ? "libras" : "kilos"}`}
       style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0,
-        fontSize: 10, fontWeight: 800, letterSpacing: ".03em", padding: "3px 6px", borderRadius: 7,
+        fontSize: 10, fontWeight: 700, letterSpacing: ".03em", padding: "3px 6px", borderRadius: 7,
         border: `1px solid ${P.separatorStrong}`, background: P.s1 }}>
       <span style={{ color: unit === "kg" ? P.text : P.chevron }}>KG</span>
       <span style={{ color: P.chevron }}>/</span>
@@ -6804,7 +6810,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 aria-label={hr.connected ? `Frecuencia cardíaca ${hr.bpm != null ? hr.bpm + " pulsaciones por minuto" : "conectada"}` : "Conectar pulsómetro para ver la frecuencia cardíaca"}
                 title="Frecuencia cardíaca"
                 style={{ height: 34, padding: "0 10px", borderRadius: 9, flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5,
-                  fontSize: 12.5, fontWeight: 800, letterSpacing: ".01em",
+                  fontSize: 12.5, fontWeight: 700, letterSpacing: ".01em",
                   background: hr.connected ? SES.acc : SES.campo, border: `1px solid ${hr.connected ? SES.acc : SES.line}`,
                   color: hr.connected ? "#fff" : SES.dim }}>
                 <HeartPulse size={15} strokeWidth={2.4} className={hr.connected && hr.bpm != null ? "pulse" : ""} />
@@ -6818,7 +6824,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               {tbBtn("redo", Redo2, "Rehacer", () => redoStack.length && redo())}
               <button onClick={() => setWeightUnit(weightUnit === "kg" ? "lb" : "kg")} aria-label="Cambiar unidad de peso"
                 title="Cambiar unidad de peso" style={{ height: 34, padding: "0 10px", borderRadius: 9, flexShrink: 0,
-                  display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11.5, fontWeight: 800, letterSpacing: ".03em",
+                  display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11.5, fontWeight: 700, letterSpacing: ".03em",
                   background: SES.campo, border: `1px solid ${SES.line}` }}>
                 <span style={{ color: weightUnit === "kg" ? SES.acc : SES.faint }}>KG</span>
                 <span style={{ color: SES.faint }}>/</span>
@@ -8035,7 +8041,7 @@ const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
         </div>
         <button onClick={() => setUnit(unit === "cm" ? "in" : "cm")}
           title="Cambiar unidad de medidas" aria-label={`Unidad de medidas: ${unit}. Toca para cambiar a ${unit === "cm" ? "pulgadas" : "centímetros"}`}
-          style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 800, letterSpacing: ".03em",
+          style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 700, letterSpacing: ".03em",
             padding: "4px 8px", borderRadius: 8, border: `1px solid ${MONO.line}`, color: MONO.inkDim, flexShrink: 0 }}>
           <span style={{ color: unit === "cm" ? P.ember2 : MONO.inkFaint }}>CM</span>
           <span style={{ color: MONO.inkFaint }}>/</span>
@@ -10029,7 +10035,7 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
           <div key={s.id} style={{ marginBottom: easy ? 8 : 6 }}>
             <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
               {easy
-                ? <span className="disp" style={{ width: 34, textAlign: "center", fontWeight: 800, fontSize: 17, color: P.dim }}>{i + 1}</span>
+                ? <span className="disp" style={{ width: 34, textAlign: "center", fontWeight: 700, fontSize: 17, color: P.dim }}>{i + 1}</span>
                 : (
                   <select value={s.type} onChange={(e) => upd(i, { type: e.target.value })} style={{ width: 88, padding: "8px 4px", fontSize: 13.5 }}>
                     {Object.entries(SET_TYPES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}
@@ -11818,7 +11824,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: PLATE_GRAD,
                 boxShadow: "none",
-                color: PLATE_FG, fontWeight: 800, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
+                color: PLATE_FG, fontWeight: 700, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="disp" style={{ fontSize: 19, fontWeight: 700, textTransform: "uppercase", color: P.text, lineHeight: 1.15 }}>{g.label}</div>
                 <div style={{ fontSize: 13.5, color: P.faint, marginTop: 3 }}>
@@ -13079,7 +13085,7 @@ const RankingsTab = ({ roster, toast }) => {
       {board.map((r, i) => (
         <Card key={r.id} style={{ padding: "11px 13px", marginBottom: 8, display: "flex", alignItems: "center", gap: 11 }}>
           <div className="disp" style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            fontWeight: 800, fontSize: 14,
+            fontWeight: 700, fontSize: 14,
             background: i === 0 ? PLATE_GRAD : P.s2,
             color: i === 0 ? PLATE_FG : P.faint, border: i === 0 ? "none" : `1px solid ${P.line}` }}>
             {i === 0 ? <Medal size={15} /> : i + 1}
@@ -13310,7 +13316,7 @@ const DashboardTab = ({ roster, toast }) => {
   const statCard = (label, value, color) => (
     <Card style={{ padding: "14px 15px" }}>
       <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>
-      <div className="disp" style={{ fontSize: 26, fontWeight: 800, color: color || P.text, marginTop: 4 }}>{value}</div>
+      <div className="disp" style={{ fontSize: 26, fontWeight: 700, color: color || P.text, marginTop: 4 }}>{value}</div>
     </Card>
   );
 
@@ -13599,11 +13605,11 @@ const CobrosTab = ({ roster, toast }) => {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
         <Card style={{ padding: "14px 15px" }}>
           <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Ingresos este mes</div>
-          <div className="disp" style={{ fontSize: 22, fontWeight: 800, color: P.ember2, marginTop: 4 }}>{fmtMoney(monthRevenue, "CLP")}</div>
+          <div className="disp" style={{ fontSize: 22, fontWeight: 700, color: P.ember2, marginTop: 4 }}>{fmtMoney(monthRevenue, "CLP")}</div>
         </Card>
         <Card style={{ padding: "14px 15px" }}>
           <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Vencidos / por vencer</div>
-          <div className="disp" style={{ fontSize: 22, fontWeight: 800, color: counts.vencido ? P.text : (counts.por_vencer ? P.dim : P.faint), marginTop: 4 }}>{atRisk}</div>
+          <div className="disp" style={{ fontSize: 22, fontWeight: 700, color: counts.vencido ? P.text : (counts.por_vencer ? P.dim : P.faint), marginTop: 4 }}>{atRisk}</div>
         </Card>
       </div>
 
@@ -16121,7 +16127,7 @@ const CalendarGrid = ({ plan, cursor, setCursor, view, setView, selected, setSel
         {day && (
           <span title={`${day.name} · ${routineLabel(routineOf(day), plan.routineNames)}`}
             style={{ minWidth: 15, height: 15, padding: "0 2px", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 9.5, fontWeight: 800, lineHeight: 1,
+              fontSize: 9.5, fontWeight: 700, lineHeight: 1,
               background: hasSession ? P.green : PLATE_GRAD, color: hasSession ? P.bg : PLATE_FG }}>
             {dayShortTag(plan, day)}
           </span>
@@ -16163,11 +16169,11 @@ const CalendarGrid = ({ plan, cursor, setCursor, view, setView, selected, setSel
       </div>
       <div style={{ display: "flex", gap: 12, marginTop: 10, fontSize: 12, color: P.faint, flexWrap: "wrap" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <span style={{ minWidth: 15, height: 15, borderRadius: 4, background: PLATE_GRAD, color: PLATE_FG, fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>A2</span>
+          <span style={{ minWidth: 15, height: 15, borderRadius: 4, background: PLATE_GRAD, color: PLATE_FG, fontSize: 9.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>A2</span>
           Rutina y sesión que toca
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <span style={{ minWidth: 15, height: 15, borderRadius: 4, background: P.green, color: P.bg, fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>A2</span>
+          <span style={{ minWidth: 15, height: 15, borderRadius: 4, background: P.green, color: P.bg, fontSize: 9.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>A2</span>
           Ya entrenado
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 6, height: 6, background: eventColorDot("blue"), borderRadius: 999 }} />Evento</span>
@@ -16237,7 +16243,7 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
                 {wd ? (
                   <>
                     <span style={{ minWidth: 20, height: 18, padding: "0 4px", borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 11, fontWeight: 800, flexShrink: 0,
+                      fontSize: 11, fontWeight: 700, flexShrink: 0,
                       background: done ? P.green : PLATE_GRAD, color: done ? P.bg : PLATE_FG }}>
                       {dayShortTag(plan, wd)}
                     </span>
@@ -16255,7 +16261,7 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
                   style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "5px 9px 5px 50px", marginTop: 2,
                     borderRadius: 9, background: "transparent", border: "1px solid transparent" }}>
                   <span style={{ minWidth: 20, height: 16, padding: "0 4px", borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 10, fontWeight: 800, flexShrink: 0,
+                    fontSize: 10, fontWeight: 700, flexShrink: 0,
                     background: sessionsOnDate(iso).some((s) => s.dayId === wd2.id) ? P.green : P.s3, color: sessionsOnDate(iso).some((s) => s.dayId === wd2.id) ? P.bg : P.faint,
                     border: `1px solid ${P.line}` }}>
                     {dayShortTag(plan, wd2)}
@@ -17804,8 +17810,8 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
 
       <SettingGroup label="Ajustes">
         <SettingRow Icon={theme === "dark" ? Moon : Sun} label="Apariencia"
-          hint={theme === "light" ? "Claro" : theme === "dark" ? "Modo gimnasio — gris oscuro, sin negro puro" : theme === "pink" ? "Rosa — blanco y rosado" : "Auto — sigue el sistema"}
-          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Gimnasio" }, { id: "pink", label: "Rosa" }, { id: "auto", label: "Auto" }]} value={theme} onChange={setTheme} />} />
+          hint={theme === "light" ? "Claro" : theme === "dark" ? "Oscuro — gris oscuro con acento verde, sin negro puro" : theme === "pink" ? "Rosa — blanco y rosado" : "Auto — sigue el sistema"}
+          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }, { id: "pink", label: "Rosa" }, { id: "auto", label: "Auto" }]} value={theme} onChange={setTheme} />} />
         <SettingRow Icon={Ruler} label="Unidad de peso" hint={weightUnit === "kg" ? "Kilogramos" : "Libras"}
           control={<SectionSwitch items={[{ id: "kg", label: "kg" }, { id: "lb", label: "lb" }]} value={weightUnit} onChange={setWeightUnitPref} />} />
         <SettingRow Icon={Ruler} label="Unidad de medidas" hint={measureUnit === "cm" ? "Centímetros" : "Pulgadas"}
@@ -17851,6 +17857,53 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
         okLabel="Cerrar sesión" danger
         onOk={() => { setConfirmLogout(false); onSwitchIdentity(); }}
         onCancel={() => setConfirmLogout(false)} />
+    </Sheet>
+  );
+};
+
+/* Centro de control: panel de accesos rápidos alcanzable desde CUALQUIER
+   pantalla con un solo toque (botón dedicado en la cabecera, al lado del
+   avatar) — el mismo espíritu que el Centro de Control de iOS, pero como
+   ficha dentro de la app (no hay forma de tocar el de verdad del sistema
+   desde una web). Reusa `Tile`, la misma pieza de "Más": icono + nombre,
+   sin frase descriptiva debajo. Los accesos de alumno son los que pidió
+   el usuario tal cual; los de coach son los que more se acercan en
+   espíritu (lo más usado a diario, sin duplicar el detalle que ya vive en
+   cada pestaña). "Cambiar de cuenta" no aparece para un perfil con acceso
+   (mismo gate que ya usa el resto de la app: un perfil de alumno no tiene
+   otra cuenta a la que cambiar). */
+const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
+  onTrain, onViewSession, onProgress, onCheckin, onAIChat, onSwitchAccount,
+  onOpenPanel, onOpenAtletas, onNewRoutine, onOpenMensajes, onOpenAgenda }) => {
+  const [themeMode, setThemeMode] = useTheme();
+  const isDark = themeMode === "dark";
+  const go = (fn) => () => { onClose(); fn(); };
+  const themeItem = { key: "tema", Icon: isDark ? Sun : Moon,
+    label: isDark ? "Modo claro" : "Modo oscuro",
+    onClick: go(() => setThemeMode(isDark ? "light" : "dark")) };
+  const cuentaItem = !isDelegate && { key: "cuenta", Icon: Users, label: "Cambiar de cuenta", onClick: go(onSwitchAccount) };
+  const items = mode === "coach" ? [
+    { key: "panel", Icon: LayoutDashboard, label: "Panel", onClick: go(onOpenPanel) },
+    { key: "atletas", Icon: Users, label: "Atletas", onClick: go(onOpenAtletas) },
+    { key: "rutina", Icon: ClipboardList, label: "Nueva rutina", onClick: go(onNewRoutine) },
+    { key: "mensajes", Icon: MessageSquare, label: "Mensajes", onClick: go(onOpenMensajes) },
+    { key: "agenda", Icon: Calendar, label: "Agenda", onClick: go(onOpenAgenda) },
+    { key: "ia", Icon: Sparkles, label: "Coach IA", onClick: go(onAIChat) },
+    themeItem, cuentaItem,
+  ].filter(Boolean) : [
+    hasActiveSession
+      ? { key: "sesion", Icon: Dumbbell, label: "Ver sesión", onClick: go(onViewSession) }
+      : { key: "entrenar", Icon: Dumbbell, label: "Entrenar", onClick: go(onTrain) },
+    { key: "progreso", Icon: BarChart3, label: "Progreso", onClick: go(onProgress) },
+    { key: "checkin", Icon: Camera, label: "Check-in", onClick: go(onCheckin) },
+    { key: "ia", Icon: Sparkles, label: "Coach IA", onClick: go(onAIChat) },
+    themeItem, cuentaItem,
+  ].filter(Boolean);
+  return (
+    <Sheet open={open} onClose={onClose} title="Centro de control">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+        {items.map((it) => <Tile key={it.key} Icon={it.Icon} label={it.label} onClick={it.onClick} />)}
+      </div>
     </Sheet>
   );
 };
@@ -20973,6 +21026,7 @@ const App = () => {
   // pestaña para que volver a ella recuerde dónde estabas.
   const [section, setSection] = useState({});
   const [moreOpen, setMoreOpen] = useState(false);
+  const [controlCenterOpen, setControlCenterOpen] = useState(false);
   const [accessOpen, setAccessOpen] = useState(false);
   const [fichaOpen, setFichaOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
@@ -21730,11 +21784,19 @@ const App = () => {
               <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{identityName}</div>
               <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>{delegate ? "perfil con acceso" : `modo ${mode}`}</div>
             </div>
-            <button onClick={() => setMoreOpen(true)} aria-label="Perfil y más opciones"
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
-                background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
-              {(identityName || "?").slice(0, 1).toUpperCase()}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              <button onClick={() => setControlCenterOpen(true)} aria-label="Centro de control"
+                title="Centro de control"
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
+                  background: P.s3, border: `1px solid ${P.line}`, color: P.dim, flexShrink: 0 }}>
+                <LayoutGrid size={17} />
+              </button>
+              <button onClick={() => setMoreOpen(true)} aria-label="Perfil y más opciones"
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
+                  background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+                {(identityName || "?").slice(0, 1).toUpperCase()}
+              </button>
+            </div>
           </div>
         )}
         {!enSesion && <StorageBanner />}
@@ -21920,6 +21982,17 @@ const App = () => {
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)}
         onEnterAs={(prof) => { setAccessOpen(false); enterDelegate(prof); }} />
       <FaceIdOfferSheet offer={faceOffer} onClose={() => setFaceOffer(null)} />
+      <ControlCenterSheet open={controlCenterOpen} onClose={() => setControlCenterOpen(false)}
+        mode={mode} isDelegate={!!delegate} hasActiveSession={!!active}
+        onTrain={() => setTab("entrenar")} onViewSession={() => setTab("entrenar")}
+        onProgress={() => setTab("progreso")} onCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
+        onAIChat={() => { if (mode === "coach") { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); } else { setAiChatOpenSignal((n) => n + 1); } }}
+        onSwitchAccount={switchAccount}
+        onOpenPanel={() => setTab("dashboard")}
+        onOpenAtletas={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "actividad" })); }}
+        onNewRoutine={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "rutina" })); }}
+        onOpenMensajes={() => { setTab("indicaciones"); setSection((o) => ({ ...o, indicaciones: "chat" })); }}
+        onOpenAgenda={() => setUtility("agenda")} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode} isDelegate={!!delegate}
         studentName={identityName} managedStudentName={currentStudent?.name}
         onSwitchIdentity={() => { setMoreOpen(false); logout(); }}
@@ -21994,7 +22067,7 @@ class ErrorBoundary extends React.Component {
       <div style={{ minHeight: "100dvh", background: P.bgGrad, color: P.text, padding: "40px 20px",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif" }}>
         <div style={{ maxWidth: 460, margin: "0 auto", background: P.s2, border: `1px solid ${P.frame}`, borderRadius: 16, padding: "22px 20px" }}>
-          <div className="disp" style={{ fontSize: 21, fontWeight: 800, marginBottom: 8 }}>Algo se rompió en pantalla</div>
+          <div className="disp" style={{ fontSize: 21, fontWeight: 700, marginBottom: 8 }}>Algo se rompió en pantalla</div>
           <div style={{ fontSize: 15.5, color: P.dim, lineHeight: 1.55, marginBottom: 16 }}>
             Tus datos están a salvo en el servidor: no se perdió nada. Recarga la app y vuelve a intentarlo.
             Si se repite, cuéntanoslo con el detalle de abajo.
@@ -22005,7 +22078,7 @@ class ErrorBoundary extends React.Component {
           </div>
           <button onClick={() => window.location.reload()}
             style={{ width: "100%", padding: "13px 16px", borderRadius: 12, border: "none", cursor: "pointer",
-              background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 16 }}>
+              background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 16 }}>
             Recargar la app
           </button>
         </div>
@@ -22044,7 +22117,7 @@ const WhoopCallbackScreen = () => {
           marginBottom: 16, background: oauthError ? P.s3 : PLATE_GRAD, color: oauthError ? P.dim : PLATE_FG }}>
           {oauthError ? <AlertTriangle size={22} /> : <Watch size={22} />}
         </div>
-        <div className="disp" style={{ fontSize: 21, fontWeight: 800, marginBottom: 8 }}>
+        <div className="disp" style={{ fontSize: 21, fontWeight: 700, marginBottom: 8 }}>
           {oauthError ? "No se conectó tu WHOOP" : hasCode ? "Autorización recibida" : "Nada que procesar acá"}
         </div>
         <div style={{ fontSize: 15.5, color: P.dim, lineHeight: 1.55, marginBottom: 16 }}>
@@ -22056,7 +22129,7 @@ const WhoopCallbackScreen = () => {
         </div>
         <button onClick={goHome}
           style={{ width: "100%", padding: "13px 16px", borderRadius: 12, border: "none", cursor: "pointer",
-            background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 16 }}>
+            background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 16 }}>
           Volver a FORJA
         </button>
       </div>
