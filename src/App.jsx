@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v267";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v268";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1918,6 +1918,33 @@ function buildConiNutrition() {
     supplements: [],
   };
 }
+// Calentamiento de la rutina de CONI (femoral/glúteo): bien explicado, con
+// ejercicios, series y cómo hacerlos. Se muestra al empezar cualquier sesión
+// de la rutina. El coach puede editarlo desde el editor de rutina.
+const CONI_WARMUP = `Calentamiento — 10 a 12 min, antes de la primera serie de trabajo.
+
+1) Cardio suave · 5 min
+Bici, elíptica o cinta a ritmo cómodo. Objetivo: subir temperatura y pulso, sin cansarte.
+
+2) Movilidad de cadera y tobillo · 1 vuelta
+• Sentadilla profunda sostenida (peso corporal): 30–45 s, bajando lento y abriendo rodillas.
+• Círculos de cadera: 5 por lado.
+• Movilidad de tobillo contra la pared: 8 por lado.
+
+3) Activación de glúteo · 2 series (sin fatigar)
+• Puente de glúteo con banda o patada en polea liviana: 2 × 15, apretando 1 s arriba.
+• Abducción con banda (sentada o monster walk): 2 × 20.
+Foco: sentir el glúteo, nunca la zona lumbar.
+
+4) Series de aproximación del PRIMER ejercicio · 2 a 3 series
+Subí el peso de a poco, SIN llegar al fallo:
+• 1ª: ~40 % del peso de trabajo × 8–10 reps.
+• 2ª: ~60 % × 5 reps.
+• 3ª (si el peso es alto): ~80 % × 3 reps.
+No cuentan como volumen: son para preparar técnica y articulaciones.
+
+Regla: terminar el calentamiento activada y suelta, nunca fatigada. Si estás muy tiesa, sumá 2–3 min de cardio o una vuelta más de movilidad.`;
+
 function buildConiPlan() {
   // Constructor de series: cada [tipo, reps, rir] → una serie del modelo.
   const S = (arr) => arr.map(([type, repsT, rirT]) => ({ id: uid(), type, repsT, rirT: rirT || "", pct: 15 }));
@@ -1972,6 +1999,8 @@ function buildConiPlan() {
       ] },
     ],
     routineNames: { A: "Rutina de CONI" },
+    // Calentamiento por rutina (clave → texto). Aparece al empezar la sesión.
+    warmups: { A: CONI_WARMUP },
     nutrition: buildConiNutrition(),
     instructions: [],
     schedule: { mon: dL, tue: dM, wed: dX, fri: dV, sat: dS },
@@ -6375,11 +6404,12 @@ const GymPickerSheet = ({ open, onClose, onElegir, dayName }) => {
    agrupaciones), y recién con "Elegir gimnasio y empezar" se abre el
    selector de sede. La ✕ de la hoja (Sheet) permite salir sin empezar
    nada. Es solo lectura: no registra ni arranca la sesión por sí sola. */
-const DayPreviewSheet = ({ day, open, onClose, onContinue, history }) => {
+const DayPreviewSheet = ({ day, open, onClose, onContinue, history, warmup }) => {
   const exs = (day && day.exs) || [];
   const totalSets = exs.reduce((a, e) => a + (e.sets || []).length, 0);
   const lastDone = day && [...(history?.sessions || [])].reverse().find((s) => s.dayId === day.id);
   const reps = (e) => { const v = [...new Set((e.sets || []).map((s) => (s.repsT || "").trim()).filter(Boolean))]; return v.length ? v.join(" / ") : null; };
+  const warm = (warmup || "").trim();
   return (
     <Sheet open={open} onClose={onClose} title={day ? day.name : "Sesión"} tall>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -6387,6 +6417,17 @@ const DayPreviewSheet = ({ day, open, onClose, onContinue, history }) => {
           {exs.length} ejercicio{exs.length !== 1 ? "s" : ""} · {totalSets} series
           {lastDone ? ` · última vez ${fmtDate(lastDone.date)}` : " · nunca realizada"}
         </div>
+        {/* Calentamiento de la rutina, bien visible ANTES de la lista de
+            ejercicios: es lo primero que hay que hacer al empezar la sesión. */}
+        {warm && (
+          <div style={{ borderRadius: R_TILE, background: P.accWell, border: `1px solid ${P.accEdge}`, padding: "13px 15px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <Flame size={17} color={P.ember} />
+              <span style={{ fontSize: 14, fontWeight: 700, color: P.text, textTransform: "uppercase", letterSpacing: ".04em" }}>Calentamiento</span>
+            </div>
+            <div style={{ fontSize: 14, color: P.text, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{warm}</div>
+          </div>
+        )}
         {exs.length === 0 ? (
           <Empty icon={Dumbbell} title="Sin ejercicios" body="Este día no tiene ejercicios cargados todavía." />
         ) : exs.map((e, ei) => {
@@ -7743,6 +7784,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         {/* Primero la lista de ejercicios de la sesión; recién desde ahí se
             elige el gimnasio. La ✕ de la hoja permite salir sin empezar. */}
         <DayPreviewSheet open={!!previewDay} day={previewDay} history={history}
+          warmup={previewDay ? (plan.warmups || {})[routineOf(previewDay)] : ""}
           onClose={() => setPreviewDay(null)}
           onContinue={() => { const d = previewDay; setPreviewDay(null); if (d) setPidiendoGym(d); }} />
         <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
@@ -12238,6 +12280,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               <button onClick={() => { const name = prompt("Nombre de la rutina:", g.label); if (name && name.trim()) mut((p) => { if (!p.routineNames) p.routineNames = {}; p.routineNames[g.key] = name.trim(); }); }}
                 title="Renombrar la rutina" aria-label={`Renombrar ${g.label}`}
                 style={{ padding: 8, color: P.faint }}><PencilLine size={16} /></button>
+              {/* Calentamiento de la rutina: se muestra al alumno al empezar
+                  cada sesión de esta rutina (antes de elegir el gimnasio). */}
+              <button onClick={() => { const w = prompt(`Calentamiento de ${g.label}\n(ejercicios, series y cómo hacerlos; se muestra al empezar la sesión). Deja vacío para quitarlo.`, (plan.warmups || {})[g.key] || ""); if (w !== null) mut((p) => { p.warmups = { ...(p.warmups || {}) }; const t = w.trim(); if (t) p.warmups[g.key] = t; else delete p.warmups[g.key]; }); }}
+                title="Calentamiento de la rutina" aria-label={`Calentamiento de ${g.label}`}
+                style={{ padding: 8, color: (plan.warmups || {})[g.key] ? P.ember2 : P.faint }}><Flame size={16} /></button>
               <button onClick={() => copyRoutine(g)} title="Copiar la rutina completa" aria-label={`Copiar ${g.label} completa`}
                 style={{ padding: 8, color: P.faint }}><Copy size={16} /></button>
               {/* Alternativa siempre confiable al arrastre: sube/baja la
@@ -21937,6 +21984,13 @@ const App = () => {
     if (!p.events) p.events = [];
     // Migración: planes viejos sin ficha del atleta (la usa el agente de culturismo)
     if (!p.athlete) p.athlete = emptyAthlete();
+    // Migración: calentamiento por defecto de la rutina de CONI. Se inyecta UNA
+    // vez si esa rutina no tiene calentamiento cargado; si el coach ya lo editó,
+    // no se pisa. Independiente de seedVersion (no arrastra plantillas B/C).
+    if (p.routineNames && p.routineNames.A === "Rutina de CONI" && !(p.warmups && p.warmups.A)) {
+      p.warmups = { ...(p.warmups || {}), A: CONI_WARMUP };
+      await sSet(`forja-plan:${id}`, p);
+    }
     if ((p.seedVersion || 0) < SEED_VERSION) {
       const trainingB = (p.days || []).find((day) => day.name === "Entrenamiento B");
       if (trainingB) {
