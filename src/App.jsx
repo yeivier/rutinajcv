@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v268";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v269";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -18653,8 +18653,8 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
 
       <SettingGroup label="Ajustes">
         <SettingRow Icon={theme === "dark" ? Moon : Sun} label="Apariencia"
-          hint={theme === "light" ? "Claro" : theme === "dark" ? "Oscuro — gris oscuro, sin negro puro" : theme === "pink" ? "Rosa — blanco y rosado" : "Auto — sigue el sistema"}
-          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }, { id: "pink", label: "Rosa" }, { id: "auto", label: "Auto" }]} value={theme} onChange={setTheme} />} />
+          hint={theme === "dark" ? "Oscuro — gris oscuro, sin negro puro" : "Claro"}
+          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }]} value={theme === "dark" ? "dark" : "light"} onChange={setTheme} />} />
         {/* Color de acento — paleta amplia y personalizable. Tiñe los botones
             primarios, los estados activos y la sesión de Entrenar. "Del tema"
             deja el look de fábrica de cada apariencia. */}
@@ -18689,13 +18689,6 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
           control={<SectionSwitch items={[{ id: "kg", label: "kg" }, { id: "lb", label: "lb" }]} value={weightUnit} onChange={setWeightUnitPref} />} />
         <SettingRow Icon={Ruler} label="Unidad de medidas" hint={measureUnit === "cm" ? "Centímetros" : "Pulgadas"}
           control={<SectionSwitch items={[{ id: "cm", label: "cm" }, { id: "in", label: "in" }]} value={measureUnit} onChange={setMeasureUnitPref} />} />
-        {mode === "coach" && (
-          <SettingRow Icon={ClipboardList} label="Editor de rutina"
-            hint={routineView === "compacto" ? "Una fila por ejercicio, se despliega al tocar" : "Todas las funciones: crear, arrastrar, copiar y pegar"}
-            control={<SectionSwitch items={[{ id: "completo", label: "Completo" }, { id: "compacto", label: "Compacto" }]} value={routineView} onChange={onChangeRoutineView} />} />
-        )}
-        <SettingRow Icon={Sparkles} label="Interfaz" hint={easy ? "Solo lo esencial" : "Todos los campos"}
-          control={<SectionSwitch items={[{ id: "full", label: "Completa" }, { id: "easy", label: "Easy Mode" }]} value={easy ? "easy" : "full"} onChange={(v) => setEasy(v === "easy")} />} />
         <SettingRow Icon={Zap} label="Botón de IA" hint={aiFab ? "Círculo flotante, siempre a mano" : "Oculto — el asistente sigue disponible desde acá"} last
           control={<SectionSwitch items={[{ id: "on", label: "Mostrar" }, { id: "off", label: "Ocultar" }]} value={aiFab ? "on" : "off"} onChange={(v) => setAiFab(v === "on")} />} />
       </SettingGroup>
