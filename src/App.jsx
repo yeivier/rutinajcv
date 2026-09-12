@@ -8,7 +8,7 @@ import {
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText,
   UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, Pill,
-  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid
+  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette
 } from "lucide-react";
 
 /* ============================================================
@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v269";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v270";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -237,6 +237,24 @@ const ACCENT_BY_ID = Object.fromEntries(ACCENTS.map((a) => [a.id, a]));
 // Color representativo para la muestra del selector (la variante clara se ve
 // bien como círculo sobre cualquier apariencia).
 const accentSwatch = (a) => (a.light ? a.light.c : null);
+// Fondos personalizados (Apariencia → Personalizado): por cada familia de
+// color, 4 tonos CLAROS aptos como fondo — el texto negro sigue legible en
+// todos. Cubre las mismas familias del acento (rosa, verde, azul, turquesa,
+// ámbar/arena, café, gris) más otras que combinan bien de fondo (durazno,
+// lila). Se aplican al fondo de toda la app y de la sesión de Entrenar.
+const BG_PALETTE = [
+  { name: "Rosa",     tones: ["#FDF2F8", "#FCE0EF", "#FBD5EA", "#F7C0DC"] },
+  { name: "Durazno",  tones: ["#FFF3EE", "#FFE6DB", "#FFD8C6", "#FFC7AD"] },
+  { name: "Arena",    tones: ["#FBF4E4", "#F7EACB", "#F1DEAC", "#EAD290"] },
+  { name: "Verde",    tones: ["#EFF7F1", "#DEEFE3", "#CCE7D4", "#B7DCC3"] },
+  { name: "Turquesa", tones: ["#EAF6F8", "#D6EEF2", "#C0E5EC", "#A8DAE4"] },
+  { name: "Azul",     tones: ["#EEF3FE", "#DCE8FD", "#C8D9FB", "#B0C8F9"] },
+  { name: "Lila",     tones: ["#F0EFFC", "#E3E0F8", "#D2CDF3", "#BFB8EE"] },
+  { name: "Gris",     tones: ["#F1F2F4", "#E5E7EB", "#D6DAE0", "#C6CBD4"] },
+  { name: "Café",     tones: ["#F5F1EB", "#ECE2D5", "#E0D2BD", "#D4C0A4"] },
+];
+const BG_ALL = BG_PALETTE.flatMap((g) => g.tones);
+const DEFAULT_BG = "#FBD5EA"; // rosa: tono por defecto al entrar en "Personalizado"
 function hexRgba(hex, alpha) {
   const h = (hex || "").replace("#", "");
   const full = h.length === 3 ? h.split("").map((x) => x + x).join("") : h;
@@ -267,6 +285,10 @@ function applyAccent(resolved) {
 // solo existían "light"/"dark" — S4 del handoff pide un tercer valor real.
 let THEME_MODE = "light";
 try { THEME_MODE = window.localStorage.getItem("forja-theme") || "light"; } catch {}
+// Fondo personalizado elegido (hex) o "" = ninguno (usa el fondo del tema).
+// Cuando hay uno, la Apariencia es "Personalizado": base clara con ese fondo.
+let BG = "";
+try { BG = window.localStorage.getItem("forja-bg") || ""; } catch {}
 const themeListeners = new Set();
 const systemPrefersDark = () => { try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { return false; } };
 function resolveTheme(mode) { return mode === "auto" ? (systemPrefersDark() ? "dark" : "light") : mode; }
@@ -293,12 +315,19 @@ function applyTheme(mode) {
   const _dk = resolved === "dark";
   P.accWell = hexRgba(P.ember, _dk ? 0.10 : 0.055);
   P.accEdge = hexRgba(P.ember, _dk ? 0.28 : 0.16);
+  // Fondo personalizado: sobre la base CLARA (nunca en oscuro), pinta el fondo
+  // de toda la app y el de la sesión de Entrenar con el tono elegido. Las
+  // tarjetas siguen blancas, así el contenido queda limpio y legible.
+  if (BG && !_dk) {
+    P.bg = BG; P.bgGrad = BG;
+    SES.bg = BG;
+  }
   THEME_MODE = mode;
   try { window.localStorage.setItem("forja-theme", mode); } catch {}
   try {
-    document.documentElement.style.background = t.P.bg;
+    document.documentElement.style.background = P.bg;
     const metaTheme = document.querySelector('meta[name="theme-color"]');
-    if (metaTheme) metaTheme.setAttribute("content", t.P.bg);
+    if (metaTheme) metaTheme.setAttribute("content", P.bg);
   } catch {}
   themeListeners.forEach((fn) => fn(mode));
 }
@@ -333,6 +362,28 @@ function useAccent() {
     return () => themeListeners.delete(fn);
   }, []);
   return [ACCENT, applyAccentPref];
+}
+// Fondo personalizado. `_persistBg` guarda/borra la preferencia; `applyBgPref`
+// elige un tono concreto (siempre sobre la base clara); `setAppearance`
+// resuelve las tres opciones de Apariencia (Claro / Oscuro / Personalizado).
+function _persistBg() { try { if (BG) window.localStorage.setItem("forja-bg", BG); else window.localStorage.removeItem("forja-bg"); } catch {} }
+function applyBgPref(hex) {
+  BG = hex || "";
+  _persistBg();
+  applyTheme("light"); // un fondo a medida siempre va sobre el tema claro
+}
+function setAppearance(kind) {
+  if (kind === "custom") { if (!BG) BG = DEFAULT_BG; _persistBg(); applyTheme("light"); }
+  else { BG = ""; _persistBg(); applyTheme(kind); }
+}
+function useBg() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    themeListeners.add(fn);
+    return () => themeListeners.delete(fn);
+  }, []);
+  return [BG, applyBgPref];
 }
 // Switch de tema — "arriba" en el encabezado, como se pidió. Sol/luna
 // según el modo activo.
@@ -18566,6 +18617,7 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
 const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha }) => {
   const [theme, setTheme] = useTheme();
   const [accent, setAccent] = useAccent();
+  const [bg, setBg] = useBg();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
   const [weightUnit, setWeightUnitPref] = useWeightUnit();
@@ -18652,9 +18704,39 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
       )}
 
       <SettingGroup label="Ajustes">
-        <SettingRow Icon={theme === "dark" ? Moon : Sun} label="Apariencia"
-          hint={theme === "dark" ? "Oscuro — gris oscuro, sin negro puro" : "Claro"}
-          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }]} value={theme === "dark" ? "dark" : "light"} onChange={setTheme} />} />
+        {/* Apariencia: Claro / Oscuro / Personalizado. "Personalizado" abre una
+            paleta de fondos claros (las familias del acento + otras aptas de
+            fondo, 4 tonos cada una) que tiñen TODA la app y la sesión. */}
+        <SettingRow Icon={theme === "dark" ? Moon : bg ? Palette : Sun} label="Apariencia"
+          hint={theme === "dark" ? "Oscuro — gris oscuro, sin negro puro" : bg ? "Personalizado — fondo a tu gusto" : "Claro"}
+          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }, { id: "custom", label: "Personalizado" }]}
+            value={theme === "dark" ? "dark" : bg ? "custom" : "light"} onChange={setAppearance} />} />
+        {theme !== "dark" && bg && (
+          <div style={{ padding: "12px 16px", borderTop: `1px solid ${P.line}` }}>
+            <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 12 }}>Color de fondo — elige un tono; se aplica a toda la app y a la sesión.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {BG_PALETTE.map((fam) => (
+                <div key={fam.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ width: 62, flexShrink: 0, fontSize: 12.5, color: P.faint2 }}>{fam.name}</span>
+                  <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
+                    {fam.tones.map((tone, ti) => {
+                      const on = (bg || "").toLowerCase() === tone.toLowerCase();
+                      return (
+                        <button key={tone} onClick={() => setBg(tone)} title={`${fam.name} ${ti + 1}`} aria-label={`Fondo ${fam.name} tono ${ti + 1}`}
+                          style={{ width: 34, height: 34, borderRadius: 999, flexShrink: 0, background: tone,
+                            border: on ? `2px solid ${P.text}` : `1px solid ${P.line}`,
+                            boxShadow: on ? `0 0 0 2px ${P.s1}` : "none",
+                            display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                          {on && <Check size={15} color={P.text} strokeWidth={3} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Color de acento — paleta amplia y personalizable. Tiñe los botones
             primarios, los estados activos y la sesión de Entrenar. "Del tema"
             deja el look de fábrica de cada apariencia. */}
