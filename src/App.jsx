@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v258";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v259";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -194,6 +194,49 @@ const teColors = (isLight) => (isLight ? {
 // render (nunca lo guarda en un closure) se actualiza solo.
 const SES = teColors(true);
 
+// ---------------- Acento de color (paleta personalizable) ----------------
+// Una paleta amplia de acentos, INDEPENDIENTE de la apariencia
+// (claro/oscuro/rosa/auto). Cada acento trae su color para fondo claro y para
+// fondo oscuro, con su "tinta" (el texto que va encima del color) elegida para
+// buen contraste. "tema" = sin override: cada apariencia conserva su acento de
+// fábrica (el look de siempre). El acento tiñe los botones primarios (placas),
+// los estados activos y —lo pedido— la sesión de Entrenar. Los colores
+// semánticos (verde = óptimo, rojo = peligro) NO cambian con el acento: siguen
+// significando lo mismo en todos lados.
+const ACCENTS = [
+  { id: "tema", name: "Del tema" },
+  { id: "verde", name: "Verde", light: { c: "#0F8A4B", ink: "#FFFFFF" }, dark: { c: "#2FCB78", ink: "#062114" } },
+  { id: "azul", name: "Azul", light: { c: "#0A6CFF", ink: "#FFFFFF" }, dark: { c: "#4C9DFF", ink: "#04152E" } },
+  { id: "indigo", name: "Índigo", light: { c: "#4B48D6", ink: "#FFFFFF" }, dark: { c: "#8F8CFF", ink: "#0B0A2E" } },
+  { id: "purpura", name: "Púrpura", light: { c: "#9A34D6", ink: "#FFFFFF" }, dark: { c: "#C77DFF", ink: "#1E0733" } },
+  { id: "rosa", name: "Rosa", light: { c: "#DB2777", ink: "#FFFFFF" }, dark: { c: "#FF6FA5", ink: "#33001A" } },
+  { id: "coral", name: "Coral", light: { c: "#E23B34", ink: "#FFFFFF" }, dark: { c: "#FF6B61", ink: "#330603" } },
+  { id: "naranja", name: "Naranja", light: { c: "#C9600A", ink: "#FFFFFF" }, dark: { c: "#FF9F45", ink: "#301400" } },
+  { id: "ambar", name: "Ámbar", light: { c: "#8A6A00", ink: "#FFFFFF" }, dark: { c: "#FFCB45", ink: "#2A1E00" } },
+  { id: "turquesa", name: "Turquesa", light: { c: "#0E8C9E", ink: "#FFFFFF" }, dark: { c: "#41C7D6", ink: "#03222A" } },
+  { id: "grafito", name: "Grafito", light: { c: "#2B2B30", ink: "#FFFFFF" }, dark: { c: "#C7C7CE", ink: "#101012" } },
+];
+const ACCENT_BY_ID = Object.fromEntries(ACCENTS.map((a) => [a.id, a]));
+// Color representativo para la muestra del selector (la variante clara se ve
+// bien como círculo sobre cualquier apariencia).
+const accentSwatch = (a) => (a.light ? a.light.c : null);
+function hexRgba(hex, alpha) {
+  const h = (hex || "").replace("#", "");
+  const full = h.length === 3 ? h.split("").map((x) => x + x).join("") : h;
+  const n = parseInt(full, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+let ACCENT = "tema";
+try { ACCENT = window.localStorage.getItem("forja-accent") || "tema"; } catch {}
+function applyAccent(resolved) {
+  const a = ACCENT_BY_ID[ACCENT];
+  if (!a || !a.light) return; // "tema" (o valor desconocido): sin override, look de fábrica
+  const v = resolved === "dark" ? a.dark : a.light;
+  P.ember = v.c; P.ember2 = v.c; P.glow = v.c;
+  PLATE_GRAD = v.c; PLATE_FG = v.ink; PLATE_BORDER = v.c; PLATE_DIM = hexRgba(v.c, 0.5);
+  SES.acc = v.c; SES.accInk = v.ink; SES.accLine = hexRgba(v.c, 0.32); SES.accSoft = hexRgba(v.c, 0.12);
+}
+
 // THEME_MODE es la PREFERENCIA ("light" | "dark" | "auto"); la paleta que
 // de verdad se aplica ("light" | "dark") se resuelve aparte cuando la
 // preferencia es "auto", siguiendo prefers-color-scheme del sistema. Antes
@@ -213,6 +256,9 @@ function applyTheme(mode) {
   // oscuro es "dark".
   Object.assign(SES, teColors(resolved !== "dark"));
   PLATE_GRAD = t.plateGrad; PLATE_FG = t.plateFg; PLATE_DIM = t.plateDim; PLATE_BORDER = t.plateBorder;
+  // El acento elegido se aplica ENCIMA del tema base (pisa ember/placas y el
+  // acento de la sesión). Va después de asignar el tema, para ganarle.
+  applyAccent(resolved);
   THEME_MODE = mode;
   try { window.localStorage.setItem("forja-theme", mode); } catch {}
   try {
@@ -236,6 +282,23 @@ function useTheme() {
     return () => themeListeners.delete(fn);
   }, []);
   return [THEME_MODE, (m) => applyTheme(m)];
+}
+// Cambiar el acento de color: se guarda y se re-aplica el tema actual (que
+// vuelve a llamar applyAccent). Comparte los mismos listeners que useTheme,
+// así toda la app se repinta.
+function applyAccentPref(id) {
+  ACCENT = id;
+  try { window.localStorage.setItem("forja-accent", id); } catch {}
+  applyTheme(THEME_MODE);
+}
+function useAccent() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    themeListeners.add(fn);
+    return () => themeListeners.delete(fn);
+  }, []);
+  return [ACCENT, applyAccentPref];
 }
 // Switch de tema — "arriba" en el encabezado, como se pidió. Sol/luna
 // según el modo activo.
@@ -6308,6 +6371,20 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // Índice del bloque cuyo comentario general (del ejercicio) está abierto.
   const [exCmtFor, setExCmtFor] = useState(null);
   const [calcOpen, setCalcOpen] = useState(false);
+  // Conversor kg↔lb, disponible en CADA ejercicio (no solo el toggle global
+  // de unidad de la sesión). Bidireccional: escribir en un lado calcula el otro.
+  const [convOpen, setConvOpen] = useState(false);
+  const [convKg, setConvKg] = useState("");
+  const [convLb, setConvLb] = useState("");
+  const convNum = (s) => { const n = parseFloat(String(s).replace(",", ".")); return isFinite(n) ? n : null; };
+  const onConvKg = (raw) => {
+    const v = raw.replace(/[^0-9.,]/g, ""); setConvKg(v);
+    const n = convNum(v); setConvLb(n == null ? "" : String(Math.round(kgToLb(n) * 10) / 10));
+  };
+  const onConvLb = (raw) => {
+    const v = raw.replace(/[^0-9.,]/g, ""); setConvLb(v);
+    const n = convNum(v); setConvKg(n == null ? "" : String(Math.round(lbToKg(n) * 10) / 10));
+  };
   // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
   const [coachNotesOpen, setCoachNotesOpen] = useState(null);
   // Qué ficha de la hoja de sesión está abierta (null = la grilla).
@@ -6698,8 +6775,13 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             <Icon size={15} strokeWidth={2} />
           </button>
         ))}
-        <button onClick={() => setCalcOpen(true)} aria-label={`Calcular RM — ${nombre}`}
+        <button onClick={() => setConvOpen(true)} aria-label={`Convertir kg y lb — ${nombre}`}
           style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, padding: "5px 4px",
+            background: "transparent", border: "none", color: SES.faint, fontSize: 12, fontWeight: 500 }}>
+          <ArrowUpDown size={13} /> kg ↔ lb
+        </button>
+        <button onClick={() => setCalcOpen(true)} aria-label={`Calcular RM — ${nombre}`}
+          style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 4px",
             background: "transparent", border: "none", color: SES.faint, fontSize: 12, fontWeight: 500 }}>
           <Calculator size={13} /> Calcular RM
         </button>
@@ -7254,6 +7336,32 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             </div>
           );
         })()}
+      </Sheet>
+      <Sheet open={convOpen} onClose={() => setConvOpen(false)} title="Convertir kg ↔ lb">
+        <div style={{ color: P.dim, fontSize: 14, marginBottom: 14, lineHeight: 1.5 }}>
+          Escribe en cualquiera de los dos y se calcula el otro al instante. Sirve para leer discos o mancuernas en libras sin cambiar la unidad de toda la sesión.
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: P.faint2, fontWeight: 600, marginBottom: 4 }}>Kilogramos</div>
+            <input value={convKg} onChange={(e) => onConvKg(e.target.value)} inputMode="decimal" placeholder="0"
+              style={{ width: "100%", padding: "12px 12px", borderRadius: 12, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 20, fontWeight: 700, boxSizing: "border-box" }} />
+          </div>
+          <div style={{ paddingBottom: 12, color: P.faint2 }}><ArrowUpDown size={18} /></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: P.faint2, fontWeight: 600, marginBottom: 4 }}>Libras</div>
+            <input value={convLb} onChange={(e) => onConvLb(e.target.value)} inputMode="decimal" placeholder="0"
+              style={{ width: "100%", padding: "12px 12px", borderRadius: 12, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 20, fontWeight: 700, boxSizing: "border-box" }} />
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 14 }}>
+          {[20, 40, 45, 50, 60, 70, 80, 100].map((lb) => (
+            <button key={lb} onClick={() => onConvLb(String(lb))}
+              style={{ padding: "8px 12px", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
+                background: P.s3, color: P.dim, border: `1px solid ${P.separatorStrong}` }}>{lb} lb</button>
+          ))}
+        </div>
+        <div style={{ fontSize: 12, color: P.faint2, marginTop: 14, lineHeight: 1.5 }}>1 kg = 2,2046 lb · 1 lb = 0,4536 kg. Los atajos cargan pesos típicos de mancuernas/discos en libras.</div>
       </Sheet>
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
@@ -17988,6 +18096,7 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
    agrupados en filas de sistema, como los Ajustes de iOS. */
 const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha }) => {
   const [theme, setTheme] = useTheme();
+  const [accent, setAccent] = useAccent();
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
   const [weightUnit, setWeightUnitPref] = useWeightUnit();
@@ -18075,8 +18184,38 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
 
       <SettingGroup label="Ajustes">
         <SettingRow Icon={theme === "dark" ? Moon : Sun} label="Apariencia"
-          hint={theme === "light" ? "Claro" : theme === "dark" ? "Oscuro — gris oscuro con acento verde, sin negro puro" : theme === "pink" ? "Rosa — blanco y rosado" : "Auto — sigue el sistema"}
+          hint={theme === "light" ? "Claro" : theme === "dark" ? "Oscuro — gris oscuro, sin negro puro" : theme === "pink" ? "Rosa — blanco y rosado" : "Auto — sigue el sistema"}
           control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }, { id: "pink", label: "Rosa" }, { id: "auto", label: "Auto" }]} value={theme} onChange={setTheme} />} />
+        {/* Color de acento — paleta amplia y personalizable. Tiñe los botones
+            primarios, los estados activos y la sesión de Entrenar. "Del tema"
+            deja el look de fábrica de cada apariencia. */}
+        <div style={{ padding: "12px 16px", borderTop: `1px solid ${P.line}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            <span style={{ width: 30, height: 30, borderRadius: 8, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Sparkles size={16} color={P.dim} />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text }}>Color de acento</div>
+              <div style={{ fontSize: 12.5, color: P.faint }}>{(ACCENT_BY_ID[accent] || ACCENTS[0]).name} — tiñe botones, activos y la sesión</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+            {ACCENTS.map((a) => {
+              const on = a.id === accent;
+              const sw = accentSwatch(a);
+              return (
+                <button key={a.id} onClick={() => setAccent(a.id)} title={a.name} aria-label={`Acento ${a.name}`}
+                  style={{ width: 38, height: 38, borderRadius: 999, flexShrink: 0, position: "relative",
+                    background: sw || `conic-gradient(from 210deg, #0F8A4B, #0A6CFF, #9A34D6, #DB2777, #C9600A, #0F8A4B)`,
+                    border: on ? `2px solid ${P.text}` : `1px solid ${P.line}`,
+                    boxShadow: on ? `0 0 0 2px ${P.bg}` : "none",
+                    display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                  {on && <Check size={17} color="#FFFFFF" strokeWidth={3} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <SettingRow Icon={Ruler} label="Unidad de peso" hint={weightUnit === "kg" ? "Kilogramos" : "Libras"}
           control={<SectionSwitch items={[{ id: "kg", label: "kg" }, { id: "lb", label: "lb" }]} value={weightUnit} onChange={setWeightUnitPref} />} />
         <SettingRow Icon={Ruler} label="Unidad de medidas" hint={measureUnit === "cm" ? "Centímetros" : "Pulgadas"}
