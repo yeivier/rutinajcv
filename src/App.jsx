@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v259";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v260";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6523,21 +6523,28 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     setUndoStack((s) => [...s, a]);
   };
 
-  // Peso: guardado SIEMPRE en kg, escrito y leído en la unidad activa.
-  const pesoMostrado = (kgGuardado) => {
+  // Peso: guardado SIEMPRE en kg, escrito y leído en la unidad ACTIVA de ese
+  // ejercicio. `unit` es la unidad con la que se anota ese ejercicio puntual
+  // (puede diferir de la global de la sesión — ver `unitFor`); si no se pasa,
+  // cae a la global.
+  const pesoMostrado = (kgGuardado, unit = weightUnit) => {
     if (kgGuardado === "" || kgGuardado == null) return 0;
     const n = +kgGuardado;
     if (isNaN(n)) return 0;
-    return Math.round((weightUnit === "lb" ? kgToLb(n) : n) * 10) / 10;
+    return Math.round((unit === "lb" ? kgToLb(n) : n) * 10) / 10;
   };
-  const pesoAKg = (v) => (weightUnit === "lb" ? Math.round(lbToKg(v) * 100) / 100 : v);
+  const pesoAKg = (v, unit = weightUnit) => (unit === "lb" ? Math.round(lbToKg(v) * 100) / 100 : v);
+  // Unidad con la que se anota CADA ejercicio: su override propio si lo tiene
+  // (`ex.unit`), o la unidad global de la sesión. Así el alumno puede llevar un
+  // ejercicio en kg y otro en lb (mancuernas en libras, barra en kilos…).
+  const unitFor = (ei) => (exs[ei] && exs[ei].unit) || weightUnit;
   // Lo que quedó registrado en una serie, ya en la unidad que el alumno
   // está viendo. `setSummary` toma el peso guardado —siempre en kilos— y
   // le pega la etiqueta de la unidad activa: entrenando en libras decía
   // "60 lb" para 60 kg. Se convierte antes de mostrarlo.
-  const resumenSerie = (st) => {
-    const n = st.weight === "" || st.weight == null ? 0 : pesoMostrado(st.weight);
-    const w = n ? `${kg(n)} ${weightUnit}` : null;
+  const resumenSerie = (st, unit = weightUnit) => {
+    const n = st.weight === "" || st.weight == null ? 0 : pesoMostrado(st.weight, unit);
+    const w = n ? `${kg(n)} ${unit}` : null;
     const r = st.reps !== "" && st.reps != null ? String(st.reps) : null;
     if (w && r) return `${w} × ${r}`;
     if (r) return `${r} reps`;
@@ -6630,8 +6637,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       if (!entry) return null;
       const st = (entry.sets || [])[0];
       if (!st) return null;
-      return `Última vez ${fmtDate(entry.date)} · ${setSummary(st, weightUnit)}`;
+      return `Última vez ${fmtDate(entry.date)} · ${setSummary(st, unitFor(block.group ? block.members[0] : block.ei))}`;
     })();
+    // Unidad de anotación de ESTE ejercicio (para el encabezado y para poder
+    // cambiarla tocándolo). En superserie no hay una sola unidad (cada
+    // ejercicio la suya), así que ahí el encabezado queda informativo.
+    const blockUnit = unitFor(block.group ? block.members[0] : block.ei);
     const tempo = !block.group ? parseTempo(exs[block.ei].notes) : null;
 
     return (
@@ -6673,7 +6684,19 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             cuál es cuál hasta que se tocan. */}
         <div className="mono" style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 12, paddingBottom: 6, borderBottom: `1px solid ${SES.line}` }}>
           <span style={{ flex: 1, minWidth: 0, fontSize: 9.5, letterSpacing: ".07em", textTransform: "uppercase", color: SES.faint }}>Serie</span>
-          <span style={{ width: 48, textAlign: "center", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: SES.faint }}>{weightUnit}</span>
+          {/* La cabecera de peso es un toggle: tocarla cambia la unidad con la
+              que se anota ESTE ejercicio (kg↔lb), sin tocar los demás ni la
+              global. En superserie no aplica (cada ejercicio la suya). */}
+          {block.group ? (
+            <span style={{ width: 48, textAlign: "center", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: SES.faint }}>peso</span>
+          ) : (
+            <button onClick={() => patchEx(block.ei, { unit: blockUnit === "lb" ? "kg" : "lb" })}
+              aria-label={`Anotar este ejercicio en ${blockUnit === "lb" ? "kilos" : "libras"} (ahora ${blockUnit})`}
+              style={{ width: 48, textAlign: "center", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase",
+                color: SES.acc, fontWeight: 700, background: "transparent", border: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+              {blockUnit} <ArrowUpDown size={9} />
+            </button>
+          )}
           {["Reps", "RIR"].map((l) => (
             <span key={l} style={{ width: 48, textAlign: "center", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: SES.faint }}>{l}</span>
           ))}
@@ -6707,9 +6730,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 {block.group && <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2 }}>{exx.name}</div>}
                 <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{consigna || pie || "—"}</div>
               </div>
-              <NumCell aria={`Peso de la ${dónde}`} placeholder={weightUnit}
-                valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight)).replace(".", ",")}
-                onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v))))} />
+              <NumCell aria={`Peso de la ${dónde} (${unitFor(r.ei)})`} placeholder={unitFor(r.ei)}
+                valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitFor(r.ei))).replace(".", ",")}
+                onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitFor(r.ei)))))} />
               <NumCell aria={`Repeticiones de la ${dónde}`} placeholder="reps"
                 valor={st.reps == null ? "" : String(st.reps)}
                 onCommit={(v) => setVal(r.ei, r.si, "reps", v)} />
