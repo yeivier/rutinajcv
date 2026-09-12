@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v263";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v264";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -222,6 +222,7 @@ const ACCENTS = [
   { id: "cafe", name: "Café", light: { c: "#6B4A2B", ink: "#FFFFFF" }, dark: { c: "#C79A6B", ink: "#241505" } },
   { id: "naranja", name: "Naranja", light: { c: "#C9600A", ink: "#FFFFFF" }, dark: { c: "#FF9F45", ink: "#301400" } },
   { id: "ambar", name: "Ámbar", light: { c: "#8A6A00", ink: "#FFFFFF" }, dark: { c: "#FFCB45", ink: "#2A1E00" } },
+  { id: "rosa", name: "Rosa", light: { c: "#DB2777", ink: "#FFFFFF" }, dark: { c: "#FF6FA5", ink: "#33001A" } },
 ];
 const ACCENT_BY_ID = Object.fromEntries(ACCENTS.map((a) => [a.id, a]));
 // Color representativo para la muestra del selector (la variante clara se ve
@@ -236,7 +237,7 @@ function hexRgba(hex, alpha) {
 // Acentos que existían antes (morados/rosados, ya retirados): se migran al
 // tono masculino más cercano para no dejar la preferencia del usuario en
 // blanco cuando abra la app con la paleta nueva.
-const ACCENT_MIGRATE = { indigo: "azul", purpura: "pizarra", rosa: "cafe", coral: "naranja" };
+const ACCENT_MIGRATE = { indigo: "azul", purpura: "pizarra", coral: "naranja" };
 let ACCENT = "tema";
 try {
   ACCENT = window.localStorage.getItem("forja-accent") || "tema";
@@ -4056,6 +4057,7 @@ const OrderableGrid = ({ clave, items, cols = 3, gap = 9, orderable = true, modo
       style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap }}>
       {ordered.map((it, i) => (
         <div key={it.key} className="ord-wrap" data-ord-clave={clave}
+          style={it.span === "full" ? { gridColumn: "1 / -1" } : it.span ? { gridColumn: `span ${it.span}` } : undefined}
           {...(orderable ? arrastrable(clave, idsPresentes, i, guardarNuevoOrden,
             { delay: editando ? 130 : 430, editando, onActivar: () => setModoOrden(clave) }) : {})}>
           {render(it, editando)}
@@ -8623,12 +8625,29 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           lugar natural junto al resto de la vista semanal del calendario.
           `WeekStrip` sigue definido y `dayDetail`/su hoja quedan intactos;
           se vuelven a montar ahí en la fase de Agenda. */}
-      {/* Los paneles del Inicio se reordenan con mantener-pulsado (mismo gesto
-          y misma pieza que el Centro de Control). El título, los banners y las
-          hojas quedan fijos; solo estos paneles de contenido se arrastran. */}
+      {/* Inicio reordenable FICHA POR FICHA (no en bloques): cada tarjeta y
+          cada mosaico es una ficha independiente que se arrastra con
+          mantener-pulsado, igual que el Centro de Control. Las anchas ocupan
+          las dos columnas (span "full"); los mosaicos, media. El `.ord-group`
+          evita que al mantener pulsado se seleccione el texto (el resaltado
+          azul) en vez de arrastrar. Título, banners y hojas quedan fijos. */}
       {(() => {
+        const kpiEstado = {
+          peso: <KpiTile top="Peso" onClick={() => setCheckinOpen(true)}
+            value={d.lastBw ? kg(d.lastBw.kg) : "—"}
+            sub={d.lastBw ? `kg${d.prevBw ? ` · ${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} esta sem.` : ""}` : "sin registro"} />,
+          pasos: <KpiTile top="Pasos" onClick={() => setCheckinOpen(true)}
+            value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
+            sub={d.lastSteps ? "meta 12.000" : "sin registro"} />,
+          sueno: <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
+            value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
+            sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />,
+          comidas: <KpiTile top="Comidas" onClick={onOpenNutrition}
+            value={mealsTotal ? `${mealsDoneCount}/${mealsTotal}` : "—"}
+            sub={mealsTotal ? "hechas hoy" : "sin plan cargado"} />,
+        };
         const panels = [
-          { key: "workout", node: workout ? (
+          { key: "workout", span: "full", node: workout ? (
             <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
                 <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".16em" }}>{workout.eyebrow}</span>
@@ -8642,7 +8661,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             </Card>
           ) : emptyCard },
 
-          d.adherence != null && { key: "adherencia", node: (
+          d.adherence != null && { key: "adherencia", span: "full", node: (
             <Card onClick={() => setStatDetail("adherencia")} style={{ padding: 18, display: "flex", alignItems: "center", gap: 20, cursor: "pointer" }}>
               <Ring pct={d.adherence} />
               <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 0 }}>
@@ -8653,67 +8672,40 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             </Card>
           ) },
 
-          { key: "estado", node: (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Estado de hoy</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-                <KpiTile top="Peso" onClick={() => setCheckinOpen(true)}
-                  value={d.lastBw ? kg(d.lastBw.kg) : "—"}
-                  sub={d.lastBw ? `kg${d.prevBw ? ` · ${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} esta sem.` : ""}` : "sin registro"} />
-                <KpiTile top="Pasos" onClick={() => setCheckinOpen(true)}
-                  value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
-                  sub={d.lastSteps ? "meta 12.000" : "sin registro"} />
-                <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
-                  value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
-                  sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />
-                <KpiTile top="Comidas" onClick={onOpenNutrition}
-                  value={mealsTotal ? `${mealsDoneCount}/${mealsTotal}` : "—"}
-                  sub={mealsTotal ? "hechas hoy" : "sin plan cargado"} />
-              </div>
-            </div>
+          { key: "kpi-peso", node: kpiEstado.peso },
+          { key: "kpi-pasos", node: kpiEstado.pasos },
+          { key: "kpi-sueno", node: kpiEstado.sueno },
+          { key: "kpi-comidas", node: kpiEstado.comidas },
+
+          { key: "act-entrenar", node: <Tile Icon={Dumbbell} label="Entrenar" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} /> },
+          { key: "act-ia", node: <Tile Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} /> },
+          { key: "act-checkin", node: <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
+            value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} /> },
+          { key: "act-mensajes", node: <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} /> },
+          { key: "act-nutricion", span: "full", node: <Tile Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
+            value={mealsTotal ? `${mealsDoneCount} de ${mealsTotal} comidas` : "Ver y registrar"} /> },
+
+          { key: "semana", span: "full", node: (
+            <Card style={{ overflow: "hidden" }}>
+              <button onClick={() => setStatDetail("racha")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
+                <span style={{ flex: 1, fontSize: 16 }}>Racha</span>
+                <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} día{d.streak !== 1 ? "s" : ""}</span>
+                <ChevronRight size={16} color={P.chevron} />
+              </button>
+              <button onClick={() => setStatDetail("volumen")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
+                <span style={{ flex: 1, fontSize: 16 }}>Volumen</span>
+                <span style={{ fontSize: 15, color: P.faint2 }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</span>
+                <ChevronRight size={16} color={P.chevron} />
+              </button>
+              <button onClick={onOpenNutrition} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+                <span style={{ flex: 1, fontSize: 16 }}>Comidas de hoy</span>
+                <span style={{ fontSize: 15, color: P.faint2 }}>{mealsTotal ? `${mealsDoneCount} de ${mealsTotal}` : "—"}</span>
+                <ChevronRight size={16} color={P.chevron} />
+              </button>
+            </Card>
           ) },
 
-          { key: "acciones", node: (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Acciones rápidas</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-                <Tile Icon={Dumbbell} label="Entrenar" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
-                <Tile Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} />
-                <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
-                  value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} />
-                <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} />
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <Tile Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
-                    value={mealsTotal ? `${mealsDoneCount} de ${mealsTotal} comidas` : "Ver y registrar"} />
-                </div>
-              </div>
-            </div>
-          ) },
-
-          { key: "semana", node: (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Esta semana</div>
-              <Card style={{ overflow: "hidden" }}>
-                <button onClick={() => setStatDetail("racha")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-                  <span style={{ flex: 1, fontSize: 16 }}>Racha</span>
-                  <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} día{d.streak !== 1 ? "s" : ""}</span>
-                  <ChevronRight size={16} color={P.chevron} />
-                </button>
-                <button onClick={() => setStatDetail("volumen")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-                  <span style={{ flex: 1, fontSize: 16 }}>Volumen</span>
-                  <span style={{ fontSize: 15, color: P.faint2 }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</span>
-                  <ChevronRight size={16} color={P.chevron} />
-                </button>
-                <button onClick={onOpenNutrition} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-                  <span style={{ flex: 1, fontSize: 16 }}>Comidas de hoy</span>
-                  <span style={{ fontSize: 15, color: P.faint2 }}>{mealsTotal ? `${mealsDoneCount} de ${mealsTotal}` : "—"}</span>
-                  <ChevronRight size={16} color={P.chevron} />
-                </button>
-              </Card>
-            </div>
-          ) },
-
-          hasMacros && { key: "macros", node: (
+          hasMacros && { key: "macros", span: "full", node: (
             <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span className="mono" style={{ letterSpacing: ".08em" }}>Objetivo de hoy</span>
@@ -8727,13 +8719,13 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             </Card>
           ) },
 
-          instrCount > 0 && { key: "nota", node: (
+          instrCount > 0 && { key: "nota", span: "full", node: (
             <TodayRow Icon={MessageSquare} title="Nota del coach"
               detail={plan.instructions[0].title || `${instrCount} indicaciones del plan`}
               dot onClick={() => setShowInstr(true)} />
           ) },
 
-          d.lastSession && { key: "ultima", node: (
+          d.lastSession && { key: "ultima", span: "full", node: (
             <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
               <span className="mono" style={{ letterSpacing: ".08em" }}>Última sesión</span>
               <span style={{ fontWeight: 600, fontSize: 15.5 }}>{d.lastSession.dayName}</span>
@@ -8745,19 +8737,19 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           ) },
         ].filter(Boolean);
         return (
-          <>
-            <OrderableGrid clave={claveHome} items={panels} cols={1} gap={16}
+          <div className="ord-group">
+            <OrderableGrid clave={claveHome} items={panels} cols={2} gap={10}
               modoOrden={modoOrden} setModoOrden={setModoOrden}
               render={(it) => it.node} />
-            <div style={{ textAlign: "center" }}>
+            <div style={{ textAlign: "center", marginTop: 14 }}>
               {modoOrden === claveHome ? (
                 <button data-order-done onClick={() => setModoOrden(null)}
                   style={{ background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 15, padding: "10px 30px", borderRadius: 999 }}>Listo</button>
               ) : (
-                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionado un panel para reordenar</div>
+                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionada una ficha para reordenar</div>
               )}
             </div>
-          </>
+          </div>
         );
       })()}
       {instrSheet}
@@ -13801,22 +13793,18 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           quedan fijos. */}
       {(() => {
         const panels = [
-          { key: "kpis", node: (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <KpiTile top="Atletas" value={String(activeCount)} onClick={onOpenAtletas} />
-              <KpiTile top="Check-in" value={`${checkinPct}%`} sub="últimos 7 días" onClick={onOpenAtletas} />
-              <KpiTile top="Sin leer" value={String(pendCount)} onClick={onOpenMensajes} />
-              <KpiTile top="Por cobrar" value={String(dueCount)} onClick={onOpenCobros} />
-            </div>
-          ) },
-          { key: "atencion", node: (
+          { key: "kpi-atletas", node: <KpiTile top="Atletas" value={String(activeCount)} onClick={onOpenAtletas} /> },
+          { key: "kpi-checkin", node: <KpiTile top="Check-in" value={`${checkinPct}%`} sub="últimos 7 días" onClick={onOpenAtletas} /> },
+          { key: "kpi-sinleer", node: <KpiTile top="Sin leer" value={String(pendCount)} onClick={onOpenMensajes} /> },
+          { key: "kpi-cobrar", node: <KpiTile top="Por cobrar" value={String(dueCount)} onClick={onOpenCobros} /> },
+          { key: "atencion", span: "full", node: (
             <RowGroup label="Requiere atención" rows={[
               stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
               dueCount > 0 && { label: `${dueCount} cuota${dueCount !== 1 ? "s" : ""} por vencer`, onClick: onOpenCobros },
               pendCount > 0 && { label: `${pendCount} mensaje${pendCount !== 1 ? "s" : ""} sin leer`, onClick: onOpenMensajes },
             ]} />
           ) },
-          { key: "hoy", node: (
+          { key: "hoy", span: "full", node: (
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Hoy</div>
               {activity.length === 0 ? (
@@ -13838,7 +13826,7 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
               )}
             </div>
           ) },
-          { key: "accesos", node: (
+          { key: "accesos", span: "full", node: (
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Accesos</div>
               <SettingGroup>
@@ -13857,8 +13845,8 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           ) },
         ];
         return (
-          <div style={{ marginTop: 14 }}>
-            <OrderableGrid clave="home-coach" items={panels} cols={1} gap={16}
+          <div className="ord-group" style={{ marginTop: 14 }}>
+            <OrderableGrid clave="home-coach" items={panels} cols={2} gap={10}
               modoOrden={modoOrden} setModoOrden={setModoOrden}
               render={(it) => it.node} />
             <div style={{ textAlign: "center", marginTop: 16 }}>
@@ -13866,7 +13854,7 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
                 <button data-order-done onClick={() => setModoOrden(null)}
                   style={{ background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 15, padding: "10px 30px", borderRadius: 999 }}>Listo</button>
               ) : (
-                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionado un panel para reordenar</div>
+                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionada una ficha para reordenar</div>
               )}
             </div>
           </div>
@@ -18688,9 +18676,11 @@ const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
   useEffect(() => { if (!open) setModoOrden(null); }, [open]);
   return (
     <Sheet open={open} onClose={onClose} title="Centro de control">
+      <div className="ord-group">
       <OrderableGrid clave={clave} items={items} cols={3} gap={10}
         modoOrden={modoOrden} setModoOrden={setModoOrden}
         render={(it, ed) => <Tile Icon={it.Icon} label={it.label} onClick={ed ? undefined : it.onClick} />} />
+      </div>
       <div style={{ textAlign: "center", marginTop: 16 }}>
         {modoOrden ? (
           <button data-order-done onClick={() => setModoOrden(null)}
