@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v262";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v264";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -222,6 +222,7 @@ const ACCENTS = [
   { id: "cafe", name: "Café", light: { c: "#6B4A2B", ink: "#FFFFFF" }, dark: { c: "#C79A6B", ink: "#241505" } },
   { id: "naranja", name: "Naranja", light: { c: "#C9600A", ink: "#FFFFFF" }, dark: { c: "#FF9F45", ink: "#301400" } },
   { id: "ambar", name: "Ámbar", light: { c: "#8A6A00", ink: "#FFFFFF" }, dark: { c: "#FFCB45", ink: "#2A1E00" } },
+  { id: "rosa", name: "Rosa", light: { c: "#DB2777", ink: "#FFFFFF" }, dark: { c: "#FF6FA5", ink: "#33001A" } },
 ];
 const ACCENT_BY_ID = Object.fromEntries(ACCENTS.map((a) => [a.id, a]));
 // Color representativo para la muestra del selector (la variante clara se ve
@@ -236,7 +237,7 @@ function hexRgba(hex, alpha) {
 // Acentos que existían antes (morados/rosados, ya retirados): se migran al
 // tono masculino más cercano para no dejar la preferencia del usuario en
 // blanco cuando abra la app con la paleta nueva.
-const ACCENT_MIGRATE = { indigo: "azul", purpura: "pizarra", rosa: "cafe", coral: "naranja" };
+const ACCENT_MIGRATE = { indigo: "azul", purpura: "pizarra", coral: "naranja" };
 let ACCENT = "tema";
 try {
   ACCENT = window.localStorage.getItem("forja-accent") || "tema";
@@ -4056,6 +4057,7 @@ const OrderableGrid = ({ clave, items, cols = 3, gap = 9, orderable = true, modo
       style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap }}>
       {ordered.map((it, i) => (
         <div key={it.key} className="ord-wrap" data-ord-clave={clave}
+          style={it.span === "full" ? { gridColumn: "1 / -1" } : it.span ? { gridColumn: `span ${it.span}` } : undefined}
           {...(orderable ? arrastrable(clave, idsPresentes, i, guardarNuevoOrden,
             { delay: editando ? 130 : 430, editando, onActivar: () => setModoOrden(clave) }) : {})}>
           {render(it, editando)}
@@ -7591,6 +7593,13 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
       <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
         <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Entrenar</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego el día que quieras hacer. Te pregunta en qué gimnasio entrenas y empieza.</div>
+        {/* Exportar todas las rutinas del plan (PDF / Word), ordenadas por
+            rutina y día. Solo si hay algo que exportar. */}
+        {plan.days.length > 0 && (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <RoutinesExportButton plan={plan} toast={toast} small />
+          </div>
+        )}
         {/* Entrenamiento libre: empezar una sesión vacía y armarla sobre la
             marcha (agregar ejercicios, series, reps…) durante el propio
             entrenamiento. Deshabilitado mientras hay una sesión en curso. */}
@@ -8616,12 +8625,29 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           lugar natural junto al resto de la vista semanal del calendario.
           `WeekStrip` sigue definido y `dayDetail`/su hoja quedan intactos;
           se vuelven a montar ahí en la fase de Agenda. */}
-      {/* Los paneles del Inicio se reordenan con mantener-pulsado (mismo gesto
-          y misma pieza que el Centro de Control). El título, los banners y las
-          hojas quedan fijos; solo estos paneles de contenido se arrastran. */}
+      {/* Inicio reordenable FICHA POR FICHA (no en bloques): cada tarjeta y
+          cada mosaico es una ficha independiente que se arrastra con
+          mantener-pulsado, igual que el Centro de Control. Las anchas ocupan
+          las dos columnas (span "full"); los mosaicos, media. El `.ord-group`
+          evita que al mantener pulsado se seleccione el texto (el resaltado
+          azul) en vez de arrastrar. Título, banners y hojas quedan fijos. */}
       {(() => {
+        const kpiEstado = {
+          peso: <KpiTile top="Peso" onClick={() => setCheckinOpen(true)}
+            value={d.lastBw ? kg(d.lastBw.kg) : "—"}
+            sub={d.lastBw ? `kg${d.prevBw ? ` · ${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} esta sem.` : ""}` : "sin registro"} />,
+          pasos: <KpiTile top="Pasos" onClick={() => setCheckinOpen(true)}
+            value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
+            sub={d.lastSteps ? "meta 12.000" : "sin registro"} />,
+          sueno: <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
+            value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
+            sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />,
+          comidas: <KpiTile top="Comidas" onClick={onOpenNutrition}
+            value={mealsTotal ? `${mealsDoneCount}/${mealsTotal}` : "—"}
+            sub={mealsTotal ? "hechas hoy" : "sin plan cargado"} />,
+        };
         const panels = [
-          { key: "workout", node: workout ? (
+          { key: "workout", span: "full", node: workout ? (
             <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
                 <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".16em" }}>{workout.eyebrow}</span>
@@ -8635,7 +8661,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             </Card>
           ) : emptyCard },
 
-          d.adherence != null && { key: "adherencia", node: (
+          d.adherence != null && { key: "adherencia", span: "full", node: (
             <Card onClick={() => setStatDetail("adherencia")} style={{ padding: 18, display: "flex", alignItems: "center", gap: 20, cursor: "pointer" }}>
               <Ring pct={d.adherence} />
               <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 0 }}>
@@ -8646,67 +8672,40 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             </Card>
           ) },
 
-          { key: "estado", node: (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Estado de hoy</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-                <KpiTile top="Peso" onClick={() => setCheckinOpen(true)}
-                  value={d.lastBw ? kg(d.lastBw.kg) : "—"}
-                  sub={d.lastBw ? `kg${d.prevBw ? ` · ${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} esta sem.` : ""}` : "sin registro"} />
-                <KpiTile top="Pasos" onClick={() => setCheckinOpen(true)}
-                  value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
-                  sub={d.lastSteps ? "meta 12.000" : "sin registro"} />
-                <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
-                  value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
-                  sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />
-                <KpiTile top="Comidas" onClick={onOpenNutrition}
-                  value={mealsTotal ? `${mealsDoneCount}/${mealsTotal}` : "—"}
-                  sub={mealsTotal ? "hechas hoy" : "sin plan cargado"} />
-              </div>
-            </div>
+          { key: "kpi-peso", node: kpiEstado.peso },
+          { key: "kpi-pasos", node: kpiEstado.pasos },
+          { key: "kpi-sueno", node: kpiEstado.sueno },
+          { key: "kpi-comidas", node: kpiEstado.comidas },
+
+          { key: "act-entrenar", node: <Tile Icon={Dumbbell} label="Entrenar" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} /> },
+          { key: "act-ia", node: <Tile Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} /> },
+          { key: "act-checkin", node: <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
+            value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} /> },
+          { key: "act-mensajes", node: <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} /> },
+          { key: "act-nutricion", span: "full", node: <Tile Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
+            value={mealsTotal ? `${mealsDoneCount} de ${mealsTotal} comidas` : "Ver y registrar"} /> },
+
+          { key: "semana", span: "full", node: (
+            <Card style={{ overflow: "hidden" }}>
+              <button onClick={() => setStatDetail("racha")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
+                <span style={{ flex: 1, fontSize: 16 }}>Racha</span>
+                <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} día{d.streak !== 1 ? "s" : ""}</span>
+                <ChevronRight size={16} color={P.chevron} />
+              </button>
+              <button onClick={() => setStatDetail("volumen")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
+                <span style={{ flex: 1, fontSize: 16 }}>Volumen</span>
+                <span style={{ fontSize: 15, color: P.faint2 }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</span>
+                <ChevronRight size={16} color={P.chevron} />
+              </button>
+              <button onClick={onOpenNutrition} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+                <span style={{ flex: 1, fontSize: 16 }}>Comidas de hoy</span>
+                <span style={{ fontSize: 15, color: P.faint2 }}>{mealsTotal ? `${mealsDoneCount} de ${mealsTotal}` : "—"}</span>
+                <ChevronRight size={16} color={P.chevron} />
+              </button>
+            </Card>
           ) },
 
-          { key: "acciones", node: (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Acciones rápidas</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-                <Tile Icon={Dumbbell} label="Entrenar" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
-                <Tile Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} />
-                <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
-                  value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} />
-                <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} />
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <Tile Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
-                    value={mealsTotal ? `${mealsDoneCount} de ${mealsTotal} comidas` : "Ver y registrar"} />
-                </div>
-              </div>
-            </div>
-          ) },
-
-          { key: "semana", node: (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Esta semana</div>
-              <Card style={{ overflow: "hidden" }}>
-                <button onClick={() => setStatDetail("racha")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-                  <span style={{ flex: 1, fontSize: 16 }}>Racha</span>
-                  <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} día{d.streak !== 1 ? "s" : ""}</span>
-                  <ChevronRight size={16} color={P.chevron} />
-                </button>
-                <button onClick={() => setStatDetail("volumen")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-                  <span style={{ flex: 1, fontSize: 16 }}>Volumen</span>
-                  <span style={{ fontSize: 15, color: P.faint2 }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</span>
-                  <ChevronRight size={16} color={P.chevron} />
-                </button>
-                <button onClick={onOpenNutrition} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-                  <span style={{ flex: 1, fontSize: 16 }}>Comidas de hoy</span>
-                  <span style={{ fontSize: 15, color: P.faint2 }}>{mealsTotal ? `${mealsDoneCount} de ${mealsTotal}` : "—"}</span>
-                  <ChevronRight size={16} color={P.chevron} />
-                </button>
-              </Card>
-            </div>
-          ) },
-
-          hasMacros && { key: "macros", node: (
+          hasMacros && { key: "macros", span: "full", node: (
             <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span className="mono" style={{ letterSpacing: ".08em" }}>Objetivo de hoy</span>
@@ -8720,13 +8719,13 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             </Card>
           ) },
 
-          instrCount > 0 && { key: "nota", node: (
+          instrCount > 0 && { key: "nota", span: "full", node: (
             <TodayRow Icon={MessageSquare} title="Nota del coach"
               detail={plan.instructions[0].title || `${instrCount} indicaciones del plan`}
               dot onClick={() => setShowInstr(true)} />
           ) },
 
-          d.lastSession && { key: "ultima", node: (
+          d.lastSession && { key: "ultima", span: "full", node: (
             <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
               <span className="mono" style={{ letterSpacing: ".08em" }}>Última sesión</span>
               <span style={{ fontWeight: 600, fontSize: 15.5 }}>{d.lastSession.dayName}</span>
@@ -8738,19 +8737,19 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           ) },
         ].filter(Boolean);
         return (
-          <>
-            <OrderableGrid clave={claveHome} items={panels} cols={1} gap={16}
+          <div className="ord-group">
+            <OrderableGrid clave={claveHome} items={panels} cols={2} gap={10}
               modoOrden={modoOrden} setModoOrden={setModoOrden}
               render={(it) => it.node} />
-            <div style={{ textAlign: "center" }}>
+            <div style={{ textAlign: "center", marginTop: 14 }}>
               {modoOrden === claveHome ? (
                 <button data-order-done onClick={() => setModoOrden(null)}
                   style={{ background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 15, padding: "10px 30px", borderRadius: 999 }}>Listo</button>
               ) : (
-                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionado un panel para reordenar</div>
+                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionada una ficha para reordenar</div>
               )}
             </div>
-          </>
+          </div>
         );
       })()}
       {instrSheet}
@@ -12092,6 +12091,14 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         </button>
       </Card>
 
+      {/* Exportar todas las rutinas del plan (PDF / Word), ordenadas por
+          rutina y día. Solo cuando hay días cargados. */}
+      {plan.days.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -14, marginBottom: 22 }}>
+          <RoutinesExportButton plan={plan} who={student?.name} toast={toast} small />
+        </div>
+      )}
+
       {plan.days.length === 0 && (
         <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
       )}
@@ -13786,22 +13793,18 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           quedan fijos. */}
       {(() => {
         const panels = [
-          { key: "kpis", node: (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <KpiTile top="Atletas" value={String(activeCount)} onClick={onOpenAtletas} />
-              <KpiTile top="Check-in" value={`${checkinPct}%`} sub="últimos 7 días" onClick={onOpenAtletas} />
-              <KpiTile top="Sin leer" value={String(pendCount)} onClick={onOpenMensajes} />
-              <KpiTile top="Por cobrar" value={String(dueCount)} onClick={onOpenCobros} />
-            </div>
-          ) },
-          { key: "atencion", node: (
+          { key: "kpi-atletas", node: <KpiTile top="Atletas" value={String(activeCount)} onClick={onOpenAtletas} /> },
+          { key: "kpi-checkin", node: <KpiTile top="Check-in" value={`${checkinPct}%`} sub="últimos 7 días" onClick={onOpenAtletas} /> },
+          { key: "kpi-sinleer", node: <KpiTile top="Sin leer" value={String(pendCount)} onClick={onOpenMensajes} /> },
+          { key: "kpi-cobrar", node: <KpiTile top="Por cobrar" value={String(dueCount)} onClick={onOpenCobros} /> },
+          { key: "atencion", span: "full", node: (
             <RowGroup label="Requiere atención" rows={[
               stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
               dueCount > 0 && { label: `${dueCount} cuota${dueCount !== 1 ? "s" : ""} por vencer`, onClick: onOpenCobros },
               pendCount > 0 && { label: `${pendCount} mensaje${pendCount !== 1 ? "s" : ""} sin leer`, onClick: onOpenMensajes },
             ]} />
           ) },
-          { key: "hoy", node: (
+          { key: "hoy", span: "full", node: (
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Hoy</div>
               {activity.length === 0 ? (
@@ -13823,7 +13826,7 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
               )}
             </div>
           ) },
-          { key: "accesos", node: (
+          { key: "accesos", span: "full", node: (
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Accesos</div>
               <SettingGroup>
@@ -13842,8 +13845,8 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           ) },
         ];
         return (
-          <div style={{ marginTop: 14 }}>
-            <OrderableGrid clave="home-coach" items={panels} cols={1} gap={16}
+          <div className="ord-group" style={{ marginTop: 14 }}>
+            <OrderableGrid clave="home-coach" items={panels} cols={2} gap={10}
               modoOrden={modoOrden} setModoOrden={setModoOrden}
               render={(it) => it.node} />
             <div style={{ textAlign: "center", marginTop: 16 }}>
@@ -13851,7 +13854,7 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
                 <button data-order-done onClick={() => setModoOrden(null)}
                   style={{ background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 15, padding: "10px 30px", borderRadius: 999 }}>Listo</button>
               ) : (
-                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionado un panel para reordenar</div>
+                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionada una ficha para reordenar</div>
               )}
             </div>
           </div>
@@ -15261,6 +15264,131 @@ const FichaExportBar = ({ a, ficha, student, history, toast }) => {
         "Compartir" abre el panel de siempre del teléfono (WhatsApp incluido) con la ficha como archivo. "PDF" abre el diálogo de impresión — "Guardar como PDF" desde ahí.
       </div>
     </Card>
+  );
+};
+
+/* ---- Exportar TODAS las rutinas (PDF / Word / HTML) ----
+   Arma un documento ordenado con todas las rutinas del plan: por cada
+   rutina (A, B, C…), sus días en orden, y por cada día una tabla de
+   ejercicios con series, reps y RIR objetivo, descanso, agrupaciones
+   (superserie/triserie/gigante) y notas. Reusa exactamente los mismos
+   datos que se ven en la app y los mismos ayudantes de exportación de la
+   Ficha (openPrintable → "Guardar como PDF", wordDocFromHtml → .doc que
+   abre Word, downloadTextFile, shareFichaFile). El PDF sale del diálogo de
+   impresión del navegador; el Word es HTML que Word abre nativo. Sin
+   librerías nuevas, todo en el cliente. */
+function restLabelExport(sec) {
+  const s = Math.max(0, Math.round(+sec || 0));
+  if (!s) return "—";
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} min` : `${s} s`;
+}
+function buildRoutinesHTML(plan, who) {
+  const uniq = (arr) => [...new Set(arr)];
+  const groups = groupDaysByRoutine(plan.days || [], plan.routineNames);
+  const setsCol = (e) => String((e.sets || []).length || "—");
+  const repsCol = (e) => { const v = uniq((e.sets || []).map((s) => (s.repsT || "").trim()).filter(Boolean)); return v.length ? v.join(" / ") : "—"; };
+  const rirCol = (e) => { const v = uniq((e.sets || []).map((s) => String(s.rirT ?? "").trim()).filter(Boolean)); return v.length ? v.join(" / ") : "—"; };
+  const sub = (e) => [e.muscle, e.equipment].map((x) => (x || "").trim()).filter(Boolean).join(" · ");
+
+  const dayHtml = (d, di) => {
+    const exs = d.exs || [];
+    const rows = exs.map((e, ei) => {
+      const gi = exGroupInfo(exs, ei);
+      const groupTag = gi.first && gi.kind
+        ? `<div class="gtag">${fichaEsc(GROUP_KINDS[gi.kind].label)} · ${gi.size} ejercicios${gi.rounds > 1 ? ` · ${gi.rounds} rondas` : ""}</div>`
+        : "";
+      const notes = (e.notes || "").trim();
+      return `<tr>
+        <td class="pos">${fichaEsc(gi.posLabel)}</td>
+        <td>${groupTag}<div class="exn">${fichaEsc(e.name || "Ejercicio sin nombre")}</div>${sub(e) ? `<div class="exs">${fichaEsc(sub(e))}</div>` : ""}</td>
+        <td class="num">${fichaEsc(setsCol(e))}</td>
+        <td class="num">${fichaEsc(repsCol(e))}</td>
+        <td class="num">${fichaEsc(rirCol(e))}</td>
+        <td class="num">${fichaEsc(restLabelExport(e.rest))}</td>
+        <td>${notes ? fichaEsc(notes) : "—"}</td>
+      </tr>`;
+    }).join("");
+    const totSets = exs.reduce((a, e) => a + (e.sets || []).length, 0);
+    return `<div class="day">
+      <h3>Día ${di + 1} · ${fichaEsc(d.name || "Sin nombre")}</h3>
+      <div class="daysub">${exs.length} ejercicios · ${totSets} series</div>
+      ${exs.length ? `<table><thead><tr><th class="pos">#</th><th>Ejercicio</th><th class="num">Series</th><th class="num">Reps</th><th class="num">RIR</th><th class="num">Descanso</th><th>Notas</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty">Sin ejercicios cargados.</div>`}
+    </div>`;
+  };
+
+  const body = groups.length ? groups.map((g) => `
+    <section class="routine">
+      <h2>${fichaEsc(g.label)}</h2>
+      <div class="rsub">${g.days.length} entrenamiento${g.days.length !== 1 ? "s" : ""} · ${g.exCount} ejercicios · ${g.setCount} series${g.note ? ` — ${fichaEsc(g.note)}` : ""}</div>
+      ${g.days.map((d, di) => dayHtml(d, di)).join("")}
+    </section>`).join("\n") : `<div class="empty">No hay rutinas cargadas en este plan.</div>`;
+
+  const titulo = who ? `Rutinas — ${fichaEsc(who)}` : "Rutinas de entrenamiento";
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Segoe UI,Roboto,sans-serif;max-width:820px;margin:0 auto;padding:32px 20px;color:#101012;background:#fff;}
+h1{font-size:26px;margin:0 0 4px;} .sub{color:#8a8a92;font-size:13px;margin-bottom:24px;}
+.routine{margin-bottom:30px;} .routine:not(:first-of-type){page-break-before:always;}
+h2{font-size:20px;margin:0 0 2px;} .rsub{color:#55555D;font-size:13px;margin-bottom:14px;}
+.day{margin:0 0 18px;} h3{font-size:15.5px;margin:16px 0 2px;} .daysub{color:#8a8a92;font-size:12px;margin-bottom:7px;}
+table{width:100%;border-collapse:collapse;font-size:12.5px;} th,td{border:1px solid #E5E5EA;padding:6px 8px;text-align:left;vertical-align:top;}
+th{background:#F2F2F7;color:#55555D;font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:700;}
+td.num,th.num{text-align:center;white-space:nowrap;} td.pos,th.pos{text-align:center;font-weight:700;width:34px;color:#55555D;}
+.exn{font-weight:700;} .exs{color:#8a8a92;font-size:11.5px;margin-top:1px;}
+.gtag{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#55555D;background:#EFEFF4;border:1px solid #E5E5EA;border-radius:5px;padding:1px 5px;margin-bottom:3px;}
+.empty{color:#8a8a92;font-size:13px;padding:8px 0;}
+@media print{ body{padding:0;} tr{page-break-inside:avoid;} }
+</style></head><body>
+<h1>${titulo}</h1>
+<div class="sub">Exportadas el ${fichaEsc(fmtDate(todayISO()))} desde FORJA</div>
+${body}
+</body></html>`;
+}
+const slugForFile = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+// Botón + hoja para exportar todas las rutinas. Se cae bien en cualquier
+// pantalla que tenga `plan` (Entrenar del alumno, Rutinas del coach).
+const RoutinesExportButton = ({ plan, who, toast, small }) => {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState("");
+  const hayRutinas = (plan.days || []).length > 0;
+  const run = async (kind) => {
+    setBusy(kind);
+    try {
+      const html = buildRoutinesHTML(plan, who);
+      const base = "rutinas" + (who ? `_${slugForFile(who)}` : "");
+      if (kind === "pdf") { if (!openPrintable(html)) toast && toast("El navegador bloqueó la ventana. Habilita ventanas emergentes e intenta de nuevo."); }
+      else if (kind === "word") downloadTextFile(`${base}.doc`, "application/msword", wordDocFromHtml(html));
+      else if (kind === "html") downloadTextFile(`${base}.html`, "text/html", html);
+      else if (kind === "share") {
+        const shared = await shareFichaFile(`${base}.html`, "text/html", html, who ? `Rutinas de ${who}` : "Rutinas de entrenamiento");
+        if (!shared) { downloadTextFile(`${base}.html`, "text/html", html); toast && toast("Este navegador no comparte archivos directo — se descargaron para adjuntarlas donde quieras."); }
+      }
+    } catch { toast && toast("No se pudo exportar. Intenta de nuevo."); }
+    setBusy("");
+  };
+  return (
+    <>
+      <Btn kind="line" small={small} onClick={() => setOpen(true)}><FileDown size={small ? 13 : 15} /> Exportar rutinas</Btn>
+      <Sheet open={open} onClose={() => setOpen(false)} title="Exportar rutinas">
+        {!hayRutinas ? (
+          <Empty icon={FileDown} title="No hay rutinas para exportar" body="Cuando el plan tenga días de entrenamiento cargados, vas a poder bajar todas las rutinas ordenadas en PDF o Word." />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.45 }}>
+              Baja <b>todas las rutinas</b> ordenadas por rutina y día, con series, reps y RIR objetivo, descanso, agrupaciones y notas de cada ejercicio.
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <Btn kind="ember" onClick={() => run("pdf")} disabled={!!busy}><FileDown size={15} /> {busy === "pdf" ? "…" : "PDF"}</Btn>
+              <Btn kind="line" onClick={() => run("word")} disabled={!!busy}><FileDown size={15} /> {busy === "word" ? "…" : "Word"}</Btn>
+              <Btn kind="line" onClick={() => run("share")} disabled={!!busy}><Share2 size={15} /> {busy === "share" ? "…" : "Compartir"}</Btn>
+            </div>
+            <div style={{ fontSize: 12, color: P.faint, lineHeight: 1.45 }}>
+              "PDF" abre el diálogo de impresión — elige "Guardar como PDF". "Word" baja un .doc que abre Word o Google Docs. "Compartir" abre el panel del teléfono (WhatsApp, correo…) con el archivo.
+            </div>
+          </div>
+        )}
+      </Sheet>
+    </>
   );
 };
 
@@ -18548,9 +18676,11 @@ const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
   useEffect(() => { if (!open) setModoOrden(null); }, [open]);
   return (
     <Sheet open={open} onClose={onClose} title="Centro de control">
+      <div className="ord-group">
       <OrderableGrid clave={clave} items={items} cols={3} gap={10}
         modoOrden={modoOrden} setModoOrden={setModoOrden}
         render={(it, ed) => <Tile Icon={it.Icon} label={it.label} onClick={ed ? undefined : it.onClick} />} />
+      </div>
       <div style={{ textAlign: "center", marginTop: 16 }}>
         {modoOrden ? (
           <button data-order-done onClick={() => setModoOrden(null)}
