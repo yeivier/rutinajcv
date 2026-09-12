@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v266";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v267";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7618,7 +7618,9 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   useEffect(() => {
     if (!abrirDiaId || active) { if (abrirDiaId) onAutoStartConsumed && onAutoStartConsumed(); return; }
     const day = (plan.days || []).find((d) => d.id === abrirDiaId);
-    if (day) { setBrowsing(false); setPidiendoGym(day); }
+    // Igual que al tocar un día en la lista: primero la vista previa con la
+    // lista de ejercicios (y la ✕ para salir), no directo al gimnasio.
+    if (day) { setBrowsing(false); setPreviewDay(day); }
     onAutoStartConsumed && onAutoStartConsumed();
   }, [abrirDiaId]);
 
