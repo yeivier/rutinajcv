@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v270";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v271";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6577,6 +6577,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // Ejercicio cuyo nombre se está editando en vivo (por id, no índice, que
   // se corre al agregar/quitar). La edición en sesión está disponible siempre.
   const [renameId, setRenameId] = useState(null);
+  const [warmOpen, setWarmOpen] = useState(true);   // calentamiento de la rutina, plegable dentro de la sesión
   const puedeEditar = !!onAddExercise; // props de edición presentes
   // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
   const [coachNotesOpen, setCoachNotesOpen] = useState(null);
@@ -7236,6 +7237,31 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         );
       })()}
 
+      {/* Calentamiento de la rutina DENTRO de la sesión (no solo en la vista
+          previa): plegable, arriba de todo, para tenerlo a mano al arrancar.
+          Se toma de la sesión (guardado al empezar) y, para sesiones ya en
+          curso, cae al calentamiento de la rutina del día en el plan. */}
+      {(() => {
+        const dayForWarm = (plan.days || []).find((d) => d.id === active.dayId);
+        const warmText = ((active.warmup || (dayForWarm ? (plan.warmups || {})[routineOf(dayForWarm)] : "")) || "").trim();
+        if (!warmText) return null;
+        return (
+          <div style={{ borderRadius: 16, background: SES.card, border: `1px solid ${SES.line}`, overflow: "hidden" }}>
+            <button onClick={() => setWarmOpen((o) => !o)} aria-expanded={warmOpen}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "13px 15px", textAlign: "left" }}>
+              <Flame size={17} color={SES.acc} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: SES.ink, textTransform: "uppercase", letterSpacing: ".04em" }}>Calentamiento</span>
+              <ChevronDown size={18} color={SES.faint} style={{ transform: warmOpen ? "rotate(180deg)" : "none", transition: "transform .2s cubic-bezier(.32,.72,0,1)" }} />
+            </button>
+            {warmOpen && (
+              <div style={{ padding: "0 15px 14px", fontSize: 14, color: SES.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
+                {warmText}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {blocks.map((b, bi) => (
         <div key={bi} id={`fm-b-${bi}`} style={{ display: "flex", flexDirection: "column", gap: 6, scrollMarginTop: 56 }}>
           {tablaDe(b, bi)}
@@ -7689,6 +7715,9 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
       id: uid(), dayId: day.id, dayName: day.name, startedAt: todayISO(),
       weekId: week ? week.id : null, weekName: week ? week.name : "", deload: !!(week && week.deload),
       gym: gym || "",
+      // Calentamiento de la rutina, para poder mostrarlo también DENTRO de la
+      // sesión (no solo en la vista previa). Se toma según la rutina del día.
+      warmup: (plan.warmups || {})[routineOf(day)] || "",
       attachIds: [],
       exs: (day.exs || []).map((ex) => ({ ...ex, comment: "", attachIds: [],
         sets: (ex.sets || []).map((s, si) => {
