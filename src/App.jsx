@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v264";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v265";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6361,6 +6361,59 @@ const GymPickerSheet = ({ open, onClose, onElegir, dayName }) => {
   );
 };
 
+/* Vista previa de la sesión ANTES de elegir el gimnasio: al tocar un día se
+   ve primero la lista de ejercicios (con series/reps objetivo y las
+   agrupaciones), y recién con "Elegir gimnasio y empezar" se abre el
+   selector de sede. La ✕ de la hoja (Sheet) permite salir sin empezar
+   nada. Es solo lectura: no registra ni arranca la sesión por sí sola. */
+const DayPreviewSheet = ({ day, open, onClose, onContinue, history }) => {
+  const exs = (day && day.exs) || [];
+  const totalSets = exs.reduce((a, e) => a + (e.sets || []).length, 0);
+  const lastDone = day && [...(history?.sessions || [])].reverse().find((s) => s.dayId === day.id);
+  const reps = (e) => { const v = [...new Set((e.sets || []).map((s) => (s.repsT || "").trim()).filter(Boolean))]; return v.length ? v.join(" / ") : null; };
+  return (
+    <Sheet open={open} onClose={onClose} title={day ? day.name : "Sesión"} tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontSize: 13.5, color: P.faint2 }}>
+          {exs.length} ejercicio{exs.length !== 1 ? "s" : ""} · {totalSets} series
+          {lastDone ? ` · última vez ${fmtDate(lastDone.date)}` : " · nunca realizada"}
+        </div>
+        {exs.length === 0 ? (
+          <Empty icon={Dumbbell} title="Sin ejercicios" body="Este día no tiene ejercicios cargados todavía." />
+        ) : exs.map((e, ei) => {
+          const gi = exGroupInfo(exs, ei);
+          const r = reps(e);
+          return (
+            <div key={e.id || ei} style={{ display: "flex", alignItems: "flex-start", gap: 12,
+              padding: "12px 14px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.line}` }}>
+              <span style={{ flexShrink: 0, minWidth: 30, height: 30, borderRadius: 9, padding: "0 4px",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: P.accWell, color: P.ember, fontWeight: 700, fontSize: 13 }}>{gi.posLabel}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {gi.first && gi.kind && (
+                  <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase",
+                    color: P.faint2, marginBottom: 2 }}>{GROUP_KINDS[gi.kind].label}{gi.rounds > 1 ? ` · ${gi.rounds} rondas` : ""}</div>
+                )}
+                <div style={{ fontSize: 15.5, fontWeight: 700, color: P.text, lineHeight: 1.25 }}>{e.name || "Ejercicio sin nombre"}</div>
+                <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>
+                  {(e.sets || []).length} serie{(e.sets || []).length !== 1 ? "s" : ""}{r ? ` · ${r} reps` : ""}{e.muscle ? ` · ${e.muscle}` : ""}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ height: 2 }} />
+        <Btn kind="ember" onClick={onContinue} style={{ width: "100%" }}>
+          Elegir gimnasio y empezar <ChevronRight size={17} />
+        </Btn>
+        <div style={{ fontSize: 12, color: P.faint, textAlign: "center", lineHeight: 1.4 }}>
+          Toca la ✕ de arriba para salir sin empezar la sesión.
+        </div>
+      </div>
+    </Sheet>
+  );
+};
+
 /* Una salida de la hoja de la "✕". Cada una dice qué pasa al tocarla,
    porque "salir", "finalizar" y "descartar" suenan parecido y hacen
    cosas muy distintas — la última no se puede deshacer. */
@@ -7506,6 +7559,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   // Día esperando a que se elija gimnasio. La sesión no se crea hasta que
   // se elige: así el registro nunca queda sin sede.
   const [pidiendoGym, setPidiendoGym] = useState(null);
+  const [previewDay, setPreviewDay] = useState(null);   // día cuya lista de ejercicios se previsualiza antes del gimnasio
   const [confirmSwitch, setConfirmSwitch] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
   const [, tick] = useState(0);
@@ -7655,7 +7709,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
                     const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
                     return (
                       <Card key={d.id} style={{ marginBottom: 10, background: P.s1, border: `1px solid ${P.line}` }}>
-                        <button onClick={() => (active ? setConfirmSwitch(d) : setPidiendoGym(d))} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+                        <button onClick={() => (active ? setConfirmSwitch(d) : setPreviewDay(d))} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
                           <div style={{ width: 36, height: 36, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
                             background: P.accWell, color: P.ember, fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
                           <div style={{ flex: 1 }}>
@@ -7675,6 +7729,11 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             </Card>
           );
         })}
+        {/* Primero la lista de ejercicios de la sesión; recién desde ahí se
+            elige el gimnasio. La ✕ de la hoja permite salir sin empezar. */}
+        <DayPreviewSheet open={!!previewDay} day={previewDay} history={history}
+          onClose={() => setPreviewDay(null)}
+          onContinue={() => { const d = previewDay; setPreviewDay(null); if (d) setPidiendoGym(d); }} />
         <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
           onClose={() => setPidiendoGym(null)}
           onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g); }} />
@@ -7683,7 +7742,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         <Confirm open={!!confirmSwitch} danger title="Ya tienes una sesión en curso"
           body={`Se descartará «${active ? active.dayName : ""}» con todo lo que lleves registrado y empezará «${confirmSwitch ? confirmSwitch.name : ""}». Esta acción no se puede deshacer.`}
           okLabel="Descartar y empezar" onCancel={() => setConfirmSwitch(null)}
-          onOk={() => { const day = confirmSwitch; setConfirmSwitch(null); discardSession(); setPidiendoGym(day); }} />
+          onOk={() => { const day = confirmSwitch; setConfirmSwitch(null); discardSession(); setPreviewDay(day); }} />
         {summarySheet}
       </div>
     );
