@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v256";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v258";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15391,7 +15391,17 @@ const VolumePanel = ({ plan }) => {
     ...(multi ? [{ id: "ciclo", label: "Todas" }] : []),
   ];
   const [scope, setScope] = useState(hasSchedule ? "week" : (groups[0] ? "r:" + groups[0].key : "ciclo"));
+  const [scopePickerOpen, setScopePickerOpen] = useState(false);
   const activeScope = scopeOpts.some((o) => o.id === scope) ? scope : (scopeOpts[0] ? scopeOpts[0].id : "ciclo");
+  // Cuántas sesiones tiene cada opción del selector — se muestra como texto
+  // secundario en el menú, un detalle que ayuda a elegir sin adivinar.
+  const daysForScope = (id) => {
+    if (id === "week") return scheduledIds.length;
+    if (id === "ciclo") return (plan.days || []).length;
+    const key = id.startsWith("r:") ? id.slice(2) : null;
+    const g = groups.find((x) => x.key === key);
+    return g ? g.days.length : 0;
+  };
   const countedDays = useMemo(() => {
     if (activeScope === "week") return scheduledIds.map((id) => (plan.days || []).find((d) => d.id === id)).filter(Boolean);
     if (activeScope === "ciclo") return plan.days || [];
@@ -15429,30 +15439,58 @@ const VolumePanel = ({ plan }) => {
 
       {sub === "semana" && (
         <>
-          {/* Encabezado prominente: deja clarísimo A QUÉ corresponde el volumen
-              (qué rutina/semana, cuántas sesiones, cuántas series) — era lo que
-              antes no se sabía leyendo la lista de barras a secas. */}
-          <Card style={{ padding: "13px 15px", marginBottom: 10, background: PLATE_GRAD, color: PLATE_FG }}>
-            <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", opacity: .75, marginBottom: 3 }}>VOLUMEN SEMANAL DE</div>
-            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.02em" }}>{scopeTitle}</div>
-            <div style={{ fontSize: 13, opacity: .85, marginTop: 2 }}>
-              {countedDays.length} {countedDays.length === 1 ? "sesión" : "sesiones"} · {fmtSets(vol.total)} series efectivas{activeScope !== "week" && activeScope !== "ciclo" ? " · una vuelta = una semana" : ""}
-            </div>
-          </Card>
-          {scopeOpts.length > 1 && (
-            <div style={{ marginBottom: 10 }}>
-              <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", color: P.faint2, marginBottom: 6 }}>VER VOLUMEN DE</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {scopeOpts.map((o) => {
-                  const on = o.id === activeScope;
-                  return (
-                    <button key={o.id} onClick={() => setScope(o.id)} style={{ padding: "6px 11px", borderRadius: 9, fontSize: 13, fontWeight: 600,
-                      background: on ? P.s3 : P.s1, color: on ? P.text : P.faint, border: `1px solid ${on ? P.line : "transparent"}` }}>{o.label}</button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          {/* Un solo control (estilo "pull-down" de iOS): la tarjeta prominente
+              muestra a qué corresponde el volumen y, si hay varias rutinas, ES
+              el selector — al tocarla abre una lista limpia en vez de una nube
+              de píldoras amontonadas. Con una sola rutina no es tocable. */}
+          {(() => {
+            const multiScope = scopeOpts.length > 1;
+            const Inner = (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", opacity: .75, marginBottom: 3 }}>VOLUMEN SEMANAL DE</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{scopeTitle}</div>
+                  </div>
+                  {multiScope && (
+                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 8, background: "rgba(255,255,255,.18)", flexShrink: 0 }}>
+                      <ChevronDown size={17} />
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 13, opacity: .85, marginTop: 2 }}>
+                  {countedDays.length} {countedDays.length === 1 ? "sesión" : "sesiones"} · {fmtSets(vol.total)} series efectivas{activeScope !== "week" && activeScope !== "ciclo" ? " · una vuelta = una semana" : ""}
+                </div>
+              </>
+            );
+            return multiScope ? (
+              <button onClick={() => setScopePickerOpen(true)} style={{ width: "100%", textAlign: "left", display: "block",
+                background: PLATE_GRAD, color: PLATE_FG, border: "none", borderRadius: R_CARD, padding: "13px 15px", marginBottom: 12 }}>
+                {Inner}
+              </button>
+            ) : (
+              <Card style={{ padding: "13px 15px", marginBottom: 12, background: PLATE_GRAD, color: PLATE_FG }}>{Inner}</Card>
+            );
+          })()}
+          <Sheet open={scopePickerOpen} onClose={() => setScopePickerOpen(false)} title="Ver volumen de">
+            {scopeOpts.map((o) => {
+              const on = o.id === activeScope;
+              const n = daysForScope(o.id);
+              return (
+                <button key={o.id} onClick={() => { setScope(o.id); setScopePickerOpen(false); }}
+                  style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "13px 4px",
+                    borderBottom: `1px solid ${P.line}`, background: "transparent", border: "none" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 16, fontWeight: on ? 700 : 600, color: P.text }}>{o.label}</div>
+                    <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>
+                      {o.id === "ciclo" ? "Suma todas las rutinas (no es volumen semanal real)" : `${n} ${n === 1 ? "sesión" : "sesiones"}`}
+                    </div>
+                  </div>
+                  {on && <Check size={19} color={P.green} strokeWidth={2.6} />}
+                </button>
+              );
+            })}
+          </Sheet>
           <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 12, lineHeight: 1.5 }}>
             Series efectivas (sin contar aproximaciones) por semana en <b>{scopeLabel}</b>.
             {activeScope === "ciclo" && " Ojo: suma rutinas distintas; para leer el volumen semanal real elige una rutina o carga el cronograma en Agenda."}
@@ -18134,10 +18172,31 @@ const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
     { key: "ia", Icon: Sparkles, label: "Coach IA", onClick: go(onAIChat) },
     modoItem, themeItem, cuentaItem,
   ].filter(Boolean);
+  // Reordenar las fichas manteniendo presionado y arrastrando, igual que el
+  // Centro de Control y la pantalla de inicio de iOS. Reusa `OrderableGrid`
+  // (la misma pieza de "Más"): mantener pulsada ~0,4 s entra en modo edición
+  // (las fichas tiemblan) y se arrastran 1:1 con el dedo; el orden se guarda
+  // en este dispositivo. La clave difiere por modo (coach/alumno) porque las
+  // fichas no son las mismas.
+  const [modoOrden, setModoOrden] = useState(null);
+  useExitEditOnOutside(!!modoOrden, () => setModoOrden(null));
+  const clave = "cc-" + (mode === "coach" ? "coach" : "alumno");
+  // Al cerrar la hoja, salir del modo edición para no reabrir temblando.
+  useEffect(() => { if (!open) setModoOrden(null); }, [open]);
   return (
     <Sheet open={open} onClose={onClose} title="Centro de control">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-        {items.map((it) => <Tile key={it.key} Icon={it.Icon} label={it.label} onClick={it.onClick} />)}
+      <OrderableGrid clave={clave} items={items} cols={3} gap={10}
+        modoOrden={modoOrden} setModoOrden={setModoOrden}
+        render={(it, ed) => <Tile Icon={it.Icon} label={it.label} onClick={ed ? undefined : it.onClick} />} />
+      <div style={{ textAlign: "center", marginTop: 16 }}>
+        {modoOrden ? (
+          <button data-order-done onClick={() => setModoOrden(null)}
+            style={{ background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 15, padding: "10px 30px", borderRadius: 999 }}>
+            Listo
+          </button>
+        ) : (
+          <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionada una ficha para reordenar</div>
+        )}
       </div>
     </Sheet>
   );
