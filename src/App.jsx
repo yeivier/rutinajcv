@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v261";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v262";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -203,18 +203,25 @@ const SES = teColors(true);
 // los estados activos y —lo pedido— la sesión de Entrenar. Los colores
 // semánticos (verde = óptimo, rojo = peligro) NO cambian con el acento: siguen
 // significando lo mismo en todos lados.
+// Paleta de acento — pensada masculina y sobria: verdes (a varios tonos),
+// azules, grises/negros a distintas intensidades y café. Sin morados ni
+// rosados. "tema" = sin override (look de fábrica de cada apariencia). Cada
+// acento trae su variante clara y oscura, con la "tinta" (texto sobre el
+// color) elegida para buen contraste en cada una.
 const ACCENTS = [
   { id: "tema", name: "Del tema" },
   { id: "verde", name: "Verde", light: { c: "#0F8A4B", ink: "#FFFFFF" }, dark: { c: "#2FCB78", ink: "#062114" } },
+  { id: "oliva", name: "Verde oliva", light: { c: "#5E7A22", ink: "#FFFFFF" }, dark: { c: "#A6C24A", ink: "#171F06" } },
+  { id: "pino", name: "Verde pino", light: { c: "#1E5E3A", ink: "#FFFFFF" }, dark: { c: "#4FB587", ink: "#05261A" } },
+  { id: "turquesa", name: "Turquesa", light: { c: "#0E8C9E", ink: "#FFFFFF" }, dark: { c: "#41C7D6", ink: "#03222A" } },
   { id: "azul", name: "Azul", light: { c: "#0A6CFF", ink: "#FFFFFF" }, dark: { c: "#4C9DFF", ink: "#04152E" } },
-  { id: "indigo", name: "Índigo", light: { c: "#4B48D6", ink: "#FFFFFF" }, dark: { c: "#8F8CFF", ink: "#0B0A2E" } },
-  { id: "purpura", name: "Púrpura", light: { c: "#9A34D6", ink: "#FFFFFF" }, dark: { c: "#C77DFF", ink: "#1E0733" } },
-  { id: "rosa", name: "Rosa", light: { c: "#DB2777", ink: "#FFFFFF" }, dark: { c: "#FF6FA5", ink: "#33001A" } },
-  { id: "coral", name: "Coral", light: { c: "#E23B34", ink: "#FFFFFF" }, dark: { c: "#FF6B61", ink: "#330603" } },
+  { id: "acero", name: "Azul acero", light: { c: "#35688F", ink: "#FFFFFF" }, dark: { c: "#7FB0D9", ink: "#08192B" } },
+  { id: "pizarra", name: "Pizarra", light: { c: "#4A5568", ink: "#FFFFFF" }, dark: { c: "#A0AEC4", ink: "#10151F" } },
+  { id: "grafito", name: "Grafito", light: { c: "#2B2B30", ink: "#FFFFFF" }, dark: { c: "#C7C7CE", ink: "#101012" } },
+  { id: "onix", name: "Ónix", light: { c: "#0B0B0D", ink: "#FFFFFF" }, dark: { c: "#EDEDF2", ink: "#0A0A0C" } },
+  { id: "cafe", name: "Café", light: { c: "#6B4A2B", ink: "#FFFFFF" }, dark: { c: "#C79A6B", ink: "#241505" } },
   { id: "naranja", name: "Naranja", light: { c: "#C9600A", ink: "#FFFFFF" }, dark: { c: "#FF9F45", ink: "#301400" } },
   { id: "ambar", name: "Ámbar", light: { c: "#8A6A00", ink: "#FFFFFF" }, dark: { c: "#FFCB45", ink: "#2A1E00" } },
-  { id: "turquesa", name: "Turquesa", light: { c: "#0E8C9E", ink: "#FFFFFF" }, dark: { c: "#41C7D6", ink: "#03222A" } },
-  { id: "grafito", name: "Grafito", light: { c: "#2B2B30", ink: "#FFFFFF" }, dark: { c: "#C7C7CE", ink: "#101012" } },
 ];
 const ACCENT_BY_ID = Object.fromEntries(ACCENTS.map((a) => [a.id, a]));
 // Color representativo para la muestra del selector (la variante clara se ve
@@ -226,8 +233,15 @@ function hexRgba(hex, alpha) {
   const n = parseInt(full, 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
+// Acentos que existían antes (morados/rosados, ya retirados): se migran al
+// tono masculino más cercano para no dejar la preferencia del usuario en
+// blanco cuando abra la app con la paleta nueva.
+const ACCENT_MIGRATE = { indigo: "azul", purpura: "pizarra", rosa: "cafe", coral: "naranja" };
 let ACCENT = "tema";
-try { ACCENT = window.localStorage.getItem("forja-accent") || "tema"; } catch {}
+try {
+  ACCENT = window.localStorage.getItem("forja-accent") || "tema";
+  if (ACCENT_MIGRATE[ACCENT]) { ACCENT = ACCENT_MIGRATE[ACCENT]; window.localStorage.setItem("forja-accent", ACCENT); }
+} catch {}
 function applyAccent(resolved) {
   const a = ACCENT_BY_ID[ACCENT];
   if (!a || !a.light) return; // "tema" (o valor desconocido): sin override, look de fábrica
@@ -259,6 +273,16 @@ function applyTheme(mode) {
   // El acento elegido se aplica ENCIMA del tema base (pisa ember/placas y el
   // acento de la sesión). Va después de asignar el tema, para ganarle.
   applyAccent(resolved);
+  // Tintes suaves derivados del acento final (P.ember ya quedó fijado, sea el
+  // del tema o el override). Se usan para DIFERENCIAR el contenido que se
+  // despliega/anida (el "pozo" de una tarjeta expandida, el riel de un
+  // colapsable): un velo transparente que combina siempre con la plataforma
+  // porque sale del mismo color de acento. En oscuro suben un poco para que
+  // se noten sobre el fondo. `accWell` es el fondo del contenedor anidado;
+  // `accEdge` un borde/riel apenas visible.
+  const _dk = resolved === "dark";
+  P.accWell = hexRgba(P.ember, _dk ? 0.10 : 0.055);
+  P.accEdge = hexRgba(P.ember, _dk ? 0.28 : 0.16);
   THEME_MODE = mode;
   try { window.localStorage.setItem("forja-theme", mode); } catch {}
   try {
@@ -4160,7 +4184,16 @@ const Collapsible = ({ title, summary, defaultOpen, children, mono }) => {
       </button>
       <div style={{ maxHeight: open ? 4000 : 0, opacity: open ? 1 : 0, overflow: "hidden",
         transition: "max-height .28s cubic-bezier(.32,.72,0,1), opacity .2s ease" }}>
-        {children}
+        {/* Lo desplegado se marca como contenido anidado con un riel de acento
+            + un velo tenue del mismo color, para diferenciarlo de lo que hay
+            arriba. En la variante `mono` (sesión, superficie oscura) se deja
+            plano: el tinte claro no combina ahí. */}
+        {mono ? children : (
+          <div style={{ paddingLeft: 12, paddingTop: 4, paddingBottom: 4, borderLeft: `2px solid ${P.accEdge}`,
+            background: P.accWell, borderRadius: "0 12px 12px 0" }}>
+            {children}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -7604,14 +7637,18 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
                 {open ? <ChevronUp size={19} color={P.ember} /> : <ChevronDown size={19} color={P.faint} />}
               </button>
               {open && (
-                <div style={{ padding: "0 12px 12px" }}>
+                // "Pozo" tintado con el acento: diferencia de un vistazo lo que
+                // cuelga de la rutina (los días) de la cabecera de la rutina,
+                // sin cambiar de color duro. Las tarjetas de día van en blanco
+                // encima, así el anidado se lee como profundidad.
+                <div style={{ padding: "10px 12px 12px", background: P.accWell, borderTop: `1px solid ${P.accEdge}` }}>
                   {g.days.map((d, i) => {
                     const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
                     return (
-                      <Card key={d.id} style={{ marginBottom: 10, background: P.s2 }}>
+                      <Card key={d.id} style={{ marginBottom: 10, background: P.s1, border: `1px solid ${P.line}` }}>
                         <button onClick={() => (active ? setConfirmSwitch(d) : setPidiendoGym(d))} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
                           <div style={{ width: 36, height: 36, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
-                            background: P.s3, color: P.faint, fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                            background: P.accWell, color: P.ember, fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 700, fontSize: 16.5 }}>{d.name}</div>
                             <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>
@@ -8321,6 +8358,12 @@ const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
 
 const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat, autoOpenCheckin, onAutoOpenCheckinConsumed, autoOpenPosing, onAutoOpenPosingConsumed, saveHistory, toast }) => {
   const [showInstr, setShowInstr] = useState(false);
+  // Reordenar los paneles del Inicio con mantener-pulsado, igual que el Centro
+  // de Control: la clave es por dispositivo (preferencia visual, no dato
+  // compartido). `home-alumno`/`home-coach` según el modo con que se entra.
+  const [modoOrden, setModoOrden] = useState(null);
+  useExitEditOnOutside(!!modoOrden, () => setModoOrden(null));
+  const claveHome = role === "coach" ? "home-coach" : "home-alumno";
   const [dayDetail, setDayDetail] = useState(null);   // día de la franja semanal tocado (variante panel)
   const [statDetail, setStatDetail] = useState(null);  // "adherencia" | "racha" | "peso" | "volumen" | "pasos" | "agua" | "sueno"
   const [checkinOpen, setCheckinOpen] = useState(false);
@@ -8573,126 +8616,143 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           lugar natural junto al resto de la vista semanal del calendario.
           `WeekStrip` sigue definido y `dayDetail`/su hoja quedan intactos;
           se vuelven a montar ahí en la fase de Agenda. */}
-      {workout ? (
-        <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
-            <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".16em" }}>{workout.eyebrow}</span>
-            <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12,
-              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{workout.title}</span>
-            <span style={{ fontSize: 12.5, color: P.faint }}>
-              {workout.exs ? `${workout.exs.length} ${workout.exs.length === 1 ? "ejercicio" : "ejercicios"} · ${workout.sets} ${workout.sets === 1 ? "serie" : "series"} · ${estimateSessionMin(workout.sets)} min` : workout.sub}
-            </span>
-          </div>
-          <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} style={{ flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</Btn>
-        </Card>
-      ) : emptyCard}
+      {/* Los paneles del Inicio se reordenan con mantener-pulsado (mismo gesto
+          y misma pieza que el Centro de Control). El título, los banners y las
+          hojas quedan fijos; solo estos paneles de contenido se arrastran. */}
+      {(() => {
+        const panels = [
+          { key: "workout", node: workout ? (
+            <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
+                <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".16em" }}>{workout.eyebrow}</span>
+                <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12,
+                  display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{workout.title}</span>
+                <span style={{ fontSize: 12.5, color: P.faint }}>
+                  {workout.exs ? `${workout.exs.length} ${workout.exs.length === 1 ? "ejercicio" : "ejercicios"} · ${workout.sets} ${workout.sets === 1 ? "serie" : "series"} · ${estimateSessionMin(workout.sets)} min` : workout.sub}
+                </span>
+              </div>
+              <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} style={{ flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</Btn>
+            </Card>
+          ) : emptyCard },
 
-      {/* Anillo de adherencia semanal: mismo dato que ya se mostraba en la
-          hoja de detalle (d.adherence), ahora también de un vistazo acá. */}
-      {d.adherence != null && (
-        <Card onClick={() => setStatDetail("adherencia")} style={{ padding: 18, display: "flex", alignItems: "center", gap: 20, cursor: "pointer" }}>
-          <Ring pct={d.adherence} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 0 }}>
-            <span style={{ fontSize: 15, fontWeight: 600, color: P.text }}>Adherencia semanal</span>
-            <span style={{ fontSize: 13.5, color: P.faint, lineHeight: 1.4 }}>{d.weekSessions.length} de {d.week.filter((w) => w.planned).length || d.week.length} sesiones completadas</span>
-            <span style={{ fontSize: 13, color: P.faint2 }}>Objetivo 100 %</span>
-          </div>
-        </Card>
-      )}
+          d.adherence != null && { key: "adherencia", node: (
+            <Card onClick={() => setStatDetail("adherencia")} style={{ padding: 18, display: "flex", alignItems: "center", gap: 20, cursor: "pointer" }}>
+              <Ring pct={d.adherence} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: P.text }}>Adherencia semanal</span>
+                <span style={{ fontSize: 13.5, color: P.faint, lineHeight: 1.4 }}>{d.weekSessions.length} de {d.week.filter((w) => w.planned).length || d.week.length} sesiones completadas</span>
+                <span style={{ fontSize: 13, color: P.faint2 }}>Objetivo 100 %</span>
+              </div>
+            </Card>
+          ) },
 
-      {/* Estado de hoy: los cuatro datos que se miran todos los días,
-          sin ícono — el número ES el ícono. Peso/Pasos/Sueño abren el
-          check-in (ahí se registran); Comidas abre Nutrición, que es
-          donde se marcan. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Estado de hoy</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-          <KpiTile top="Peso" onClick={() => setCheckinOpen(true)}
-            value={d.lastBw ? kg(d.lastBw.kg) : "—"}
-            sub={d.lastBw ? `kg${d.prevBw ? ` · ${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} esta sem.` : ""}` : "sin registro"} />
-          <KpiTile top="Pasos" onClick={() => setCheckinOpen(true)}
-            value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
-            sub={d.lastSteps ? "meta 12.000" : "sin registro"} />
-          <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
-            value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
-            sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />
-          <KpiTile top="Comidas" onClick={onOpenNutrition}
-            value={mealsTotal ? `${mealsDoneCount}/${mealsTotal}` : "—"}
-            sub={mealsTotal ? "hechas hoy" : "sin plan cargado"} />
-        </div>
-      </div>
+          { key: "estado", node: (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Estado de hoy</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+                <KpiTile top="Peso" onClick={() => setCheckinOpen(true)}
+                  value={d.lastBw ? kg(d.lastBw.kg) : "—"}
+                  sub={d.lastBw ? `kg${d.prevBw ? ` · ${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} esta sem.` : ""}` : "sin registro"} />
+                <KpiTile top="Pasos" onClick={() => setCheckinOpen(true)}
+                  value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
+                  sub={d.lastSteps ? "meta 12.000" : "sin registro"} />
+                <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
+                  value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
+                  sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />
+                <KpiTile top="Comidas" onClick={onOpenNutrition}
+                  value={mealsTotal ? `${mealsDoneCount}/${mealsTotal}` : "—"}
+                  sub={mealsTotal ? "hechas hoy" : "sin plan cargado"} />
+              </div>
+            </div>
+          ) },
 
-      {/* Acciones rápidas: los cuatro atajos del día a día, uno por
-          toque — no "Timer"/"Agenda" (eso vive en Más y en la propia
-          Agenda; acá solo lo que se revisa TODOS los días). */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Acciones rápidas</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-          <Tile Icon={Dumbbell} label="Entrenar" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
-          <Tile Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} />
-          <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
-            value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} />
-          <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} />
-          {/* Nutrición a lo ancho: se ve y se registran las comidas del día
-              directo desde Inicio. Muestra cuántas van marcadas. */}
-          <div style={{ gridColumn: "1 / -1" }}>
-            <Tile Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
-              value={mealsTotal ? `${mealsDoneCount} de ${mealsTotal} comidas` : "Ver y registrar"} />
-          </div>
-        </div>
-      </div>
+          { key: "acciones", node: (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Acciones rápidas</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+                <Tile Icon={Dumbbell} label="Entrenar" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
+                <Tile Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} />
+                <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
+                  value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} />
+                <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} />
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <Tile Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
+                    value={mealsTotal ? `${mealsDoneCount} de ${mealsTotal} comidas` : "Ver y registrar"} />
+                </div>
+              </div>
+            </div>
+          ) },
 
-      {/* Esta semana: Racha, Volumen y Comidas — Peso ya se ve arriba en
-          "Estado de hoy" y Adherencia en el anillo, así que no se repiten. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Esta semana</div>
-        <Card style={{ overflow: "hidden" }}>
-          <button onClick={() => setStatDetail("racha")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-            <span style={{ flex: 1, fontSize: 16 }}>Racha</span>
-            <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} día{d.streak !== 1 ? "s" : ""}</span>
-            <ChevronRight size={16} color={P.chevron} />
-          </button>
-          <button onClick={() => setStatDetail("volumen")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-            <span style={{ flex: 1, fontSize: 16 }}>Volumen</span>
-            <span style={{ fontSize: 15, color: P.faint2 }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</span>
-            <ChevronRight size={16} color={P.chevron} />
-          </button>
-          <button onClick={onOpenNutrition} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-            <span style={{ flex: 1, fontSize: 16 }}>Comidas de hoy</span>
-            <span style={{ fontSize: 15, color: P.faint2 }}>{mealsTotal ? `${mealsDoneCount} de ${mealsTotal}` : "—"}</span>
-            <ChevronRight size={16} color={P.chevron} />
-          </button>
-        </Card>
-      </div>
+          { key: "semana", node: (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Esta semana</div>
+              <Card style={{ overflow: "hidden" }}>
+                <button onClick={() => setStatDetail("racha")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
+                  <span style={{ flex: 1, fontSize: 16 }}>Racha</span>
+                  <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} día{d.streak !== 1 ? "s" : ""}</span>
+                  <ChevronRight size={16} color={P.chevron} />
+                </button>
+                <button onClick={() => setStatDetail("volumen")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
+                  <span style={{ flex: 1, fontSize: 16 }}>Volumen</span>
+                  <span style={{ fontSize: 15, color: P.faint2 }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</span>
+                  <ChevronRight size={16} color={P.chevron} />
+                </button>
+                <button onClick={onOpenNutrition} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+                  <span style={{ flex: 1, fontSize: 16 }}>Comidas de hoy</span>
+                  <span style={{ fontSize: 15, color: P.faint2 }}>{mealsTotal ? `${mealsDoneCount} de ${mealsTotal}` : "—"}</span>
+                  <ChevronRight size={16} color={P.chevron} />
+                </button>
+              </Card>
+            </div>
+          ) },
 
-      {hasMacros && (
-        <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span className="mono" style={{ letterSpacing: ".08em" }}>Objetivo de hoy</span>
-            <button onClick={onOpenNutrition} style={{ fontSize: 13, fontWeight: 700, color: P.ember2 }}>Ver comida</button>
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-            <span style={{ fontSize: 24, fontWeight: 700 }}>{(macros.kcal || 0).toLocaleString("es-CL")}</span>
-            <span style={{ fontSize: 13, color: P.faint }}>kcal objetivo</span>
-          </div>
-          <MacroBar v={macros} />
-        </Card>
-      )}
-      {instrCount > 0 && (
-        <TodayRow Icon={MessageSquare} title="Nota del coach"
-          detail={plan.instructions[0].title || `${instrCount} indicaciones del plan`}
-          dot onClick={() => setShowInstr(true)} />
-      )}
-      {d.lastSession && (
-        <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
-          <span className="mono" style={{ letterSpacing: ".08em" }}>Última sesión</span>
-          <span style={{ fontWeight: 600, fontSize: 15.5 }}>{d.lastSession.dayName}</span>
-          <span style={{ fontSize: 13, color: P.faint }}>
-            {fmtDateFull(d.lastSession.date)} · {d.lastSession.durationMin} min · {Math.round(d.lastSession.volume).toLocaleString("es-CL")} kg
-            {(d.lastSession.prs || []).length > 0 && <span style={{ color: P.text, fontWeight: 700 }}> · {d.lastSession.prs.length} PR</span>}
-          </span>
-        </Card>
-      )}
+          hasMacros && { key: "macros", node: (
+            <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span className="mono" style={{ letterSpacing: ".08em" }}>Objetivo de hoy</span>
+                <button onClick={onOpenNutrition} style={{ fontSize: 13, fontWeight: 700, color: P.ember2 }}>Ver comida</button>
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: 24, fontWeight: 700 }}>{(macros.kcal || 0).toLocaleString("es-CL")}</span>
+                <span style={{ fontSize: 13, color: P.faint }}>kcal objetivo</span>
+              </div>
+              <MacroBar v={macros} />
+            </Card>
+          ) },
+
+          instrCount > 0 && { key: "nota", node: (
+            <TodayRow Icon={MessageSquare} title="Nota del coach"
+              detail={plan.instructions[0].title || `${instrCount} indicaciones del plan`}
+              dot onClick={() => setShowInstr(true)} />
+          ) },
+
+          d.lastSession && { key: "ultima", node: (
+            <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
+              <span className="mono" style={{ letterSpacing: ".08em" }}>Última sesión</span>
+              <span style={{ fontWeight: 600, fontSize: 15.5 }}>{d.lastSession.dayName}</span>
+              <span style={{ fontSize: 13, color: P.faint }}>
+                {fmtDateFull(d.lastSession.date)} · {d.lastSession.durationMin} min · {Math.round(d.lastSession.volume).toLocaleString("es-CL")} kg
+                {(d.lastSession.prs || []).length > 0 && <span style={{ color: P.text, fontWeight: 700 }}> · {d.lastSession.prs.length} PR</span>}
+              </span>
+            </Card>
+          ) },
+        ].filter(Boolean);
+        return (
+          <>
+            <OrderableGrid clave={claveHome} items={panels} cols={1} gap={16}
+              modoOrden={modoOrden} setModoOrden={setModoOrden}
+              render={(it) => it.node} />
+            <div style={{ textAlign: "center" }}>
+              {modoOrden === claveHome ? (
+                <button data-order-done onClick={() => setModoOrden(null)}
+                  style={{ background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 15, padding: "10px 30px", borderRadius: 999 }}>Listo</button>
+              ) : (
+                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionado un panel para reordenar</div>
+              )}
+            </div>
+          </>
+        );
+      })()}
       {instrSheet}
 
       {/* Detalle de un día de la franja semanal: qué toca, si ya se
@@ -12125,7 +12185,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               abajo en la pantalla), y "deployIn" los hace entrar con un
               fundido en vez de aparecer de golpe. */}
           {open && (
-          <div className="deployIn" style={{ marginLeft: 6, paddingLeft: 12, borderLeft: `2px solid ${P.line}` }}>
+          <div className="deployIn" style={{ marginLeft: 6, paddingLeft: 12, paddingTop: 10, paddingRight: 8, paddingBottom: 2,
+            borderLeft: `2px solid ${P.accEdge}`, background: P.accWell, borderRadius: "0 12px 12px 0" }}>
           {g.items.map(({ day: d, index: di }) => (
             <Card key={d.id}
               data-day-card={d.id}
@@ -13630,6 +13691,10 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, sessions, chat, pay }
   const [staleOpen, setStaleOpen] = useState(false);
+  // Reordenar los paneles del Panel del coach con mantener-pulsado (misma
+  // pieza que el Inicio del alumno y el Centro de Control).
+  const [modoOrden, setModoOrden] = useState(null);
+  useExitEditOnOutside(!!modoOrden, () => setModoOrden(null));
 
   useEffect(() => {
     let cancelled = false;
@@ -13716,60 +13781,82 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           diferencia de aquel, no hacía nada al tocarlo. */}
       <ScreenTitle title="Panel" />
 
-      {/* Las mismas cuatro cifras que ya había, pero en `KpiTile`, que es
-          la ficha que usa "Estado de hoy" del alumno: una sola ficha de
-          dato en toda la app en vez de una tarjeta a medida por pantalla.
-          Cada una lleva adonde se resuelve. */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
-        <KpiTile top="Atletas" value={String(activeCount)} onClick={onOpenAtletas} />
-        <KpiTile top="Check-in" value={`${checkinPct}%`} sub="últimos 7 días" onClick={onOpenAtletas} />
-        <KpiTile top="Sin leer" value={String(pendCount)} onClick={onOpenMensajes} />
-        <KpiTile top="Por cobrar" value={String(dueCount)} onClick={onOpenCobros} />
-      </div>
-
-      {/* "Requiere atención": lo que hay que mirar hoy, en una sola lista,
-          en vez de un único aviso de "sin entrenar" y el resto escondido
-          detrás de las cifras. Las filas sin nada pendiente no se pintan. */}
-      <div style={{ marginTop: 14 }}>
-        <RowGroup label="Requiere atención" rows={[
-          stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
-          dueCount > 0 && { label: `${dueCount} cuota${dueCount !== 1 ? "s" : ""} por vencer`, onClick: onOpenCobros },
-          pendCount > 0 && { label: `${pendCount} mensaje${pendCount !== 1 ? "s" : ""} sin leer`, onClick: onOpenMensajes },
-        ]} />
-      </div>
-
-      <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "20px 2px 8px" }}>Hoy</div>
-      {activity.length === 0 ? (
-        <Card style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: P.dim }}>Nada todavía hoy.</div></Card>
-      ) : (
-        <Card style={{ overflow: "hidden" }}>
-          {activity.map((a, i) => (
-            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 13, padding: "13px 14px", borderBottom: i === activity.length - 1 ? "none" : `1px solid ${P.line}` }}>
-              <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: P.text }}>
-                {a.kind === "pr" ? <Award size={16} /> : a.kind === "chat" ? <MessageSquare size={16} /> : a.kind === "pago" ? <DollarSign size={16} /> : <Check size={16} />}
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{a.name}</div>
-              </div>
-              <div style={{ fontSize: 13.5, color: P.faint, flexShrink: 0, maxWidth: 140, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.text}</div>
+      {/* Los paneles del Panel se reordenan con mantener-pulsado (misma pieza
+          que el Inicio del alumno y el Centro de Control). El título y la hoja
+          quedan fijos. */}
+      {(() => {
+        const panels = [
+          { key: "kpis", node: (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <KpiTile top="Atletas" value={String(activeCount)} onClick={onOpenAtletas} />
+              <KpiTile top="Check-in" value={`${checkinPct}%`} sub="últimos 7 días" onClick={onOpenAtletas} />
+              <KpiTile top="Sin leer" value={String(pendCount)} onClick={onOpenMensajes} />
+              <KpiTile top="Por cobrar" value={String(dueCount)} onClick={onOpenCobros} />
             </div>
-          ))}
-        </Card>
-      )}
-
-      <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "20px 2px 8px" }}>Accesos</div>
-      <SettingGroup>
-        <SettingRow Icon={ClipboardList} label="Nueva rutina" onClick={onNewRoutine} />
-        <SettingRow Icon={UserPlus} label="Agregar atleta" onClick={onAddStudent} />
-        <SettingRow Icon={DollarSign} label="Cobrar cuota" onClick={onOpenCobros} last={!onOpenTeam} />
-        {onOpenTeam && (
-          <SettingRow Icon={Award} label="Equipo y roles" onClick={onOpenTeam} last
-            right={<span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              {teamSize != null && <span style={{ fontSize: 15, color: P.faint2 }}>{teamSize}</span>}
-              <ChevronRight size={17} color={P.faint} strokeWidth={2.4} />
-            </span>} />
-        )}
-      </SettingGroup>
+          ) },
+          { key: "atencion", node: (
+            <RowGroup label="Requiere atención" rows={[
+              stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
+              dueCount > 0 && { label: `${dueCount} cuota${dueCount !== 1 ? "s" : ""} por vencer`, onClick: onOpenCobros },
+              pendCount > 0 && { label: `${pendCount} mensaje${pendCount !== 1 ? "s" : ""} sin leer`, onClick: onOpenMensajes },
+            ]} />
+          ) },
+          { key: "hoy", node: (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Hoy</div>
+              {activity.length === 0 ? (
+                <Card style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: P.dim }}>Nada todavía hoy.</div></Card>
+              ) : (
+                <Card style={{ overflow: "hidden" }}>
+                  {activity.map((a, i) => (
+                    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 13, padding: "13px 14px", borderBottom: i === activity.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                      <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: P.text }}>
+                        {a.kind === "pr" ? <Award size={16} /> : a.kind === "chat" ? <MessageSquare size={16} /> : a.kind === "pago" ? <DollarSign size={16} /> : <Check size={16} />}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{a.name}</div>
+                      </div>
+                      <div style={{ fontSize: 13.5, color: P.faint, flexShrink: 0, maxWidth: 140, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.text}</div>
+                    </div>
+                  ))}
+                </Card>
+              )}
+            </div>
+          ) },
+          { key: "accesos", node: (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Accesos</div>
+              <SettingGroup>
+                <SettingRow Icon={ClipboardList} label="Nueva rutina" onClick={onNewRoutine} />
+                <SettingRow Icon={UserPlus} label="Agregar atleta" onClick={onAddStudent} />
+                <SettingRow Icon={DollarSign} label="Cobrar cuota" onClick={onOpenCobros} last={!onOpenTeam} />
+                {onOpenTeam && (
+                  <SettingRow Icon={Award} label="Equipo y roles" onClick={onOpenTeam} last
+                    right={<span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {teamSize != null && <span style={{ fontSize: 15, color: P.faint2 }}>{teamSize}</span>}
+                      <ChevronRight size={17} color={P.faint} strokeWidth={2.4} />
+                    </span>} />
+                )}
+              </SettingGroup>
+            </div>
+          ) },
+        ];
+        return (
+          <div style={{ marginTop: 14 }}>
+            <OrderableGrid clave="home-coach" items={panels} cols={1} gap={16}
+              modoOrden={modoOrden} setModoOrden={setModoOrden}
+              render={(it) => it.node} />
+            <div style={{ textAlign: "center", marginTop: 16 }}>
+              {modoOrden === "home-coach" ? (
+                <button data-order-done onClick={() => setModoOrden(null)}
+                  style={{ background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 15, padding: "10px 30px", borderRadius: 999 }}>Listo</button>
+              ) : (
+                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionado un panel para reordenar</div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       <Sheet open={staleOpen} onClose={() => setStaleOpen(false)} title="Sin entrenar" tall>
         {stale.map((s) => (
@@ -18343,7 +18430,7 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
               return (
                 <button key={a.id} onClick={() => setAccent(a.id)} title={a.name} aria-label={`Acento ${a.name}`}
                   style={{ width: 38, height: 38, borderRadius: 999, flexShrink: 0, position: "relative",
-                    background: sw || `conic-gradient(from 210deg, #0F8A4B, #0A6CFF, #9A34D6, #DB2777, #C9600A, #0F8A4B)`,
+                    background: sw || `conic-gradient(from 210deg, #0F8A4B, #0E8C9E, #0A6CFF, #4A5568, #6B4A2B, #0F8A4B)`,
                     border: on ? `2px solid ${P.text}` : `1px solid ${P.line}`,
                     boxShadow: on ? `0 0 0 2px ${P.bg}` : "none",
                     display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
