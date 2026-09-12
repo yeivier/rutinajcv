@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v262";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v263";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7591,6 +7591,13 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
       <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
         <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Entrenar</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego el día que quieras hacer. Te pregunta en qué gimnasio entrenas y empieza.</div>
+        {/* Exportar todas las rutinas del plan (PDF / Word), ordenadas por
+            rutina y día. Solo si hay algo que exportar. */}
+        {plan.days.length > 0 && (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <RoutinesExportButton plan={plan} toast={toast} small />
+          </div>
+        )}
         {/* Entrenamiento libre: empezar una sesión vacía y armarla sobre la
             marcha (agregar ejercicios, series, reps…) durante el propio
             entrenamiento. Deshabilitado mientras hay una sesión en curso. */}
@@ -12092,6 +12099,14 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         </button>
       </Card>
 
+      {/* Exportar todas las rutinas del plan (PDF / Word), ordenadas por
+          rutina y día. Solo cuando hay días cargados. */}
+      {plan.days.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -14, marginBottom: 22 }}>
+          <RoutinesExportButton plan={plan} who={student?.name} toast={toast} small />
+        </div>
+      )}
+
       {plan.days.length === 0 && (
         <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
       )}
@@ -15261,6 +15276,131 @@ const FichaExportBar = ({ a, ficha, student, history, toast }) => {
         "Compartir" abre el panel de siempre del teléfono (WhatsApp incluido) con la ficha como archivo. "PDF" abre el diálogo de impresión — "Guardar como PDF" desde ahí.
       </div>
     </Card>
+  );
+};
+
+/* ---- Exportar TODAS las rutinas (PDF / Word / HTML) ----
+   Arma un documento ordenado con todas las rutinas del plan: por cada
+   rutina (A, B, C…), sus días en orden, y por cada día una tabla de
+   ejercicios con series, reps y RIR objetivo, descanso, agrupaciones
+   (superserie/triserie/gigante) y notas. Reusa exactamente los mismos
+   datos que se ven en la app y los mismos ayudantes de exportación de la
+   Ficha (openPrintable → "Guardar como PDF", wordDocFromHtml → .doc que
+   abre Word, downloadTextFile, shareFichaFile). El PDF sale del diálogo de
+   impresión del navegador; el Word es HTML que Word abre nativo. Sin
+   librerías nuevas, todo en el cliente. */
+function restLabelExport(sec) {
+  const s = Math.max(0, Math.round(+sec || 0));
+  if (!s) return "—";
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} min` : `${s} s`;
+}
+function buildRoutinesHTML(plan, who) {
+  const uniq = (arr) => [...new Set(arr)];
+  const groups = groupDaysByRoutine(plan.days || [], plan.routineNames);
+  const setsCol = (e) => String((e.sets || []).length || "—");
+  const repsCol = (e) => { const v = uniq((e.sets || []).map((s) => (s.repsT || "").trim()).filter(Boolean)); return v.length ? v.join(" / ") : "—"; };
+  const rirCol = (e) => { const v = uniq((e.sets || []).map((s) => String(s.rirT ?? "").trim()).filter(Boolean)); return v.length ? v.join(" / ") : "—"; };
+  const sub = (e) => [e.muscle, e.equipment].map((x) => (x || "").trim()).filter(Boolean).join(" · ");
+
+  const dayHtml = (d, di) => {
+    const exs = d.exs || [];
+    const rows = exs.map((e, ei) => {
+      const gi = exGroupInfo(exs, ei);
+      const groupTag = gi.first && gi.kind
+        ? `<div class="gtag">${fichaEsc(GROUP_KINDS[gi.kind].label)} · ${gi.size} ejercicios${gi.rounds > 1 ? ` · ${gi.rounds} rondas` : ""}</div>`
+        : "";
+      const notes = (e.notes || "").trim();
+      return `<tr>
+        <td class="pos">${fichaEsc(gi.posLabel)}</td>
+        <td>${groupTag}<div class="exn">${fichaEsc(e.name || "Ejercicio sin nombre")}</div>${sub(e) ? `<div class="exs">${fichaEsc(sub(e))}</div>` : ""}</td>
+        <td class="num">${fichaEsc(setsCol(e))}</td>
+        <td class="num">${fichaEsc(repsCol(e))}</td>
+        <td class="num">${fichaEsc(rirCol(e))}</td>
+        <td class="num">${fichaEsc(restLabelExport(e.rest))}</td>
+        <td>${notes ? fichaEsc(notes) : "—"}</td>
+      </tr>`;
+    }).join("");
+    const totSets = exs.reduce((a, e) => a + (e.sets || []).length, 0);
+    return `<div class="day">
+      <h3>Día ${di + 1} · ${fichaEsc(d.name || "Sin nombre")}</h3>
+      <div class="daysub">${exs.length} ejercicios · ${totSets} series</div>
+      ${exs.length ? `<table><thead><tr><th class="pos">#</th><th>Ejercicio</th><th class="num">Series</th><th class="num">Reps</th><th class="num">RIR</th><th class="num">Descanso</th><th>Notas</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty">Sin ejercicios cargados.</div>`}
+    </div>`;
+  };
+
+  const body = groups.length ? groups.map((g) => `
+    <section class="routine">
+      <h2>${fichaEsc(g.label)}</h2>
+      <div class="rsub">${g.days.length} entrenamiento${g.days.length !== 1 ? "s" : ""} · ${g.exCount} ejercicios · ${g.setCount} series${g.note ? ` — ${fichaEsc(g.note)}` : ""}</div>
+      ${g.days.map((d, di) => dayHtml(d, di)).join("")}
+    </section>`).join("\n") : `<div class="empty">No hay rutinas cargadas en este plan.</div>`;
+
+  const titulo = who ? `Rutinas — ${fichaEsc(who)}` : "Rutinas de entrenamiento";
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Segoe UI,Roboto,sans-serif;max-width:820px;margin:0 auto;padding:32px 20px;color:#101012;background:#fff;}
+h1{font-size:26px;margin:0 0 4px;} .sub{color:#8a8a92;font-size:13px;margin-bottom:24px;}
+.routine{margin-bottom:30px;} .routine:not(:first-of-type){page-break-before:always;}
+h2{font-size:20px;margin:0 0 2px;} .rsub{color:#55555D;font-size:13px;margin-bottom:14px;}
+.day{margin:0 0 18px;} h3{font-size:15.5px;margin:16px 0 2px;} .daysub{color:#8a8a92;font-size:12px;margin-bottom:7px;}
+table{width:100%;border-collapse:collapse;font-size:12.5px;} th,td{border:1px solid #E5E5EA;padding:6px 8px;text-align:left;vertical-align:top;}
+th{background:#F2F2F7;color:#55555D;font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:700;}
+td.num,th.num{text-align:center;white-space:nowrap;} td.pos,th.pos{text-align:center;font-weight:700;width:34px;color:#55555D;}
+.exn{font-weight:700;} .exs{color:#8a8a92;font-size:11.5px;margin-top:1px;}
+.gtag{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#55555D;background:#EFEFF4;border:1px solid #E5E5EA;border-radius:5px;padding:1px 5px;margin-bottom:3px;}
+.empty{color:#8a8a92;font-size:13px;padding:8px 0;}
+@media print{ body{padding:0;} tr{page-break-inside:avoid;} }
+</style></head><body>
+<h1>${titulo}</h1>
+<div class="sub">Exportadas el ${fichaEsc(fmtDate(todayISO()))} desde FORJA</div>
+${body}
+</body></html>`;
+}
+const slugForFile = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+// Botón + hoja para exportar todas las rutinas. Se cae bien en cualquier
+// pantalla que tenga `plan` (Entrenar del alumno, Rutinas del coach).
+const RoutinesExportButton = ({ plan, who, toast, small }) => {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState("");
+  const hayRutinas = (plan.days || []).length > 0;
+  const run = async (kind) => {
+    setBusy(kind);
+    try {
+      const html = buildRoutinesHTML(plan, who);
+      const base = "rutinas" + (who ? `_${slugForFile(who)}` : "");
+      if (kind === "pdf") { if (!openPrintable(html)) toast && toast("El navegador bloqueó la ventana. Habilita ventanas emergentes e intenta de nuevo."); }
+      else if (kind === "word") downloadTextFile(`${base}.doc`, "application/msword", wordDocFromHtml(html));
+      else if (kind === "html") downloadTextFile(`${base}.html`, "text/html", html);
+      else if (kind === "share") {
+        const shared = await shareFichaFile(`${base}.html`, "text/html", html, who ? `Rutinas de ${who}` : "Rutinas de entrenamiento");
+        if (!shared) { downloadTextFile(`${base}.html`, "text/html", html); toast && toast("Este navegador no comparte archivos directo — se descargaron para adjuntarlas donde quieras."); }
+      }
+    } catch { toast && toast("No se pudo exportar. Intenta de nuevo."); }
+    setBusy("");
+  };
+  return (
+    <>
+      <Btn kind="line" small={small} onClick={() => setOpen(true)}><FileDown size={small ? 13 : 15} /> Exportar rutinas</Btn>
+      <Sheet open={open} onClose={() => setOpen(false)} title="Exportar rutinas">
+        {!hayRutinas ? (
+          <Empty icon={FileDown} title="No hay rutinas para exportar" body="Cuando el plan tenga días de entrenamiento cargados, vas a poder bajar todas las rutinas ordenadas en PDF o Word." />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.45 }}>
+              Baja <b>todas las rutinas</b> ordenadas por rutina y día, con series, reps y RIR objetivo, descanso, agrupaciones y notas de cada ejercicio.
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <Btn kind="ember" onClick={() => run("pdf")} disabled={!!busy}><FileDown size={15} /> {busy === "pdf" ? "…" : "PDF"}</Btn>
+              <Btn kind="line" onClick={() => run("word")} disabled={!!busy}><FileDown size={15} /> {busy === "word" ? "…" : "Word"}</Btn>
+              <Btn kind="line" onClick={() => run("share")} disabled={!!busy}><Share2 size={15} /> {busy === "share" ? "…" : "Compartir"}</Btn>
+            </div>
+            <div style={{ fontSize: 12, color: P.faint, lineHeight: 1.45 }}>
+              "PDF" abre el diálogo de impresión — elige "Guardar como PDF". "Word" baja un .doc que abre Word o Google Docs. "Compartir" abre el panel del teléfono (WhatsApp, correo…) con el archivo.
+            </div>
+          </div>
+        )}
+      </Sheet>
+    </>
   );
 };
 
