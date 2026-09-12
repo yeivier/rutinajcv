@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v260";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v261";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -459,7 +459,7 @@ const EQUIPMENT = ["Barra","Barra EZ","Mancuernas","Máquina","Polea","Smith","P
 // otro se escribe al empezar y queda guardado para volver a elegirlo con
 // un toque. Es dato del dispositivo, no del plan: el alumno cambia de
 // sede, la rutina no.
-const GIMNASIOS = ["Sportlife Pie Andino", "Smart Fit", "W Fitness El Alba", "Youtopia Trapenses", "Youtopia Vitacura"];
+const GIMNASIOS = ["Sportlife Pie Andino", "Sportlife Trapenses", "Smart Fit", "W Fitness El Alba", "Youtopia Trapenses", "Youtopia Vitacura"];
 const GYM_KEY = "forja-gimnasios";
 // Porcentaje de crédito que se le puede asignar a un músculo secundario
 // (el ejercicio también lo trabaja, pero no es el músculo principal).
@@ -6344,7 +6344,7 @@ const SalidaRow = ({ icon: Icon, title, body, danger, onClick }) => (
   </button>
 );
 
-const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat }) => {
+const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRenameEx, onRemoveEx }) => {
   const [weightUnit, setWeightUnit] = useWeightUnit();
   const [themeMode, setThemeMode] = useTheme();
   const pendingWrites = usePendingWrites();
@@ -6385,6 +6385,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     const v = raw.replace(/[^0-9.,]/g, ""); setConvLb(v);
     const n = convNum(v); setConvKg(n == null ? "" : String(Math.round(lbToKg(n) * 10) / 10));
   };
+  // Ejercicio cuyo nombre se está editando en vivo (por id, no índice, que
+  // se corre al agregar/quitar). La edición en sesión está disponible siempre.
+  const [renameId, setRenameId] = useState(null);
+  const puedeEditar = !!onAddExercise; // props de edición presentes
   // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
   const [coachNotesOpen, setCoachNotesOpen] = useState(null);
   // Qué ficha de la hoja de sesión está abierta (null = la grilla).
@@ -6456,7 +6460,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       out.push({ group: false, ei: i, rows: exs[i].sets.map((_, si) => ({ ei: i, si })) });
       i++;
     }
-    return out.length ? out : [{ group: false, ei: 0, rows: [{ ei: 0, si: 0 }] }];
+    // Antes caía a un bloque ficticio (ei:0) cuando no había ejercicios —
+    // asumía que siempre hay al menos uno. Con el "Entrenamiento libre" la
+    // sesión puede arrancar vacía, así que se devuelve [] y la vista muestra
+    // el estado vacío + "Añadir ejercicio".
+    return out;
   }, [exs]);
 
   const totalSets = exs.reduce((a, e) => a + e.sets.length, 0);
@@ -6651,7 +6659,27 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           <span style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
             background: SES.campo, fontSize: 12.5, fontWeight: 700, color: SES.dim, marginTop: 1 }}>{bi + 1}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15.5, fontWeight: 700, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.01em" }}>{titulo}</div>
+            {/* El nombre se puede editar EN VIVO (renombrar o poner nombre a un
+                ejercicio recién agregado en un entrenamiento libre). En
+                superserie no se edita el título (es la suma de los miembros). */}
+            {puedeEditar && !block.group && (exs[block.ei].name === "" || renameId === exs[block.ei].id) ? (
+              <input autoFocus value={exs[block.ei].name || ""} placeholder="Nombre del ejercicio"
+                onChange={(e) => onRenameEx(block.ei, e.target.value)}
+                onBlur={() => setRenameId(null)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setRenameId(null); } }}
+                style={{ width: "100%", boxSizing: "border-box", fontSize: 15.5, fontWeight: 700, color: SES.ink,
+                  background: SES.campo, border: `1px solid ${SES.acc}`, borderRadius: 8, padding: "6px 9px", outline: "none", fontFamily: "inherit" }} />
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ fontSize: 15.5, fontWeight: 700, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.01em" }}>{titulo || "Ejercicio sin nombre"}</div>
+                {puedeEditar && !block.group && (
+                  <button onClick={() => setRenameId(exs[block.ei].id)} aria-label={`Renombrar ${titulo || "ejercicio"}`}
+                    style={{ background: "transparent", border: "none", color: SES.faint, display: "inline-flex", padding: 2, flexShrink: 0 }}>
+                    <PencilLine size={13} />
+                  </button>
+                )}
+              </div>
+            )}
             {/* Antes acá decía "Objetivo N series · descanso Y s" — un dato
                 que ya está en cada fila (reps/RIR objetivo) y en el propio
                 cronómetro de descanso al tocar la serie. En su lugar, este
@@ -6769,6 +6797,27 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             </div>
           );
         })}
+        {/* Editar en vivo: sumar o quitar series a este ejercicio, y quitarlo
+            de la sesión. Solo en ejercicios simples (no superserie). */}
+        {puedeEditar && !block.group && (
+          <div style={{ display: "flex", alignItems: "center", gap: 14, paddingTop: 10, marginTop: 2, borderTop: `1px solid ${SES.line}` }}>
+            <button onClick={() => onAddSet(block.ei)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 600, color: SES.acc, background: "none", border: "none" }}>
+              <Plus size={13} /> Añadir serie
+            </button>
+            {block.rows.length > 1 && (
+              <button onClick={() => onRemoveSet(block.ei)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, color: SES.faint, background: "none", border: "none" }}>
+                <Minus size={13} /> Quitar serie
+              </button>
+            )}
+            <div style={{ flex: 1 }} />
+            <button onClick={() => onRemoveEx(block.ei)} aria-label="Eliminar ejercicio de la sesión"
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, color: SES.faint, background: "none", border: "none" }}>
+              <Trash2 size={13} /> Eliminar
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -7005,6 +7054,27 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         </div>
       ))}
 
+      {/* Sesión vacía (entrenamiento libre) recién empezada: guía en vez de
+          una pantalla en blanco. */}
+      {puedeEditar && blocks.length === 0 && (
+        <div style={{ textAlign: "center", padding: "24px 12px", color: SES.faint }}>
+          <Dumbbell size={26} color={SES.faint} style={{ marginBottom: 8 }} />
+          <div style={{ fontSize: 15, fontWeight: 700, color: SES.dim }}>Entrenamiento en blanco</div>
+          <div style={{ fontSize: 13, marginTop: 3, lineHeight: 1.45 }}>Agrega tu primer ejercicio y ve sumando series, reps y peso sobre la marcha.</div>
+        </div>
+      )}
+
+      {/* Añadir ejercicio EN VIVO — sirve tanto para el entrenamiento libre
+          como para sumar algo extra a una rutina cargada. */}
+      {puedeEditar && (
+        <button onClick={onAddExercise}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
+            padding: "13px 6px", borderRadius: R_TILE, background: SES.campo, color: SES.acc,
+            border: `1px dashed ${SES.acc}`, fontSize: 14.5, fontWeight: 700 }}>
+          <Plus size={17} /> Añadir ejercicio
+        </button>
+      )}
+
       {/* El final de la sesión está donde termina la sesión: abajo del
           todo, después del último ejercicio. */}
       <div style={{ marginTop: 4 }}>
@@ -7229,6 +7299,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       <Sheet open={coachNotesOpen != null} onClose={() => setCoachNotesOpen(null)} title="Indicaciones del coach">
         {(() => {
         const block = blocks[Math.min(coachNotesOpen || 0, blocks.length - 1)];
+        if (!block) return null;
         return (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {(block.group ? block.members : [block.ei]).filter((mi) => !!exs[mi].notes).map((mi) => {
@@ -7487,6 +7558,23 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
       <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
         <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Entrenar</h1>
         <div style={{ color: P.dim, fontSize: 15, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego el día que quieras hacer. Te pregunta en qué gimnasio entrenas y empieza.</div>
+        {/* Entrenamiento libre: empezar una sesión vacía y armarla sobre la
+            marcha (agregar ejercicios, series, reps…) durante el propio
+            entrenamiento. Deshabilitado mientras hay una sesión en curso. */}
+        {!active && (
+          <button onClick={() => setPidiendoGym({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true })}
+            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, marginBottom: 14,
+              padding: "15px 15px", borderRadius: R_CARD, background: PLATE_GRAD, color: PLATE_FG, border: "none" }}>
+            <span style={{ width: 38, height: 38, borderRadius: 12, background: "rgba(255,255,255,.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Plus size={20} />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 16.5 }}>Entrenamiento libre</div>
+              <div style={{ fontSize: 13, opacity: .85, marginTop: 1 }}>Empieza vacío y agrega ejercicios y series sobre la marcha</div>
+            </div>
+            <ChevronRight size={18} />
+          </button>
+        )}
         {active && (
           <Card style={{ padding: 16, marginBottom: 14, borderColor: P.text, borderWidth: 1.5 }}>
             <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 3 }}>Sesión en curso: {active.dayName}</div>
@@ -7608,6 +7696,31 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     setSummary(res);
   };
 
+  // Edición EN VIVO de la sesión: agregar/renombrar ejercicios y series
+  // mientras se entrena (además de entrar con una sesión vacía). Todo opera
+  // sobre el snapshot `active` con el mismo `patch` que ya guarda solo.
+  const nuevaSerie = (ref) => ({ id: uid(), type: "normal",
+    repsT: ref ? (ref.repsT || "") : "", rirT: ref ? (ref.rirT || "") : "",
+    weight: "", reps: "", rir: "", done: false, comment: "", drops: [] });
+  const addExercise = () => patch((a) => {
+    a.exs.push({ id: uid(), name: "", muscle: "Otro", equipment: "", rest: 120, video: "",
+      superset: "", notes: "", comment: "", attachIds: [], secondary: [], unit: undefined,
+      sets: [nuevaSerie(null)] });
+    return a;
+  });
+  const addSet = (ei) => patch((a) => {
+    const ex = a.exs[ei]; if (!ex) return a;
+    ex.sets.push(nuevaSerie(ex.sets[ex.sets.length - 1] || null));
+    return a;
+  });
+  const removeSet = (ei) => patch((a) => {
+    const ex = a.exs[ei]; if (!ex || ex.sets.length <= 1) return a;
+    ex.sets.pop();
+    return a;
+  });
+  const renameEx = (ei, name) => patch((a) => { if (a.exs[ei]) a.exs[ei].name = name; return a; });
+  const removeEx = (ei) => patch((a) => { a.exs.splice(ei, 1); return a; });
+
   return (
     <>
       <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
@@ -7617,6 +7730,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         timer={timer} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
         onStartRest={(seg, ei, si) => { setTimer({ exIdx: ei || 0, setIdx: si || 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
+        onAddExercise={addExercise} onAddSet={addSet} onRemoveSet={removeSet} onRenameEx={renameEx} onRemoveEx={removeEx}
         onBrowseRoutine={() => setBrowsing(true)} />
       {summarySheet}
     </>
