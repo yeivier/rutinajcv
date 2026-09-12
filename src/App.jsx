@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v265";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v267";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -93,6 +93,9 @@ const LIGHT_THEME = {
     // por la forma del indicador, no porque el bloque sea verde o azul.
     // El rojo del sistema iOS se conserva SOLO para lo destructivo.
     green: "#101012", blue: "#5A5A63", red: "#D70015",
+    // Color de anillos y barras de progreso (neutro en claro, como hasta
+    // ahora; en el tema Rosa es un rosa vivo, no negro).
+    prog: "#101012",
     // Borde de tarjeta: hairline, no marco. Las tarjetas se separan del
     // fondo gris por el blanco y la línea de 1px, no por elevación.
     frame: "#E5E5EA",
@@ -126,6 +129,7 @@ const DARK_THEME = {
     // acento de toda la app en este tema.
     ember: "#2FCB78", ember2: "#2FCB78", glow: "#2FCB78",
     green: "#2FCB78", blue: "#A1A1AA", red: "#FF453A",
+    prog: "#FFFFFF",
     frame: "#35353C", bgGrad: "#0F0F11",
     // Mismos 5 tokens nuevos, invertidos para el tema oscuro siguiendo el
     // mismo criterio que el resto de la paleta (s3/s4/line de arriba).
@@ -144,19 +148,24 @@ const DARK_THEME = {
 // paquete que los otros dos: solo colores, ninguna estructura nueva.
 const PINK_THEME = {
   P: {
-    bg: "#FDF2F8", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#FCE7F3", s4: "#FBCFE8",
-    line: "#F9C4DE", text: "#101012", dim: "#2B2B30",
-    faint: "#8A5670", faint2: "#9C5F7E",
+    // Fondo bien rosado (antes casi blanco): el rosa se nota de verdad,
+    // manteniendo las tarjetas blancas para que el contenido siga limpio y
+    // legible. `prog` es el color de los anillos y barras de progreso —
+    // rosa vivo, no negro.
+    bg: "#FBD5EA", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#F8C4E0", s4: "#F3AAD2",
+    line: "#EE9DC8", text: "#101012", dim: "#2B2B30",
+    faint: "#984E73", faint2: "#A85A82",
     ember: "#DB2777", ember2: "#DB2777", glow: "#DB2777",
     green: "#101012", blue: "#5A5A63", red: "#D70015",
-    frame: "#F9C4DE",
-    bgGrad: "#FDF2F8",
-    fillTertiary: "#FCE7F3", separatorStrong: "#F5AFD2",
-    textQuaternary: "#D68CB2", chevron: "#EBA6C9", dotInactive: "#F9C4DE",
+    prog: "#DB2777",
+    frame: "#EE9DC8",
+    bgGrad: "#FBD5EA",
+    fillTertiary: "#F5BBDA", separatorStrong: "#E888BE",
+    textQuaternary: "#CE7BA6", chevron: "#DE93BE", dotInactive: "#EEA8CE",
   },
   plateGrad: "#DB2777",
   plateFg: "#FFFFFF",
-  plateDim: "#F5AFD2",
+  plateDim: "#E888BE",
   plateBorder: "#DB2777",
 };
 // Paquete por modo — mode ("light"|"dark"|"pink") ya viene resuelto
@@ -247,7 +256,7 @@ function applyAccent(resolved) {
   const a = ACCENT_BY_ID[ACCENT];
   if (!a || !a.light) return; // "tema" (o valor desconocido): sin override, look de fábrica
   const v = resolved === "dark" ? a.dark : a.light;
-  P.ember = v.c; P.ember2 = v.c; P.glow = v.c;
+  P.ember = v.c; P.ember2 = v.c; P.glow = v.c; P.prog = v.c;
   PLATE_GRAD = v.c; PLATE_FG = v.ink; PLATE_BORDER = v.c; PLATE_DIM = hexRgba(v.c, 0.5);
   SES.acc = v.c; SES.accInk = v.ink; SES.accLine = hexRgba(v.c, 0.32); SES.accSoft = hexRgba(v.c, 0.12);
 }
@@ -4150,7 +4159,7 @@ const Ring = ({ pct, size = 104, stroke = 14, label }) => {
     <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block" }}>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={P.fillTertiary} strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={P.text} strokeWidth={stroke}
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={P.prog} strokeWidth={stroke}
           strokeLinecap="round" strokeDasharray={dash} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
       </svg>
       {/* El número adentro: el anillo dice cuánto falta, el número dice
@@ -7609,7 +7618,9 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   useEffect(() => {
     if (!abrirDiaId || active) { if (abrirDiaId) onAutoStartConsumed && onAutoStartConsumed(); return; }
     const day = (plan.days || []).find((d) => d.id === abrirDiaId);
-    if (day) { setBrowsing(false); setPidiendoGym(day); }
+    // Igual que al tocar un día en la lista: primero la vista previa con la
+    // lista de ejercicios (y la ✕ para salir), no directo al gimnasio.
+    if (day) { setBrowsing(false); setPreviewDay(day); }
     onAutoStartConsumed && onAutoStartConsumed();
   }, [abrirDiaId]);
 
@@ -8090,7 +8101,7 @@ const TodayRow = ({ Icon, title, detail, actionLabel, dot, onClick }) => (
 const MacroBar = ({ v }) => (
   <>
     <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", background: P.s4 }}>
-      <i style={{ display: "block", width: `${v.pctP}%`, background: P.text }} />
+      <i style={{ display: "block", width: `${v.pctP}%`, background: P.prog }} />
       <i style={{ display: "block", width: `${v.pctC}%`, background: P.faint }} />
       <i style={{ display: "block", width: `${v.pctF}%`, background: P.line }} />
     </div>
@@ -9606,7 +9617,7 @@ const AthleteVolumePanel = ({ plan, history }) => {
                         <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2, flexShrink: 0 }}>{fmtSets(e.sets)}</span>
                       </div>
                       <div style={{ height: 8, borderRadius: 4, background: P.s3, overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: `${Math.max(4, (e.sets / top) * 100)}%`, background: P.text, borderRadius: 4 }} />
+                        <div style={{ height: "100%", width: `${Math.max(4, (e.sets / top) * 100)}%`, background: P.prog, borderRadius: 4 }} />
                       </div>
                     </div>
                   );
@@ -20656,7 +20667,7 @@ const StatTile = ({ label, value, unit, note, bar, onClick }) => (
     </span>
     {bar != null ? (
       <span style={{ display: "block", height: 5, borderRadius: 3, background: P.s4, overflow: "hidden" }}>
-        <i style={{ display: "block", width: `${Math.max(0, Math.min(100, bar))}%`, height: "100%", background: P.text }} />
+        <i style={{ display: "block", width: `${Math.max(0, Math.min(100, bar))}%`, height: "100%", background: P.prog }} />
       </span>
     ) : note ? <span style={{ fontSize: 12, color: P.faint }}>{note}</span> : null}
     {onClick && <ChevronRight size={14} color={P.faint} style={{ position: "absolute", top: 14, right: 13 }} />}
