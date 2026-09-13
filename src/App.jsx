@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v279";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v281";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1055,6 +1055,7 @@ function retoDeEjercicio(setsHoy, setsPrev) {
 const PROG_INACTIVO_DIAS = 10;
 
 function progresionDeAtleta(history) {
+  const h = history || {};
   const byEx = (history && history.byEx) || {};
   const sesiones = (history && history.sessions) || [];
   const ultima = sesiones.length ? sesiones[sesiones.length - 1] : null;
@@ -1112,8 +1113,25 @@ function progresionDeAtleta(history) {
       : "Sin cambios respecto del mes pasado.";
   }
 
+  // ── Contexto de recuperación de los últimos 7 días ───────────────────
+  // "Bajó 39 %" es una decisión distinta según venga durmiendo 5 h o 8.
+  // Sin esto el coach tiene el síntoma y no la causa más probable.
+  const hace7 = Date.now() - 7 * 86400000;
+  const ultimos = (arr, campo) => (arr || [])
+    .filter((x) => x && x.date && new Date(x.date).getTime() >= hace7 && isFinite(+x[campo]))
+    .map((x) => +x[campo]);
+  const prom = (a) => (a.length ? Math.round((a.reduce((t, x) => t + x, 0) / a.length) * 10) / 10 : null);
+  const recs = ultimos(h.physio, "recovery");
+  const hrs = ultimos(h.sleep, "hours");
+  const recuperacion = {
+    recovery: prom(recs),
+    horas: prom(hrs),
+    rojos: recs.filter((r) => r < 34).length,   // días en zona roja del reloj
+    dias: Math.max(recs.length, hrs.length),
+  };
+
   return { estado, nota, ejercicios, suben, bajan, iguales, pctVol, vol4, vol4prev,
-    diasSinEntrenar, totalSesiones: sesiones.length };
+    diasSinEntrenar, totalSesiones: sesiones.length, recuperacion };
 }
 
 // Orden en que el coach necesita verlos: primero lo que requiere acción.
@@ -7389,6 +7407,300 @@ const GymPickerSheet = ({ open, onClose, onElegir, dayName }) => {
   );
 };
 
+/* ═══════════════════════════════════════════════════════════════════════
+   PRONTITUD DEL DÍA (v280)
+   ───────────────────────────────────────────────────────────────────────
+   Desde v279 entran recuperación, HRV, FC en reposo y sueño del reloj.
+   Pero un dato que no cambia una decisión es decoración: hasta acá se
+   podían mirar los números y nada más. Esto los convierte en una
+   respuesta a la única pregunta que importa parado en la puerta del
+   gimnasio: ¿hoy empujo o aflojo?
+
+   Dos decisiones de fondo:
+
+   1) Se compara contra la línea base PROPIA, no contra umbrales
+      genéricos. Un HRV de 45 ms es bajísimo para quien vive en 90 y
+      perfectamente normal para quien vive en 48. La mediana de los
+      últimos 30 días (mediana, no promedio: una noche de fiebre no
+      corre la referencia) es la única vara honesta.
+
+   2) El check-in subjetivo PESA. Si el atleta dice que le duele todo y
+      durmió mal, eso vale aunque la correa diga verde — y al revés. La
+      correa mide el sistema nervioso autónomo, no la articulación que
+      quedó sentida. Cuando los dos discrepan se dice, en vez de
+      esconderlo detrás de un solo número.
+   ═══════════════════════════════════════════════════════════════════════ */
+const PRONTITUD_DIAS_BASE = 30;
+const PRONTITUD_VENTANA_H = 36;   // cuán viejo puede ser el dato y seguir siendo "de hoy"
+
+function medianaDe(nums) {
+  const a = nums.filter((n) => isFinite(n)).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+// El registro más reciente de una lista, si no es más viejo que la ventana.
+function ultimoReciente(arr, horas = PRONTITUD_VENTANA_H) {
+  const lista = (arr || []).filter((x) => x && x.date);
+  if (!lista.length) return null;
+  const u = lista.reduce((a, b) => (new Date(a.date) > new Date(b.date) ? a : b));
+  return (Date.now() - new Date(u.date).getTime()) <= horas * 3600000 ? u : null;
+}
+
+// La mediana de un campo en los últimos N días, EXCLUYENDO el registro de
+// hoy: si hoy entrara en su propia referencia, se estaría comparando
+// consigo mismo y ningún día saldría nunca fuera de lo normal.
+function baseDe(arr, campo, dias = PRONTITUD_DIAS_BASE, excluirIso = null) {
+  const corte = Date.now() - dias * 86400000;
+  const vals = (arr || [])
+    .filter((x) => x && x.date && new Date(x.date).getTime() >= corte
+      && (!excluirIso || x.date !== excluirIso) && isFinite(+x[campo]))
+    .map((x) => +x[campo]);
+  return vals.length >= 4 ? medianaDe(vals) : null;   // menos de 4 días no es una línea base
+}
+
+function prontitudDelDia(history) {
+  const h = history || {};
+  const fis = ultimoReciente(h.physio);
+  const sue = ultimoReciente(h.sleep);
+  const chk = ultimoReciente(h.recovery);
+  if (!fis && !sue && !chk) {
+    return { estado: "sin datos", titulo: "Sin datos de hoy",
+      detalle: "Conectá el reloj o llená el check-in y acá vas a ver si hoy conviene empujar o aflojar.",
+      señales: [], puntos: 0 };
+  }
+
+  const señales = [];
+  let puntos = 0;   // negativo = aflojar, positivo = empujar
+
+  // ── HRV contra la línea base propia ──────────────────────────────────
+  const hrvBase = fis ? baseDe(h.physio, "hrv", PRONTITUD_DIAS_BASE, fis.date) : null;
+  if (fis && fis.hrv != null && hrvBase) {
+    const pct = Math.round(((fis.hrv - hrvBase) / hrvBase) * 100);
+    if (pct <= -15) { puntos -= 2; señales.push({ tipo: "mal", txt: `HRV ${Math.round(fis.hrv)} ms — ${Math.abs(pct)} % por debajo de tu normal (${Math.round(hrvBase)})` }); }
+    else if (pct >= 12) { puntos += 1; señales.push({ tipo: "bien", txt: `HRV ${Math.round(fis.hrv)} ms — ${pct} % por encima de tu normal` }); }
+    else señales.push({ tipo: "neutro", txt: `HRV ${Math.round(fis.hrv)} ms — en tu rango normal` });
+  }
+
+  // ── FC en reposo ─────────────────────────────────────────────────────
+  const rhrBase = fis ? baseDe(h.physio, "restingHr", PRONTITUD_DIAS_BASE, fis.date) : null;
+  if (fis && fis.restingHr != null && rhrBase) {
+    const dif = Math.round(fis.restingHr - rhrBase);
+    if (dif >= 5) { puntos -= 2; señales.push({ tipo: "mal", txt: `FC en reposo ${Math.round(fis.restingHr)} lpm — ${dif} más que tu normal (${Math.round(rhrBase)})` }); }
+    else if (dif <= -3) { puntos += 1; señales.push({ tipo: "bien", txt: `FC en reposo ${Math.round(fis.restingHr)} lpm — ${Math.abs(dif)} menos que tu normal` }); }
+    else señales.push({ tipo: "neutro", txt: `FC en reposo ${Math.round(fis.restingHr)} lpm — como siempre` });
+  }
+
+  // ── Puntuación de recuperación del reloj ─────────────────────────────
+  if (fis && fis.recovery != null) {
+    const r = Math.round(fis.recovery);
+    if (r < 34) { puntos -= 2; señales.push({ tipo: "mal", txt: `Recuperación ${r} % — zona roja del reloj` }); }
+    else if (r >= 67) { puntos += 2; señales.push({ tipo: "bien", txt: `Recuperación ${r} % — zona verde` }); }
+    else señales.push({ tipo: "neutro", txt: `Recuperación ${r} % — zona ámbar` });
+  }
+
+  // ── Sueño: horas y deuda ─────────────────────────────────────────────
+  if (sue && sue.hours != null) {
+    const hb = baseDe(h.sleep, "hours", PRONTITUD_DIAS_BASE, sue.date);
+    const hrs = Math.round(sue.hours * 10) / 10;
+    if (hrs < 6) { puntos -= 2; señales.push({ tipo: "mal", txt: `Dormiste ${fmtUnit(hrs)} h` }); }
+    else if (hb && sue.hours < hb - 1.2) { puntos -= 1; señales.push({ tipo: "mal", txt: `Dormiste ${fmtUnit(hrs)} h — más de una hora menos que tu normal (${fmtUnit(Math.round(hb * 10) / 10)} h)` }); }
+    else if (hrs >= 7.5) { puntos += 1; señales.push({ tipo: "bien", txt: `Dormiste ${fmtUnit(hrs)} h` }); }
+    else señales.push({ tipo: "neutro", txt: `Dormiste ${fmtUnit(hrs)} h` });
+  }
+  if (sue && sue.debtMin != null && sue.debtMin >= 120) {
+    puntos -= 1;
+    señales.push({ tipo: "mal", txt: `Deuda de sueño acumulada: ${Math.round(sue.debtMin / 60)} h` });
+  }
+
+  // ── Lo que dice el propio atleta ─────────────────────────────────────
+  // Pesa igual que la correa: mide otra cosa (la articulación sentida, la
+  // cabeza) que ningún sensor de muñeca ve.
+  let subj = null;
+  if (chk && chk.scores) {
+    const sc = chk.scores;
+    const malas = [];
+    if (sc.dolor != null && sc.dolor >= 7) malas.push(`dolor ${sc.dolor}/10`);
+    if (sc.energia != null && sc.energia <= 3) malas.push(`energía ${sc.energia}/10`);
+    if (sc.estres != null && sc.estres >= 7) malas.push(`estrés ${sc.estres}/10`);
+    if (sc.sueno != null && sc.sueno <= 3) malas.push(`sueño ${sc.sueno}/10`);
+    const buenas = (sc.energia != null && sc.energia >= 8) && (sc.dolor == null || sc.dolor <= 3);
+    if (malas.length) { puntos -= malas.length >= 2 ? 2 : 1; subj = "mal"; señales.push({ tipo: "mal", txt: `Vos reportaste: ${malas.join(", ")}` }); }
+    else if (buenas) { puntos += 1; subj = "bien"; señales.push({ tipo: "bien", txt: "Vos reportaste energía alta y sin dolor" }); }
+  }
+
+  // ── Veredicto ────────────────────────────────────────────────────────
+  let estado, titulo, detalle;
+  if (puntos <= -3) {
+    estado = "rojo"; titulo = "Hoy, aflojá";
+    detalle = "Bajá un 10-15 % la carga y no lleves ninguna serie al fallo. Entrenar igual no te va a hacer progresar más rápido; te va a hundir la semana.";
+  } else if (puntos <= -1) {
+    estado = "ambar"; titulo = "Día normal, sin heroísmos";
+    detalle = "Mantené la carga de la última vez en vez de subirla, y dejá 1-2 repeticiones en el tanque en las series pesadas.";
+  } else if (puntos >= 3) {
+    estado = "verde"; titulo = "Día para empujar";
+    detalle = "Es el día para ir por el peso que venías postergando: subí la carga o sumá una repetición donde venías cómodo.";
+  } else {
+    estado = "neutro"; titulo = "Día normal";
+    detalle = "Nada fuera de lo común. Seguí la progresión que tenías planeada.";
+  }
+
+  // Cuando la correa y el atleta no coinciden, se dice — esconderlo
+  // detrás de un solo número es justo lo que hace inútil al número.
+  let discrepancia = null;
+  if (fis && fis.recovery != null && subj) {
+    const correaBien = fis.recovery >= 67, correaMal = fis.recovery < 34;
+    if (correaBien && subj === "mal") discrepancia = "El reloj te da verde pero vos no te sentís así. Para decidir la carga de hoy, mandá lo que vos sentís — el dolor de una articulación no lo ve la correa.";
+    else if (correaMal && subj === "bien") discrepancia = "El reloj te da rojo pero vos te sentís bien. Podés entrenar, pero arrancá con las primeras series y decidí ahí — no planifiques un récord.";
+  }
+
+  return { estado, titulo, detalle, señales, puntos, discrepancia,
+    recovery: fis && fis.recovery != null ? Math.round(fis.recovery) : null,
+    hrv: fis && fis.hrv != null ? Math.round(fis.hrv) : null,
+    rhr: fis && fis.restingHr != null ? Math.round(fis.restingHr) : null,
+    horas: sue && sue.hours != null ? Math.round(sue.hours * 10) / 10 : null };
+}
+
+// Redondea un peso a algo que la barra pueda armar de verdad con los
+// discos del gimnasio. Bajar un 12 % da 79,2 kg — un número que no existe
+// en ninguna sala. Sin esto el ajuste sería matemáticamente correcto e
+// inútil en la práctica.
+function redondearACargable(kgObjetivo) {
+  const n = +kgObjetivo;
+  if (!isFinite(n) || n <= 0) return null;
+  const cfg = configDeDiscos(null);
+  const bar = barraActiva();
+  if (!cfg || !bar) return Math.round(n / 2.5) * 2.5;   // sin config: al 2,5 más cercano
+  const barKg = +bar.kg || 0;
+  if (n <= barKg) return barKg;
+  const r = discosParaPeso(n, barKg, cfg.plates);
+  const abajo = pesoDeDiscos(r.porLado, barKg);
+  if (r.resto <= 0.01) return abajo;
+  // El escalón de arriba: el mismo armado más el disco más chico por lado.
+  const chico = Math.min(...cfg.plates.map((x) => x.kg));
+  const arriba = abajo + chico * 2;
+  return (n - abajo) <= (arriba - n) ? abajo : arriba;
+}
+
+// Aplica el ajuste de carga a las series de trabajo NO marcadas. Deja
+// intactas las de calentamiento (su peso no sale de la sesión anterior) y
+// las ya hechas (no se reescribe lo que el atleta ya levantó).
+function aplicarAjusteCarga(active, factor) {
+  const clone = structuredClone(active);
+  let tocadas = 0;
+  clone.exs.forEach((exx) => {
+    exx.sets.forEach((st) => {
+      if (st.type === "warmup" || st.done) return;
+      const w = +st.weight;
+      if (!isFinite(w) || w <= 0) return;
+      const nuevo = redondearACargable(w * factor);
+      if (nuevo != null && nuevo !== w) { st.weight = String(nuevo); tocadas++; }
+    });
+  });
+  return { clone, tocadas };
+}
+
+// El puente entre el consejo y la sesión: "bajá un 10-15 %" es una
+// instrucción que hay que ejecutar a mano en cada serie. Esto lo hace de
+// un toque, redondeando a pesos que la barra pueda armar, y se deshace.
+// Solo aparece en día rojo: bajar la carga es seguro, subirla a ciegas
+// porque el reloj dio verde no lo es — eso queda como decisión del
+// atleta serie por serie.
+const AjusteCargaBanner = ({ history, active, ajusteHecho, onAplicar, onDeshacer }) => {
+  const pr = useMemo(() => prontitudDelDia(history), [history]);
+  const hayPesos = (active.exs || []).some((e) => (e.sets || []).some((st) => st.type !== "warmup" && !st.done && +st.weight > 0));
+  if (ajusteHecho) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: SP.md, padding: `12px ${SP.lg}px`, marginBottom: SP.stack,
+        background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: R_TILE }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: SES.dim, lineHeight: 1.45 }}>
+          Carga bajada un 12 % en {ajusteHecho.tocadas} {ajusteHecho.tocadas === 1 ? "serie" : "series"}.
+        </span>
+        <button onClick={onDeshacer} style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: SES.acc }}>Deshacer</button>
+      </div>
+    );
+  }
+  if (pr.estado !== "rojo" || !hayPesos) return null;
+  return (
+    <div style={{ padding: `12px ${SP.lg}px`, marginBottom: SP.stack,
+      background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: R_TILE }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: SES.ink, marginBottom: 3 }}>Hoy venís sin recuperarte</div>
+      <div style={{ fontSize: 12.5, color: SES.faint, lineHeight: 1.45, marginBottom: 9 }}>
+        {pr.detalle}
+      </div>
+      <button onClick={onAplicar}
+        style={{ fontSize: 13, fontWeight: 700, color: SES.accInk, background: SES.acc,
+          padding: "8px 13px", borderRadius: 999, border: "none" }}>
+        Bajar la carga un 12 %
+      </button>
+    </div>
+  );
+};
+
+const PRONTITUD_META = {
+  verde:      { label: "Empujá",  Icon: TrendingUp },
+  neutro:     { label: "Normal",  Icon: Minus },
+  ambar:      { label: "Cuidado", Icon: Info },
+  rojo:       { label: "Aflojá",  Icon: ArrowDown },
+  "sin datos":{ label: "Sin datos", Icon: Info },
+};
+
+// La tarjeta que ve el atleta antes de empezar. Compacta a propósito: es
+// una respuesta, no un tablero. El detalle se abre si lo quiere.
+const ProntitudCard = ({ history, compacta }) => {
+  const [abierto, setAbierto] = useState(false);
+  const pr = useMemo(() => prontitudDelDia(history), [history]);
+  if (pr.estado === "sin datos" && compacta) return null;
+  const m = PRONTITUD_META[pr.estado] || PRONTITUD_META.neutro;
+  const col = pr.estado === "verde" ? P.ember2 : pr.estado === "rojo" ? P.red : pr.estado === "ambar" ? P.ember2 : P.faint2;
+  return (
+    <Card style={{ padding: 0, overflow: "hidden" }}>
+      <button onClick={() => setAbierto((v) => !v)} aria-expanded={abierto}
+        style={{ width: "100%", textAlign: "left", padding: `${SP.lg}px 15px`, display: "flex", alignItems: "center", gap: SP.md }}>
+        <span style={{ width: 38, height: 38, borderRadius: 12, flexShrink: 0, background: P.s3, color: col,
+          display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <m.Icon size={19} strokeWidth={2.4} />
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...TYPE.headline, color: P.text }}>{pr.titulo}</div>
+          <div style={{ ...TYPE.footnote, color: P.faint, marginTop: 2, overflow: "hidden",
+            textOverflow: "ellipsis", whiteSpace: abierto ? "normal" : "nowrap" }}>
+            {[pr.recovery != null ? `Recuperación ${pr.recovery} %` : null,
+              pr.horas != null ? `${fmtUnit(pr.horas)} h de sueño` : null,
+              pr.hrv != null ? `HRV ${pr.hrv}` : null].filter(Boolean).join(" · ") || "Tocá para ver el detalle"}
+          </div>
+        </div>
+        <ChevronDown size={17} color={P.chevron} strokeWidth={2.4}
+          style={{ flexShrink: 0, transform: abierto ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+      </button>
+      {abierto && (
+        <div style={{ padding: `0 15px ${SP.lg}px`, borderTop: `1px solid ${P.line}` }}>
+          <div style={{ ...TYPE.body, color: P.dim, lineHeight: 1.5, margin: `${SP.md}px 0` }}>{pr.detalle}</div>
+          {pr.discrepancia && (
+            <div style={{ ...TYPE.footnote, color: P.dim, lineHeight: 1.5, padding: SP.md,
+              background: P.accWell, border: `1px solid ${P.accEdge}`, borderRadius: R_ROW, marginBottom: SP.md }}>
+              {pr.discrepancia}
+            </div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {pr.señales.map((sg, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 7 }}>
+                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 999, marginTop: 6, flexShrink: 0,
+                  background: sg.tipo === "mal" ? P.red : sg.tipo === "bien" ? P.ember2 : P.faint2 }} />
+                <span style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.45 }}>{sg.txt}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ ...TYPE.caption, color: P.faint2, marginTop: SP.md, lineHeight: 1.4 }}>
+            Todo se compara contra TU normal de los últimos 30 días, no contra una tabla general.
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+};
+
 /* Vista previa de la sesión ANTES de elegir el gimnasio: al tocar un día se
    ve primero la lista de ejercicios (con series/reps objetivo y las
    agrupaciones), y recién con "Elegir gimnasio y empezar" se abre el
@@ -7407,6 +7719,9 @@ const DayPreviewSheet = ({ day, open, onClose, onContinue, history, warmup }) =>
           {exs.length} ejercicio{exs.length !== 1 ? "s" : ""} · {totalSets} series
           {lastDone ? ` · última vez ${fmtDate(lastDone.date)}` : " · nunca realizada"}
         </div>
+        {/* Antes de la lista: es el momento exacto en que se decide con
+            qué carga entrar, y es cuando el dato del reloj sirve. */}
+        <ProntitudCard history={history} compacta />
         {/* Calentamiento GENERAL de la sesión, ANTES de la lista de ejercicios:
             es lo primero que hay que hacer. La aproximación de cada ejercicio
             no va acá — se anota dentro de cada uno al empezar la sesión. */}
@@ -7643,6 +7958,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [cmtKey, setCmtKey] = useState(null);
   // Qué serie tiene abierto el teclado de discos (clave "ei-si"), o null.
   const [discosEn, setDiscosEn] = useState(null);
+  // Ajuste de carga por prontitud: guarda el estado previo para poder
+  // deshacerlo. Es una sugerencia que el atleta acepta, no una
+  // decisión que la app toma por él.
+  const [ajusteHecho, setAjusteHecho] = useState(null);
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -8420,6 +8739,17 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           última vez que hiciste este mismo día. Va arriba de todo porque
           es la pregunta que contesta la sesión entera — "¿voy mejor que la
           última vez?" — y se mueve con cada serie que anotás. */}
+      <AjusteCargaBanner history={history} active={active} ajusteHecho={ajusteHecho}
+        onAplicar={() => {
+          const pr = prontitudDelDia(history);
+          const factor = pr.estado === "rojo" ? 0.88 : 1;
+          if (factor === 1) return;
+          const { clone, tocadas } = aplicarAjusteCarga(active, factor);
+          if (!tocadas) { onError && onError("No hay series con peso cargado para ajustar."); return; }
+          setAjusteHecho({ antes: structuredClone(active), tocadas });
+          patch(() => clone);
+        }}
+        onDeshacer={() => { if (ajusteHecho) { patch(() => ajusteHecho.antes); setAjusteHecho(null); } }} />
       <RetoSesion exs={exs} history={history} />
 
       {/* Calentamiento GENERAL de la sesión (cardio · movilidad · activación):
@@ -8826,6 +9156,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                   {calcField("RIR", c2rir, setC2rir)}
                 </div>
                 {calcResult("Peso sugerido", targetW != null ? `${kg(targetW)} kg` : null)}
+                {/* Saber que son 87,5 kg no dice qué poner en la barra. El
+                    número sin los discos deja la mitad del trabajo. */}
+                <DiscosDeTotal totalKg={targetW} />
               </Card>
 
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -10006,6 +10339,38 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
         Las configuraciones se arman en Más → Teclado de discos, con los discos que hay de verdad en tu sala.
       </div>
     </Sheet>
+  );
+};
+
+// Traduce un peso a los discos que van por lado, con la configuración del
+// gimnasio activo. "87,5 kg" no le dice a nadie qué poner en la barra; el
+// número sin los discos deja la mitad del trabajo sin hacer.
+const DiscosDeTotal = ({ totalKg }) => {
+  useDiscos();
+  const cfg = configDeDiscos(null);
+  const bar = barraActiva();
+  if (totalKg == null || !isFinite(+totalKg) || !cfg || !bar) return null;
+  const barKg = +bar.kg || 0;
+  const r = discosParaPeso(+totalKg, barKg, cfg.plates);
+  if (!r.porLado.length && r.resto <= 0) {
+    return (
+      <div style={{ ...TYPE.caption, color: P.faint2, lineHeight: 1.45 }}>
+        Menos que la barra sola ({kg(barKg)} kg).
+      </div>
+    );
+  }
+  const detalle = r.porLado.map((d) => `${d.n}×${d.kg % 1 === 0 ? d.kg : String(d.kg).replace(".", ",")}`).join(" + ");
+  // Lo que la barra puede armar de verdad con esos discos. Si no da justo,
+  // se dice: redondear en silencio haría cargar otra cosa sin avisar.
+  const real = pesoDeDiscos(r.porLado, barKg);
+  return (
+    <div style={{ ...TYPE.caption, color: P.faint, lineHeight: 1.5 }}>
+      En la barra: <b style={{ color: P.dim }}>{bar.name} {kg(barKg)}</b>
+      {detalle ? <> + <b style={{ color: P.dim }}>{detalle}</b> por lado</> : " sola"}
+      {r.resto > 0.01 && (
+        <> · con los discos de {cfg.name} lo más cerca es <b style={{ color: P.dim }}>{kg(real)} kg</b>.</>
+      )}
+    </div>
   );
 };
 
@@ -11892,6 +12257,7 @@ const HealthDashboardSheet = ({ open, onClose, history }) => {
             las sesiones de fuerza a propósito — una corrida no tiene
             series ni repeticiones, y sumarla al tonelaje sería mentir. */}
         <ActividadesImportadas history={history} />
+        <CruceDiario history={history} />
         <DiarioImportado history={history} />
       </div>
     </Sheet>
@@ -11956,6 +12322,102 @@ const ActividadesImportadas = ({ history }) => {
           {todas ? "Ver menos" : `Ver las ${acts.length}`}
         </button>
       )}
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EL DIARIO CONTRA LA RECUPERACIÓN (v281)
+   ───────────────────────────────────────────────────────────────────────
+   Desde v279 entran las dos mitades: qué hizo el atleta cada día (tomó,
+   usó pantallas, comió tarde) y cómo amaneció. Por separado son dos
+   listas; cruzadas responden la pregunta que de verdad cambia una
+   conducta: ¿ESTO, a MÍ, cuánto me cuesta?
+
+   Tres cuidados para no mentir con la estadística:
+
+   - Se compara la recuperación de los días CON la conducta contra la de
+     los días SIN ella, del mismo atleta. No contra una media general.
+   - Hace falta un mínimo de días de cada lado (3 y 3). Con dos noches no
+     se puede afirmar nada, y decirlo igual sería inventar.
+   - Se dice "coincide con", no "causa". Nadie midió una sola variable
+     acá: la noche que tomó también se acostó tarde. Confundir las dos
+     cosas es el error clásico de estos tableros.
+   ═══════════════════════════════════════════════════════════════════════ */
+const CRUCE_MIN_DIAS = 3;
+
+function cruceDiarioRecuperacion(history) {
+  const h = history || {};
+  const diario = h.journal || [];
+  const fis = h.physio || [];
+  if (diario.length < CRUCE_MIN_DIAS * 2 || !fis.length) return [];
+
+  // La recuperación de CADA día, por fecha. El diario de una noche se
+  // mide contra cómo amaneció al día siguiente — que es el registro que
+  // el reloj fecha con el ciclo que arranca esa madrugada.
+  const recPorDia = new Map();
+  fis.forEach((f) => {
+    if (f && f.date && isFinite(+f.recovery)) recPorDia.set((f.date || "").slice(0, 10), +f.recovery);
+  });
+
+  // Todas las preguntas que aparecieron alguna vez.
+  const preguntas = new Set();
+  diario.forEach((d) => Object.keys(d.entries || {}).forEach((k) => preguntas.add(k)));
+
+  const out = [];
+  preguntas.forEach((preg) => {
+    const con = [], sin = [];
+    diario.forEach((d) => {
+      const r = recPorDia.get((d.date || "").slice(0, 10));
+      if (r == null) return;
+      const v = (d.entries || {})[preg];
+      if (v == null) return;
+      // "Sí — nota" cuenta como sí; "No" como no; cualquier otra cosa
+      // (una nota suelta sin sí/no) no entra: no es una conducta binaria.
+      if (/^sí/i.test(String(v))) con.push(r);
+      else if (/^no$/i.test(String(v).trim())) sin.push(r);
+    });
+    if (con.length < CRUCE_MIN_DIAS || sin.length < CRUCE_MIN_DIAS) return;
+    const prom = (a) => a.reduce((t, x) => t + x, 0) / a.length;
+    const pCon = prom(con), pSin = prom(sin);
+    const dif = Math.round((pCon - pSin) * 10) / 10;
+    if (Math.abs(dif) < 3) return;   // menos de 3 puntos es ruido, no señal
+    out.push({ pregunta: preg, dif, con: con.length, sin: sin.length,
+      promCon: Math.round(pCon), promSin: Math.round(pSin) });
+  });
+  return out.sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
+}
+
+// Lo que le cuesta a ESTE atleta cada cosa que anota en el diario.
+const CruceDiario = ({ history }) => {
+  const filas = useMemo(() => cruceDiarioRecuperacion(history), [history]);
+  if (!filas.length) return null;
+  return (
+    <div style={{ marginTop: SP.section }}>
+      <div className="mono" style={{ margin: "0 4px 8px" }}>Qué te cuesta cada cosa</div>
+      <div style={{ ...TYPE.footnote, color: P.faint, margin: "0 4px 10px", lineHeight: 1.45 }}>
+        Tu recuperación los días que sí, contra los días que no. Es tuyo, no un promedio general.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 1, background: P.line, borderRadius: R_TILE, overflow: "hidden" }}>
+        {filas.map((f) => (
+          <div key={f.pregunta} style={{ background: P.s1, padding: `12px ${SP.lg}px` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
+              <span style={{ ...TYPE.body, color: P.text, flex: 1, minWidth: 0 }}>{f.pregunta}</span>
+              <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 13,
+                fontWeight: 700, flexShrink: 0, color: f.dif < 0 ? P.red : P.ember2 }}>
+                {f.dif > 0 ? "+" : "−"}{fmtUnit(Math.abs(f.dif))} pts
+              </span>
+            </div>
+            <div style={{ ...TYPE.caption, color: P.faint2, marginTop: 3 }}>
+              {f.promCon} % los {f.con} días que sí · {f.promSin} % los {f.sin} que no
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ ...TYPE.caption, color: P.faint2, marginTop: SP.sm, lineHeight: 1.45 }}>
+        Coincidencia, no causa: la noche que tomaste puede que también te hayas acostado tarde.
+        Sirve para saber dónde mirar, no para cerrar el caso.
+      </div>
     </div>
   );
 };
@@ -15701,6 +16163,38 @@ const ProgresionTab = ({ roster, toast, onManage }) => {
                       )}
                     </>
                   )}
+                  {/* La causa más probable, al lado del síntoma: "bajó 39 %"
+                      con 5 h de sueño y tres días en rojo es una decisión
+                      muy distinta a "bajó 39 %" durmiendo bien. */}
+                  {r.prog.recuperacion && r.prog.recuperacion.dias > 0 && (
+                    <div style={{ marginTop: 12, padding: SP.md, background: P.s3, borderRadius: R_ROW }}>
+                      <div className="mono" style={{ marginBottom: 6 }}>Últimos 7 días</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: SP.md }}>
+                        {r.prog.recuperacion.recovery != null && (
+                          <span style={{ ...TYPE.footnote, color: r.prog.recuperacion.recovery < 45 ? P.red : P.dim }}>
+                            Recuperación {fmtUnit(r.prog.recuperacion.recovery)} %
+                          </span>
+                        )}
+                        {r.prog.recuperacion.horas != null && (
+                          <span style={{ ...TYPE.footnote, color: r.prog.recuperacion.horas < 6.5 ? P.red : P.dim }}>
+                            Sueño {fmtUnit(r.prog.recuperacion.horas)} h
+                          </span>
+                        )}
+                        {r.prog.recuperacion.rojos > 0 && (
+                          <span style={{ ...TYPE.footnote, color: P.red }}>
+                            {r.prog.recuperacion.rojos} {r.prog.recuperacion.rojos === 1 ? "día" : "días"} en rojo
+                          </span>
+                        )}
+                      </div>
+                      {(r.prog.estado === "baja" || r.prog.estado === "estancado")
+                        && (r.prog.recuperacion.rojos >= 2
+                            || (r.prog.recuperacion.horas != null && r.prog.recuperacion.horas < 6.5)) && (
+                        <div style={{ ...TYPE.caption, color: P.dim, marginTop: 7, lineHeight: 1.45 }}>
+                          No parece falta de ganas: viene sin recuperarse. Antes de subirle el volumen, mirá el descanso.
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {onManage && (
                     <Btn kind="line" small onClick={() => onManage(r.id)} style={{ width: "100%", marginTop: 12 }}>
                       <ClipboardList size={14} /> Abrir su rutina
@@ -16126,7 +16620,7 @@ const DashboardTab = ({ roster, toast }) => {
    mismo propósito (avisar qué conversación necesita atención).
    ============================================================ */
 
-const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent, onOpenCobros, onOpenAtletas, onOpenMensajes, onOpenTeam, teamSize }) => {
+const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent, onOpenCobros, onOpenAtletas, onOpenProgresion, onOpenMensajes, onOpenTeam, teamSize }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, sessions, chat, pay }
   const [staleOpen, setStaleOpen] = useState(false);
@@ -16134,6 +16628,29 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
   // pieza que el Inicio del alumno y el Centro de Control).
   const [modoOrden, setModoOrden] = useState(null);
   useExitEditOnOutside(!!modoOrden, () => setModoOrden(null));
+
+  /* Avisos de ENTRENAMIENTO, no solo de asistencia. El panel ya avisaba
+     quién no vino, quién debe y quién escribió — todo lo administrativo.
+     Pero un alumno que viene religiosamente y hace tres semanas que no
+     progresa no aparecía en ningún lado, y es exactamente el que se va a
+     ir. Esto lo saca a la superficie usando el mismo cálculo de la
+     sección Progresión, sin releer nada: el historial ya vino arriba. */
+  const avisos = useMemo(() => {
+    const out = [];
+    rows.forEach((r) => {
+      const pr = progresionDeAtleta(r.hist);
+      const rec = pr.recuperacion || {};
+      if (pr.estado === "baja") out.push({ id: r.id, name: r.name, sev: 2, txt: pr.nota });
+      else if (pr.estado === "estancado" && pr.totalSesiones >= 4) out.push({ id: r.id, name: r.name, sev: 1, txt: pr.nota });
+      // Sin recuperarse: es la causa antes de que sea un problema de
+      // rendimiento, así que vale aunque todavía esté progresando.
+      if (rec.dias > 0 && (rec.rojos >= 3 || (rec.horas != null && rec.horas < 6))) {
+        out.push({ id: r.id, name: r.name, sev: 2,
+          txt: rec.rojos >= 3 ? `${rec.rojos} días en rojo esta semana` : `Durmiendo ${fmtUnit(rec.horas)} h de promedio` });
+      }
+    });
+    return out.sort((a, b) => b.sev - a.sev || a.name.localeCompare(b.name, "es"));
+  }, [rows]);
 
   useEffect(() => {
     let cancelled = false;
@@ -16150,6 +16667,9 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           id: s.id,
           name: s.name,
           sessions: (history && history.sessions) || [],
+          // El historial entero, para poder calcular la progresión sin una
+          // segunda vuelta de lecturas: ya vino en este mismo fetch.
+          hist: (history && history.sessions) ? history : emptyHistory(),
           chat: Array.isArray(chat) ? chat : [],
           pay: pay || emptyPayments(),
         });
@@ -16232,9 +16752,39 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           { key: "atencion", span: "full", node: (
             <RowGroup label="Requiere atención" rows={[
               stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
+              avisos.length > 0 && { label: `${avisos.length} con el entrenamiento trabado`, onClick: onOpenProgresion },
               dueCount > 0 && { label: `${dueCount} cuota${dueCount !== 1 ? "s" : ""} por vencer`, onClick: onOpenCobros },
               pendCount > 0 && { label: `${pendCount} mensaje${pendCount !== 1 ? "s" : ""} sin leer`, onClick: onOpenMensajes },
             ]} />
+          ) },
+          { key: "trabados", span: "full", node: avisos.length === 0 ? null : (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>
+                Entrenamiento trabado
+              </div>
+              <Card style={{ overflow: "hidden" }}>
+                {avisos.slice(0, 6).map((a, i) => (
+                  <button key={`${a.id}-${i}`} onClick={onOpenProgresion}
+                    style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 13, padding: "13px 14px",
+                      borderBottom: i === Math.min(avisos.length, 6) - 1 ? "none" : `1px solid ${P.line}` }}>
+                    <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center",
+                      justifyContent: "center", background: P.s3, color: a.sev === 2 ? P.red : P.faint2 }}>
+                      {a.sev === 2 ? <ArrowDown size={16} strokeWidth={2.4} /> : <Minus size={16} strokeWidth={2.4} />}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</div>
+                      <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.txt}</div>
+                    </div>
+                    <ChevronRight size={17} color={P.chevron} style={{ flexShrink: 0 }} />
+                  </button>
+                ))}
+              </Card>
+              {avisos.length > 6 && (
+                <button onClick={onOpenProgresion} style={{ width: "100%", marginTop: 8, fontSize: 13, fontWeight: 600, color: P.blue }}>
+                  Ver los {avisos.length} en Progresión
+                </button>
+              )}
+            </div>
           ) },
           { key: "hoy", span: "full", node: (
             <div>
@@ -16275,7 +16825,7 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
               </SettingGroup>
             </div>
           ) },
-        ];
+        ].filter((pn) => pn && pn.node);   // un panel sin contenido no ocupa celda
         return (
           <div className="ord-group" style={{ marginTop: 14 }}>
             <OrderableGrid clave="home-coach" items={panels} cols={2} gap={10}
@@ -26067,6 +26617,7 @@ const App = () => {
             onAddStudent={() => addStudent(false)}
             onOpenCobros={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "cobros" })); }}
             onOpenAtletas={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "actividad" })); }}
+            onOpenProgresion={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "progresion" })); }}
             onOpenMensajes={() => { setTab("indicaciones"); setSection((o) => ({ ...o, indicaciones: "chat" })); }}
             onOpenTeam={myRoleMeta.manageTeam ? () => setEquipoOpen(true) : null} teamSize={(team.members || []).length} />
         )}
