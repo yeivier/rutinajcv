@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v285";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v286";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -941,6 +941,37 @@ const EQUIPMENT = ["Barra","Barra EZ","Mancuernas","Máquina","Polea","Smith","P
 // sede, la rutina no.
 const GIMNASIOS = ["Sportlife Pie Andino", "Sportlife Trapenses", "Smart Fit", "W Fitness El Alba", "Youtopia Trapenses", "Youtopia Vitacura"];
 const GYM_KEY = "forja-gimnasios";
+
+/* La lista de sedes que se le ofrece a alguien: las de fábrica más las que
+   escribió a mano, sin repetir, y cuál usó la última vez. Vive en el
+   dispositivo (`shared=false`) porque es dato de quien entrena, no del
+   plan. Se lee desde dos lados —elegir sede al empezar y corregirla
+   después en el historial— así que la lectura y la escritura viven acá,
+   en un solo lugar, en vez de copiadas en cada hoja. */
+async function listaDeGimnasios() {
+  const g = (await sGet(GYM_KEY, false)) || lsGetRaw(GYM_KEY) || null;
+  const propios = (g && Array.isArray(g.propios) ? g.propios : []).filter(Boolean);
+  return { lista: [...GIMNASIOS, ...propios.filter((x) => !GIMNASIOS.includes(x))], ultimo: (g && g.ultimo) || "" };
+}
+
+/* Deja una sede escrita a mano guardada para la próxima vez, y la marca
+   como la última usada. Las de fábrica no se duplican en `propios`.
+
+   Se escribe en los dos lados a propósito: `sSet(..., false)` es sólo
+   memoria (se pierde al recargar), y una sede que se escribe a mano
+   tiene que seguir ahí mañana. El snapshot local la deja en el
+   dispositivo sin mandarla al servidor: dónde entrena cada uno es dato
+   suyo, no del plan compartido. */
+async function recordarGimnasio(nombre) {
+  const n = (nombre || "").trim();
+  if (!n) return;
+  const g = (await sGet(GYM_KEY, false)) || lsGetRaw(GYM_KEY) || {};
+  const propios = (Array.isArray(g.propios) ? g.propios : []).filter(Boolean);
+  const nuevos = GIMNASIOS.includes(n) || propios.includes(n) ? propios : [...propios, n];
+  const dato = { propios: nuevos, ultimo: n };
+  await sSet(GYM_KEY, dato, false);
+  lsSetRaw(GYM_KEY, dato);
+}
 // Porcentaje de crédito que se le puede asignar a un músculo secundario
 // (el ejercicio también lo trabaja, pero no es el músculo principal).
 const SECONDARY_PCTS = [25, 50, 75];
@@ -7586,20 +7617,15 @@ const GymPickerSheet = ({ open, onClose, onElegir, dayName }) => {
     if (!open) return;
     setOtro(""); setEscribiendo(false);
     (async () => {
-      const g = await sGet(GYM_KEY, false);
-      const propios = (g && Array.isArray(g.propios) ? g.propios : []).filter(Boolean);
-      setLista([...GIMNASIOS, ...propios.filter((x) => !GIMNASIOS.includes(x))]);
-      setUltimo((g && g.ultimo) || "");
+      const { lista: l, ultimo: u } = await listaDeGimnasios();
+      setLista(l); setUltimo(u);
     })();
   }, [open]);
 
   const elegir = async (nombre) => {
     const n = (nombre || "").trim();
     if (!n) return;
-    const g = (await sGet(GYM_KEY, false)) || {};
-    const propios = (Array.isArray(g.propios) ? g.propios : []).filter(Boolean);
-    const nuevos = GIMNASIOS.includes(n) || propios.includes(n) ? propios : [...propios, n];
-    await sSet(GYM_KEY, { propios: nuevos, ultimo: n }, false);
+    await recordarGimnasio(n);
     onElegir(n);
   };
 
@@ -7638,6 +7664,137 @@ const GymPickerSheet = ({ open, onClose, onElegir, dayName }) => {
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderRadius: R_TILE,
               background: "transparent", border: `1px dashed ${P.separatorStrong}`, color: P.text, fontSize: 15.5, fontWeight: 600 }}>
             <Plus size={17} /> Otro gimnasio
+          </button>
+        )}
+      </div>
+    </Sheet>
+  );
+};
+
+/* Corregir en qué sede se hizo una sesión YA registrada (v286).
+
+   La sede se pregunta al empezar y queda con la sesión, pero hay tres
+   casos en los que queda mal y hasta acá no había forma de arreglarlo:
+   las sesiones de antes de que este dato existiera (quedan en "sin
+   gimnasio registrado" para siempre), las que se empezaron desde un
+   atajo o sin pasar por la pregunta, y las que simplemente se eligieron
+   mal con el apuro de arrancar.
+
+   Se resuelve en una sola hoja que sirve para una sesión o para todo un
+   grupo: arriba se marca a cuáles aplica (todas vienen marcadas, que es
+   lo normal cuando se arrastra un grupo entero de huérfanas), abajo se
+   toca la sede y listo. "Sin gimnasio" también es una opción — sirve
+   para deshacer una asignación equivocada sin tener que inventar una
+   sede. Escribir una sede nueva la deja guardada para la próxima, igual
+   que al empezar una sesión. */
+const AsignarGimnasioSheet = ({ open, onClose, sesiones, gymActual, onAsignar }) => {
+  const [lista, setLista] = useState(GIMNASIOS);
+  const [ultimo, setUltimo] = useState("");
+  const [sel, setSel] = useState([]);
+  const [otro, setOtro] = useState("");
+  const [escribiendo, setEscribiendo] = useState(false);
+
+  // Sólo al abrir: `sesiones` es un array nuevo en cada render del padre,
+  // ponerlo en las dependencias dispararía el efecto para siempre.
+  useEffect(() => {
+    if (!open) return;
+    setOtro(""); setEscribiendo(false);
+    setSel((sesiones || []).map((s) => s.id));
+    (async () => {
+      const { lista: l, ultimo: u } = await listaDeGimnasios();
+      setLista(l); setUltimo(u);
+    })();
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const todas = sesiones || [];
+  const varias = todas.length > 1;
+  const marcada = (id) => sel.includes(id);
+  const marcar = (id) => setSel((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]));
+
+  const aplicar = async (nombre) => {
+    const n = (nombre || "").trim();
+    if (!sel.length) return;
+    if (n) await recordarGimnasio(n);
+    onAsignar(n, sel);
+    onClose();
+  };
+
+  // El último usado primero, y la sede que ya tiene el grupo marcada,
+  // para que se vea de dónde se está moviendo.
+  const ordenados = ultimo ? [ultimo, ...lista.filter((x) => x !== ultimo)] : lista;
+  const cuenta = sel.length === 1 ? "1 sesión" : `${sel.length} sesiones`;
+
+  return (
+    <Sheet open={open} onClose={onClose} title={gymActual ? "Cambiar de gimnasio" : "Asignar gimnasio"} tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+        {varias && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, color: P.faint2 }}>
+                Se guardará en {cuenta}.
+              </span>
+              <button data-keep onClick={() => setSel(sel.length === todas.length ? [] : todas.map((s) => s.id))}
+                style={{ flexShrink: 0, fontSize: 13, fontWeight: 600, color: P.ember2 }}>
+                {sel.length === todas.length ? "Ninguna" : "Todas"}
+              </button>
+            </div>
+            <Card style={{ overflow: "hidden", marginBottom: 4 }}>
+              {todas.map((s, i) => (
+                <button key={s.id} data-keep onClick={() => marcar(s.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "11px 13px",
+                    minHeight: HIT, borderBottom: i < todas.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                  <span style={{ width: 21, height: 21, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: marcada(s.id) ? P.text : "transparent", border: `1px solid ${marcada(s.id) ? P.text : P.separatorStrong}` }}>
+                    {marcada(s.id) && <Check size={13} strokeWidth={3} color={P.s1} />}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 14.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.dayName}</span>
+                    <span style={{ display: "block", fontSize: 12.5, color: P.faint2, marginTop: 1 }}>{fmtDateFull(s.date)}</span>
+                  </span>
+                </button>
+              ))}
+            </Card>
+          </>
+        )}
+        {!varias && todas.length === 1 && (
+          <div style={{ fontSize: 13.5, color: P.faint2, marginBottom: 2 }}>
+            «{todas[0].dayName}» · {fmtDateFull(todas[0].date)}
+          </div>
+        )}
+        {ordenados.map((g) => (
+          <button key={g} data-keep onClick={() => aplicar(g)} disabled={!sel.length}
+            style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", width: "100%", opacity: sel.length ? 1 : 0.45,
+              padding: "14px 14px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${g === gymActual ? P.text : P.line}` }}>
+            <Home size={17} color={P.faint2} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, color: P.text }}>{g}</span>
+            {g === gymActual && <span style={{ fontSize: 12, color: P.faint2, flexShrink: 0 }}>el de ahora</span>}
+            {g !== gymActual && g === ultimo && <span style={{ fontSize: 12, color: P.faint2, flexShrink: 0 }}>el último</span>}
+          </button>
+        ))}
+        <div style={{ height: 1, background: P.line, margin: "3px 0" }} />
+        {escribiendo ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            <Inp autoFocus value={otro} placeholder="Nombre del gimnasio" onChange={(e) => setOtro(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") aplicar(otro); }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn kind="line" onClick={() => setEscribiendo(false)} style={{ flex: 1 }}>Cancelar</Btn>
+              <Btn kind="ember" onClick={() => aplicar(otro)} disabled={!otro.trim() || !sel.length} style={{ flex: 2 }}>Asignar</Btn>
+            </div>
+          </div>
+        ) : (
+          <button data-keep onClick={() => setEscribiendo(true)}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderRadius: R_TILE,
+              background: "transparent", border: `1px dashed ${P.separatorStrong}`, color: P.text, fontSize: 15.5, fontWeight: 600 }}>
+            <Plus size={17} /> Otro gimnasio
+          </button>
+        )}
+        {/* Deshacer sin inventar una sede: sólo tiene sentido si las
+            sesiones elegidas hoy tienen alguna. */}
+        {!!gymActual && (
+          <button data-keep onClick={() => aplicar("")} disabled={!sel.length}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 14px", borderRadius: R_TILE, opacity: sel.length ? 1 : 0.45,
+              background: "transparent", border: `1px solid ${P.line}`, color: P.faint, fontSize: 15, fontWeight: 600 }}>
+            <X size={17} /> Dejar sin gimnasio
           </button>
         )}
       </div>
@@ -11671,13 +11828,33 @@ const PieChartBox = ({ data, unit, colors, height = 180 }) => {
   );
 };
 
-const SessionDetailSheet = ({ session, onClose, history, onOpenImg }) => (
+const SessionDetailSheet = ({ session, onClose, history, onOpenImg, onCambiarGym }) => (
   <Sheet open={!!session} onClose={onClose} title={session ? session.dayName : ""} tall>
     {session && (
       <div>
         <div style={{ fontSize: 14, color: P.dim, marginBottom: 12 }}>
           {fmtDateFull(session.date)} · {session.durationMin} min · {Math.round(session.volume).toLocaleString("es-CL")} kg totales
         </div>
+        {/* Dónde se hizo — y el arreglo a mano cuando quedó mal o vacío.
+            Sin `onCambiarGym` (vista de sólo lectura) se muestra igual,
+            pero sin el botón. */}
+        {(!!(session.gym || "").trim() || !!onCambiarGym) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: R_ROW,
+            background: P.s3, border: `1px solid ${P.line}`, marginBottom: 14 }}>
+            <Home size={15} color={P.faint2} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: (session.gym || "").trim() ? P.text : P.faint2,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {(session.gym || "").trim() || "Sin gimnasio registrado"}
+            </span>
+            {!!onCambiarGym && (
+              <button onClick={() => onCambiarGym(session)}
+                aria-label="Cambiar el gimnasio de esta sesión"
+                style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 600, color: P.ember2 }}>
+                <PencilLine size={13} /> {(session.gym || "").trim() ? "Cambiar" : "Asignar"}
+              </button>
+            )}
+          </div>
+        )}
         {(session.attachIds || []).length > 0 && (
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Video y fotos de la sesión</div>
@@ -12860,7 +13037,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
       {/* Mismo visor que usa el coach para revisar la actividad de un
           alumno (sesión por sesión, por ejercicio, y el registro de
           entradas/salidas) — acá es el propio alumno viendo lo suyo. */}
-      {sub === "historial" && <ActivityTab plan={plan} history={history} />}
+      {sub === "historial" && <ActivityTab plan={plan} history={history} saveHistory={saveHistory} />}
 
       <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} measurements={history.measurements || []} />
       <PhotoCompareSheet open={compareOpen} onClose={() => setCompareOpen(false)} photos={photos} bodyweight={bwEntries} />
@@ -16086,7 +16263,11 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
         </div>
       )}
       <Sheet open={!!openStudent} onClose={() => setOpenStudent(null)} title={openStudent ? openStudent.name : "Actividad"} tall>
-        {openStudent && <ActivityTab plan={openStudent.plan} history={openStudent.history} />}
+        {/* El coach también puede corregir la sede de una sesión del
+            alumno: se escribe en el historial de ESE alumno, que es de
+            donde se leyó. */}
+        {openStudent && <ActivityTab plan={openStudent.plan} history={openStudent.history}
+          saveHistory={(h) => { setOpenStudent((st) => (st ? { ...st, history: h } : st)); sSet(`forja-history:${openStudent.id}`, h); }} />}
       </Sheet>
     </div>
   );
@@ -16119,11 +16300,27 @@ function groupSessionsByGym(sessions) {
 /* ============================================================
    MODO COACH — actividad del alumno
    ============================================================ */
-const ActivityTab = ({ plan, history }) => {
+const ActivityTab = ({ plan, history, saveHistory }) => {
   const [sub, setSub] = useState("ses");
   const [openSession, setOpenSession] = useState(null);
   const [exId, setExId] = useState("");
   const [viewImg, setViewImg] = useState(null);
+  // Qué sesiones se están reasignando de sede, y desde cuál. `null` = la
+  // hoja cerrada. Sin `saveHistory` (el coach mirando de fuera, o
+  // cualquier vista de sólo lectura) no se ofrece la edición.
+  const [asignar, setAsignar] = useState(null);
+  const puedeEditarGym = !!saveHistory;
+
+  const guardarGym = (nombre, ids) => {
+    if (!saveHistory || !ids || !ids.length) return;
+    const h = structuredClone(history);
+    h.sessions = (h.sessions || []).map((s) => (ids.includes(s.id) ? { ...s, gym: nombre } : s));
+    saveHistory(h);
+    // La sesión abierta en la hoja de detalle es una copia: si es una de
+    // las que se acaba de mover, hay que refrescarla o seguiría mostrando
+    // la sede vieja hasta cerrarla y volver a abrirla.
+    setOpenSession((os) => (os && ids.includes(os.id) ? { ...os, gym: nombre } : os));
+  };
   const allEx = useMemo(() => {
     const m = new Map();
     plan.days.forEach((d) => d.exs.forEach((e) => m.set(e.id, e.name)));
@@ -16160,9 +16357,17 @@ const ActivityTab = ({ plan, history }) => {
         <Empty icon={Users} title="Aún no hay sesiones" body="Cuando el alumno termine su primera sesión, acá verás todo el detalle: series, comentarios y adjuntos." />
       ) : groupSessionsByGym(history.sessions).map((grp) => (
         <div key={grp.gym || "_sin_gym_"} style={{ marginBottom: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, color: P.faint,
-            textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>
-            <Home size={13} /> {grp.gym || "Sin gimnasio registrado"}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 2px 8px" }}>
+            <Home size={13} color={P.faint} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: P.faint,
+              textTransform: "uppercase", letterSpacing: ".04em" }}>{grp.gym || "Sin gimnasio registrado"}</span>
+            {puedeEditarGym && (
+              <button onClick={() => setAsignar({ sesiones: grp.sesiones, gym: grp.gym })}
+                aria-label={grp.gym ? `Cambiar el gimnasio de las sesiones de ${grp.gym}` : "Asignar gimnasio a las sesiones sin gimnasio"}
+                style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 600, color: P.ember2 }}>
+                <PencilLine size={12} /> {grp.gym ? "Cambiar" : "Asignar"}
+              </button>
+            )}
           </div>
           {grp.sesiones.map((s) => (
             <Card key={s.id} style={{ marginBottom: 10 }}>
@@ -16223,7 +16428,10 @@ const ActivityTab = ({ plan, history }) => {
           </div>
         )
       )}
-      <SessionDetailSheet session={openSession} onClose={() => setOpenSession(null)} history={history} onOpenImg={setViewImg} />
+      <SessionDetailSheet session={openSession} onClose={() => setOpenSession(null)} history={history} onOpenImg={setViewImg}
+        onCambiarGym={puedeEditarGym ? (s) => setAsignar({ sesiones: [s], gym: (s.gym || "").trim() }) : null} />
+      <AsignarGimnasioSheet open={!!asignar} onClose={() => setAsignar(null)}
+        sesiones={asignar ? asignar.sesiones : []} gymActual={asignar ? asignar.gym : ""} onAsignar={guardarGym} />
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
     </div>
   );
@@ -25378,7 +25586,8 @@ const AccessProfilesSheet = ({ open, onClose, onEnterAs }) => {
         )}
       </div>
       <Sheet open={!!openActivity} onClose={() => setOpenActivity(null)} title={openActivity ? openActivity.name : "Actividad"} tall>
-        {openActivity && <ActivityTab plan={openActivity.plan} history={openActivity.history} />}
+        {openActivity && <ActivityTab plan={openActivity.plan} history={openActivity.history}
+          saveHistory={(h) => { setOpenActivity((a) => (a ? { ...a, history: h } : a)); sSet(`forja-history:${openActivity.id}`, h); }} />}
       </Sheet>
     </Sheet>
   );
