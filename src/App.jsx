@@ -16182,6 +16182,9 @@ const LEAD_STAGES = [
   { id: "convertido", label: "Convertido", next: null, nextLabel: null },
 ];
 const leadSourceLabel = (id) => (LEAD_SOURCES.find((s) => s.id === id) || LEAD_SOURCES[4]).label;
+// Entrenadores profesionales de FORJA, por WhatsApp.
+const SOPORTE_WA = "https://wa.me/56975549829";
+
 const waLink = (phone) => { const digits = (phone || "").replace(/[^\d]/g, ""); return digits ? `https://wa.me/${digits}` : null; };
 
 const LeadCard = ({ lead, onAdvance, onLost, onRestore, onManageStudent }) => {
@@ -22912,6 +22915,10 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
     ] },
     { label: "Herramientas", rows: [
       { key: "discos", Icon: Layers, label: "Teclado de discos", kw: "discos barra peso total calculadora plates smart cargar barra kilos", onClick: () => onOpenUtility("discos") },
+      // Entrenadores de carne y hueso, por WhatsApp: para la duda que el
+      // Coach IA no resuelve (una molestia rara, una técnica que no sale).
+      { key: "wa", Icon: MessageSquare, label: "Hablar con un entrenador", kw: "whatsapp entrenador profesional duda consulta humano soporte",
+        onClick: () => window.open(SOPORTE_WA, "_blank", "noopener") },
       { key: "atajos", Icon: Smartphone, label: "Atajos de iPhone", kw: "siri shortcuts atajo pantalla de inicio registrar rapido widget", onClick: () => onOpenUtility("atajos") },
       { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva cronómetro", onClick: () => onOpenUtility("timer") },
       { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "qué significa etiqueta rutina", onClick: () => onOpenUtility("guia") },
