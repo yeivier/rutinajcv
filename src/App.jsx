@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v275";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v276";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -729,6 +729,100 @@ function retoDeEjercicio(setsHoy, setsPrev) {
   });
   return { volHoy, volPrev, dif: volHoy - volPrev, superadas, iguales, anotadas: total, prevCount: prev.length };
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EL RETO, DEL LADO DEL COACH — quién sube y quién se estancó
+   ───────────────────────────────────────────────────────────────────────
+   Mismo criterio que el reto en vivo del atleta (volumen par contra par,
+   series de trabajo contra series de trabajo), pero mirando el historial
+   en vez de la sesión en curso: por cada ejercicio se compara la ÚLTIMA
+   vez contra la ANTERIOR, y de ahí sale el estado del alumno.
+
+   Dos señales, porque una sola engaña:
+   · Por ejercicio — cuántos subieron, cuántos quedaron igual, cuántos
+     bajaron la última vez que los hizo.
+   · Por volumen de las últimas 4 semanas contra las 4 previas — un
+     mesociclo corto. Un alumno puede tener "3 de 5 ejercicios arriba" y
+     aun así estar entrenando la mitad que el mes pasado.
+
+   El estado sale de las dos: si el volumen del mes cayó, está bajando
+   aunque algún ejercicio suba; si subió, sube. Y si hace más de 10 días
+   que no entrena, nada de eso importa — está inactivo, y eso es lo que
+   el coach tiene que ver primero.
+   ═══════════════════════════════════════════════════════════════════════ */
+const PROG_INACTIVO_DIAS = 10;
+
+function progresionDeAtleta(history) {
+  const byEx = (history && history.byEx) || {};
+  const sesiones = (history && history.sessions) || [];
+  const ultima = sesiones.length ? sesiones[sesiones.length - 1] : null;
+  const diasSinEntrenar = ultima
+    ? Math.floor((Date.now() - new Date(ultima.date).getTime()) / 86400000) : null;
+
+  // --- Señal 1: ejercicio por ejercicio, última vez contra la anterior ---
+  const ejercicios = [];
+  Object.keys(byEx).forEach((exId) => {
+    const ens = byEx[exId] || [];
+    if (ens.length < 2) return;
+    const ult = ens[ens.length - 1], prev = ens[ens.length - 2];
+    const r = retoDeEjercicio(ult.sets, prev.sets);
+    if (!r || r.anotadas === 0 || r.volPrev <= 0) return;
+    const pct = (r.dif / r.volPrev) * 100;
+    ejercicios.push({
+      exId, nombre: ult.exName || "Ejercicio", fecha: ult.date,
+      pct, dif: r.dif, volHoy: r.volHoy, volPrev: r.volPrev,
+      estado: pct >= 2 ? "sube" : pct <= -2 ? "baja" : "igual",
+    });
+  });
+  ejercicios.sort((a, b) => a.pct - b.pct);   // lo peor primero: es lo accionable
+  const suben = ejercicios.filter((e) => e.estado === "sube").length;
+  const bajan = ejercicios.filter((e) => e.estado === "baja").length;
+  const iguales = ejercicios.filter((e) => e.estado === "igual").length;
+
+  // --- Señal 2: volumen de las últimas 4 semanas contra las 4 previas ---
+  const ahora = Date.now(), semana = 7 * 86400000;
+  const volEntre = (desde, hasta) => sesiones.reduce((t, se) => {
+    const d = new Date(se.date).getTime();
+    return d >= desde && d < hasta ? t + (+se.volume || 0) : t;
+  }, 0);
+  const vol4 = volEntre(ahora - 4 * semana, ahora);
+  const vol4prev = volEntre(ahora - 8 * semana, ahora - 4 * semana);
+  const pctVol = vol4prev > 0 ? ((vol4 - vol4prev) / vol4prev) * 100 : null;
+
+  // --- Estado final ---
+  let estado, nota;
+  if (!sesiones.length) { estado = "sin datos"; nota = "Todavía no registró sesiones."; }
+  else if (diasSinEntrenar != null && diasSinEntrenar > PROG_INACTIVO_DIAS) {
+    estado = "inactivo"; nota = `Hace ${diasSinEntrenar} días que no entrena.`;
+  } else if (ejercicios.length === 0 && pctVol == null) {
+    estado = "sin datos"; nota = "Falta una segunda vuelta de sus ejercicios para poder comparar.";
+  } else if (pctVol != null && pctVol <= -8) {
+    estado = "baja"; nota = `Su volumen del mes cayó ${Math.abs(Math.round(pctVol))} %.`;
+  } else if (pctVol != null && pctVol >= 8) {
+    estado = "sube"; nota = `Su volumen del mes subió ${Math.round(pctVol)} %.`;
+  } else if (bajan > suben) {
+    estado = "baja"; nota = `${bajan} de ${ejercicios.length} ejercicios bajaron la última vez.`;
+  } else if (suben > bajan) {
+    estado = "sube"; nota = `${suben} de ${ejercicios.length} ejercicios subieron la última vez.`;
+  } else {
+    estado = "estancado"; nota = ejercicios.length
+      ? `Sin cambios: ${iguales} de ${ejercicios.length} ejercicios igual que la vez pasada.`
+      : "Sin cambios respecto del mes pasado.";
+  }
+
+  return { estado, nota, ejercicios, suben, bajan, iguales, pctVol, vol4, vol4prev,
+    diasSinEntrenar, totalSesiones: sesiones.length };
+}
+
+// Orden en que el coach necesita verlos: primero lo que requiere acción.
+const PROG_ORDEN = { inactivo: 0, baja: 1, estancado: 2, "sin datos": 3, sube: 4 };
+const PROG_META = {
+  sube:        { label: "Progresando", Icon: ArrowUp },
+  estancado:   { label: "Estancado", Icon: Minus },
+  baja:        { label: "Bajando", Icon: ArrowDown },
+  inactivo:    { label: "Inactivo", Icon: Pause },
+  "sin datos": { label: "Sin datos", Icon: Info },
+};
 
 // "Serie de trabajo (Working set)" → "de trabajo"; "Calentamiento
 // (Warm-up set)" → "calentamiento"; "AMRAP" → "AMRAP". Se le quita el
@@ -14522,6 +14616,148 @@ const RANK_CRITERIA = [
   { id: "streak", label: "Constancia (racha de semanas)", get: (r) => r.metrics.streak, fmt: (v) => `${v} semana${v !== 1 ? "s" : ""}` },
 ];
 
+/* Pestaña "Progresión" del coach: el reto de cada atleta, visto desde
+   afuera. Ordena poniendo primero a quien necesita atención (inactivo,
+   bajando, estancado) — un listado alfabético obliga a leerlos todos para
+   encontrar al que se cayó, que es justo lo que un coach con 20 alumnos no
+   puede hacer todas las semanas. */
+const ProgresionTab = ({ roster, toast, onManage }) => {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+  const [abierto, setAbierto] = useState(null);
+  const [filtro, setFiltro] = useState("todos");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const out = [];
+      for (const st of roster.students) {
+        const h = await sGet(`forja-history:${st.id}`);
+        const hist = (h && h.sessions) ? h : emptyHistory();
+        out.push({ id: st.id, name: st.name, prog: progresionDeAtleta(hist) });
+      }
+      out.sort((a, b) => (PROG_ORDEN[a.prog.estado] - PROG_ORDEN[b.prog.estado])
+        || a.name.localeCompare(b.name, "es"));
+      setRows(out);
+      setLoading(false);
+    })();
+  }, [roster]);
+
+  if (loading) return <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}><LoadingBlock label="Comparando las sesiones de todos tus alumnos…" /></div>;
+
+  const cuenta = (e) => rows.filter((r) => r.prog.estado === e).length;
+  const atencion = cuenta("inactivo") + cuenta("baja") + cuenta("estancado");
+  const visibles = filtro === "todos" ? rows
+    : filtro === "atencion" ? rows.filter((r) => ["inactivo", "baja", "estancado"].includes(r.prog.estado))
+    : rows.filter((r) => r.prog.estado === "sube");
+
+  return (
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
+      <ScreenTitle title="Progresión"
+        sub={atencion === 0
+          ? `Tus ${rows.length} alumnos vienen bien.`
+          : `${atencion} de ${rows.length} ${atencion === 1 ? "necesita" : "necesitan"} que los mires.`}
+        tabs={rows.length > 0 ? (
+          <SectionSwitch value={filtro} onChange={setFiltro}
+            items={[{ id: "todos", label: `Todos ${rows.length}` },
+                    { id: "atencion", label: `Atención ${atencion}` },
+                    { id: "sube", label: `Bien ${cuenta("sube")}` }]} />
+        ) : null} />
+
+      {rows.length === 0 && (
+        <Empty icon={Users} title="Sin alumnos todavía" body="Agrega alumnos y acá vas a ver quién viene superándose y quién se estancó." />
+      )}
+      {rows.length > 0 && visibles.length === 0 && (
+        <Empty icon={Trophy} title="Nadie en este grupo" body="Probá con otro filtro." />
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: SP.stack }}>
+        {visibles.map((r) => {
+          const m = PROG_META[r.prog.estado] || PROG_META["sin datos"];
+          const bueno = r.prog.estado === "sube";
+          const malo = r.prog.estado === "baja" || r.prog.estado === "inactivo";
+          const col = bueno ? P.ember2 : malo ? P.red : P.faint2;
+          const open = abierto === r.id;
+          return (
+            <Card key={r.id} style={{ padding: 0, overflow: "hidden" }}>
+              <button onClick={() => setAbierto(open ? null : r.id)} aria-expanded={open}
+                style={{ width: "100%", textAlign: "left", padding: "14px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: P.s3,
+                  display: "flex", alignItems: "center", justifyContent: "center", color: col }}>
+                  <m.Icon size={17} strokeWidth={2.4} />
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ ...TYPE.headline, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                  <div style={{ ...TYPE.footnote, color: P.faint, marginTop: 1 }}>{m.label} · {r.prog.nota}</div>
+                </div>
+                {r.prog.pctVol != null && (
+                  <span style={{ fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
+                    fontSize: 12.5, fontWeight: 700, color: col, flexShrink: 0 }}>
+                    {r.prog.pctVol >= 0 ? "+" : "−"}{Math.abs(Math.round(r.prog.pctVol))}%
+                  </span>
+                )}
+                <ChevronDown size={17} color={P.chevron} strokeWidth={2.4}
+                  style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+              </button>
+
+              {open && (
+                <div style={{ padding: "0 15px 14px", borderTop: `1px solid ${P.line}` }}>
+                  {/* Volumen del mes contra el mes previo. */}
+                  {r.prog.pctVol != null && (
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "11px 0 9px", ...TYPE.footnote, color: P.faint }}>
+                      <span>Volumen últimas 4 semanas</span>
+                      <span style={{ color: P.text, fontWeight: 600 }}>
+                        {Math.round(r.prog.vol4).toLocaleString("es-CL")} kg
+                        <span style={{ color: P.faint, fontWeight: 400 }}> · antes {Math.round(r.prog.vol4prev).toLocaleString("es-CL")}</span>
+                      </span>
+                    </div>
+                  )}
+                  {/* Ejercicio por ejercicio, lo peor primero. */}
+                  {r.prog.ejercicios.length === 0 ? (
+                    <div style={{ ...TYPE.footnote, color: P.faint, padding: "10px 0", lineHeight: 1.5 }}>
+                      Todavía no hay dos vueltas del mismo ejercicio para comparar.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mono" style={{ letterSpacing: ".07em", margin: "4px 0 6px" }}>Ejercicio por ejercicio</div>
+                      {r.prog.ejercicios.slice(0, 8).map((e) => {
+                        const c = e.estado === "sube" ? P.ember2 : e.estado === "baja" ? P.red : P.faint2;
+                        return (
+                          <div key={e.exId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }}>
+                            <span style={{ flex: 1, minWidth: 0, ...TYPE.footnote, color: P.text,
+                              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.nombre}</span>
+                            <span style={{ ...TYPE.caption, color: P.faint, flexShrink: 0 }}>
+                              {Math.round(e.volPrev).toLocaleString("es-CL")} → {Math.round(e.volHoy).toLocaleString("es-CL")} kg
+                            </span>
+                            <span style={{ fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
+                              fontSize: 11.5, fontWeight: 700, color: c, minWidth: 44, textAlign: "right", flexShrink: 0 }}>
+                              {e.pct >= 0 ? "+" : "−"}{Math.abs(Math.round(e.pct))}%
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {r.prog.ejercicios.length > 8 && (
+                        <div style={{ ...TYPE.caption, color: P.faint, marginTop: 5 }}>
+                          y {r.prog.ejercicios.length - 8} más.
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {onManage && (
+                    <Btn kind="line" small onClick={() => onManage(r.id)} style={{ width: "100%", marginTop: 12 }}>
+                      <ClipboardList size={14} /> Abrir su rutina
+                    </Btn>
+                  )}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const RankingsTab = ({ roster, toast }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
@@ -18879,24 +19115,24 @@ const ROLE_META = {
   head_coach:  { label: "Head Coach", short: "Acceso completo + gestiona el equipo", manageTeam: true, tabAccess: null },
   coach_asistente: { label: "Coach asistente", short: "Acceso completo, no gestiona el equipo", manageTeam: false, tabAccess: null },
   asistente:   { label: "Asistente", short: "Rutina, agenda e indicaciones", manageTeam: false,
-    tabAccess: { rutina: "edit", borradores: "edit", agenda: "edit", indicaciones: "edit", actividad: "view", ...ALWAYS_TABS } },
+    tabAccess: { rutina: "edit", borradores: "edit", agenda: "edit", indicaciones: "edit", actividad: "view", progresion: "view", ...ALWAYS_TABS } },
   nutricionista: { label: "Nutricionista", short: "Nutrición, ve rutina y actividad", manageTeam: false,
-    tabAccess: { nutricion: "edit", ia: "edit", rutina: "view", borradores: "view", actividad: "view", ...ALWAYS_TABS } },
+    tabAccess: { nutricion: "edit", ia: "edit", rutina: "view", borradores: "view", actividad: "view", progresion: "view", ...ALWAYS_TABS } },
   nutricionista_deportivo: { label: "Nutricionista deportivo", short: "Nutrición, ve rutina y actividad", manageTeam: false,
-    tabAccess: { nutricion: "edit", ia: "edit", rutina: "view", borradores: "view", actividad: "view", ...ALWAYS_TABS } },
+    tabAccess: { nutricion: "edit", ia: "edit", rutina: "view", borradores: "view", actividad: "view", progresion: "view", ...ALWAYS_TABS } },
   doctor:        { label: "Doctor", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
-    tabAccess: { rutina: "view", borradores: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+    tabAccess: { rutina: "view", borradores: "view", actividad: "view", progresion: "view", indicaciones: "view", ...ALWAYS_TABS } },
   kinesiologo:   { label: "Kinesiólogo", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
-    tabAccess: { rutina: "view", borradores: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+    tabAccess: { rutina: "view", borradores: "view", actividad: "view", progresion: "view", indicaciones: "view", ...ALWAYS_TABS } },
   quiropractico: { label: "Quiropráctico", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
-    tabAccess: { rutina: "view", borradores: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+    tabAccess: { rutina: "view", borradores: "view", actividad: "view", progresion: "view", indicaciones: "view", ...ALWAYS_TABS } },
   masoterapeuta: { label: "Masoterapeuta", short: "Ve rutina, actividad e indicaciones", manageTeam: false,
-    tabAccess: { rutina: "view", borradores: "view", actividad: "view", indicaciones: "view", ...ALWAYS_TABS } },
+    tabAccess: { rutina: "view", borradores: "view", actividad: "view", progresion: "view", indicaciones: "view", ...ALWAYS_TABS } },
   solo_ver:      { label: "Solo visualización", short: "Ve todo, no puede editar nada", manageTeam: false, tabAccess: null, forceView: true },
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["dashboard", "rutina", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "rankings", "cobros", "leads", "chat", "timer", "guia", "cmas"];
+const TABS_COACH_IDS = ["dashboard", "rutina", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "progresion", "rankings", "cobros", "leads", "chat", "timer", "guia", "cmas"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -19975,7 +20211,7 @@ const TABS = {
   ],
   coach: [
     { id: "dashboard", label: "Panel", Icon: LayoutDashboard, sections: ["dashboard"] },
-    { id: "atletas", label: "Atletas", Icon: Users, sections: ["actividad", "rankings", "cobros", "leads"] },
+    { id: "atletas", label: "Atletas", Icon: Users, sections: ["actividad", "progresion", "rankings", "cobros", "leads"] },
     { id: "rutina", label: "Rutinas", Icon: ClipboardList, sections: ["rutina", "borradores", "nutricion", "ia"] },
     { id: "indicaciones", label: "Mensajes", Icon: MessageSquare, sections: ["chat", "indicaciones"] },
     { id: "cmas", label: "Más", Icon: MoreHorizontal, sections: ["cmas"] },
@@ -19983,7 +20219,7 @@ const TABS = {
 };
 const SECTION_LABELS = {
   chat: "Chat", indicaciones: "Indicaciones", cmas: "Más",
-  actividad: "Actividad", rankings: "Rankings", cobros: "Cobros", leads: "Leads",
+  actividad: "Actividad", progresion: "Progresión", rankings: "Rankings", cobros: "Cobros", leads: "Leads",
   rutina: "Rutina", borradores: "Borradores", nutricion: "Nutrición", ia: "IA",
 };
 /* Pantalla "Atajos de iPhone". Cumple el mismo papel que la pantalla de
@@ -24256,6 +24492,10 @@ const App = () => {
         )}
         {mode === "coach" && sub === "actividad" && (
           <AtletasActividadTab roster={roster} toast={toast}
+            onManage={(id) => openIdentity("coach", id, roster, myTeamId)} />
+        )}
+        {mode === "coach" && sub === "progresion" && (
+          <ProgresionTab roster={roster} toast={toast}
             onManage={(id) => openIdentity("coach", id, roster, myTeamId)} />
         )}
         {mode === "coach" && sub === "rankings" && (
