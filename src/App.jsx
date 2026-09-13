@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v281";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v282";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2105,6 +2105,37 @@ async function sSet(key, value, shared = true) {
 // acceso a sus planes (los planes quedaban intactos en la base, pero sin
 // forma de llegar a ellos desde la app). Sembrar datos iniciales solo
 // puede pasar cuando sabemos que la consulta llegó y volvió vacía.
+/* Recorre una lista llamando a `fn` de a varios EN PARALELO, conservando
+   el orden del resultado.
+
+   Por qué existe: todas las pantallas del coach cargaban a sus alumnos de
+   a uno, esperando la red en cada vuelta. Con 20 alumnos y 150 ms de ida
+   y vuelta eso son tres segundos de pura espera, en cada pantalla, cada
+   vez que se abre — y crece en línea recta con el tamaño del equipo, que
+   es justo al revés de lo que uno quiere de un negocio.
+
+   El límite existe para no cambiar un problema por otro: disparar 100
+   pedidos juntos satura al servidor (y al teléfono), y ahí la pantalla
+   vuelve a tardar. De a 8 se gana casi todo el paralelismo sin eso.
+
+   El orden del resultado es el de entrada, no el de llegada: las listas
+   del coach se muestran ordenadas y no pueden bailar según cuál respuesta
+   volvió antes. */
+async function mapaEnParalelo(items, fn, limite = 8) {
+  const lista = items || [];
+  const out = new Array(lista.length);
+  let i = 0;
+  const obrero = async () => {
+    while (true) {
+      const mio = i++;
+      if (mio >= lista.length) return;
+      out[mio] = await fn(lista[mio], mio);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limite, lista.length) }, obrero));
+  return out;
+}
+
 async function sGetKnown(key) {
   try {
     const r = await fetchWithTimeout(`${SB_URL}?key=eq.${encodeURIComponent(key)}&select=value`, { headers: SB_H });
@@ -5907,18 +5938,17 @@ const AtletasMensajesTab = ({ roster, toast }) => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const out = [];
-      for (const s of roster.students) {
+      const out = await mapaEnParalelo(roster.students, async (s) => {
         const msgs = await sGet(`forja-chat:${s.id}`);
         const list = Array.isArray(msgs) ? msgs : [];
         const last = list[list.length - 1];
-        out.push({
+        return ({
           id: s.id, name: s.name,
           lastTs: last ? last.ts : 0,
           lastText: last ? (last.kind === "media" ? "Foto/video" : last.text) : "Sin mensajes",
           unread: countUnread(list, "coach", getChatSeenAt("coach", s.id)),
         });
-      }
+      });
       out.sort((a, b) => b.lastTs - a.lastTs);
       if (!cancelled) { setRows(out); setLoading(false); }
     })();
@@ -15764,16 +15794,15 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const out = [];
-      for (const s of roster.students) {
+      const out = await mapaEnParalelo(roster.students, async (s) => {
         const [p, h] = await Promise.all([sGet(`forja-plan:${s.id}`), sGet(`forja-history:${s.id}`)]);
         const plan = p || emptyPlan();
         const hist = h || emptyHistory();
         const sessions = hist.sessions || [];
         const last = sessions[sessions.length - 1];
         const lastDays = last ? Math.max(0, Math.round((Date.now() - new Date(last.date).getTime()) / 86400000)) : null;
-        out.push({ id: s.id, name: s.name, lastDays, pct: adherencePct(plan, hist, monthKeyOf(todayISO())) });
-      }
+        return { id: s.id, name: s.name, lastDays, pct: adherencePct(plan, hist, monthKeyOf(todayISO())) };
+      });
       if (!cancelled) { setRows(out); setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -16050,12 +16079,11 @@ const ProgresionTab = ({ roster, toast, onManage }) => {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const out = [];
-      for (const st of roster.students) {
+      const out = await mapaEnParalelo(roster.students, async (st) => {
         const h = await sGet(`forja-history:${st.id}`);
         const hist = (h && h.sessions) ? h : emptyHistory();
-        out.push({ id: st.id, name: st.name, prog: progresionDeAtleta(hist) });
-      }
+        return { id: st.id, name: st.name, prog: progresionDeAtleta(hist) };
+      });
       out.sort((a, b) => (PROG_ORDEN[a.prog.estado] - PROG_ORDEN[b.prog.estado])
         || a.name.localeCompare(b.name, "es"));
       setRows(out);
@@ -16223,12 +16251,11 @@ const RankingsTab = ({ roster, toast }) => {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const out = [];
-      for (const s of roster.students) {
+      const out = await mapaEnParalelo(roster.students, async (s) => {
         const [p, h] = await Promise.all([sGet(`forja-plan:${s.id}`), sGet(`forja-history:${s.id}`)]);
         const hist = (h && h.sessions) ? h : emptyHistory();
-        out.push({ id: s.id, name: s.name, plan: p || emptyPlan(), history: hist, weight: numN((p && p.athlete || {}).weight), metrics: progressMetrics(hist) });
-      }
+        return { id: s.id, name: s.name, plan: p || emptyPlan(), history: hist, weight: numN((p && p.athlete || {}).weight), metrics: progressMetrics(hist) };
+      });
       setRows(out);
       setLoading(false);
       const w = await sGet("forja-monthly-winners");
@@ -16488,16 +16515,15 @@ const DashboardTab = ({ roster, toast }) => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const out = [];
-      for (const s of roster.students) {
+      const out = await mapaEnParalelo(roster.students, async (s) => {
         const [plan, history] = await Promise.all([sGet(`forja-plan:${s.id}`), sGet(`forja-history:${s.id}`)]);
-        out.push({
+        return ({
           id: s.id,
           name: s.name,
           sessions: (history && history.sessions) || [],
           daysPerWeek: plan ? (plan.days || []).length : 0,
         });
-      }
+      });
       if (!cancelled) { setRows(out); setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -16656,14 +16682,13 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const out = [];
-      for (const s of roster.students) {
+      const out = await mapaEnParalelo(roster.students, async (s) => {
         const [history, chat, pay] = await Promise.all([
           sGet(`forja-history:${s.id}`),
           sGet(`forja-chat:${s.id}`),
           sGet(`forja-payments:${s.id}`),
         ]);
-        out.push({
+        return {
           id: s.id,
           name: s.name,
           sessions: (history && history.sessions) || [],
@@ -16672,8 +16697,8 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           hist: (history && history.sessions) ? history : emptyHistory(),
           chat: Array.isArray(chat) ? chat : [],
           pay: pay || emptyPayments(),
-        });
-      }
+        };
+      });
       if (!cancelled) { setRows(out); setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -16868,11 +16893,10 @@ const CobrosTab = ({ roster, toast }) => {
 
   const reload = async () => {
     setLoading(true);
-    const out = [];
-    for (const s of roster.students) {
+    const out = await mapaEnParalelo(roster.students, async (s) => {
       const p = await sGet(`forja-payments:${s.id}`);
-      out.push({ id: s.id, name: s.name, pay: (p && typeof p.amount === "number") ? p : emptyPayments() });
-    }
+      return { id: s.id, name: s.name, pay: (p && typeof p.amount === "number") ? p : emptyPayments() };
+    });
     setRows(out);
     setLoading(false);
   };
@@ -24951,22 +24975,22 @@ const RosterSheet = ({ open, onClose, roster, sid, onEnter, onAdd, onRename, onR
     let cancelled = false;
     (async () => {
       setLoadingCrm(true);
-      const out = {};
-      for (const s of roster.students) {
+      const pares = await mapaEnParalelo(roster.students, async (s) => {
         const [pay, plan, history] = await Promise.all([
           sGet(`forja-payments:${s.id}`), sGet(`forja-plan:${s.id}`), sGet(`forja-history:${s.id}`),
         ]);
         const sessions = (history && history.sessions) || [];
         const lastSession = sessions[sessions.length - 1];
-        out[s.id] = {
+        return [s.id, {
           pay: (pay && typeof pay.amount === "number") ? pay : emptyPayments(),
           weight: numN(((plan && plan.athlete) || {}).weight),
           // lastSession.date es un timestamp ISO completo (todayISO()), no
           // "YYYY-MM-DD" — new Date(...) lo entiende tal cual, parseDate() no.
           lastSessionDaysAgo: lastSession ? Math.max(0, Math.round((parseDate(isoDate(new Date())) - new Date(lastSession.date)) / 86400000)) : null,
           dayCount: plan ? (plan.days || []).length : 0,
-        };
-      }
+        }];
+      });
+      const out = Object.fromEntries(pares);
       if (!cancelled) { setCrm(out); setLoadingCrm(false); }
     })();
     return () => { cancelled = true; };
