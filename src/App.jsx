@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v282";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v283";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4171,6 +4171,190 @@ function addExerciseVolume(perMuscle, ex) {
     const frac = (sec.pct != null ? sec.pct : 50) / 100;
     perMuscle[sec.muscle] = (perMuscle[sec.muscle] || 0) + eff * frac;
   });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LLEVAR UNA RUTINA AL MRV EXACTO (v283)
+   ───────────────────────────────────────────────────────────────────────
+   Ajustar a mano el volumen de un músculo parece simple hasta que se
+   intenta: las series no son independientes. Un press de hombros suma 1
+   a Hombro y, si tiene el tríceps marcado como secundario al 50 %, suma
+   0,5 a Tríceps. Tocar un músculo mueve los otros, así que "subí dos
+   series de hombro" puede pasarse de MRV en tríceps sin que nadie lo
+   note.
+
+   El ajuste se hace de a UNA serie por vez, recalculando todo después de
+   cada paso — que es lo único que respeta el acoplamiento. Y prefiere
+   los ejercicios de AISLAMIENTO (sin secundarios) para afinar, porque
+   son los únicos que mueven un solo número: un curl cambia bíceps y nada
+   más. Los compuestos se usan solo si no queda aislamiento disponible.
+
+   No inventa ejercicios ni los saca: solo suma o quita series de lo que
+   ya está, entre 1 y MAX_SERIES_EJ por ejercicio. Si un músculo no tiene
+   ningún ejercicio en la rutina, se dice en vez de fallar en silencio.
+   ═══════════════════════════════════════════════════════════════════════ */
+const MRV_MAX_SERIES_EJ = 6;   // techo por ejercicio: más que esto no es una serie, es otro ejercicio
+const MRV_MIN_SERIES_EJ = 1;
+const MRV_MAX_PASOS = 200;     // corta cualquier oscilación; en la práctica termina en pocas decenas
+
+// Series efectivas (sin calentamiento) de un ejercicio.
+const seriesEfectivas = (ex) => (ex.sets || []).filter((st) => st.type !== "warmup").length;
+
+// Cuánto aporta UNA serie de este ejercicio a cada músculo.
+function aporteDeUnaSerie(ex) {
+  const out = {};
+  const m = ex.muscle || "Otro";
+  out[m] = 1;
+  (ex.secondary || []).forEach((sec) => {
+    if (!sec || !sec.muscle || sec.muscle === m) return;
+    out[sec.muscle] = (out[sec.muscle] || 0) + (sec.pct != null ? sec.pct : 50) / 100;
+  });
+  return out;
+}
+
+// Volumen semanal por músculo de un conjunto de días, en la misma cuenta
+// que usa el panel de Volumen (primario 1, secundario su fracción).
+function volumenDeDias(days) {
+  const perMuscle = {};
+  (days || []).forEach((d) => (d.exs || []).forEach((ex) => addExerciseVolume(perMuscle, ex)));
+  return perMuscle;
+}
+
+// Copia una serie de trabajo del ejercicio para agregar otra igual: el
+// objetivo de reps y RIR sale de la última de trabajo, no de la nada.
+function serieClonada(ex) {
+  const trabajo = (ex.sets || []).filter((st) => st.type !== "warmup");
+  const ultima = trabajo[trabajo.length - 1];
+  return { id: uid(), type: "normal",
+    repsT: ultima ? ultima.repsT : "8-10",
+    rirT: ultima ? ultima.rirT : "1" };
+}
+
+function ajustarAlMrv(days, musculos, refTable = BB_VOLUME_REF) {
+  const nuevos = structuredClone(days || []);
+  const objetivos = {};
+  const sinEjercicio = [];
+  (musculos || []).forEach((m) => {
+    const ref = refTable[m];
+    if (ref && ref.mrv != null) objetivos[m] = ref.mrv;
+  });
+
+  // Índice plano de ejercicios, con si son de aislamiento para ese músculo.
+  const indice = [];
+  nuevos.forEach((d, di) => (d.exs || []).forEach((ex, ei) => indice.push({ di, ei })));
+  const exDe = (r) => nuevos[r.di].exs[r.ei];
+
+  Object.keys(objetivos).forEach((m) => {
+    const hay = indice.some((r) => {
+      const a = aporteDeUnaSerie(exDe(r));
+      return a[m] > 0 && seriesEfectivas(exDe(r)) > 0;
+    });
+    if (!hay) sinEjercicio.push(m);
+  });
+
+  const cambios = [];
+  // Músculos que ya no se pueden mover más: todos sus ejercicios tocaron
+  // el techo (o el piso) de series. Se anotan y se saltan — antes cortaban
+  // el ajuste ENTERO, así que un bíceps sin margen dejaba a hombro y
+  // tríceps sin ajustar aunque a esos sí les quedara recorrido.
+  const sinMargen = new Set();
+  for (let paso = 0; paso < MRV_MAX_PASOS; paso++) {
+    const actual = volumenDeDias(nuevos);
+    // El músculo más lejos de su objetivo manda: así ninguno queda
+    // abandonado por atender siempre al mismo.
+    let peor = null;
+    Object.keys(objetivos).forEach((m) => {
+      if (sinEjercicio.includes(m) || sinMargen.has(m)) return;
+      const dif = objetivos[m] - (actual[m] || 0);
+      if (Math.abs(dif) < 0.01) return;
+      if (!peor || Math.abs(dif) > Math.abs(peor.dif)) peor = { m, dif };
+    });
+    if (!peor) break;
+    const subir = peor.dif > 0;
+
+    // Candidatos que mueven ese músculo en la dirección que hace falta.
+    // Se ordenan por "pureza": primero los que SOLO tocan ese músculo.
+    const cands = indice
+      .map((r) => {
+        const ex = exDe(r);
+        const ap = aporteDeUnaSerie(ex);
+        const n = seriesEfectivas(ex);
+        if (!ap[peor.m]) return null;
+        if (subir && n >= MRV_MAX_SERIES_EJ) return null;
+        if (!subir && n <= MRV_MIN_SERIES_EJ) return null;
+        // Cuánto arrastra este ejercicio en los OTROS músculos: menos es
+        // mejor, por eso el aislamiento gana.
+        let colateral = 0;
+        let rompeTecho = false;
+        Object.keys(ap).forEach((otro) => {
+          if (otro === peor.m) return;
+          colateral += ap[otro];
+          // Guardia dura: subir este músculo NO puede empujar a otro por
+          // encima de SU propio MRV. Pedir hombro al tope no es permiso
+          // para sobreentrenar el pecho de paso.
+          const refOtro = refTable[otro];
+          if (subir && refOtro && refOtro.mrv != null
+              && (actual[otro] || 0) + ap[otro] > refOtro.mrv + 0.01) rompeTecho = true;
+        });
+        if (rompeTecho) return null;
+        return { r, ex, ap, n, colateral, primario: (ex.muscle === peor.m) ? 0 : 1 };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.colateral - b.colateral || a.primario - b.primario
+        || (subir ? a.n - b.n : b.n - a.n));
+    // Sin candidatos para ESTE músculo: se lo marca y se sigue con los
+    // demás, en vez de abandonar todo el ajuste.
+    if (!cands.length) { sinMargen.add(peor.m); continue; }
+
+    const c = cands[0];
+    const ex = c.ex;
+    if (subir) {
+      ex.sets = [...(ex.sets || []), serieClonada(ex)];
+    } else {
+      // Quita la última de TRABAJO, nunca una de calentamiento.
+      const idx = [...(ex.sets || [])].map((st, i) => ({ st, i }))
+        .filter((x) => x.st.type !== "warmup").pop();
+      if (!idx) break;
+      ex.sets = ex.sets.filter((_, i) => i !== idx.i);
+    }
+    cambios.push({ dia: nuevos[c.r.di].name, ejercicio: ex.name, musculo: peor.m,
+      delta: subir ? 1 : -1, series: seriesEfectivas(ex) });
+  }
+
+  const final = volumenDeDias(nuevos);
+  const resumen = Object.keys(objetivos).map((m) => {
+    const res = Math.round((final[m] || 0) * 100) / 100;
+    const exacto = Math.abs(res - objetivos[m]) < 0.01;
+    // Quedarse cerca en silencio sería lo peor que puede hacer esta
+    // herramienta: el coach creería que la rutina está en el MRV cuando
+    // no lo está. Si no llegó, dice cuánto falta y por qué.
+    let motivo = null;
+    if (!exacto) {
+      if (sinEjercicio.includes(m)) motivo = "no hay ningún ejercicio de este músculo en la rutina";
+      else if (sinMargen.has(m)) motivo = res < objetivos[m]
+        ? `todos sus ejercicios llegaron al techo de ${MRV_MAX_SERIES_EJ} series: falta agregar un ejercicio`
+        : `todos sus ejercicios están en el mínimo de ${MRV_MIN_SERIES_EJ} serie: sobra volumen que viene de compuestos`;
+      else motivo = "el aporte de los compuestos no permite caer justo en el número";
+    }
+    return { musculo: m, objetivo: objetivos[m], resultado: res, exacto,
+      falta: Math.round((objetivos[m] - res) * 100) / 100, motivo };
+  });
+
+  // Lo que se movió de rebote. Llegar al MRV de hombro con un press
+  // compuesto sube el pecho también: está dentro de su techo (la guardia
+  // de arriba lo asegura), pero el coach tiene que verlo, no descubrirlo
+  // después mirando la tabla de volumen.
+  const inicial = volumenDeDias(days || []);
+  const colaterales = Object.keys({ ...inicial, ...final })
+    .filter((m) => !objetivos[m])
+    .map((m) => ({ musculo: m,
+      antes: Math.round((inicial[m] || 0) * 100) / 100,
+      despues: Math.round((final[m] || 0) * 100) / 100,
+      mrv: refTable[m] ? refTable[m].mrv : null }))
+    .filter((x) => Math.abs(x.despues - x.antes) > 0.01)
+    .sort((a, b) => (b.despues - b.antes) - (a.despues - a.antes));
+
+  return { days: nuevos, cambios, resumen, colaterales };
 }
 
 const statusFor = (sets, ref) => {
@@ -18823,8 +19007,129 @@ const MuscleVolumeRow = ({ r, max, compact, days }) => {
   );
 };
 
-const VolumePanel = ({ plan }) => {
+/* La hoja que lleva una rutina al MRV exacto y la guarda como borrador.
+   Trabaja sobre los días que el panel de Volumen tiene a la vista, así
+   que ajusta exactamente la rutina que se está mirando. */
+const MrvSheet = ({ open, onClose, days, refTable, etiqueta, toast }) => {
+  const [sel, setSel] = useState(["Hombro", "Bíceps", "Tríceps"]);
+  const [nombre, setNombre] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  useEffect(() => { if (open) { setSel(["Hombro", "Bíceps", "Tríceps"]); setNombre(""); } }, [open]);
+
+  const antes = useMemo(() => volumenDeDias(days || []), [days]);
+  const res = useMemo(() => (open && sel.length ? ajustarAlMrv(days || [], sel, refTable) : null), [open, sel, days, refTable]);
+  const musculosConEj = useMemo(() => {
+    const set = new Set();
+    (days || []).forEach((d) => (d.exs || []).forEach((ex) => {
+      if (ex.muscle) set.add(ex.muscle);
+      (ex.secondary || []).forEach((x) => x && x.muscle && set.add(x.muscle));
+    }));
+    return [...set].filter((m) => refTable[m] && refTable[m].mrv != null).sort();
+  }, [days, refTable]);
+
+  const guardar = async () => {
+    if (!res) return;
+    const nom = (nombre.trim() || `${etiqueta} al MRV`);
+    setGuardando(true);
+    try {
+      const id = uid();
+      const p = emptyPlan();
+      p.days = res.days;
+      await sSet(draftPlanKey(id), p);
+      const idx = await sGet(DRAFTS_KEY);
+      const lista = idx && Array.isArray(idx.drafts) ? idx.drafts : [];
+      const ahora = todayISO();
+      await sSet(DRAFTS_KEY, { ...(idx || {}),
+        drafts: [{ id, name: nom, createdAt: ahora, updatedAt: ahora }, ...lista] });
+      toast && toast(`✓ «${nom}» guardado en Borradores`);
+      onClose();
+    } catch (e) {
+      toast && toast("No se pudo guardar el borrador.");
+    } finally { setGuardando(false); }
+  };
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Llevar al MRV exacto" tall>
+      <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.5, marginTop: -6, marginBottom: SP.lg }}>
+        Ajusta <b style={{ color: P.dim }}>{etiqueta}</b> sumando o quitando series de los ejercicios que ya están —
+        no inventa ni saca ninguno. Prefiere los de aislamiento, porque un compuesto mueve más de un músculo a la vez.
+      </div>
+
+      <div className="mono" style={{ margin: "0 2px 8px" }}>Qué músculos llevar al tope</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm, marginBottom: SP.lg }}>
+        {musculosConEj.map((m) => {
+          const on = sel.includes(m);
+          return (
+            <button key={m} onClick={() => setSel((o) => on ? o.filter((x) => x !== m) : [...o, m])}
+              aria-pressed={on}
+              style={{ padding: "7px 12px", borderRadius: 999, ...TYPE.footnote, fontWeight: 600,
+                background: on ? PLATE_GRAD : P.s3, color: on ? PLATE_FG : P.dim,
+                border: `1px solid ${on ? PLATE_BORDER : P.frame}` }}>
+              {m} <span style={{ opacity: .7 }}>{refTable[m].mrv}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {res && (
+        <>
+          <div className="mono" style={{ margin: "0 2px 8px" }}>Resultado</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 1, background: P.line, borderRadius: R_TILE, overflow: "hidden" }}>
+            {res.resumen.map((x) => (
+              <div key={x.musculo} style={{ background: P.s1, padding: `11px ${SP.lg}px` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
+                  <span style={{ ...TYPE.body, color: P.text, flex: 1 }}>{x.musculo}</span>
+                  <span style={{ ...TYPE.caption, color: P.faint2 }}>{fmtUnit(Math.round((antes[x.musculo] || 0) * 100) / 100)} →</span>
+                  <span style={{ ...TYPE.body, fontWeight: 700, color: x.exacto ? P.ember2 : P.red }}>
+                    {fmtUnit(x.resultado)}/{x.objetivo}
+                  </span>
+                </div>
+                {!x.exacto && (
+                  <div style={{ ...TYPE.caption, color: P.red, marginTop: 3, lineHeight: 1.4 }}>
+                    Faltan {fmtUnit(Math.abs(x.falta))} series — {x.motivo}.
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {res.colaterales.length > 0 && (
+            <div style={{ marginTop: SP.lg }}>
+              <div className="mono" style={{ margin: "0 2px 8px" }}>También se movieron</div>
+              <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.5, margin: "0 2px 8px" }}>
+                Llegar al tope con un compuesto arrastra a los músculos que ese ejercicio también trabaja.
+                Ninguno pasa de su propio MRV, pero conviene que lo veas.
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: SP.sm }}>
+                {res.colaterales.map((c) => (
+                  <span key={c.musculo} style={{ ...TYPE.caption, color: P.dim, background: P.s3,
+                    borderRadius: 999, padding: "5px 10px" }}>
+                    {c.musculo} {fmtUnit(c.antes)} → {fmtUnit(c.despues)}{c.mrv != null ? ` (MRV ${c.mrv})` : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ ...TYPE.caption, color: P.faint2, marginTop: SP.md }}>
+            {res.cambios.length} {res.cambios.length === 1 ? "serie ajustada" : "series ajustadas"} en total.
+          </div>
+
+          <Field label="Nombre del borrador" hint="Se guarda en Borradores; la rutina original no se toca.">
+            <Inp value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder={`${etiqueta} al MRV`} />
+          </Field>
+          <Btn kind="ember" onClick={guardar} disabled={guardando || !sel.length} style={{ width: "100%", marginTop: SP.md }}>
+            {guardando ? "Guardando…" : "Guardar como borrador"}
+          </Btn>
+        </>
+      )}
+    </Sheet>
+  );
+};
+
+const VolumePanel = ({ plan, toast }) => {
   const [sub, setSub] = useState("semana");
+  const [mrvOpen, setMrvOpen] = useState(false);
   // Arranca según lo cargado en el perfil del atleta (Preparación, en la
   // pestaña IA), pero el coach puede cambiarlo acá mismo para comparar
   // sin tener que ir a editar el perfil.
@@ -18886,6 +19191,14 @@ const VolumePanel = ({ plan }) => {
 
   return (
     <div>
+      {/* Ajustar el volumen a mano obliga a hacer la cuenta acoplada de los
+          compuestos serie por serie. Esto la hace y deja el resultado como
+          borrador, sin tocar la rutina que el alumno está entrenando. */}
+      <Btn kind="line" onClick={() => setMrvOpen(true)} style={{ width: "100%", marginBottom: 10 }}>
+        <TrendingUp size={15} /> Llevar al MRV exacto…
+      </Btn>
+      <MrvSheet open={mrvOpen} onClose={() => setMrvOpen(false)}
+        days={countedDays} refTable={refTable} etiqueta={scopeLabel} toast={toast} />
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 11, padding: 3, marginBottom: 8 }}>
         {[["semana", "Semanal por músculo"], ["sesion", "Por sesión"]].map(([id, l]) => (
           <button key={id} onClick={() => setSub(id)} style={{ flex: 1, padding: "8px 6px", borderRadius: 8, fontSize: 13.5, fontWeight: 600,
@@ -19601,7 +19914,7 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
           apiKey={apiKey} onNeedKey={() => setShowKeyEdit(true)} toast={toast} />
       )}
       {sub === "ficha" && <FichaCompleta plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast} />}
-      {sub === "volumen" && <VolumePanel plan={plan} />}
+      {sub === "volumen" && <VolumePanel plan={plan} toast={toast} />}
       {sub === "saber" && <KnowledgePanel />}
     </div>
   );
