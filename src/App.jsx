@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v284";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v285";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4228,6 +4228,30 @@ function serieClonada(ex) {
   return { id: uid(), type: "normal",
     repsT: ultima ? ultima.repsT : "8-10",
     rirT: ultima ? ultima.rirT : "1" };
+}
+
+/* ¿Esta rutina tiene marcados los músculos SECUNDARIOS?
+
+   Importa más de lo que parece. Un press de banca trabaja tríceps y
+   deltoides anterior, pero si no están marcados, esas series no suman a
+   esos músculos: la tabla de volumen los muestra más bajos de lo que
+   realmente son. Y si alguien mira esa tabla y decide "al tríceps le
+   faltan 20 series para el MRV", está agregando volumen sobre una cuenta
+   que ya venía corta — el camino más rápido a pasarse del techo creyendo
+   que se está llegando a él.
+
+   Un ejercicio de aislamiento real (un curl, una elevación lateral) no
+   necesita secundarios. Lo que enciende el aviso es que NINGUNO de los
+   ejercicios de la rutina tenga alguno, teniendo compuestos: eso no es
+   una rutina de puros aislamientos, es una rutina sin completar. */
+function faltanSecundarios(days) {
+  let total = 0, conSec = 0;
+  (days || []).forEach((d) => (d.exs || []).forEach((ex) => {
+    if (!(ex.sets || []).some((st) => st.type !== "warmup")) return;
+    total++;
+    if ((ex.secondary || []).some((x) => x && x.muscle && x.muscle !== ex.muscle)) conSec++;
+  }));
+  return { total, conSec, ninguno: total >= 6 && conSec === 0 };
 }
 
 function ajustarAlMrv(days, musculos, refTable = BB_VOLUME_REF) {
@@ -19080,6 +19104,7 @@ const MrvSheet = ({ open, onClose, days, refTable, etiqueta, perfil, toast }) =>
   useEffect(() => { if (open) { setSel(["Hombro", "Bíceps", "Tríceps"]); setNombre(""); } }, [open]);
 
   const antes = useMemo(() => volumenDeDias(days || []), [days]);
+  const secInfo = useMemo(() => faltanSecundarios(days || []), [days]);
   const res = useMemo(() => (open && sel.length ? ajustarAlMrv(days || [], sel, refTable) : null), [open, sel, days, refTable]);
   const musculosConEj = useMemo(() => {
     const set = new Set();
@@ -19145,6 +19170,18 @@ const MrvSheet = ({ open, onClose, days, refTable, etiqueta, perfil, toast }) =>
         })}
       </div>
 
+      {secInfo.ninguno && (
+        <div style={{ padding: `11px ${SP.md}px`, marginBottom: SP.lg,
+          background: hexRgba(P.red, 0.08), border: `1px solid ${hexRgba(P.red, 0.3)}`, borderRadius: R_ROW }}>
+          <div style={{ ...TYPE.subhead, color: P.red, marginBottom: 3 }}>Cuidado: el volumen que ves está corto</div>
+          <div style={{ ...TYPE.footnote, color: P.dim, lineHeight: 1.5 }}>
+            Ninguno de los {secInfo.total} ejercicios tiene músculos <b>secundarios</b> marcados. Un press de banca
+            trabaja tríceps y hombro, pero sin marcarlos esas series no les suman: la tabla los muestra más bajos
+            de lo que son. Agregar series para llegar al MRV sobre esta cuenta es el camino más rápido a pasarse
+            del techo creyendo que se está llegando. Conviene marcarlos primero, en cada ejercicio.
+          </div>
+        </div>
+      )}
       {res && (
         <>
           <div className="mono" style={{ margin: "0 2px 8px" }}>Resultado</div>
