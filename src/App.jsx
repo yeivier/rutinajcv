@@ -16825,7 +16825,7 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
               </SettingGroup>
             </div>
           ) },
-        ];
+        ].filter((pn) => pn && pn.node);   // un panel sin contenido no ocupa celda
         return (
           <div className="ord-group" style={{ marginTop: 14 }}>
             <OrderableGrid clave="home-coach" items={panels} cols={2} gap={10}
