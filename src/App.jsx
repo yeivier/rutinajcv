@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v271";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v272";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1969,32 +1969,56 @@ function buildConiNutrition() {
     supplements: [],
   };
 }
-// Calentamiento de la rutina de CONI (femoral/glúteo): bien explicado, con
-// ejercicios, series y cómo hacerlos. Se muestra al empezar cualquier sesión
-// de la rutina. El coach puede editarlo desde el editor de rutina.
-const CONI_WARMUP = `Calentamiento — 10 a 12 min, antes de la primera serie de trabajo.
+// Calentamiento GENERAL de la rutina de CONI (femoral/glúteo): la parte que
+// vale para toda la sesión (cardio · movilidad · activación). Se muestra como
+// checklist al empezar cualquier sesión de la rutina. La aproximación (subir
+// el peso de a poco) NO vive acá: se anota ejercicio por ejercicio, como
+// series de calentamiento registrables (ver makeApproachSets). Cada bloque
+// separado por línea en blanco es un ítem que se puede tildar. El coach puede
+// editarlo desde el editor de rutina.
+const CONI_WARMUP = `1) Cardio suave · 5 min
+Bici, elíptica o cinta a ritmo cómodo — subir temperatura y pulso, sin cansarte.
 
-1) Cardio suave · 5 min
-Bici, elíptica o cinta a ritmo cómodo. Objetivo: subir temperatura y pulso, sin cansarte.
+2) Movilidad de cadera y tobillo
+Sentadilla profunda sostenida 30–45 s (bajando lento, abriendo rodillas) · círculos de cadera 5 por lado · movilidad de tobillo contra la pared 8 por lado.
 
-2) Movilidad de cadera y tobillo · 1 vuelta
-• Sentadilla profunda sostenida (peso corporal): 30–45 s, bajando lento y abriendo rodillas.
-• Círculos de cadera: 5 por lado.
-• Movilidad de tobillo contra la pared: 8 por lado.
+3) Activación de glúteo · 2 series sin fatigar
+Puente de glúteo con banda o patada en polea liviana 2 × 15 (apretando 1 s arriba) · abducción con banda 2 × 20. Foco: sentir el glúteo, nunca la zona lumbar.`;
 
-3) Activación de glúteo · 2 series (sin fatigar)
-• Puente de glúteo con banda o patada en polea liviana: 2 × 15, apretando 1 s arriba.
-• Abducción con banda (sentada o monster walk): 2 × 20.
-Foco: sentir el glúteo, nunca la zona lumbar.
-
-4) Series de aproximación del PRIMER ejercicio · 2 a 3 series
-Subí el peso de a poco, SIN llegar al fallo:
-• 1ª: ~40 % del peso de trabajo × 8–10 reps.
-• 2ª: ~60 % × 5 reps.
-• 3ª (si el peso es alto): ~80 % × 3 reps.
-No cuentan como volumen: son para preparar técnica y articulaciones.
-
-Regla: terminar el calentamiento activada y suelta, nunca fatigada. Si estás muy tiesa, sumá 2–3 min de cardio o una vuelta más de movilidad.`;
+// Series de aproximación = el calentamiento REGISTRABLE de cada ejercicio: se
+// anteponen a las series de trabajo y se anotan igual que ellas (peso / reps /
+// tilde), pero NO cuentan como volumen (type "warmup"). El PRIMER ejercicio
+// simple de la sesión lleva la rampa completa (2 aproximaciones); el resto,
+// una sola. Cada aproximación trae su objetivo (% del peso de trabajo y reps)
+// para saber cómo subir sin llegar al fallo.
+const APPROACH_STEPS = [
+  { repsT: "8-10", pctT: "~40% del peso de trabajo · sin fallar" },
+  { repsT: "5",    pctT: "~60% del peso de trabajo" },
+  { repsT: "3",    pctT: "~80% (si el peso es alto)" },
+];
+function makeApproachSets(n) {
+  return Array.from({ length: Math.max(0, n) }, (_, i) => {
+    const st = APPROACH_STEPS[Math.min(i, APPROACH_STEPS.length - 1)];
+    return { id: uid(), type: "warmup", repsT: st.repsT, rirT: "", pctT: st.pctT,
+      weight: "", reps: "", rir: "", done: false, comment: "", drops: [] };
+  });
+}
+// Antepone las aproximaciones a cada ejercicio simple con series de trabajo que
+// no traiga ya un calentamiento propio. Se corre sobre los ejercicios ya
+// mapeados a la sesión (con sus objetivos resueltos), así no desalinea los
+// overrides por semana.
+function withApproachSets(exs) {
+  let firstDone = false;
+  return (exs || []).map((ex) => {
+    const isGroup = !!ex.group;
+    const work = (ex.sets || []).filter((s) => s.type !== "warmup");
+    const hasWarm = (ex.sets || []).some((s) => s.type === "warmup");
+    if (isGroup || work.length === 0 || hasWarm) { if (!isGroup && work.length) firstDone = true; return ex; }
+    const n = firstDone ? 1 : 2;
+    firstDone = true;
+    return { ...ex, sets: [...makeApproachSets(n), ...ex.sets] };
+  });
+}
 
 function buildConiPlan() {
   // Constructor de series: cada [tipo, reps, rir] → una serie del modelo.
@@ -6468,15 +6492,28 @@ const DayPreviewSheet = ({ day, open, onClose, onContinue, history, warmup }) =>
           {exs.length} ejercicio{exs.length !== 1 ? "s" : ""} · {totalSets} series
           {lastDone ? ` · última vez ${fmtDate(lastDone.date)}` : " · nunca realizada"}
         </div>
-        {/* Calentamiento de la rutina, bien visible ANTES de la lista de
-            ejercicios: es lo primero que hay que hacer al empezar la sesión. */}
+        {/* Calentamiento GENERAL de la sesión, ANTES de la lista de ejercicios:
+            es lo primero que hay que hacer. La aproximación de cada ejercicio
+            no va acá — se anota dentro de cada uno al empezar la sesión. */}
         {warm && (
           <div style={{ borderRadius: R_TILE, background: P.accWell, border: `1px solid ${P.accEdge}`, padding: "13px 15px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
               <Flame size={17} color={P.ember} />
-              <span style={{ fontSize: 14, fontWeight: 700, color: P.text, textTransform: "uppercase", letterSpacing: ".04em" }}>Calentamiento</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: P.text, textTransform: "uppercase", letterSpacing: ".04em" }}>Calentamiento general</span>
             </div>
-            <div style={{ fontSize: 14, color: P.text, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{warm}</div>
+            <div style={{ fontSize: 11.5, color: P.faint2, marginBottom: 9 }}>10–12 min · cada ejercicio suma su aproximación al empezar</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {warm.split(/\n\s*\n/).map((it, ii) => {
+                const [head, ...rest] = it.trim().split("\n");
+                const detail = rest.join("\n").trim();
+                return (
+                  <div key={ii}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: P.text, lineHeight: 1.3 }}>{head}</div>
+                    {detail && <div style={{ fontSize: 12.5, color: P.faint, lineHeight: 1.45, marginTop: 2, whiteSpace: "pre-wrap" }}>{detail}</div>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
         {exs.length === 0 ? (
@@ -6577,7 +6614,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // Ejercicio cuyo nombre se está editando en vivo (por id, no índice, que
   // se corre al agregar/quitar). La edición en sesión está disponible siempre.
   const [renameId, setRenameId] = useState(null);
-  const [warmOpen, setWarmOpen] = useState(true);   // calentamiento de la rutina, plegable dentro de la sesión
+  const [warmOpen, setWarmOpen] = useState(true);   // calentamiento general, plegable dentro de la sesión
+  const [warmChecks, setWarmChecks] = useState({}); // tildado de cada ítem del calentamiento general (por sesión)
   const puedeEditar = !!onAddExercise; // props de edición presentes
   // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
   const [coachNotesOpen, setCoachNotesOpen] = useState(null);
@@ -6657,8 +6695,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     return out;
   }, [exs]);
 
-  const totalSets = exs.reduce((a, e) => a + e.sets.length, 0);
-  const doneSets = exs.reduce((a, e) => a + e.sets.filter((s) => s.done).length, 0);
+  // El progreso de la sesión se mide sobre las SERIES DE TRABAJO: las de
+  // aproximación (calentamiento) se anotan igual pero no cuentan para el
+  // "X de Y", igual que no cuentan como volumen.
+  const totalSets = exs.reduce((a, e) => a + e.sets.filter((s) => s.type !== "warmup").length, 0);
+  const doneSets = exs.reduce((a, e) => a + e.sets.filter((s) => s.type !== "warmup" && s.done).length, 0);
   const elapsed = Math.max(0, Math.floor((now - new Date(active.startedAt).getTime()) / 1000));
   useEffect(() => {
     if (didPrefill.current) return;
@@ -6669,6 +6710,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       const entries = history.byEx[exx.id] || [];
       const lastEntry = entries.length ? entries[entries.length - 1] : null;
       exx.sets.forEach((s, si) => {
+        // Las series de aproximación (calentamiento) no se precargan: el peso
+        // de calentamiento depende del día, no de la sesión anterior.
+        if (s.type === "warmup") return;
         if (s.weight !== "" || s.reps !== "" || s.rir !== "") return;
         const prev = lastEntry ? (lastEntry.sets || [])[si] : null;
         if (prev) {
@@ -6843,6 +6887,21 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     const blockUnit = unitFor(block.group ? block.members[0] : block.ei);
     const tempo = !block.group ? parseTempo(exs[block.ei].notes) : null;
 
+    // Metadata por fila: distingue las series de APROXIMACIÓN (calentamiento
+    // registrable) de las de TRABAJO, y numera cada tipo por separado (Aprox.
+    // 1/2 · Serie 1/2…). Sirve para ponerle su etiqueta y para separar ambas
+    // secciones con un subtítulo. En superserie no hay aproximaciones.
+    let _wn = 0, _sn = 0;
+    const rowMeta = block.rows.map((r) => {
+      const st = exs[r.ei].sets[r.si];
+      const warm = st.type === "warmup";
+      if (warm) _wn++; else _sn++;
+      return { warm, no: warm ? _wn : _sn };
+    });
+    const firstWarmIdx = rowMeta.findIndex((m) => m.warm);
+    const firstWorkIdx = rowMeta.findIndex((m) => !m.warm);
+    const hasWarmRows = firstWarmIdx !== -1;
+
     return (
       <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: 12, padding: "13px 13px 4px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
@@ -6924,29 +6983,51 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         {block.rows.map((r, i) => {
           const exx = exs[r.ei];
           const st = exx.sets[r.si];
+          const meta = rowMeta[i];
+          const isWarm = meta.warm;
           const tipo = (SET_TYPES[st.type] || SET_TYPES.normal).short;
-          const consigna = consignas ? consignas[i] : null;
+          const consigna = !isWarm && consignas ? consignas[i] : null;
           const pie = [st.repsT ? `${st.repsT} reps` : null, st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null]
             .filter(Boolean).join(" · ");
+          // Consigna de la serie: en las de trabajo, reps · RIR objetivo; en
+          // las de aproximación, el objetivo de carga (% del peso de trabajo).
+          const detalle = isWarm ? (st.pctT ? `${st.pctT}${st.repsT ? ` × ${st.repsT}` : ""}` : (pie || "subir de a poco, sin fallar")) : (consigna || pie || "—");
+          // Etiqueta de la fila: Aprox. N para el calentamiento, Serie N para
+          // el trabajo, Ronda N para la superserie. Cada tipo numera aparte.
+          const etiqueta = block.group ? `Ronda ${(r.round || 0) + 1}` : isWarm ? `Aprox. ${meta.no}` : `Serie ${meta.no}`;
           // Con la sesión entera en pantalla hay muchas "serie 1": el
           // nombre accesible lleva el ejercicio, si no son todas iguales
           // para quien navega por voz o lector de pantalla.
-          const dónde = `${block.group ? `ronda ${(r.round || 0) + 1}` : `serie ${i + 1}`} de ${exx.name}`;
+          const dónde = `${block.group ? `ronda ${(r.round || 0) + 1}` : isWarm ? `aproximación ${meta.no}` : `serie ${meta.no}`} de ${exx.name}`;
           return (
-            <div key={`${r.ei}-${r.si}`}
+            <React.Fragment key={`${r.ei}-${r.si}`}>
+            {/* Subtítulos que separan el calentamiento del trabajo dentro del
+                ejercicio, para que se lea "primero la aproximación, después las
+                series de trabajo". Solo en ejercicios simples con aproximación. */}
+            {!block.group && i === firstWarmIdx && (
+              <div className="mono" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, marginBottom: -2, fontSize: 9.5, letterSpacing: ".07em", textTransform: "uppercase", color: SES.acc, fontWeight: 700 }}>
+                <Flame size={11} /> Calentamiento · no cuenta como volumen
+              </div>
+            )}
+            {!block.group && hasWarmRows && i === firstWorkIdx && (
+              <div className="mono" style={{ marginTop: 8, marginBottom: -2, fontSize: 9.5, letterSpacing: ".07em", textTransform: "uppercase", color: SES.faint, fontWeight: 700 }}>
+                Series de trabajo
+              </div>
+            )}
+            <div
               style={{ padding: "10px 0", borderBottom: i < block.rows.length - 1 ? `1px solid ${SES.line}` : "none" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 5 }}>
               <div style={{ flex: 1, minWidth: 0, paddingRight: 6 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 700, color: st.done ? SES.acc : SES.ink }}>
-                    {block.group ? `Ronda ${(r.round || 0) + 1}` : `Serie ${i + 1}`}
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: st.done ? SES.acc : isWarm ? SES.dim : SES.ink }}>
+                    {etiqueta}
                   </span>
-                  {tipo && st.type !== "normal" && (
+                  {tipo && st.type !== "normal" && !isWarm && (
                     <span className="mono" style={{ fontSize: 9.5, letterSpacing: ".05em", color: SES.dim, background: SES.campo, borderRadius: 5, padding: "1px 6px" }}>{tipo}</span>
                   )}
                 </div>
                 {block.group && <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2 }}>{exx.name}</div>}
-                <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{consigna || pie || "—"}</div>
+                <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{detalle}</div>
               </div>
               <NumCell aria={`Peso de la ${dónde} (${unitFor(r.ei)})`} placeholder={unitFor(r.ei)}
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitFor(r.ei))).replace(".", ",")}
@@ -6985,6 +7066,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             )}
             {renderCommentBlock(r.ei, r.si)}
             </div>
+            </React.Fragment>
           );
         })}
         {/* Editar en vivo: sumar o quitar series a este ejercicio, y quitarlo
@@ -7237,25 +7319,52 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         );
       })()}
 
-      {/* Calentamiento de la rutina DENTRO de la sesión (no solo en la vista
-          previa): plegable, arriba de todo, para tenerlo a mano al arrancar.
-          Se toma de la sesión (guardado al empezar) y, para sesiones ya en
-          curso, cae al calentamiento de la rutina del día en el plan. */}
+      {/* Calentamiento GENERAL de la sesión (cardio · movilidad · activación):
+          arriba de todo, plegable y como CHECKLIST tildable — se "registra"
+          igual que las series. La aproximación de cada ejercicio NO va acá:
+          vive dentro de cada ejercicio, como series de calentamiento. Se toma
+          de la sesión (guardado al empezar) y, para sesiones ya en curso, cae
+          al calentamiento de la rutina del día en el plan. */}
       {(() => {
         const dayForWarm = (plan.days || []).find((d) => d.id === active.dayId);
         const warmText = ((active.warmup || (dayForWarm ? (plan.warmups || {})[routineOf(dayForWarm)] : "")) || "").trim();
         if (!warmText) return null;
+        const items = warmText.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
         return (
           <div style={{ borderRadius: 16, background: SES.card, border: `1px solid ${SES.line}`, overflow: "hidden" }}>
             <button onClick={() => setWarmOpen((o) => !o)} aria-expanded={warmOpen}
               style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "13px 15px", textAlign: "left" }}>
-              <Flame size={17} color={SES.acc} style={{ flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: SES.ink, textTransform: "uppercase", letterSpacing: ".04em" }}>Calentamiento</span>
-              <ChevronDown size={18} color={SES.faint} style={{ transform: warmOpen ? "rotate(180deg)" : "none", transition: "transform .2s cubic-bezier(.32,.72,0,1)" }} />
+              <Flame size={17} color={SES.acc} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: SES.ink, textTransform: "uppercase", letterSpacing: ".04em" }}>Calentamiento general</div>
+                <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2, lineHeight: 1.35 }}>10–12 min antes de empezar · la aproximación va anotada en cada ejercicio</div>
+              </div>
+              <ChevronDown size={18} color={SES.faint} style={{ flexShrink: 0, transform: warmOpen ? "rotate(180deg)" : "none", transition: "transform .2s cubic-bezier(.32,.72,0,1)" }} />
             </button>
             {warmOpen && (
-              <div style={{ padding: "0 15px 14px", fontSize: 14, color: SES.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
-                {warmText}
+              <div style={{ padding: "2px 12px 12px", display: "flex", flexDirection: "column", gap: 7 }}>
+                {items.map((it, ii) => {
+                  const [head, ...rest] = it.split("\n");
+                  const detail = rest.join("\n").trim();
+                  const done = !!warmChecks[ii];
+                  return (
+                    <button key={ii} onClick={() => setWarmChecks((c) => ({ ...c, [ii]: !c[ii] }))}
+                      aria-pressed={done}
+                      style={{ display: "flex", alignItems: "flex-start", gap: 10, textAlign: "left", width: "100%",
+                        padding: "10px 11px", borderRadius: 12, background: SES.campo,
+                        border: `1px solid ${done ? SES.acc : SES.line}`, transition: `border-color ${DUR_ROW}ms ${EASE_STD}` }}>
+                      <span style={{ width: 24, height: 24, borderRadius: 12, flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                        background: done ? SES.acc : "transparent", border: done ? "none" : `1.5px solid ${SES.faint}`, color: done ? SES.accInk : "transparent",
+                        transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
+                        <Check size={14} strokeWidth={3} />
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 700, color: done ? SES.faint : SES.ink, lineHeight: 1.3, textDecoration: done ? "line-through" : "none" }}>{head}</div>
+                        {detail && <div style={{ fontSize: 12.5, color: SES.faint, lineHeight: 1.45, marginTop: 3, whiteSpace: "pre-wrap" }}>{detail}</div>}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -7719,11 +7828,14 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
       // sesión (no solo en la vista previa). Se toma según la rutina del día.
       warmup: (plan.warmups || {})[routineOf(day)] || "",
       attachIds: [],
-      exs: (day.exs || []).map((ex) => ({ ...ex, comment: "", attachIds: [],
+      // Se resuelven los objetivos sobre los índices originales (para no
+      // desalinear overrides por semana) y RECIÉN después se anteponen las
+      // series de aproximación (calentamiento registrable) a cada ejercicio.
+      exs: withApproachSets((day.exs || []).map((ex) => ({ ...ex, comment: "", attachIds: [],
         sets: (ex.sets || []).map((s, si) => {
           const t = setTargets(ex, si, week);
           return { ...s, repsT: t.repsT, rirT: t.rirT, weight: "", reps: "", rir: "", done: false, comment: "", drops: [] };
-        }) })),
+        }) }))),
     };
     setActive(snap); saveActive(snap);
     setBrowsing(false);
@@ -12362,8 +12474,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 style={{ padding: 8, color: P.faint }}><PencilLine size={16} /></button>
               {/* Calentamiento de la rutina: se muestra al alumno al empezar
                   cada sesión de esta rutina (antes de elegir el gimnasio). */}
-              <button onClick={() => { const w = prompt(`Calentamiento de ${g.label}\n(ejercicios, series y cómo hacerlos; se muestra al empezar la sesión). Deja vacío para quitarlo.`, (plan.warmups || {})[g.key] || ""); if (w !== null) mut((p) => { p.warmups = { ...(p.warmups || {}) }; const t = w.trim(); if (t) p.warmups[g.key] = t; else delete p.warmups[g.key]; }); }}
-                title="Calentamiento de la rutina" aria-label={`Calentamiento de ${g.label}`}
+              <button onClick={() => { const w = prompt(`Calentamiento GENERAL de ${g.label}\n(cardio · movilidad · activación para toda la sesión; se muestra como checklist al empezar. Separa cada paso con una línea en blanco. La aproximación de cada ejercicio se genera sola). Deja vacío para quitarlo.`, (plan.warmups || {})[g.key] || ""); if (w !== null) mut((p) => { p.warmups = { ...(p.warmups || {}) }; const t = w.trim(); if (t) p.warmups[g.key] = t; else delete p.warmups[g.key]; }); }}
+                title="Calentamiento general de la rutina" aria-label={`Calentamiento general de ${g.label}`}
                 style={{ padding: 8, color: (plan.warmups || {})[g.key] ? P.ember2 : P.faint }}><Flame size={16} /></button>
               <button onClick={() => copyRoutine(g)} title="Copiar la rutina completa" aria-label={`Copiar ${g.label} completa`}
                 style={{ padding: 8, color: P.faint }}><Copy size={16} /></button>
@@ -22088,12 +22200,18 @@ const App = () => {
     if (!p.events) p.events = [];
     // Migración: planes viejos sin ficha del atleta (la usa el agente de culturismo)
     if (!p.athlete) p.athlete = emptyAthlete();
-    // Migración: calentamiento por defecto de la rutina de CONI. Se inyecta UNA
-    // vez si esa rutina no tiene calentamiento cargado; si el coach ya lo editó,
-    // no se pisa. Independiente de seedVersion (no arrastra plantillas B/C).
-    if (p.routineNames && p.routineNames.A === "Rutina de CONI" && !(p.warmups && p.warmups.A)) {
-      p.warmups = { ...(p.warmups || {}), A: CONI_WARMUP };
-      await sSet(`forja-plan:${id}`, p);
+    // Migración: calentamiento GENERAL por defecto de la rutina de CONI. Se
+    // inyecta si esa rutina no lo tiene cargado; y si tiene el calentamiento
+    // VIEJO (el bloque de texto con la sección "Series de aproximación del
+    // PRIMER ejercicio"), se reemplaza por el general nuevo — la aproximación
+    // ahora vive como series registrables dentro de cada ejercicio. No pisa un
+    // texto que el coach haya escrito a mano. Independiente de seedVersion.
+    if (p.routineNames && p.routineNames.A === "Rutina de CONI") {
+      const cur = (p.warmups && p.warmups.A) || "";
+      if (!cur || /Series de aproximaci[oó]n del PRIMER/i.test(cur)) {
+        p.warmups = { ...(p.warmups || {}), A: CONI_WARMUP };
+        await sSet(`forja-plan:${id}`, p);
+      }
     }
     if ((p.seedVersion || 0) < SEED_VERSION) {
       const trainingB = (p.days || []).find((day) => day.name === "Entrenamiento B");
