@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v278";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v279";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3856,6 +3856,8 @@ const emptyHistory = () => ({ byEx: {}, sessions: [], bodyweight: [], bodyPhotos
   // Métricas fisiológicas diarias importadas de un reloj (WHOOP:
   // recuperación, FC en reposo, HRV, esfuerzo, etc.). Un registro por día.
   physio: [],
+  activities: [],   // cardio/actividades importadas (WHOOP y similares) — aparte de las sesiones de fuerza
+  journal: [],      // diario de conductas autorreportadas (WHOOP)
   // Exámenes subidos y leídos por la IA (InBody, DEXA, análisis…): uno por
   // examen, con fecha, tipo e indicadores {nombre, valor, unidad}.
   exams: [] });
@@ -11884,8 +11886,118 @@ const HealthDashboardSheet = ({ open, onClose, history }) => {
             )}
           </>
         )}
+
+        {/* Lo que trae el reloj y NO es una métrica diaria: las actividades
+            (cardio, deporte) y el diario de conductas. Van acá y no entre
+            las sesiones de fuerza a propósito — una corrida no tiene
+            series ni repeticiones, y sumarla al tonelaje sería mentir. */}
+        <ActividadesImportadas history={history} />
+        <DiarioImportado history={history} />
       </div>
     </Sheet>
+  );
+};
+
+// Las actividades importadas del reloj, de la más reciente para atrás.
+const ActividadesImportadas = ({ history }) => {
+  const acts = (history.activities || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+  const [todas, setTodas] = useState(false);
+  if (!acts.length) return null;
+  const ver = todas ? acts : acts.slice(0, 8);
+  const totalMin = acts.reduce((t, a) => t + (+a.durationMin || 0), 0);
+  return (
+    <div style={{ marginTop: SP.section }}>
+      <div className="mono" style={{ margin: "0 4px 8px" }}>Actividades del reloj</div>
+      <div style={{ ...TYPE.footnote, color: P.faint, margin: "0 4px 10px", lineHeight: 1.45 }}>
+        {acts.length} {acts.length === 1 ? "actividad importada" : "actividades importadas"} · {Math.round(totalMin / 60)} h en total.
+        No cuentan para el tonelaje ni los récords de fuerza.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
+        {ver.map((a, i) => {
+          const zonas = [a.z1, a.z2, a.z3, a.z4, a.z5];
+          const hayZonas = zonas.some((z) => z != null);
+          return (
+            <Card key={`${a.date}-${i}`} style={{ padding: SP.lg }}>
+              <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
+                <span style={{ ...TYPE.headline, color: P.text, flex: 1, minWidth: 0,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+                {a.strain != null && (
+                  <span style={{ ...TYPE.caption, color: P.ember2, flexShrink: 0 }}>Esfuerzo {fmtUnit(a.strain)}</span>
+                )}
+              </div>
+              <div style={{ ...TYPE.footnote, color: P.faint, marginTop: 3 }}>
+                {fmtDate(a.date)}
+                {a.durationMin != null ? ` · ${Math.round(a.durationMin)} min` : ""}
+                {a.distanceKm != null ? ` · ${fmtUnit(a.distanceKm)} km` : ""}
+                {a.kcal != null ? ` · ${Math.round(a.kcal)} kcal` : ""}
+              </div>
+              {(a.avgHr != null || a.maxHr != null) && (
+                <div style={{ ...TYPE.caption, color: P.faint2, marginTop: 3 }}>
+                  {a.avgHr != null ? `FC media ${Math.round(a.avgHr)}` : ""}
+                  {a.avgHr != null && a.maxHr != null ? " · " : ""}
+                  {a.maxHr != null ? `máx ${Math.round(a.maxHr)} lpm` : ""}
+                </div>
+              )}
+              {hayZonas && (
+                <div style={{ display: "flex", gap: 2, marginTop: SP.sm, height: 8, borderRadius: 999, overflow: "hidden" }}>
+                  {zonas.map((z, zi) => (
+                    <span key={zi} title={`Zona ${zi + 1}: ${fmtUnit(z || 0)} %`}
+                      style={{ flex: Math.max(0.001, +z || 0), background: hexRgba(P.ember, 0.25 + zi * 0.18) }} />
+                  ))}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+      {acts.length > 8 && (
+        <button onClick={() => setTodas((v) => !v)}
+          style={{ width: "100%", marginTop: SP.md, ...TYPE.footnote, fontWeight: 600, color: P.blue }}>
+          {todas ? "Ver menos" : `Ver las ${acts.length}`}
+        </button>
+      )}
+    </div>
+  );
+};
+
+// El diario del reloj: qué contestó el atleta cada día (alcohol, cafeína,
+// pantallas antes de dormir…). Es justo el contexto que explica por qué
+// una recuperación se cayó, y sin esto habría que adivinarlo.
+const DiarioImportado = ({ history }) => {
+  const dias = (history.journal || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+  const [abierto, setAbierto] = useState(null);
+  if (!dias.length) return null;
+  return (
+    <div style={{ marginTop: SP.section }}>
+      <div className="mono" style={{ margin: "0 4px 8px" }}>Diario del reloj</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 1, background: P.line, borderRadius: R_TILE, overflow: "hidden" }}>
+        {dias.slice(0, 30).map((d) => {
+          const claves = Object.keys(d.entries || {});
+          const open = abierto === d.date;
+          return (
+            <div key={d.date} style={{ background: P.s1 }}>
+              <button onClick={() => setAbierto(open ? null : d.date)} aria-expanded={open}
+                style={{ width: "100%", textAlign: "left", padding: `12px ${SP.lg}px`, display: "flex", alignItems: "center", gap: SP.sm }}>
+                <span style={{ ...TYPE.body, color: P.text, flex: 1 }}>{fmtDate(d.date)}</span>
+                <span style={{ ...TYPE.caption, color: P.faint2 }}>{claves.length} {claves.length === 1 ? "respuesta" : "respuestas"}</span>
+                <ChevronDown size={16} color={P.chevron} strokeWidth={2.4}
+                  style={{ transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+              </button>
+              {open && (
+                <div style={{ padding: `0 ${SP.lg}px ${SP.md}px` }}>
+                  {claves.map((k) => (
+                    <div key={k} style={{ display: "flex", gap: SP.sm, padding: "5px 0", borderTop: `1px solid ${P.line}` }}>
+                      <span style={{ ...TYPE.footnote, color: P.faint, flex: 1, minWidth: 0 }}>{k}</span>
+                      <span style={{ ...TYPE.footnote, color: P.text, fontWeight: 600, flexShrink: 0 }}>{d.entries[k]}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 };
 
@@ -20257,6 +20369,127 @@ function convertirUnidad(field, header, valor) {
   return valor;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   WHOOP: los dos archivos que faltaban (v279)
+   ───────────────────────────────────────────────────────────────────────
+   El export de WHOOP son cuatro CSV. Dos ya entraban por el importador
+   de métricas diarias (physiological_cycles y sleeps: recuperación, HRV,
+   FC en reposo, strain, SpO2, temperatura, y toda la composición del
+   sueño). Los otros dos no entraban, y no es por olvido: NO son métricas
+   diarias, así que el importador que fusiona "un registro por día" no
+   los puede leer.
+
+   - workouts.csv trae VARIAS filas por día (cada actividad), con nombre,
+     duración, strain, zonas de FC y distancia.
+   - journal_entries.csv viene en formato largo: una fila por pregunta y
+     por día ("¿Tomaste alcohol?" → Sí/No), que hay que pivotear.
+
+   Decisión importante: las actividades de WHOOP van a `history.activities`
+   y NO a `history.sessions`. Una salida a correr no es una sesión de
+   fuerza: si entrara ahí contaminaría el tonelaje, los PR y el reto,
+   que se calculan sobre series y repeticiones que un cardio no tiene.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+// Nombre de columna → campo, para el CSV de entrenamientos. WHOOP exporta
+// en el idioma de la cuenta, así que cada patrón acepta las dos formas.
+const WHOOP_WORKOUT_COLS = [
+  { field: "name",       re: /nombre\s+de\s+la\s+actividad|activity\s+name/i, texto: true },
+  { field: "start",      re: /hora\s+de\s+inicio\s+del?\s+entrenamiento|workout\s+start\s+time/i, texto: true },
+  { field: "durationMin",re: /duraci[oó]n.*\(?min|duration\s*\(min/i },
+  { field: "strain",     re: /esfuerzo\s+de\s+la\s+actividad|activity\s+strain/i },
+  { field: "kcal",       re: /energ[ií]a\s+quemada|energy\s+burned|calories\s+burned/i },
+  { field: "maxHr",      re: /fc\s+m[aá]x|max\s*hr|frecuencia\s+card[ií]aca\s+m[aá]xima/i },
+  { field: "avgHr",      re: /fc\s+promedio|average\s*hr|frecuencia\s+card[ií]aca\s+promedio/i },
+  { field: "distanceM",  re: /distancia.*\(?met|distance.*\(met/i },
+  { field: "z1",         re: /zona\s+de\s+fc\s*1|hr\s+zone\s*1/i },
+  { field: "z2",         re: /zona\s+de\s+fc\s*2|hr\s+zone\s*2/i },
+  { field: "z3",         re: /zona\s+de\s+fc\s*3|hr\s+zone\s*3/i },
+  { field: "z4",         re: /zona\s+de\s+fc\s*4|hr\s+zone\s*4/i },
+  { field: "z5",         re: /zona\s+de\s+fc\s*5|hr\s+zone\s*5/i },
+];
+
+// ¿Este CSV es el de entrenamientos? Se reconoce por traer el nombre de
+// la actividad junto con su esfuerzo o su duración — no por el nombre del
+// archivo, que cambia con el idioma de la cuenta.
+function esCsvWorkouts(cols) {
+  const tiene = (re) => cols.some((c) => re.test(c));
+  return tiene(/nombre\s+de\s+la\s+actividad|activity\s+name/i)
+    && tiene(/esfuerzo|strain|duraci[oó]n|duration/i);
+}
+
+function importWhoopWorkouts(csv) {
+  const idx = {};
+  WHOOP_WORKOUT_COLS.forEach((c) => {
+    const i = csv.cols.findIndex((col) => c.re.test(col));
+    if (i >= 0) idx[c.field] = { i, texto: !!c.texto };
+  });
+  if (idx.name == null) return null;
+  let idxFecha = -1;
+  for (const a of DATE_ALIAS) {
+    const i = csv.cols.findIndex((c) => c === a || c.includes(a));
+    if (i >= 0) { idxFecha = i; break; }
+  }
+  const out = [];
+  csv.filas.forEach((fila) => {
+    const crudo = idx.start ? fila[idx.start.i] : (idxFecha >= 0 ? fila[idxFecha] : "");
+    const d = new Date(crudo);
+    if (Number.isNaN(d.getTime())) return;
+    const nombre = String(fila[idx.name.i] || "").trim();
+    if (!nombre) return;
+    const act = { date: d.toISOString(), name: nombre, source: "whoop" };
+    Object.keys(idx).forEach((f) => {
+      if (f === "name" || f === "start") return;
+      const n = parseFloat(String(fila[idx[f].i] || "").replace(",", "."));
+      if (isFinite(n) && n > 0) act[f] = Math.round(n * 100) / 100;
+    });
+    // La distancia se guarda en km, que es como se lee: "8,2 km", no
+    // "8200 m". El archivo la trae en metros.
+    if (act.distanceM != null) { act.distanceKm = Math.round((act.distanceM / 1000) * 100) / 100; delete act.distanceM; }
+    out.push(act);
+  });
+  return out.length ? out : null;
+}
+
+// El diario viene en formato LARGO: una fila por pregunta y por día. Hay
+// que pivotearlo a un registro por día con todas sus respuestas, que es
+// como se lee y como lo necesita el coach.
+function esCsvJournal(cols) {
+  return cols.some((c) => /texto\s+de\s+la\s+pregunta|question\s+text/i.test(c));
+}
+function importWhoopJournal(csv) {
+  const iPreg = csv.cols.findIndex((c) => /texto\s+de\s+la\s+pregunta|question\s+text/i.test(c));
+  const iResp = csv.cols.findIndex((c) => /respondi[oó]\s+que\s+s[ií]|answered\s+yes/i.test(c));
+  const iNota = csv.cols.findIndex((c) => /notas|notes/i.test(c));
+  if (iPreg < 0) return null;
+  let idxFecha = -1;
+  for (const a of DATE_ALIAS) {
+    const i = csv.cols.findIndex((c) => c === a || c.includes(a));
+    if (i >= 0) { idxFecha = i; break; }
+  }
+  if (idxFecha < 0) return null;
+  const porDia = new Map();
+  csv.filas.forEach((fila) => {
+    const d = new Date(fila[idxFecha]);
+    if (Number.isNaN(d.getTime())) return;
+    const preg = String(fila[iPreg] || "").trim();
+    if (!preg) return;
+    const k = d.toISOString().slice(0, 10);
+    const reg = porDia.get(k) || { date: d.toISOString(), entries: {}, source: "whoop" };
+    let val;
+    if (iResp >= 0) {
+      const v = String(fila[iResp] || "").trim().toLowerCase();
+      // WHOOP escribe true/false, o sí/no según el idioma de la cuenta.
+      if (v === "true" || v === "sí" || v === "si" || v === "yes" || v === "1") val = "Sí";
+      else if (v === "false" || v === "no" || v === "0") val = "No";
+    }
+    const nota = iNota >= 0 ? String(fila[iNota] || "").trim() : "";
+    reg.entries[preg] = nota ? (val ? `${val} — ${nota}` : nota) : (val || "—");
+    porDia.set(k, reg);
+  });
+  const out = [...porDia.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
+  return out.length ? out : null;
+}
+
 // Devuelve { bodyweight: [...], steps: [...] } listo para volcar en
 // history, más un resumen de qué se encontró para poder mostrarlo antes
 // de escribir nada.
@@ -20478,8 +20711,24 @@ async function importFromZip(buf) {
   const csvs = entries.filter((e) => /\.csv$/i.test(e.name));
   if (!csvs.length) return { error: "No encontré ningún .csv ni export.xml adentro del .zip." };
   let out = {};
+  // Los dos CSV de WHOOP que NO son métricas diarias se leen con su
+  // propio parser: entrenamientos (varias filas por día) y diario
+  // (formato largo, una fila por pregunta). Se reconocen por sus
+  // columnas, no por el nombre del archivo, que cambia con el idioma.
   for (const c of csvs) {
-    const r = importFromCsv(await c.text());
+    const texto = await c.text();
+    const crudo = parseCsv(texto);
+    if (crudo && esCsvWorkouts(crudo.cols)) {
+      const acts = importWhoopWorkouts(crudo);
+      if (acts) out.activities = [...(out.activities || []), ...acts];
+      continue;
+    }
+    if (crudo && esCsvJournal(crudo.cols)) {
+      const dia = importWhoopJournal(crudo);
+      if (dia) out.journal = [...(out.journal || []), ...dia];
+      continue;
+    }
+    const r = importFromCsv(texto);
     if (r.error) continue;
     Object.keys(r.out).forEach((store) => { out[store] = [...(out[store] || []), ...r.out[store]]; });
   }
@@ -20491,6 +20740,13 @@ async function importFromZip(buf) {
   // columnas que trae un archivo y no el otro.
   const conteo = {};
   Object.keys(out).forEach((store) => {
+    // Las actividades NO se fusionan por día: un día puede tener tres
+    // entrenamientos distintos y fusionarlos dejaría uno solo, con los
+    // campos de los otros pisados encima. Solo se ordenan.
+    if (store === "activities") {
+      out[store] = [...out[store]].sort((a, b) => new Date(a.date) - new Date(b.date));
+      return;
+    }
     const porDia = new Map();
     out[store].forEach((r) => {
       const k = (r.date || "").slice(0, 10);
@@ -20498,9 +20754,10 @@ async function importFromZip(buf) {
     });
     out[store] = [...porDia.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
   });
-  const LABEL = { bodyweight: "Peso", steps: "Pasos", sleep: "Sueño", physio: "Recuperación" };
+  const LABEL = { bodyweight: "Peso", steps: "Pasos", sleep: "Sueño", physio: "Recuperación",
+    activities: "Entrenamientos", journal: "Diario" };
   Object.keys(out).forEach((store) => { if (out[store].length) conteo[LABEL[store] || store] = out[store].length; });
-  if (!Object.keys(conteo).length) return { error: "El .zip no traía ningún CSV legible (peso, pasos, sueño o recuperación)." };
+  if (!Object.keys(conteo).length) return { error: "El .zip no traía ningún CSV legible (peso, pasos, sueño, recuperación, entrenamientos o diario)." };
   return { out, conteo };
 }
 
@@ -20634,10 +20891,18 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
     const h = structuredClone(history);
     Object.keys(previo.out).forEach((store) => {
       const previas = h[store] || [];
-      const yaHay = new Set(previas.map((x) => (x.date || "").slice(0, 10)));
-      // No se pisan los registros que ya existen para ese día: importar
-      // dos veces el mismo archivo no duplica nada.
-      h[store] = [...previas, ...previo.out[store].filter((x) => !yaHay.has((x.date || "").slice(0, 10)))]
+      // Qué hace único a un registro. Para las métricas diarias es el DÍA
+      // (una recuperación, un sueño por fecha). Para las actividades no:
+      // un martes puede tener una corrida a la mañana y fútbol a la
+      // noche, y deduplicar por día se comería la segunda. Ahí la clave
+      // es el instante exacto más el nombre.
+      const clave = store === "activities"
+        ? (x) => `${x.date}|${x.name || ""}`
+        : (x) => (x.date || "").slice(0, 10);
+      const yaHay = new Set(previas.map(clave));
+      // No se pisan los registros que ya existen: importar dos veces el
+      // mismo archivo no duplica nada.
+      h[store] = [...previas, ...previo.out[store].filter((x) => !yaHay.has(clave(x)))]
         .sort((a, b) => new Date(a.date) - new Date(b.date));
     });
     saveHistory(h);
