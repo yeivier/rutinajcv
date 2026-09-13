@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v274";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v275";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8339,7 +8339,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, onOpenAIChat, onLeave, onOpenDevices }) => {
+const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, fxRestSeg, onOpenAIChat, onLeave, onOpenDevices }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
   // Marca de tiempo del último fin de descanso: dispara el destello en
@@ -8351,6 +8351,14 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
      exacto aunque la pestaña esté quieta, y se reprograma solo cuando se
      suma o resta tiempo con ±15. Qué hace el aviso lo decide el atleta en
      Ajustes; si apagó todo, esto no hace nada y queda como antes. */
+  /* Descanso pedido por un Atajo de iPhone (?fx=descanso). La señal trae su
+     marca de tiempo para que dos atajos seguidos con los mismos segundos
+     igual disparen dos veces. */
+  useEffect(() => {
+    if (!fxRestSeg || !fxRestSeg.seg) return;
+    setTimer({ exIdx: 0, setIdx: -1, endsAt: Date.now() + fxRestSeg.seg * 1000, total: fxRestSeg.seg });
+  }, [fxRestSeg && fxRestSeg.n]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const preavisoRef = useRef(null);
   useEffect(() => {
     if (!timer) return;
@@ -19978,7 +19986,109 @@ const SECTION_LABELS = {
   actividad: "Actividad", rankings: "Rankings", cobros: "Cobros", leads: "Leads",
   rutina: "Rutina", borradores: "Borradores", nutricion: "Nutrición", ia: "IA",
 };
+/* Pantalla "Atajos de iPhone". Cumple el mismo papel que la pantalla de
+   ayuda de Setgraph: decir qué se puede automatizar y cómo. La diferencia
+   —y se dice sin vueltas— es que FORJA es una web app: no puede publicar
+   acciones dentro de la app Atajos (eso es App Intents, solo para apps
+   nativas), pero sí puede recibir la URL que arma un atajo hecho a mano.
+   El gesto final es idéntico: ícono en la pantalla de inicio → teclado
+   numérico nativo → registrado. */
+const AtajosTab = ({ toast }) => {
+  const base = (() => {
+    try { return `${window.location.origin}/`; } catch { return "https://fitnesselitetracker.com/"; }
+  })();
+  const urlDe = (a) => {
+    const ps = a.params.map((p) => `${p.k}=`).join("&");
+    return `${base}?${FX_PARAM}=${a.id}${ps ? "&" + ps : ""}`;
+  };
+  const copiar = async (txt) => {
+    try { await navigator.clipboard.writeText(txt); toast && toast("✓ Copiado"); }
+    catch { toast && toast("No se pudo copiar — mantené pulsado el texto"); }
+  };
+  return (
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
+      <ScreenTitle title="Atajos de iPhone"
+        sub="Registrá una serie sin abrir la app: tocás un ícono y anotás." />
+
+      {/* Lo primero, la verdad sobre el alcance. */}
+      <Card style={{ padding: "14px 15px", marginBottom: SP.stack }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 7 }}>
+          <Info size={16} color={P.faint} style={{ flexShrink: 0 }} />
+          <div style={{ ...TYPE.subhead, color: P.text }}>Cómo funciona, sin vueltas</div>
+        </div>
+        <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.55 }}>
+          FORJA es una web app. Las apps nativas pueden meter sus acciones
+          <b> dentro</b> de la app Atajos; una web no. Lo que sí se puede —y es
+          el mismo gesto— es armar el atajo una vez con «Pedir entrada» y
+          «Abrir URL»: al tocarlo sale el teclado numérico de iOS, escribís el
+          número y queda registrado en tu sesión.
+        </div>
+      </Card>
+
+      {/* El paso a paso, una sola vez. */}
+      <Card style={{ padding: "14px 15px", marginBottom: SP.section }}>
+        <div style={{ ...TYPE.subhead, color: P.text, marginBottom: 8 }}>Armarlo una vez (2 minutos)</div>
+        <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.6 }}>
+          1. Abrí la app <b>Atajos</b> → <b>+</b> (atajo nuevo).<br />
+          2. Agregá la acción <b>«Pedir entrada»</b> → tipo <b>Número</b> → pregunta:
+          «¿Cuántas repeticiones?».<br />
+          3. Agregá <b>«Abrir URL»</b> y pegá la URL de abajo.<br />
+          4. En la URL, donde dice <b>reps=</b>, poné el cursor justo después del
+          «=» e insertá la variable <b>Entrada proporcionada</b>.<br />
+          5. Ponele nombre, y con <b>«Agregar a pantalla de inicio»</b> te queda
+          el ícono a mano.
+        </div>
+      </Card>
+
+      <div className="mono" style={{ margin: "0 4px 8px", letterSpacing: ".08em" }}>Acciones disponibles</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: SP.stack }}>
+        {FX_ACCIONES.map((a) => {
+          const url = urlDe(a);
+          return (
+            <Card key={a.id} style={{ padding: "14px 15px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                <span style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, background: P.s3,
+                  display: "flex", alignItems: "center", justifyContent: "center", color: P.text }}>
+                  <a.icono size={15} strokeWidth={2.2} />
+                </span>
+                <div style={{ ...TYPE.headline, color: P.text, flex: 1, minWidth: 0 }}>{a.label}</div>
+              </div>
+              <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.45, marginBottom: 9 }}>{a.desc}</div>
+              {a.params.length > 0 && (
+                <div style={{ marginBottom: 9 }}>
+                  {a.params.map((p) => (
+                    <div key={p.k} style={{ display: "flex", gap: 8, padding: "3px 0", ...TYPE.caption, color: P.faint }}>
+                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
+                        fontWeight: 700, color: P.dim, minWidth: 62 }}>{p.k}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        {p.label} · {p.tipo}{p.req ? " · obligatorio" : ""}{p.nota ? ` — ${p.nota}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
+                fontSize: 11.5, color: P.dim, background: P.s3, borderRadius: 8,
+                padding: "9px 10px", marginBottom: 8, wordBreak: "break-all", lineHeight: 1.5,
+                userSelect: "all", WebkitUserSelect: "all" }}>{url}</div>
+              <Btn kind="line" small onClick={() => copiar(url)} style={{ width: "100%" }}>
+                <Copy size={14} /> Copiar URL
+              </Btn>
+            </Card>
+          );
+        })}
+      </div>
+
+      <div style={{ ...TYPE.caption, color: P.faint, textAlign: "center", lineHeight: 1.5, marginTop: SP.section }}>
+        El atajo registra sobre la sesión que tengas en curso. Si no hay
+        ninguna abierta, te lo avisa y no anota nada.
+      </div>
+    </div>
+  );
+};
+
 const UTILITY_SCREENS = {
+  atajos: { label: "Atajos de iPhone", Icon: Smartphone },
   timer: { label: "Temporizador", Icon: Timer },
   guia:  { label: "Guía de términos", Icon: BookOpen },
   agenda: { label: "Agenda", Icon: Calendar },
@@ -21685,6 +21795,7 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
       { key: "examenes", Icon: FileText, label: "Exámenes con IA", kw: "inbody dexa composición corporal pdf informe leer indicadores", onClick: onOpenExams },
     ] },
     { label: "Herramientas", rows: [
+      { key: "atajos", Icon: Smartphone, label: "Atajos de iPhone", kw: "siri shortcuts atajo pantalla de inicio registrar rapido widget", onClick: () => onOpenUtility("atajos") },
       { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva cronómetro", onClick: () => onOpenUtility("timer") },
       { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "qué significa etiqueta rutina", onClick: () => onOpenUtility("guia") },
       { key: "atlas", Icon: Library, label: "Ejercicios", kw: "atlas biblioteca buscar catálogo movimientos", onClick: onOpenAtlas },
@@ -23188,6 +23299,12 @@ const App = () => {
   // vuelva a null (si no, reabrir la pestaña Entrenar más tarde
   // arrancaría la sesión de nuevo sin que nadie lo pidiera).
   const [abrirDiaId, setAbrirDiaId] = useState(null);
+  /* Atajos de iPhone: resultado de la acción que vino en la URL (?fx=…) y
+     la señal de "arrancá un descanso de N segundos" que TrainTab consume
+     —el cronómetro vive allá, no acá, igual que `abrirDiaId`. */
+  const [fxRes, setFxRes] = useState(null);
+  const [fxRestSeg, setFxRestSeg] = useState(null);
+  const fxHecho = useRef(false);
   const [routineView, setRoutineView] = useRoutineView();
   // El gesto para ocultar/mostrar el botón de IA (antes: tres toques
   // seguidos en cualquier parte de la pantalla) se mudó adentro de AIFab
@@ -23671,6 +23788,23 @@ const App = () => {
 
   const applyActive = useCallback((a) => { activeRef.current = a; setActive(a); }, []);
 
+  /* Atajos de iPhone. Corre UNA sola vez, cuando el alumno y su sesión ya
+     están cargados (si corriera antes, `active` sería null y toda acción
+     contestaría "no hay sesión en curso" aunque sí la haya). Después limpia
+     el parámetro de la URL para que recargar no repita el registro. */
+  useEffect(() => {
+    if (!ready || fxHecho.current) return;
+    const args = leerFx();
+    if (!args) { fxHecho.current = true; return; }
+    fxHecho.current = true;
+    limpiarFx();
+    const res = ejecutarFx(args, {
+      active: activeRef.current, applyActive, saveActive, finishSession,
+      startRestExterno: (seg) => setFxRestSeg({ seg, n: Date.now() }),
+    });
+    setFxRes(res);
+  }, [ready]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const planHistoryRef = useRef({ past: [], future: [] });
   const savePlan = useCallback((p, opts = {}) => {
     setPlan((prev) => {
@@ -23963,6 +24097,7 @@ const App = () => {
         {utility && (
           <div className="sheetIn" {...utilitySwipe}>
             <PushHeader title={UTILITY_SCREENS[utility].label} onBack={() => setUtility(null)} />
+            {utility === "atajos" && <AtajosTab toast={toast} />}
             {utility === "timer" && <TimerTab />}
             {utility === "guia" && (
               <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
@@ -24011,7 +24146,7 @@ const App = () => {
           <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive} savePlan={savePlan}
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
-            abrirDiaId={abrirDiaId} onAutoStartConsumed={() => setAbrirDiaId(null)}
+            abrirDiaId={abrirDiaId} onAutoStartConsumed={() => setAbrirDiaId(null)} fxRestSeg={fxRestSeg}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
             onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} />
         )}
@@ -24221,6 +24356,8 @@ const App = () => {
         onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
         openChatSignal={aiChatOpenSignal} toast={toast} />
       <Toast msg={toastMsg} />
+      {/* Confirmación de lo que registró un Atajo de iPhone. */}
+      <FxConfirmacion res={fxRes} onCerrar={() => setFxRes(null)} />
     </div>
   );
 };
@@ -24273,6 +24410,208 @@ class ErrorBoundary extends React.Component {
    criterio que DEVICE_CATALOG más arriba: un mensaje honesto en vez de
    fingir una conexión que todavía no existe.
    ============================================================ */
+/* ═══════════════════════════════════════════════════════════════════════
+   ATAJOS DE iPHONE — registrar sin abrir la app
+   ───────────────────────────────────────────────────────────────────────
+   Lo que se puede y lo que no, dicho de una vez:
+
+   Las acciones verdes que una app como Setgraph muestra DENTRO de la app
+   Atajos (“Record Reps in Setgraph”) son App Intents: un framework de
+   Swift que solo puede declarar una app nativa de iOS. FORJA es una web
+   app, así que no puede publicarlas. Eso no se arregla con código nuestro.
+
+   Pero el gesto que importa —tocar un ícono en la pantalla de inicio, que
+   salga el teclado numérico nativo preguntando “¿Cuántas repeticiones?” y
+   que quede registrado— NO necesita App Intents: lo hace la propia app
+   Atajos con “Pedir entrada” + “Abrir URL”. Lo único que hacía falta era
+   que FORJA supiera recibir esa URL. Eso es lo que hay acá.
+
+   Formato:  https://…/?fx=<acción>&<parámetros>
+   Ejemplos: ?fx=reps&reps=10
+             ?fx=serie&ex=Curl%20tumbada&kg=60&reps=10&rir=2
+             ?fx=ejercicio&ex=Hip%20thrust&musculo=Glúteo
+
+   Se resuelve apenas carga la app, contra la sesión en curso, y se avisa
+   con una confirmación breve en vez de dejar al atleta tirado en una
+   pestaña cualquiera.
+   ═══════════════════════════════════════════════════════════════════════ */
+const FX_PARAM = "fx";
+
+// Catálogo de acciones. Es la única fuente de verdad: de acá salen tanto
+// el ejecutor como la pantalla de ayuda que muestra las URLs.
+const FX_ACCIONES = [
+  { id: "serie", label: "Registrar serie completa", icono: Dumbbell,
+    desc: "Anota peso y reps en la serie que toca y la marca como hecha.",
+    params: [
+      { k: "kg", label: "Peso", tipo: "número", req: false },
+      { k: "reps", label: "Repeticiones", tipo: "número", req: false },
+      { k: "rir", label: "RIR", tipo: "número", req: false },
+      { k: "ex", label: "Ejercicio", tipo: "texto", req: false, nota: "si no se indica, usa el ejercicio en curso" },
+    ] },
+  { id: "reps", label: "Registrar repeticiones", icono: RotateCcw,
+    desc: "Solo las reps de la serie que toca.",
+    params: [{ k: "reps", label: "Repeticiones", tipo: "número", req: true },
+             { k: "ex", label: "Ejercicio", tipo: "texto", req: false }] },
+  { id: "peso", label: "Registrar peso", icono: Dumbbell,
+    desc: "Solo el peso de la serie que toca.",
+    params: [{ k: "kg", label: "Peso", tipo: "número", req: true },
+             { k: "ex", label: "Ejercicio", tipo: "texto", req: false }] },
+  { id: "ejercicio", label: "Crear ejercicio", icono: Plus,
+    desc: "Agrega un ejercicio a la sesión en curso y lo deja listo para anotar.",
+    params: [{ k: "ex", label: "Nombre", tipo: "texto", req: true },
+             { k: "musculo", label: "Músculo", tipo: "texto", req: false },
+             { k: "series", label: "Series", tipo: "número", req: false }] },
+  { id: "descanso", label: "Arrancar descanso", icono: Timer,
+    desc: "Pone en marcha el cronómetro de descanso.",
+    params: [{ k: "seg", label: "Segundos", tipo: "número", req: false, nota: "por defecto, el descanso del ejercicio" }] },
+  { id: "terminar", label: "Terminar sesión", icono: Check,
+    desc: "Cierra la sesión en curso y la guarda en el historial.", params: [] },
+];
+
+// Lee los parámetros de la URL actual. Devuelve null si no hay acción.
+function leerFx() {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const fx = q.get(FX_PARAM);
+    if (!fx) return null;
+    const obj = { fx };
+    q.forEach((v, k) => { if (k !== FX_PARAM) obj[k] = v; });
+    return obj;
+  } catch { return null; }
+}
+
+// Saca la acción de la URL sin recargar, para que un F5 no la repita.
+function limpiarFx() {
+  try { window.history.replaceState(null, "", window.location.pathname); } catch {}
+}
+
+const fxNum = (v) => { const n = parseFloat(String(v).replace(",", ".")); return isFinite(n) ? n : null; };
+
+/* Ejecuta una acción sobre la sesión activa. Devuelve
+   { ok, titulo, detalle } para la confirmación. No toca nada si no hay
+   sesión en curso y la acción la necesita: avisa y listo. */
+function ejecutarFx(args, ctx) {
+  const { active, applyActive, saveActive, finishSession, startRestExterno } = ctx;
+  const fx = args.fx;
+
+  if (fx === "terminar") {
+    if (!active) return { ok: false, titulo: "No hay sesión en curso", detalle: "Empezá una sesión y volvé a intentarlo." };
+    finishSession(active);
+    return { ok: true, titulo: "Sesión terminada", detalle: "Quedó guardada en tu historial." };
+  }
+  if (!active) {
+    return { ok: false, titulo: "No hay sesión en curso", detalle: "Abrí FORJA, empezá tu entrenamiento y el atajo va a registrar sobre esa sesión." };
+  }
+
+  const snap = structuredClone(active);
+
+  // Ejercicio de destino: el que diga el atajo (por nombre, sin distinguir
+  // mayúsculas ni acentos) o, si no dice, el primero con series pendientes.
+  const norm = (x) => (x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const buscarEx = () => {
+    if (args.ex) {
+      const i = snap.exs.findIndex((e) => norm(e.name) === norm(args.ex));
+      if (i >= 0) return i;
+      const j = snap.exs.findIndex((e) => norm(e.name).includes(norm(args.ex)));
+      if (j >= 0) return j;
+      return -1;
+    }
+    const i = snap.exs.findIndex((e) => (e.sets || []).some((st) => !st.done));
+    return i >= 0 ? i : (snap.exs.length ? 0 : -1);
+  };
+
+  if (fx === "ejercicio") {
+    const nombre = (args.ex || "").trim();
+    if (!nombre) return { ok: false, titulo: "Falta el nombre", detalle: "El atajo tiene que mandar el parámetro «ex»." };
+    const nSeries = Math.max(1, Math.min(10, fxNum(args.series) || 3));
+    snap.exs.push({
+      id: uid(), name: nombre, muscle: (args.musculo || "Otro").trim() || "Otro",
+      equipment: "", rest: 90, video: "", superset: "", notes: "", secondary: [],
+      sets: Array.from({ length: nSeries }, () => ({ id: uid(), type: "normal", repsT: "8-12", rirT: "",
+        weight: "", reps: "", rir: "", done: false, comment: "", drops: [] })),
+    });
+    applyActive(snap); saveActive(snap);
+    return { ok: true, titulo: `«${nombre}» agregado`, detalle: `${nSeries} ${nSeries === 1 ? "serie" : "series"} listas para anotar.` };
+  }
+
+  const ei = buscarEx();
+  if (ei < 0) return { ok: false, titulo: "No encontré ese ejercicio", detalle: args.ex ? `No hay ningún «${args.ex}» en la sesión de hoy.` : "La sesión no tiene ejercicios todavía." };
+  const ex = snap.exs[ei];
+
+  if (fx === "descanso") {
+    const seg = Math.max(5, Math.min(3600, fxNum(args.seg) || ex.rest || 90));
+    startRestExterno && startRestExterno(seg);
+    return { ok: true, titulo: "Descanso en marcha", detalle: `${seg} segundos.` };
+  }
+
+  // Serie de destino: la primera sin marcar (de trabajo o calentamiento).
+  const si = (ex.sets || []).findIndex((st) => !st.done);
+  if (si < 0) return { ok: false, titulo: "Ese ejercicio ya está completo", detalle: `Todas las series de «${ex.name}» están marcadas.` };
+  const st = ex.sets[si];
+
+  const kg = fxNum(args.kg), reps = fxNum(args.reps), rir = fxNum(args.rir);
+  if (fx === "peso" && kg == null) return { ok: false, titulo: "Falta el peso", detalle: "El atajo tiene que mandar «kg»." };
+  if (fx === "reps" && reps == null) return { ok: false, titulo: "Faltan las repeticiones", detalle: "El atajo tiene que mandar «reps»." };
+
+  if (kg != null) st.weight = String(kg);
+  if (reps != null) st.reps = String(reps);
+  if (rir != null) st.rir = String(rir);
+
+  // Una serie con peso Y reps se da por hecha; si vino un dato suelto, se
+  // anota pero se deja sin marcar (falta la otra mitad).
+  const completa = st.weight !== "" && st.weight != null && st.reps !== "" && st.reps != null;
+  if (completa && (fx === "serie" || fx === "reps" || fx === "peso")) {
+    st.done = true;
+    st.doneAt = new Date().toISOString();
+  }
+  applyActive(snap); saveActive(snap);
+
+  // Etiqueta igual que en pantalla: la aproximación numera aparte.
+  const esWarm = st.type === "warmup";
+  const nro = ex.sets.slice(0, si + 1).filter((x) => (x.type === "warmup") === esWarm).length;
+  const etiqueta = esWarm ? `Aprox. ${nro}` : `Serie ${nro}`;
+  const partes = [];
+  if (st.weight) partes.push(`${String(st.weight).replace(".", ",")} kg`);
+  if (st.reps) partes.push(`${st.reps} reps`);
+  return {
+    ok: true,
+    titulo: `${etiqueta} de ${ex.name}`,
+    detalle: (partes.join(" × ") || "anotada") + (st.done ? " · marcada como hecha" : " · falta el otro dato para marcarla"),
+  };
+}
+
+/* Confirmación de lo que hizo el atajo. Aparece encima de todo y se va
+   sola: el atleta viene de tocar un ícono en la pantalla de inicio, no
+   quiere navegar — quiere ver "listo" y volver a la barra. */
+const FxConfirmacion = ({ res, onCerrar }) => {
+  useEffect(() => {
+    if (!res) return;
+    const t = setTimeout(onCerrar, res.ok ? 4000 : 8000);
+    return () => clearTimeout(t);
+  }, [res]);   // eslint-disable-line react-hooks/exhaustive-deps
+  if (!res) return null;
+  return (
+    <div onClick={onCerrar}
+      style={{ position: "fixed", inset: 0, zIndex: 120, background: "rgba(5,3,3,.55)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div onClick={(e) => e.stopPropagation()} className="sheetIn"
+        style={{ width: "100%", maxWidth: 340, background: P.s1, border: `1px solid ${P.frame}`,
+          borderRadius: 20, padding: "22px 20px", textAlign: "center" }}>
+        <div style={{ width: 52, height: 52, borderRadius: 26, margin: "0 auto 14px",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: res.ok ? PLATE_GRAD : P.s3, color: res.ok ? PLATE_FG : P.dim }}>
+          {res.ok ? <Check size={26} strokeWidth={3} /> : <AlertTriangle size={24} />}
+        </div>
+        <div style={{ ...TYPE.title, color: P.text, marginBottom: 6 }}>{res.titulo}</div>
+        <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.5 }}>{res.detalle}</div>
+        <Btn kind={res.ok ? "line" : "ember"} onClick={onCerrar} style={{ width: "100%", marginTop: 16 }}>
+          {res.ok ? "Seguir entrenando" : "Entendido"}
+        </Btn>
+      </div>
+    </div>
+  );
+};
+
 const WHOOP_CALLBACK_PATH = "/integrations/whoop/callback";
 
 const WhoopCallbackScreen = () => {
