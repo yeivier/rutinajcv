@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v277";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v278";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -261,6 +261,139 @@ function hexRgba(hex, alpha) {
   const n = parseInt(full, 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
+/* ═══════════════════════════════════════════════════════════════════════
+   COLOR A ELECCIÓN (v278)
+   ───────────────────────────────────────────────────────────────────────
+   Hasta acá el acento y el fondo salían de dos listas fijas. Ahora se
+   puede elegir CUALQUIER color, con el selector de iOS (cuadrícula,
+   espectro y reguladores). Las listas de siempre quedan como atajos.
+
+   Elegir un color suelto trae un problema que la lista fija no tenía:
+   nadie garantiza que se lea. Un acento amarillo con texto blanco encima
+   es ilegible, y un fondo azul marino deja el texto negro invisible. Por
+   eso todo color elegido pasa por la misma cuenta que usa la WCAG —
+   luminancia relativa y razón de contraste— y la app deriva sola la
+   tinta que va encima, y el tono que corresponde en modo oscuro.
+   ═══════════════════════════════════════════════════════════════════════ */
+function hexToRgb(hex) {
+  const h = String(hex || "").replace("#", "").trim();
+  const full = h.length === 3 ? h.split("").map((x) => x + x).join("") : h;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null;
+  const n = parseInt(full, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+const clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+function rgbToHex(r, g, b) {
+  return "#" + [r, g, b].map((v) => clamp255(v).toString(16).padStart(2, "0")).join("").toUpperCase();
+}
+const esHex = (v) => !!hexToRgb(v);
+
+// HSV es el espacio del selector: el espectro es tono × saturación con el
+// brillo aparte, que es exactamente cómo se piensa "este mismo color pero
+// más claro".
+function rgbToHsv(r, g, b) {
+  const R = r / 255, G = g / 255, B = b / 255;
+  const max = Math.max(R, G, B), min = Math.min(R, G, B), d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === R) h = ((G - B) / d) % 6;
+    else if (max === G) h = (B - R) / d + 2;
+    else h = (R - G) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return { h, s: max === 0 ? 0 : d / max, v: max };
+}
+function hsvToRgb(h, s, v) {
+  const H = ((h % 360) + 360) % 360;
+  const c = v * s, x = c * (1 - Math.abs(((H / 60) % 2) - 1)), m = v - c;
+  let r = 0, g = 0, b = 0;
+  if (H < 60) { r = c; g = x; }
+  else if (H < 120) { r = x; g = c; }
+  else if (H < 180) { g = c; b = x; }
+  else if (H < 240) { g = x; b = c; }
+  else if (H < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+  return { r: clamp255((r + m) * 255), g: clamp255((g + m) * 255), b: clamp255((b + m) * 255) };
+}
+const hsvToHex = (h, s, v) => { const c = hsvToRgb(h, s, v); return rgbToHex(c.r, c.g, c.b); };
+
+// Luminancia relativa y razón de contraste, tal como las define la WCAG.
+// No es un "se ve bien o no" a ojo: es la cuenta con la que se decide si
+// un texto se lee encima de un color.
+function luminanciaRel(hex) {
+  const c = hexToRgb(hex);
+  if (!c) return 0;
+  const f = (u) => { const x = u / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+}
+function contraste(hexA, hexB) {
+  const a = luminanciaRel(hexA), b = luminanciaRel(hexB);
+  const hi = Math.max(a, b), lo = Math.min(a, b);
+  return (hi + 0.05) / (lo + 0.05);
+}
+// La tinta que se lee encima de un color: blanco o casi negro, la que
+// gane en contraste. No se elige a ojo ni por "es un color claro".
+function tintaSobre(hex) {
+  return contraste(hex, "#FFFFFF") >= contraste(hex, "#101012") ? "#FFFFFF" : "#101012";
+}
+
+// Mueve un color hacia arriba o abajo en brillo conservando su identidad
+// (mismo tono y saturación). Es lo que permite que un acento elegido en
+// claro tenga su versión de modo oscuro sin pedirle al usuario dos.
+function ajustarBrillo(hex, v2) {
+  const c = hexToRgb(hex);
+  if (!c) return hex;
+  const { h, s } = rgbToHsv(c.r, c.g, c.b);
+  return hsvToHex(h, s, Math.max(0, Math.min(1, v2)));
+}
+
+// El par claro/oscuro de un acento elegido a mano. En fondo claro el
+// color va casi tal cual (solo se le baja el brillo si viene tan pálido
+// que un botón teñido con él se perdería). En fondo oscuro se levanta,
+// porque un azul marino sobre gris oscuro no se distingue de nada.
+function acentoDeHex(hex) {
+  const c = hexToRgb(hex);
+  if (!c) return null;
+  const { h, s, v } = rgbToHsv(c.r, c.g, c.b);
+  const cl = v > 0.86 && s < 0.65 ? hsvToHex(h, Math.min(1, s + 0.1), 0.78) : hex;
+  const dk = v < 0.55 ? hsvToHex(h, Math.max(0, s - 0.12), Math.min(1, v + 0.35)) : hex;
+  return { light: { c: cl, ink: tintaSobre(cl) }, dark: { c: dk, ink: tintaSobre(dk) } };
+}
+
+// Un acento personalizado se guarda como "custom:#RRGGBB" en la misma
+// preferencia de siempre, así todo lo que ya leía `ACCENT` sigue andando.
+const ACCENT_CUSTOM_PREFIX = "custom:";
+const esAcentoCustom = (id) => typeof id === "string" && id.startsWith(ACCENT_CUSTOM_PREFIX);
+const hexDeAcento = (id) => (esAcentoCustom(id) ? id.slice(ACCENT_CUSTOM_PREFIX.length) : null);
+function acentoResuelto(id) {
+  if (esAcentoCustom(id)) {
+    const d = acentoDeHex(hexDeAcento(id));
+    return d ? { id, name: "Personalizado", ...d } : null;
+  }
+  return ACCENT_BY_ID[id] || null;
+}
+
+// La cuadrícula del selector de iOS: una fila de grises (blanco → negro) y
+// después 12 columnas de tono por 10 filas, de oscuro a claro.
+const PICKER_COLS = 12;
+const GRID_GRISES = Array.from({ length: PICKER_COLS }, (_, i) => {
+  const v = 1 - i / (PICKER_COLS - 1);
+  return rgbToHex(v * 255, v * 255, v * 255);
+});
+const GRID_COLORES = (() => {
+  const filas = [];
+  const niveles = [
+    { s: 1.00, v: 0.28 }, { s: 1.00, v: 0.42 }, { s: 1.00, v: 0.56 }, { s: 1.00, v: 0.70 },
+    { s: 1.00, v: 0.86 }, { s: 0.82, v: 1.00 }, { s: 0.62, v: 1.00 }, { s: 0.44, v: 1.00 },
+    { s: 0.28, v: 1.00 }, { s: 0.14, v: 1.00 },
+  ];
+  niveles.forEach((n) => {
+    filas.push(Array.from({ length: PICKER_COLS }, (_, c) => hsvToHex((c / PICKER_COLS) * 360 + 195, n.s, n.v)));
+  });
+  return filas;
+})();
+
 // Acentos que existían antes (morados/rosados, ya retirados): se migran al
 // tono masculino más cercano para no dejar la preferencia del usuario en
 // blanco cuando abra la app con la paleta nueva.
@@ -271,7 +404,7 @@ try {
   if (ACCENT_MIGRATE[ACCENT]) { ACCENT = ACCENT_MIGRATE[ACCENT]; window.localStorage.setItem("forja-accent", ACCENT); }
 } catch {}
 function applyAccent(resolved) {
-  const a = ACCENT_BY_ID[ACCENT];
+  const a = acentoResuelto(ACCENT);
   if (!a || !a.light) return; // "tema" (o valor desconocido): sin override, look de fábrica
   const v = resolved === "dark" ? a.dark : a.light;
   P.ember = v.c; P.ember2 = v.c; P.glow = v.c; P.prog = v.c;
@@ -366,6 +499,26 @@ function useAccent() {
 // Fondo personalizado. `_persistBg` guarda/borra la preferencia; `applyBgPref`
 // elige un tono concreto (siempre sobre la base clara); `setAppearance`
 // resuelve las tres opciones de Apariencia (Claro / Oscuro / Personalizado).
+// Un fondo personalizado se pinta DEBAJO de texto oscuro (las tarjetas
+// siguen blancas y la tipografía negra). Un azul marino elegido a mano
+// dejaría ilegible todo lo que va suelto sobre el fondo. Así que se
+// respeta el TONO que eligió el usuario y se lo lleva al tono más
+// cercano que sí se lee — subiendo brillo y bajando saturación hasta
+// pasar el 4.5:1 de la WCAG contra el texto. Se le avisa cuando pasa:
+// cambiarle el color en silencio sería peor que no dejarlo elegir.
+const BG_CONTRASTE_MIN = 4.5;
+function fondoLegible(hex) {
+  if (!esHex(hex)) return { hex, ajustado: false };
+  if (contraste(hex, "#101012") >= BG_CONTRASTE_MIN) return { hex, ajustado: false };
+  const c = hexToRgb(hex);
+  const { h, s: sat } = rgbToHsv(c.r, c.g, c.b);
+  for (let paso = 1; paso <= 20; paso++) {
+    const cand = hsvToHex(h, Math.max(0, sat - paso * 0.035), Math.min(1, 0.45 + paso * 0.0275));
+    if (contraste(cand, "#101012") >= BG_CONTRASTE_MIN) return { hex: cand, ajustado: true };
+  }
+  return { hex: "#F1F2F4", ajustado: true };
+}
+
 function _persistBg() { try { if (BG) window.localStorage.setItem("forja-bg", BG); else window.localStorage.removeItem("forja-bg"); } catch {} }
 function applyBgPref(hex) {
   BG = hex || "";
@@ -20613,6 +20766,12 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
   const [theme, setTheme] = useTheme();
   const [accent, setAccent] = useAccent();
   const [bg, setBg] = useBg();
+  const [pickerAcento, setPickerAcento] = useState(false);
+  const [pickerFondo, setPickerFondo] = useState(false);
+  // Aviso cuando el fondo elegido hubo que aclararlo para que el texto
+  // se siguiera leyendo. Va acá abajo y no en un toast: se entiende
+  // mejor al lado del control que lo provocó.
+  const [avisoFondo, setAvisoFondo] = useState("");
   const [easy, setEasy] = useEasyMode();
   const [aiFab, setAiFab] = useAiFabVisible();
   const [weightUnit, setWeightUnitPref] = useWeightUnit();
@@ -20729,7 +20888,21 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
                   </div>
                 </div>
               ))}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ width: 62, flexShrink: 0, fontSize: 12.5, color: P.faint2 }}>A tu gusto</span>
+                <button onClick={() => setPickerFondo(true)} aria-label="Elegir un color de fondo cualquiera"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 999,
+                    border: `1px dashed ${P.line}`, color: P.dim, fontSize: 12.5, fontWeight: 600 }}>
+                  <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: 999, flexShrink: 0,
+                    background: "conic-gradient(#FF3B30, #FFCC00, #34C759, #00C7BE, #007AFF, #AF52DE, #FF3B30)" }} />
+                  Cualquier color
+                </button>
+              </div>
             </div>
+            {avisoFondo && (
+              <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: R_ROW, background: P.s3,
+                fontSize: 12.5, color: P.dim, lineHeight: 1.45 }}>{avisoFondo}</div>
+            )}
           </div>
         )}
         {/* Color de acento — paleta amplia y personalizable. Tiñe los botones
@@ -20742,7 +20915,7 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
             </span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text }}>Color de acento</div>
-              <div style={{ fontSize: 12.5, color: P.faint }}>{(ACCENT_BY_ID[accent] || ACCENTS[0]).name} — tiñe botones, activos y la sesión</div>
+              <div style={{ fontSize: 12.5, color: P.faint }}>{(acentoResuelto(accent) || ACCENTS[0]).name}{esAcentoCustom(accent) ? ` ${hexDeAcento(accent)}` : ""} — tiñe botones, activos y la sesión</div>
             </div>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
@@ -20760,8 +20933,37 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
                 </button>
               );
             })}
+            {/* Cualquier color, con el selector completo. Si ya hay uno
+                elegido, el círculo lo muestra en vez del "+". */}
+            <button onClick={() => setPickerAcento(true)}
+              aria-label="Elegir un color de acento cualquiera"
+              title="Color personalizado"
+              style={{ width: 38, height: 38, borderRadius: 999, flexShrink: 0, padding: 0,
+                background: esAcentoCustom(accent) ? hexDeAcento(accent)
+                  : "conic-gradient(#FF3B30, #FFCC00, #34C759, #00C7BE, #007AFF, #AF52DE, #FF3B30)",
+                border: esAcentoCustom(accent) ? `2px solid ${P.text}` : `1px dashed ${P.line}`,
+                boxShadow: esAcentoCustom(accent) ? `0 0 0 2px ${P.bg}` : "none",
+                display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {esAcentoCustom(accent)
+                ? <Check size={17} color={tintaSobre(hexDeAcento(accent))} strokeWidth={3} />
+                : <Plus size={17} color={P.text} strokeWidth={3} />}
+            </button>
           </div>
         </div>
+        <ColorPickerSheet open={pickerAcento} onClose={() => setPickerAcento(false)}
+          title="Color de acento"
+          value={esAcentoCustom(accent) ? hexDeAcento(accent) : (accentSwatch(ACCENT_BY_ID[accent] || {}) || "#0A6CFF")}
+          onChange={(hex) => setAccent(ACCENT_CUSTOM_PREFIX + hex)} />
+        <ColorPickerSheet open={pickerFondo} onClose={() => setPickerFondo(false)}
+          title="Color de fondo"
+          value={bg || DEFAULT_BG}
+          onChange={(hex) => {
+            const r = fondoLegible(hex);
+            setBg(r.hex);
+            setAvisoFondo(r.ajustado
+              ? `${hex} dejaba el texto ilegible: se usó ${r.hex}, el tono más cercano de ese mismo color que sí se lee.`
+              : "");
+          }} />
         <SettingRow Icon={Ruler} label="Unidad de peso" hint={weightUnit === "kg" ? "Kilogramos" : "Libras"}
           control={<SectionSwitch items={[{ id: "kg", label: "kg" }, { id: "lb", label: "lb" }]} value={weightUnit} onChange={setWeightUnitPref} />} />
         <SettingRow Icon={Ruler} label="Unidad de medidas" hint={measureUnit === "cm" ? "Centímetros" : "Pulgadas"}
@@ -21024,6 +21226,206 @@ const AtajosTab = ({ toast }) => {
         ninguna abierta, te lo avisa y no anota nada.
       </div>
     </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SELECTOR DE COLOR (v278) — el de iOS: cuadrícula, espectro, reguladores
+   ═══════════════════════════════════════════════════════════════════════ */
+
+// Los últimos colores usados, para no tener que volver a cazarlos en el
+// espectro. Viven en el aparato: son una comodidad, no un dato del plan.
+const COLOR_RECIENTES_MAX = 10;
+function leerRecientes() {
+  try {
+    const raw = window.localStorage.getItem("forja-color-recientes");
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter(esHex).slice(0, COLOR_RECIENTES_MAX) : [];
+  } catch { return []; }
+}
+function guardarReciente(hex) {
+  try {
+    const prev = leerRecientes().filter((c) => c.toLowerCase() !== hex.toLowerCase());
+    window.localStorage.setItem("forja-color-recientes", JSON.stringify([hex, ...prev].slice(0, COLOR_RECIENTES_MAX)));
+  } catch {}
+}
+
+// Campo 2D del espectro: tono en horizontal, saturación en vertical
+// (arriba saturado, abajo blanco). El brillo va aparte, en su regulador —
+// igual que en iOS, y es como uno piensa "este mismo color, más oscuro".
+const EspectroCampo = ({ h, s, v, onPick }) => {
+  const ref = useRef(null);
+  const arrastrando = useRef(false);
+  const desde = (e) => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const px = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    const py = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    onPick(px * 360, 1 - py);
+  };
+  return (
+    <div ref={ref}
+      onPointerDown={(e) => { arrastrando.current = true; e.currentTarget.setPointerCapture(e.pointerId); desde(e); }}
+      onPointerMove={(e) => { if (arrastrando.current) desde(e); }}
+      onPointerUp={() => { arrastrando.current = false; }}
+      onPointerCancel={() => { arrastrando.current = false; }}
+      style={{ position: "relative", width: "100%", height: 200, borderRadius: R_TILE, overflow: "hidden",
+        touchAction: "none", cursor: "crosshair", border: `1px solid ${P.frame}` }}>
+      <div style={{ position: "absolute", inset: 0, background:
+        "linear-gradient(to right, #FF0000, #FFFF00, #00FF00, #00FFFF, #0000FF, #FF00FF, #FF0000)" }} />
+      <div style={{ position: "absolute", inset: 0, background:
+        "linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,1))" }} />
+      <div style={{ position: "absolute", inset: 0, background: `rgba(0,0,0,${1 - v})`, pointerEvents: "none" }} />
+      <span aria-hidden="true" style={{ position: "absolute", width: 22, height: 22, borderRadius: 999,
+        left: `${(h / 360) * 100}%`, top: `${(1 - s) * 100}%`, transform: "translate(-50%, -50%)",
+        background: hsvToHex(h, s, v), border: "3px solid #FFFFFF",
+        boxShadow: "0 0 0 1px rgba(0,0,0,.35)", pointerEvents: "none" }} />
+    </div>
+  );
+};
+
+// Un regulador con su pista teñida: se ve a dónde lleva antes de moverlo.
+const ColorSlider = ({ label, value, max, onChange, pista, sufijo }) => (
+  <div style={{ marginBottom: SP.md }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+      <span style={{ ...TYPE.footnote, color: P.faint }}>{label}</span>
+      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12.5, color: P.dim }}>
+        {Math.round(value)}{sufijo || ""}
+      </span>
+    </div>
+    <div style={{ position: "relative", height: 26 }}>
+      <div aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, top: 9, height: 8,
+        borderRadius: 999, background: pista, border: `1px solid ${P.frame}` }} />
+      <input type="range" min={0} max={max} step={max > 100 ? 1 : 0.5} value={value}
+        aria-label={label} onChange={(e) => onChange(+e.target.value)}
+        style={{ position: "relative", width: "100%", margin: 0, background: "transparent", accentColor: P.text }} />
+    </div>
+  </div>
+);
+
+const ColorPickerSheet = ({ open, onClose, value, onChange, title }) => {
+  const [tab, setTab] = useState("cuadricula");
+  const [hsv, setHsv] = useState({ h: 0, s: 1, v: 1 });
+  const [hexTexto, setHexTexto] = useState("");
+  const [recientes, setRecientes] = useState([]);
+
+  useEffect(() => {
+    if (!open) return;
+    const c = hexToRgb(value) || { r: 255, g: 0, b: 0 };
+    setHsv(rgbToHsv(c.r, c.g, c.b));
+    setHexTexto((value || "#FF0000").toUpperCase());
+    setRecientes(leerRecientes());
+  }, [open]);
+
+  const hex = hsvToHex(hsv.h, hsv.s, hsv.v);
+  const rgb = hsvToRgb(hsv.h, hsv.s, hsv.v);
+  const ponerHex = (h2) => {
+    const c = hexToRgb(h2);
+    if (!c) return;
+    setHsv(rgbToHsv(c.r, c.g, c.b));
+    setHexTexto(h2.toUpperCase());
+  };
+  const ponerRgb = (r, g, b) => {
+    setHsv(rgbToHsv(r, g, b));
+    setHexTexto(rgbToHex(r, g, b));
+  };
+  const confirmar = () => { guardarReciente(hex); onChange(hex); onClose(); };
+  const tinta = tintaSobre(hex);
+  const cuentaContraste = contraste(hex, tinta);
+
+  const celda = (c, i) => {
+    const on = c.toLowerCase() === hex.toLowerCase();
+    return (
+      <button key={c + i} onClick={() => ponerHex(c)} aria-label={`Color ${c}`} title={c}
+        style={{ flex: 1, minWidth: 0, aspectRatio: "1", background: c, border: "none", padding: 0,
+          boxShadow: on ? `inset 0 0 0 3px #FFFFFF, inset 0 0 0 4px rgba(0,0,0,.5)` : "none" }} />
+    );
+  };
+
+  return (
+    <Sheet open={open} onClose={onClose} title={title || "Color personalizado"} tall>
+      <SectionSwitch value={tab} onChange={setTab}
+        items={[{ id: "cuadricula", label: "Cuadrícula" }, { id: "espectro", label: "Espectro" }, { id: "reguladores", label: "Reguladores" }]} />
+
+      <div style={{ marginTop: SP.lg }}>
+        {tab === "cuadricula" && (
+          <div style={{ borderRadius: R_TILE, overflow: "hidden", border: `1px solid ${P.frame}` }}>
+            <div style={{ display: "flex" }}>{GRID_GRISES.map(celda)}</div>
+            {GRID_COLORES.map((fila, i) => (
+              <div key={i} style={{ display: "flex" }}>{fila.map(celda)}</div>
+            ))}
+          </div>
+        )}
+
+        {tab === "espectro" && (
+          <>
+            <EspectroCampo h={hsv.h} s={hsv.s} v={hsv.v}
+              onPick={(h2, s2) => { const nu = { ...hsv, h: h2, s: s2 }; setHsv(nu); setHexTexto(hsvToHex(nu.h, nu.s, nu.v)); }} />
+            <div style={{ marginTop: SP.lg }}>
+              <ColorSlider label="Brillo" value={hsv.v * 100} max={100} sufijo=" %"
+                pista={`linear-gradient(to right, #000000, ${hsvToHex(hsv.h, hsv.s, 1)})`}
+                onChange={(x) => { const nu = { ...hsv, v: x / 100 }; setHsv(nu); setHexTexto(hsvToHex(nu.h, nu.s, nu.v)); }} />
+            </div>
+          </>
+        )}
+
+        {tab === "reguladores" && (
+          <>
+            <ColorSlider label="Rojo" value={rgb.r} max={255}
+              pista={`linear-gradient(to right, ${rgbToHex(0, rgb.g, rgb.b)}, ${rgbToHex(255, rgb.g, rgb.b)})`}
+              onChange={(x) => ponerRgb(x, rgb.g, rgb.b)} />
+            <ColorSlider label="Verde" value={rgb.g} max={255}
+              pista={`linear-gradient(to right, ${rgbToHex(rgb.r, 0, rgb.b)}, ${rgbToHex(rgb.r, 255, rgb.b)})`}
+              onChange={(x) => ponerRgb(rgb.r, x, rgb.b)} />
+            <ColorSlider label="Azul" value={rgb.b} max={255}
+              pista={`linear-gradient(to right, ${rgbToHex(rgb.r, rgb.g, 0)}, ${rgbToHex(rgb.r, rgb.g, 255)})`}
+              onChange={(x) => ponerRgb(rgb.r, rgb.g, x)} />
+          </>
+        )}
+      </div>
+
+      {/* Muestra grande + hex escribible: pegar un color de marca es tan
+          válido como cazarlo en el espectro. */}
+      <div style={{ display: "flex", alignItems: "center", gap: SP.md, marginTop: SP.lg }}>
+        <span aria-hidden="true" style={{ width: 62, height: 62, borderRadius: R_TILE, flexShrink: 0,
+          background: hex, border: `1px solid ${P.frame}`, display: "flex", alignItems: "center",
+          justifyContent: "center", color: tinta, fontSize: 12, fontWeight: 700 }}>Aa</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <label style={{ ...TYPE.caption, color: P.faint2, display: "block", marginBottom: 3 }}>HEX</label>
+          <input value={hexTexto} aria-label="Código hexadecimal del color"
+            onChange={(e) => {
+              const t = e.target.value.toUpperCase();
+              setHexTexto(t);
+              const conNum = t.startsWith("#") ? t : "#" + t;
+              if (esHex(conNum)) { const c = hexToRgb(conNum); setHsv(rgbToHsv(c.r, c.g, c.b)); }
+            }}
+            style={{ width: "100%", boxSizing: "border-box", padding: "9px 11px", borderRadius: R_ROW,
+              background: P.s3, border: `1px solid ${esHex(hexTexto.startsWith("#") ? hexTexto : "#" + hexTexto) ? P.frame : P.red}`,
+              color: P.text, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 15 }} />
+        </div>
+      </div>
+
+      <div style={{ ...TYPE.caption, color: P.faint2, marginTop: SP.sm }}>
+        El texto encima sale {tinta === "#FFFFFF" ? "blanco" : "oscuro"} — contraste {cuentaContraste.toFixed(1)}:1
+        {cuentaContraste < 4.5 ? " (bajo: cuesta leerlo)" : ""}
+      </div>
+
+      {recientes.length > 0 && (
+        <div style={{ marginTop: SP.lg }}>
+          <div className="mono" style={{ margin: "0 2px 8px" }}>Recientes</div>
+          <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap" }}>
+            {recientes.map((c) => (
+              <button key={c} onClick={() => ponerHex(c)} aria-label={`Color reciente ${c}`} title={c}
+                style={{ width: 34, height: 34, borderRadius: 999, flexShrink: 0, background: c,
+                  border: c.toLowerCase() === hex.toLowerCase() ? `2px solid ${P.text}` : `1px solid ${P.line}` }} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Btn kind="ember" onClick={confirmar} style={{ width: "100%", marginTop: SP.xl }}>Usar este color</Btn>
+    </Sheet>
   );
 };
 
