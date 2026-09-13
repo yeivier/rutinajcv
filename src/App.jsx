@@ -19010,7 +19010,7 @@ const MuscleVolumeRow = ({ r, max, compact, days }) => {
 /* La hoja que lleva una rutina al MRV exacto y la guarda como borrador.
    Trabaja sobre los días que el panel de Volumen tiene a la vista, así
    que ajusta exactamente la rutina que se está mirando. */
-const MrvSheet = ({ open, onClose, days, refTable, etiqueta, toast }) => {
+const MrvSheet = ({ open, onClose, days, refTable, etiqueta, perfil, toast }) => {
   const [sel, setSel] = useState(["Hombro", "Bíceps", "Tríceps"]);
   const [nombre, setNombre] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -19029,7 +19029,7 @@ const MrvSheet = ({ open, onClose, days, refTable, etiqueta, toast }) => {
 
   const guardar = async () => {
     if (!res) return;
-    const nom = (nombre.trim() || `${etiqueta} al MRV`);
+    const nom = (nombre.trim() || `${etiqueta} al MRV ${perfil === "asistido" ? "asistido" : "natural"}`);
     setGuardando(true);
     try {
       const id = uid();
@@ -19050,7 +19050,18 @@ const MrvSheet = ({ open, onClose, days, refTable, etiqueta, toast }) => {
 
   return (
     <Sheet open={open} onClose={onClose} title="Llevar al MRV exacto" tall>
-      <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.5, marginTop: -6, marginBottom: SP.lg }}>
+      {/* El perfil, bien visible: el MRV de hombro es 26 en natural y 40 en
+          asistido. Ajustar con la tabla equivocada no es un detalle
+          cosmético, es programar mal el entrenamiento. */}
+      <div style={{ display: "flex", alignItems: "center", gap: SP.sm, padding: `10px ${SP.md}px`, marginTop: -6, marginBottom: SP.md,
+        background: P.accWell, border: `1px solid ${P.accEdge}`, borderRadius: R_ROW }}>
+        <Info size={15} color={P.ember2} style={{ flexShrink: 0 }} />
+        <span style={{ ...TYPE.footnote, color: P.dim, lineHeight: 1.45 }}>
+          Topes de perfil <b style={{ color: P.text }}>{perfil === "asistido" ? "asistido (en ciclo)" : "natural"}</b>.
+          Se cambia en el selector de arriba, y los números cambian con él.
+        </span>
+      </div>
+      <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.5, marginBottom: SP.lg }}>
         Ajusta <b style={{ color: P.dim }}>{etiqueta}</b> sumando o quitando series de los ejercicios que ya están —
         no inventa ni saca ninguno. Prefiere los de aislamiento, porque un compuesto mueve más de un músculo a la vez.
       </div>
@@ -19116,7 +19127,7 @@ const MrvSheet = ({ open, onClose, days, refTable, etiqueta, toast }) => {
           </div>
 
           <Field label="Nombre del borrador" hint="Se guarda en Borradores; la rutina original no se toca.">
-            <Inp value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder={`${etiqueta} al MRV`} />
+            <Inp value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder={`${etiqueta} al MRV ${perfil === "asistido" ? "asistido" : "natural"}`} />
           </Field>
           <Btn kind="ember" onClick={guardar} disabled={guardando || !sel.length} style={{ width: "100%", marginTop: SP.md }}>
             {guardando ? "Guardando…" : "Guardar como borrador"}
@@ -19198,7 +19209,7 @@ const VolumePanel = ({ plan, toast }) => {
         <TrendingUp size={15} /> Llevar al MRV exacto…
       </Btn>
       <MrvSheet open={mrvOpen} onClose={() => setMrvOpen(false)}
-        days={countedDays} refTable={refTable} etiqueta={scopeLabel} toast={toast} />
+        days={countedDays} refTable={refTable} etiqueta={scopeLabel} perfil={prep} toast={toast} />
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 11, padding: 3, marginBottom: 8 }}>
         {[["semana", "Semanal por músculo"], ["sesion", "Por sesión"]].map(([id, l]) => (
           <button key={id} onClick={() => setSub(id)} style={{ flex: 1, padding: "8px 6px", borderRadius: 8, fontSize: 13.5, fontWeight: 600,
