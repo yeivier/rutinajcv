@@ -7562,6 +7562,82 @@ function prontitudDelDia(history) {
     horas: sue && sue.hours != null ? Math.round(sue.hours * 10) / 10 : null };
 }
 
+// Redondea un peso a algo que la barra pueda armar de verdad con los
+// discos del gimnasio. Bajar un 12 % da 79,2 kg — un número que no existe
+// en ninguna sala. Sin esto el ajuste sería matemáticamente correcto e
+// inútil en la práctica.
+function redondearACargable(kgObjetivo) {
+  const n = +kgObjetivo;
+  if (!isFinite(n) || n <= 0) return null;
+  const cfg = configDeDiscos(null);
+  const bar = barraActiva();
+  if (!cfg || !bar) return Math.round(n / 2.5) * 2.5;   // sin config: al 2,5 más cercano
+  const barKg = +bar.kg || 0;
+  if (n <= barKg) return barKg;
+  const r = discosParaPeso(n, barKg, cfg.plates);
+  const abajo = pesoDeDiscos(r.porLado, barKg);
+  if (r.resto <= 0.01) return abajo;
+  // El escalón de arriba: el mismo armado más el disco más chico por lado.
+  const chico = Math.min(...cfg.plates.map((x) => x.kg));
+  const arriba = abajo + chico * 2;
+  return (n - abajo) <= (arriba - n) ? abajo : arriba;
+}
+
+// Aplica el ajuste de carga a las series de trabajo NO marcadas. Deja
+// intactas las de calentamiento (su peso no sale de la sesión anterior) y
+// las ya hechas (no se reescribe lo que el atleta ya levantó).
+function aplicarAjusteCarga(active, factor) {
+  const clone = structuredClone(active);
+  let tocadas = 0;
+  clone.exs.forEach((exx) => {
+    exx.sets.forEach((st) => {
+      if (st.type === "warmup" || st.done) return;
+      const w = +st.weight;
+      if (!isFinite(w) || w <= 0) return;
+      const nuevo = redondearACargable(w * factor);
+      if (nuevo != null && nuevo !== w) { st.weight = String(nuevo); tocadas++; }
+    });
+  });
+  return { clone, tocadas };
+}
+
+// El puente entre el consejo y la sesión: "bajá un 10-15 %" es una
+// instrucción que hay que ejecutar a mano en cada serie. Esto lo hace de
+// un toque, redondeando a pesos que la barra pueda armar, y se deshace.
+// Solo aparece en día rojo: bajar la carga es seguro, subirla a ciegas
+// porque el reloj dio verde no lo es — eso queda como decisión del
+// atleta serie por serie.
+const AjusteCargaBanner = ({ history, active, ajusteHecho, onAplicar, onDeshacer }) => {
+  const pr = useMemo(() => prontitudDelDia(history), [history]);
+  const hayPesos = (active.exs || []).some((e) => (e.sets || []).some((st) => st.type !== "warmup" && !st.done && +st.weight > 0));
+  if (ajusteHecho) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: SP.md, padding: `12px ${SP.lg}px`, marginBottom: SP.stack,
+        background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: R_TILE }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: SES.dim, lineHeight: 1.45 }}>
+          Carga bajada un 12 % en {ajusteHecho.tocadas} {ajusteHecho.tocadas === 1 ? "serie" : "series"}.
+        </span>
+        <button onClick={onDeshacer} style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: SES.acc }}>Deshacer</button>
+      </div>
+    );
+  }
+  if (pr.estado !== "rojo" || !hayPesos) return null;
+  return (
+    <div style={{ padding: `12px ${SP.lg}px`, marginBottom: SP.stack,
+      background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: R_TILE }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: SES.ink, marginBottom: 3 }}>Hoy venís sin recuperarte</div>
+      <div style={{ fontSize: 12.5, color: SES.faint, lineHeight: 1.45, marginBottom: 9 }}>
+        {pr.detalle}
+      </div>
+      <button onClick={onAplicar}
+        style={{ fontSize: 13, fontWeight: 700, color: SES.accInk, background: SES.acc,
+          padding: "8px 13px", borderRadius: 999, border: "none" }}>
+        Bajar la carga un 12 %
+      </button>
+    </div>
+  );
+};
+
 const PRONTITUD_META = {
   verde:      { label: "Empujá",  Icon: TrendingUp },
   neutro:     { label: "Normal",  Icon: Minus },
@@ -7882,6 +7958,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [cmtKey, setCmtKey] = useState(null);
   // Qué serie tiene abierto el teclado de discos (clave "ei-si"), o null.
   const [discosEn, setDiscosEn] = useState(null);
+  // Ajuste de carga por prontitud: guarda el estado previo para poder
+  // deshacerlo. Es una sugerencia que el atleta acepta, no una
+  // decisión que la app toma por él.
+  const [ajusteHecho, setAjusteHecho] = useState(null);
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -8659,6 +8739,17 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           última vez que hiciste este mismo día. Va arriba de todo porque
           es la pregunta que contesta la sesión entera — "¿voy mejor que la
           última vez?" — y se mueve con cada serie que anotás. */}
+      <AjusteCargaBanner history={history} active={active} ajusteHecho={ajusteHecho}
+        onAplicar={() => {
+          const pr = prontitudDelDia(history);
+          const factor = pr.estado === "rojo" ? 0.88 : 1;
+          if (factor === 1) return;
+          const { clone, tocadas } = aplicarAjusteCarga(active, factor);
+          if (!tocadas) { onError && onError("No hay series con peso cargado para ajustar."); return; }
+          setAjusteHecho({ antes: structuredClone(active), tocadas });
+          patch(() => clone);
+        }}
+        onDeshacer={() => { if (ajusteHecho) { patch(() => ajusteHecho.antes); setAjusteHecho(null); } }} />
       <RetoSesion exs={exs} history={history} />
 
       {/* Calentamiento GENERAL de la sesión (cardio · movilidad · activación):
