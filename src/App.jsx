@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v283";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v284";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -14688,6 +14688,7 @@ const MesoPartitura = ({ plan }) => {
 };
 
 const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent, library, onSaveLibrary, onOpenCompare }) => {
+  const [mrvRutina, setMrvRutina] = useState(false);
   const [easy] = useEasyMode();
   const [view, setView] = useState("dias"); // 'dias' | 'biblioteca'
   const [openDay, setOpenDay] = useState(null);
@@ -15065,10 +15066,16 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       {/* Exportar todas las rutinas del plan (PDF / Word), ordenadas por
           rutina y día. Solo cuando hay días cargados. */}
       {plan.days.length > 0 && (
-        <div style={{ display: "flex", marginBottom: 22 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 22 }}>
           <RoutinesExportButton plan={plan} who={student?.name} toast={toast} small block />
+          {/* Ajustar el volumen al tope recuperable, desde donde se está
+              mirando la rutina y no tres pantallas adentro. */}
+          <Btn kind="line" small onClick={() => setMrvRutina(true)} style={{ width: "100%" }}>
+            <TrendingUp size={13} /> Llevar una rutina al MRV exacto…
+          </Btn>
         </div>
       )}
+      <MrvRutinaSheet open={mrvRutina} onClose={() => setMrvRutina(false)} plan={plan} toast={toast} />
 
       {plan.days.length === 0 && (
         <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
@@ -19004,6 +19011,62 @@ const MuscleVolumeRow = ({ r, max, compact, days }) => {
       </div>
     )}
   </Card>
+  );
+};
+
+/* Paso previo desde la pantalla de Rutinas: elegir QUÉ rutina ajustar y
+   con qué perfil, y de ahí pasa a la hoja de siempre. En el panel de
+   Volumen las dos cosas ya estaban elegidas (el alcance y el selector
+   natural/asistido); acá hay que preguntarlas. */
+const MrvRutinaSheet = ({ open, onClose, plan, toast }) => {
+  const grupos = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames), [plan.days, plan.routineNames]);
+  const [rk, setRk] = useState(null);
+  const [perfil, setPerfil] = useState((plan.athlete || {}).enhanced === "asistido" ? "asistido" : "natural");
+  useEffect(() => {
+    if (!open) return;
+    setRk(grupos[0] ? grupos[0].key : null);
+    setPerfil((plan.athlete || {}).enhanced === "asistido" ? "asistido" : "natural");
+  }, [open]);
+  const g = grupos.find((x) => x.key === rk) || grupos[0];
+  const refTable = perfil === "asistido" ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
+  const [paso2, setPaso2] = useState(false);
+  useEffect(() => { if (!open) setPaso2(false); }, [open]);
+
+  if (paso2 && g) {
+    return <MrvSheet open={open} onClose={onClose} days={g.days} refTable={refTable}
+      etiqueta={g.label} perfil={perfil} toast={toast} />;
+  }
+  return (
+    <Sheet open={open} onClose={onClose} title="Llevar al MRV exacto">
+      {!grupos.length ? (
+        <Empty icon={ClipboardList} title="No hay rutinas" body="Carga una rutina para poder ajustar su volumen." />
+      ) : (
+        <>
+          <div className="mono" style={{ margin: "0 2px 8px" }}>Qué rutina</div>
+          <Card style={{ padding: 0, overflow: "hidden", marginBottom: SP.lg }}>
+            {grupos.map((x, i) => (
+              <SettingRow key={x.key} Icon={ClipboardList} label={x.label}
+                hint={`${x.days.length} ${x.days.length === 1 ? "día" : "días"}`}
+                last={i === grupos.length - 1}
+                onClick={() => setRk(x.key)}
+                right={x.key === (g && g.key) ? <Check size={16} color={P.ember2} strokeWidth={3} /> : null} />
+            ))}
+          </Card>
+
+          <div className="mono" style={{ margin: "0 2px 8px" }}>Con qué topes</div>
+          <SectionSwitch value={perfil} onChange={setPerfil}
+            items={[{ id: "natural", label: "Natural" }, { id: "asistido", label: "Asistido (en ciclo)" }]} />
+          <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.5, marginTop: SP.sm }}>
+            Cambia mucho: hombro {BB_VOLUME_REF.Hombro.mrv} series en natural contra {BB_VOLUME_REF_ENHANCED.Hombro.mrv} en
+            asistido. Viene puesto según el perfil del atleta.
+          </div>
+
+          <Btn kind="ember" onClick={() => setPaso2(true)} disabled={!g} style={{ width: "100%", marginTop: SP.xl }}>
+            Continuar
+          </Btn>
+        </>
+      )}
+    </Sheet>
   );
 };
 
