@@ -6,7 +6,7 @@ import {
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
-  Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText,
+  Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText, Volume2,
   UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, Pill,
   FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette
 } from "lucide-react";
@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v273";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v274";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -510,6 +510,99 @@ function useAiFabVisible() {
   return [AI_FAB_VISIBLE, setAiFabVisiblePref];
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   AVISO DE FIN DE DESCANSO — lo elige el atleta, no la app
+   ───────────────────────────────────────────────────────────────────────
+   El aviso sonoro y la vibración se habían sacado por completo porque
+   "entrenando molestan más de lo que ayudan". Eso era cierto cuando el
+   aviso era obligatorio: la respuesta correcta no es que no avise nunca,
+   es que AVISE COMO CADA UNO QUIERA. Acá cada canal se enciende y se
+   apaga por separado, y quien no quiera ninguno los deja todos en cero y
+   vuelve al comportamiento de antes (solo el cronómetro en pantalla).
+
+   Los cuatro canales son independientes a propósito: en un gimnasio con
+   música fuerte el sonido no sirve y la vibración sí; con el teléfono en
+   el bolsillo sirve la notificación; y a quien no quiere que nadie oiga
+   nada le alcanza el destello en pantalla.
+   ═══════════════════════════════════════════════════════════════════════ */
+const REST_ALERT_DEFAULT = { sound: true, vibrate: true, notify: false, flash: true, preaviso: 0 };
+let REST_ALERT = { ...REST_ALERT_DEFAULT };
+try {
+  const raw = window.localStorage.getItem("forja-rest-alert");
+  if (raw) REST_ALERT = { ...REST_ALERT_DEFAULT, ...JSON.parse(raw) };
+} catch {}
+const restAlertListeners = new Set();
+function setRestAlertPref(patch) {
+  REST_ALERT = { ...REST_ALERT, ...patch };
+  try { window.localStorage.setItem("forja-rest-alert", JSON.stringify(REST_ALERT)); } catch {}
+  restAlertListeners.forEach((fn) => fn(REST_ALERT));
+}
+function useRestAlert() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    restAlertListeners.add(fn);
+    return () => restAlertListeners.delete(fn);
+  }, []);
+  return [REST_ALERT, setRestAlertPref];
+}
+
+// Estado del permiso de notificaciones del navegador. "unsupported" cuando
+// el aparato no tiene la API (iPhone fuera de la app instalada, sobre todo).
+function notifyState() {
+  try {
+    if (typeof Notification === "undefined") return "unsupported";
+    return Notification.permission; // "granted" | "denied" | "default"
+  } catch { return "unsupported"; }
+}
+async function pedirPermisoNotificaciones() {
+  try {
+    if (typeof Notification === "undefined") return "unsupported";
+    if (Notification.permission !== "default") return Notification.permission;
+    return await Notification.requestPermission();
+  } catch { return "denied"; }
+}
+
+// Pitido de fin de descanso. Aparte de `beep()` (que es el del
+// temporizador suelto): este es más corto y más grave, para que no se
+// confunda con una alarma y se distinga del resto.
+function sonarFinDescanso() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.18].forEach((t, i) => {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = i === 0 ? 660 : 990; o.type = "sine";
+      g.gain.setValueAtTime(0.001, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.16);
+      o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.18);
+    });
+  } catch {}
+}
+
+// Dispara los canales que el atleta dejó encendidos. `texto` describe qué
+// sigue ("Serie 3 de Curl tumbada"), para que la notificación sirva con el
+// teléfono guardado y sin abrir la app.
+function avisarFinDescanso(texto) {
+  const p = REST_ALERT;
+  if (p.sound) sonarFinDescanso();
+  // `navigator.vibrate` no existe en Safari de iPhone; el try/catch y el
+  // guard dejan que falle en silencio donde no hay soporte.
+  if (p.vibrate) { try { navigator.vibrate && navigator.vibrate([180, 80, 180]); } catch {} }
+  if (p.notify && notifyState() === "granted") {
+    try {
+      const n = new Notification("Descanso terminado", {
+        body: texto || "Volvé a la barra.",
+        tag: "forja-descanso",       // una sola notificación, no una pila
+        renotify: true,
+        silent: !!p.sound,           // si ya suena la app, que no suene dos veces
+      });
+      n.onclick = () => { try { window.focus(); n.close(); } catch {} };
+    } catch {}
+  }
+}
+
 const TAB_BOTTOM_PAD = "calc(92px + env(safe-area-inset-bottom))";
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
@@ -567,6 +660,75 @@ const setSummary = (st, unit) => {
   if (r) return `${r} reps`;
   return w || "sin registrar";
 };
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EL RETO — entrenar contra tu última vez
+   ───────────────────────────────────────────────────────────────────────
+   Todo lo que sigue compara lo que estás haciendo AHORA contra la última
+   vez que hiciste ese mismo ejercicio. Dos decisiones que importan:
+
+   1) Se comparan series DE TRABAJO contra series de trabajo, por su
+      posición entre ellas — no por el índice crudo del arreglo. Desde que
+      cada ejercicio arrastra sus series de aproximación (v272), el índice
+      crudo de la serie 1 de trabajo ya no es 0, y el historial viejo no
+      las tiene. Filtrando el calentamiento, lo de antes y lo de ahora
+      siguen alineados.
+
+   2) El veredicto sale del VOLUMEN de la serie (peso × reps), no solo del
+      peso: subir 5 kg y perder 4 reps no es mejorar. Cuando no hay peso
+      (peso corporal) se comparan las reps, que es lo único que varía.
+   ═══════════════════════════════════════════════════════════════════════ */
+const numOr0 = (v) => { const n = +v; return isFinite(n) ? n : 0; };
+
+// Series de trabajo de un registro del historial (o de un ejercicio en curso).
+const seriesDeTrabajo = (sets) => (sets || []).filter((s) => s.type !== "warmup");
+
+// Carga de una serie: volumen si hay peso, reps si es a peso corporal.
+// Devuelve null cuando no hay nada anotado, para no comparar contra vacío.
+function cargaDeSerie(st) {
+  if (!st) return null;
+  const w = numOr0(st.weight), r = numOr0(st.reps);
+  if (w > 0 && r > 0) return { tipo: "vol", valor: w * r, w, r };
+  if (r > 0) return { tipo: "reps", valor: r, w: 0, r };
+  return null;
+}
+
+/* Veredicto de una serie contra la misma serie de la vez pasada.
+   `estado`: "mejor" | "igual" | "peor" | "nuevo" (sin referencia previa)
+   | "pendiente" (hay referencia pero todavía no anotaste nada). */
+function retoDeSerie(actual, previa) {
+  const a = cargaDeSerie(actual), b = cargaDeSerie(previa);
+  if (!b) return { estado: "nuevo" };
+  if (!a) return { estado: "pendiente", previa: b };
+  // Si una es a peso corporal y la otra no, se comparan por reps.
+  const mismoTipo = a.tipo === b.tipo;
+  const va = mismoTipo ? a.valor : a.r;
+  const vb = mismoTipo ? b.valor : b.r;
+  const dif = va - vb;
+  const pct = vb > 0 ? (dif / vb) * 100 : 0;
+  // Un 1 % arriba o abajo es ruido de redondeo, no una mejora.
+  const estado = Math.abs(pct) < 1 ? "igual" : dif > 0 ? "mejor" : "peor";
+  return { estado, dif, pct, actual: a, previa: b };
+}
+
+// Reto de un ejercicio entero: volumen de trabajo de hoy contra el de la
+// última vez, y cuántas series superaste.
+function retoDeEjercicio(setsHoy, setsPrev) {
+  const hoy = seriesDeTrabajo(setsHoy), prev = seriesDeTrabajo(setsPrev);
+  if (!prev.length) return null;
+  let volHoy = 0, volPrev = 0, superadas = 0, iguales = 0, total = 0;
+  hoy.forEach((st, i) => {
+    const cHoy = cargaDeSerie(st);
+    const cPrev = cargaDeSerie(prev[i]);
+    if (!cHoy || !cPrev) return;          // sin anotar hoy, o sin referencia: no suma
+    if (cHoy.tipo === "vol" && cPrev.tipo === "vol") { volHoy += cHoy.valor; volPrev += cPrev.valor; }
+    const r = retoDeSerie(st, prev[i]);
+    if (r.estado === "mejor") { superadas++; total++; }
+    else if (r.estado === "igual") { iguales++; total++; }
+    else if (r.estado === "peor") total++;
+  });
+  return { volHoy, volPrev, dif: volHoy - volPrev, superadas, iguales, anotadas: total, prevCount: prev.length };
+}
 
 // "Serie de trabajo (Working set)" → "de trabajo"; "Calentamiento
 // (Warm-up set)" → "calentamiento"; "AMRAP" → "AMRAP". Se le quita el
@@ -6614,7 +6776,155 @@ const SalidaRow = ({ icon: Icon, title, body, danger, onClick }) => (
   </button>
 );
 
-const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRenameEx, onRemoveEx }) => {
+/* Reto de TODA la sesión. Suma el volumen de trabajo de hoy y lo compara
+   con lo que hiciste la última vez en cada uno de esos mismos ejercicios
+   (no con "la última sesión" a secas: si hoy cambiaste un ejercicio, se
+   compara ejercicio por ejercicio, que es lo único que tiene sentido).
+   Se esconde hasta que haya algo anotado y algo con qué comparar. */
+const RetoSesion = ({ exs, history }) => {
+  const r = useMemo(() => {
+    let volHoy = 0, volPrev = 0, superadas = 0, anotadas = 0, conRef = 0;
+    (exs || []).forEach((ex) => {
+      const arr = (history.byEx && history.byEx[ex.id]) || [];
+      const prev = arr.length ? arr[arr.length - 1] : null;
+      if (!prev) return;
+      conRef++;
+      const re = retoDeEjercicio(ex.sets, prev.sets);
+      if (!re) return;
+      volHoy += re.volHoy; volPrev += re.volPrev;
+      superadas += re.superadas; anotadas += re.anotadas;
+    });
+    return { volHoy, volPrev, superadas, anotadas, conRef };
+  }, [exs, history]);
+  if (!r.conRef || r.anotadas === 0) return null;
+  const dif = r.volHoy - r.volPrev;
+  const pct = r.volPrev > 0 ? (dif / r.volPrev) * 100 : 0;
+  const gana = pct >= 1, pierde = pct <= -1;
+  const col = gana ? SES.acc : pierde ? SES.faint : SES.dim;
+  const titulo = gana ? "Vas por encima de la última vez"
+    : pierde ? "Vas por debajo de la última vez"
+    : "Vas igual que la última vez";
+  const avance = r.volPrev > 0 ? Math.max(0, Math.min(100, (r.volHoy / r.volPrev) * 100)) : 0;
+  return (
+    <div style={{ borderRadius: 16, background: SES.card, border: `1px solid ${gana ? SES.accLine : SES.line}`, padding: "14px 15px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
+        <Trophy size={17} color={col} style={{ flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: SES.ink }}>{titulo}</div>
+          <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 1 }}>
+            {r.superadas} de {r.anotadas} {r.anotadas === 1 ? "serie superada" : "series superadas"}
+          </div>
+        </div>
+        <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: col, letterSpacing: ".02em", flexShrink: 0 }}>
+          {dif >= 0 ? "+" : "−"}{Math.abs(Math.round(pct))}%
+        </span>
+      </div>
+      {/* Barra: el 100 % es el volumen de la última vez. Pasarlo es el reto. */}
+      <div style={{ position: "relative", height: 6, borderRadius: 3, background: SES.campo, overflow: "hidden" }}>
+        <div style={{ width: `${avance}%`, height: "100%", background: col,
+          transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
+      </div>
+      <div className="mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5,
+        letterSpacing: ".06em", color: SES.faint, marginTop: 5 }}>
+        <span>hoy {Math.round(r.volHoy).toLocaleString("es-CL")} kg</span>
+        <span>mismas series entonces {Math.round(r.volPrev).toLocaleString("es-CL")} kg</span>
+      </div>
+    </div>
+  );
+};
+
+/* Reto del EJERCICIO: el marcador de cuántas series superaste y cómo va
+   el volumen total contra la última vez. Es el "vas ganando / vas
+   perdiendo" del ejercicio, y se actualiza serie a serie. */
+const RetoEjercicio = ({ reto }) => {
+  const { volHoy, volPrev, dif, superadas, anotadas } = reto;
+  const pct = volPrev > 0 ? (dif / volPrev) * 100 : 0;
+  const gana = pct >= 1, pierde = pct <= -1;
+  const col = gana ? SES.acc : pierde ? SES.faint : SES.dim;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9, padding: "8px 10px",
+      borderRadius: 10, background: SES.campo, border: `1px solid ${gana ? SES.accLine : SES.line}` }}>
+      <Trophy size={14} color={col} style={{ flexShrink: 0 }} />
+      <span style={{ fontSize: 12, color: SES.ink, flex: 1, minWidth: 0 }}>
+        <b style={{ color: col }}>{superadas}</b> de {anotadas} {anotadas === 1 ? "serie superada" : "series superadas"}
+      </span>
+      {volPrev > 0 && (
+        <span className="mono" style={{ fontSize: 10.5, fontWeight: 700, color: col, letterSpacing: ".03em" }}>
+          {dif >= 0 ? "+" : "−"}{Math.abs(Math.round(pct))}% vol
+        </span>
+      )}
+    </div>
+  );
+};
+
+/* Reto de UNA serie: a la izquierda lo que hiciste la vez pasada, a la
+   derecha si hoy vas mejor, igual o peor. Mientras no anotes nada muestra
+   solo la referencia (para saber a qué apuntar); en cuanto hay peso y
+   reps, aparece el veredicto y se actualiza con cada tecla.
+   El color sale de la paleta de la sesión: el acento es "lo lograste",
+   igual que el tilde de serie hecha. */
+const RetoSerie = ({ actual, previa, unidad }) => {
+  const r = retoDeSerie(actual, previa);
+  if (r.estado === "nuevo") return null;   // primera vez: no hay contra qué medir
+  const ref = r.previa || (r.estado !== "pendiente" && r.previa);
+  const refTxt = (() => {
+    const b = r.estado === "pendiente" ? r.previa : r.previa;
+    if (!b) return null;
+    return b.tipo === "vol" ? `${String(b.w).replace(".", ",")} ${unidad} × ${b.r}` : `${b.r} reps`;
+  })();
+  const meta = {
+    mejor:     { txt: "vas mejor", col: SES.acc,   Icon: ArrowUp },
+    igual:     { txt: "igualaste", col: SES.dim,   Icon: Minus },
+    peor:      { txt: "por debajo", col: SES.faint, Icon: ArrowDown },
+    pendiente: null,
+  }[r.estado];
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+      {refTxt && (
+        <span className="mono" style={{ fontSize: 10, letterSpacing: ".05em", color: SES.faint,
+          background: SES.campo, borderRadius: 5, padding: "2px 6px" }}>
+          la vez pasada {refTxt}
+        </span>
+      )}
+      {meta && (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: meta.col }}>
+          <meta.Icon size={11} strokeWidth={3} />
+          {meta.txt}
+          {r.estado !== "igual" && Math.abs(r.pct) >= 1 && ` ${Math.abs(Math.round(r.pct))}%`}
+        </span>
+      )}
+    </div>
+  );
+};
+
+/* Destello de "descanso terminado". Vive aparte de la barra del descanso
+   porque tiene que poder verse DESPUÉS de que el cronómetro desapareció:
+   la barra se va al llegar a cero, y justo ahí es cuando hay que avisar.
+   Se borra solo a los 6 segundos o al tocarlo. Si el atleta apagó el aviso
+   visual en Ajustes, no se monta nada. */
+const FinDescansoAviso = ({ marca }) => {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!marca || !REST_ALERT.flash) return;
+    setVisible(true);
+    const t = setTimeout(() => setVisible(false), 6000);
+    return () => clearTimeout(t);
+  }, [marca]);
+  if (!visible) return null;
+  return (
+    <button onClick={() => setVisible(false)} aria-live="polite"
+      style={{ position: "fixed", left: 12, right: 12, top: "calc(10px + env(safe-area-inset-top))", zIndex: 60,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
+        padding: "13px 16px", borderRadius: 14, border: "none",
+        background: SES.acc, color: SES.accInk, fontSize: 15, fontWeight: 700,
+        boxShadow: "0 10px 30px -12px rgba(0,0,0,.45)",
+        animation: `fjSheetUp ${DUR_ROW}ms ${EASE_STD}` }}>
+      <Timer size={17} strokeWidth={2.4} /> Descanso terminado
+    </button>
+  );
+};
+
+const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRenameEx, onRemoveEx }) => {
   const [weightUnit, setWeightUnit] = useWeightUnit();
   const [themeMode, setThemeMode] = useTheme();
   const pendingWrites = usePendingWrites();
@@ -6753,12 +7063,15 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     clone.exs.forEach((exx) => {
       const entries = history.byEx[exx.id] || [];
       const lastEntry = entries.length ? entries[entries.length - 1] : null;
+      const prevTrabajo = lastEntry ? seriesDeTrabajo(lastEntry.sets) : [];
+      let nTrabajo = -1;
       exx.sets.forEach((s, si) => {
         // Las series de aproximación (calentamiento) no se precargan: el peso
         // de calentamiento depende del día, no de la sesión anterior.
         if (s.type === "warmup") return;
+        nTrabajo++;
         if (s.weight !== "" || s.reps !== "" || s.rir !== "") return;
-        const prev = lastEntry ? (lastEntry.sets || [])[si] : null;
+        const prev = prevTrabajo[nTrabajo] || null;
         if (prev) {
           ["weight", "reps", "rir"].forEach((k) => { if (prev[k] !== "" && prev[k] != null) { s[k] = String(prev[k]); any = true; } });
         }
@@ -6918,13 +7231,19 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       .map((mi) => (block.group ? `${exs[mi].name}: ${exs[mi].notes}` : exs[mi].notes)).join("\n\n");
     // Lo que se registró la última vez en este mismo ejercicio: es la
     // referencia con la que se decide cuánto poner hoy.
+    // Registro de la última vez que se hizo ESTE ejercicio: es la vara
+    // contra la que se mide todo el reto (serie por serie y el total).
+    const entryPrev = lastEntryOf(exs[block.group ? block.members[0] : block.ei].id);
+    const prevTrabajo = entryPrev ? seriesDeTrabajo(entryPrev.sets) : [];
     const ultimaVez = (() => {
-      const entry = lastEntryOf(exs[block.group ? block.members[0] : block.ei].id);
-      if (!entry) return null;
-      const st = (entry.sets || [])[0];
+      if (!entryPrev) return null;
+      const st = (entryPrev.sets || [])[0];
       if (!st) return null;
-      return `Última vez ${fmtDate(entry.date)} · ${setSummary(st, unitFor(block.group ? block.members[0] : block.ei))}`;
+      return `Última vez ${fmtDate(entryPrev.date)} · ${setSummary(st, unitFor(block.group ? block.members[0] : block.ei))}`;
     })();
+    // Reto del ejercicio: volumen de hoy contra el de la vez pasada.
+    const retoEx = !block.group && entryPrev
+      ? retoDeEjercicio(exs[block.ei].sets, entryPrev.sets) : null;
     // Unidad de anotación de ESTE ejercicio (para el encabezado y para poder
     // cambiarla tocándolo). En superserie no hay una sola unidad (cada
     // ejercicio la suya), así que ahí el encabezado queda informativo.
@@ -7000,6 +7319,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         )}
         {tempo && <div style={{ marginTop: 9 }}><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
         {ultimaVez && <div style={{ fontSize: 12, color: SES.faint, marginTop: 9 }}>{ultimaVez}</div>}
+        {/* Reto del ejercicio completo: cómo va el volumen de hoy contra el
+            de la última vez. Solo aparece cuando ya anotaste alguna serie,
+            para que no muestre "−100 %" antes de empezar. */}
+        {retoEx && retoEx.anotadas > 0 && (
+          <RetoEjercicio reto={retoEx} />
+        )}
 
         {/* Cabecera de columnas: sin ella, tres casillas iguales no dicen
             cuál es cuál hasta que se tocan. */}
@@ -7072,6 +7397,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 </div>
                 {block.group && <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2 }}>{exx.name}</div>}
                 <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{detalle}</div>
+                {/* EL RETO, serie por serie: qué hiciste la vez pasada en
+                    esta misma serie y si hoy vas por encima. Se recalcula
+                    solo con cada tecla, porque sale del propio dato de la
+                    sesión. No aplica al calentamiento (no es carga de
+                    trabajo) ni a las superseries (rondas, no series). */}
+                {!isWarm && !block.group && (
+                  <RetoSerie actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitFor(r.ei)} />
+                )}
               </div>
               <NumCell aria={`Peso de la ${dónde} (${unitFor(r.ei)})`} placeholder={unitFor(r.ei)}
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitFor(r.ei))).replace(".", ",")}
@@ -7363,6 +7696,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         );
       })()}
 
+      {/* EL RETO DE LA SESIÓN: el marcador de toda la sesión contra la
+          última vez que hiciste este mismo día. Va arriba de todo porque
+          es la pregunta que contesta la sesión entera — "¿voy mejor que la
+          última vez?" — y se mueve con cada serie que anotás. */}
+      <RetoSesion exs={exs} history={history} />
+
       {/* Calentamiento GENERAL de la sesión (cardio · movilidad · activación):
           arriba de todo, plegable y como CHECKLIST tildable — se "registra"
           igual que las series. La aproximación de cada ejercicio NO va acá:
@@ -7467,6 +7806,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           {pendingWrites ? "Guardando…" : storageOK ? "Guardado automático" : "Sin guardado — revisa el navegador"}
         </div>
       </div>
+
+      {/* Aviso visual de fin de descanso: el canal que sirve cuando el
+          sonido molesta y el teléfono no vibra. Se muestra unos segundos y
+          se va solo; se apaga desde Ajustes como los otros tres. */}
+      <FinDescansoAviso marca={finDescanso} />
+
 
       {/* Con la sesión entera desplegada, el descanso que arrancaste se va
           de pantalla en cuanto bajas. Esta barra lo trae contigo mientras
@@ -7833,6 +8178,47 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
 const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, onOpenAIChat, onLeave, onOpenDevices }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
+  // Marca de tiempo del último fin de descanso: dispara el destello en
+  // pantalla (el canal "aviso visual" de las preferencias).
+  const [finDescanso, setFinDescanso] = useState(0);
+  /* Fin del descanso: hasta ahora el cronómetro llegaba a cero y no pasaba
+     nada — el único aviso era mirar la pantalla. Se programa con setTimeout
+     contra `endsAt` (no contando renders), así el aviso cae en el segundo
+     exacto aunque la pestaña esté quieta, y se reprograma solo cuando se
+     suma o resta tiempo con ±15. Qué hace el aviso lo decide el atleta en
+     Ajustes; si apagó todo, esto no hace nada y queda como antes. */
+  const preavisoRef = useRef(null);
+  useEffect(() => {
+    if (!timer) return;
+    const quedan = timer.endsAt - Date.now();
+    if (quedan <= 0) return;
+    const cuál = () => {
+      const ex = active && active.exs[timer.exIdx];
+      if (!ex) return "";
+      const nombre = ex.name || "el siguiente ejercicio";
+      const sets = ex.sets || [];
+      const prox = sets.findIndex((st, i) => i > timer.setIdx && !st.done);
+      if (prox < 0) return `Terminaste ${nombre}.`;
+      const esWarm = sets[prox].type === "warmup";
+      const nro = sets.slice(0, prox + 1).filter((st) => (st.type === "warmup") === esWarm).length;
+      return `Sigue ${esWarm ? `la aproximación ${nro}` : `la serie ${nro}`} de ${nombre}.`;
+    };
+    const tFin = setTimeout(() => {
+      avisarFinDescanso(cuál());
+      setFinDescanso(Date.now());   // destello en pantalla (si está activo)
+    }, quedan);
+    // Preaviso opcional unos segundos antes, para ir volviendo a la barra.
+    let tPre = null;
+    const pre = REST_ALERT.preaviso;
+    if (pre > 0 && quedan > pre * 1000) {
+      tPre = setTimeout(() => {
+        if (REST_ALERT.sound) sonarFinDescanso();
+        if (REST_ALERT.vibrate) { try { navigator.vibrate && navigator.vibrate(60); } catch {} }
+      }, quedan - pre * 1000);
+    }
+    preavisoRef.current = tPre;
+    return () => { clearTimeout(tFin); if (tPre) clearTimeout(tPre); };
+  }, [timer && timer.endsAt]);   // eslint-disable-line react-hooks/exhaustive-deps
   // Ficha del ejercicio abierta desde la vista previa del día.
   const [fichaEx, setFichaEx] = useState(null);
   const [browsing, setBrowsing] = useState(false);   // ver la rutina aunque haya sesión abierta
@@ -8052,6 +8438,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     const endsAt = Math.max(Date.now() + 1000, t.endsAt + d * 1000);
     return { ...t, endsAt, total: Math.max(5, t.total + d) };
   });
+
   const toggleDone = (ei, si) => {
     const willDone = !active.exs[ei].sets[si].done;
     patch((a) => {
@@ -8120,7 +8507,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         onClose={() => setPidiendoGym(null)}
         onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g); }} />
       <FocusModeMono active={active} history={history} plan={plan} patch={patch} onOpenDevices={onOpenDevices} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
-        timer={timer} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
+        timer={timer} finDescanso={finDescanso} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
         onStartRest={(seg, ei, si) => { setTimer({ exIdx: ei || 0, setIdx: si || 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
         onAddExercise={addExercise} onAddSet={addSet} onRemoveSet={removeSet} onRenameEx={renameEx} onRemoveEx={removeEx}
@@ -18948,6 +19335,11 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
           control={<SectionSwitch items={[{ id: "on", label: "Mostrar" }, { id: "off", label: "Ocultar" }]} value={aiFab ? "on" : "off"} onChange={(v) => setAiFab(v === "on")} />} />
       </SettingGroup>
 
+      {/* Cómo avisa el fin del descanso. Cada canal por separado: el que
+          no quiera ninguno los apaga todos y vuelve al aviso de siempre
+          (mirar el cronómetro). */}
+      <AvisoDescansoGroup />
+
       {/* Cambio de modo solo para el dueño: un perfil de acceso (alumno) no
           puede pasar a coach. */}
       {!isDelegate && (
@@ -20871,6 +21263,48 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
 // tipografía baja un escalón a partir de 5 segmentos: con cinco
 // ("Fuerza · Cuerpo · Volumen · Logros · Historial") a 12,5 px la última
 // quedaba pegada al borde y recortada.
+/* Ajustes del aviso de fin de descanso. Cuatro canales independientes y un
+   preaviso opcional. Se separan a propósito: en un gimnasio ruidoso el
+   sonido no sirve y la vibración sí; con el teléfono en el bolsillo sirve
+   la notificación; y a quien no quiere que nadie oiga nada le alcanza el
+   destello en pantalla. La notificación además necesita el permiso del
+   navegador, así que su fila lo pide y muestra en qué estado está. */
+const AvisoDescansoGroup = () => {
+  const [pref, setPref] = useRestAlert();
+  const [permiso, setPermiso] = useState(notifyState());
+  const activarNotificacion = async () => {
+    if (pref.notify) { setPref({ notify: false }); return; }
+    const r = await pedirPermisoNotificaciones();
+    setPermiso(r);
+    setPref({ notify: r === "granted" });
+  };
+  const canales = [
+    { k: "sound", Icon: Volume2, label: "Sonido", hint: "Un pitido corto al llegar a cero" },
+    { k: "vibrate", Icon: Smartphone, label: "Vibración", hint: "El teléfono vibra. En iPhone la web no puede vibrar" },
+    { k: "flash", Icon: Eye, label: "Aviso en pantalla", hint: "Una barra que aparece y se va sola" },
+  ];
+  const permisoHint = permiso === "unsupported"
+    ? "Este aparato no admite notificaciones del navegador"
+    : permiso === "denied"
+      ? "Bloqueadas — habilítalas en los ajustes del navegador"
+      : pref.notify ? "Avisa aunque tengas el teléfono guardado" : "Toca para permitir y activarlas";
+  const activos = canales.filter((c) => pref[c.k]).length + (pref.notify ? 1 : 0);
+  return (
+    <SettingGroup label={`Aviso de fin de descanso · ${activos === 0 ? "solo el cronómetro" : `${activos} activo${activos === 1 ? "" : "s"}`}`}>
+      {canales.map(({ k, Icon, label, hint }) => (
+        <SettingRow key={k} Icon={Icon} label={label} hint={hint}
+          right={<Toggle on={!!pref[k]} onChange={(v) => setPref({ [k]: v })} label={label} />} />
+      ))}
+      <SettingRow Icon={Bell} label="Notificación al celular" hint={permisoHint}
+        right={<Toggle on={!!pref.notify} disabled={permiso === "denied" || permiso === "unsupported"}
+          onChange={activarNotificacion} label="Notificación al celular" />} />
+      <SettingRow Icon={Timer} label="Preaviso" hint={pref.preaviso ? `${pref.preaviso} s antes de terminar` : "Sin preaviso"} last
+        control={<SectionSwitch value={String(pref.preaviso || 0)} onChange={(v) => setPref({ preaviso: +v })}
+          items={[{ id: "0", label: "No" }, { id: "5", label: "5 s" }, { id: "10", label: "10 s" }, { id: "15", label: "15 s" }]} />} />
+    </SettingGroup>
+  );
+};
+
 const SectionSwitch = ({ items, value, onChange, style, compact }) => {
   if (!items || items.length < 2) return null;
   const n = items.length;
@@ -20989,7 +21423,10 @@ const SettingRow = ({ Icon, label, hint, onClick, right, control, last }) => {
       </div>
     );
   }
-  return <button onClick={onClick} disabled={!onClick} style={{ ...frame, display: "flex", alignItems: "center", gap: 13, width: "100%", textAlign: "left" }}>{head}</button>;
+  if (!onClick) {
+    return <div style={{ ...frame, display: "flex", alignItems: "center", gap: 13, width: "100%", textAlign: "left", boxSizing: "border-box" }}>{head}</div>;
+  }
+  return <button onClick={onClick} style={{ ...frame, display: "flex", alignItems: "center", gap: 13, width: "100%", textAlign: "left" }}>{head}</button>;
 };
 
 const SettingGroup = ({ label, children }) => (
