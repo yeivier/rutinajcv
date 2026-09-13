@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v272";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v273";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3655,6 +3655,37 @@ const CARD_LIFT = "none";
 const R_CARD = 16;
 const R_TILE = 14;
 const R_ROW = 12;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ESCALA DEL SISTEMA — el rediseño "a la Apple" no sale de elegir colores
+   más lindos, sale de que TODO caiga en la misma grilla. Dos escalas, una
+   sola fuente de verdad, y ninguna medida suelta escrita a mano.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+// Espaciado 4/8pt (iOS). SP.page es el margen lateral de TODA pantalla:
+// que sea el mismo en todas es la mitad de la sensación de "ordenado".
+const SP = {
+  hair: 2, xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, huge: 32,
+  page: 20,    // margen lateral de pantalla (el que ya usan 24 de las 25 pantallas)
+  stack: 12,   // separación entre tarjetas de una misma lista
+  section: 24, // separación entre secciones (título de grupo incluido)
+};
+
+// Rampa tipográfica de iOS. Antes convivían dos tamaños de título (30 en
+// 12 pantallas ad-hoc y 32 en ScreenTitle) y una docena de tamaños de
+// cuerpo (15.5, 13.5, 12.5, 11.5…). Acá quedan siete escalones y nada más.
+const TYPE = {
+  large:    { fontSize: 32,   fontWeight: 700, letterSpacing: "-.025em", lineHeight: 1.06 },
+  title:    { fontSize: 22,   fontWeight: 700, letterSpacing: "-.02em",  lineHeight: 1.18 },
+  headline: { fontSize: 17,   fontWeight: 700, letterSpacing: "-.015em", lineHeight: 1.25 },
+  body:     { fontSize: 15,   fontWeight: 500, letterSpacing: "-.005em", lineHeight: 1.4 },
+  subhead:  { fontSize: 14,   fontWeight: 600, letterSpacing: 0,         lineHeight: 1.35 },
+  footnote: { fontSize: 13,   fontWeight: 500, letterSpacing: 0,         lineHeight: 1.38 },
+  caption:  { fontSize: 11.5, fontWeight: 600, letterSpacing: ".01em",   lineHeight: 1.3 },
+};
+// Altura mínima de destino táctil (HIG: 44×44). Se aplica a filas y
+// botones para que nada quede "apretado" ni sea difícil de acertar.
+const HIT = 44;
 // Curvas y duraciones del handoff de rediseño (MVP), sección "6 ·
 // Movimiento": tres curvas con un uso cada una — nunca linear/ease/
 // ease-in-out — y una escala de duración por tipo de elemento. Se
@@ -3881,7 +3912,8 @@ const Toggle = ({ on, onChange, disabled, label }) => (
 // "sin dato": "Pendiente" o "2 / 4" son un dato, no un hint). `badge` es un
 // contador chico arriba a la derecha (p. ej. mensajes sin leer).
 const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
-  <button onClick={onClick} disabled={disabled} style={{ position: "relative", width: "100%", textAlign: "left",
+  <button onClick={onClick} disabled={disabled} style={{ position: "relative", width: "100%", height: "100%",
+    boxSizing: "border-box", textAlign: "left",
     background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_TILE, padding: "14px 12px",
     display: "flex", flexDirection: "column", gap: 8, opacity: disabled ? .5 : 1,
     transition: `opacity ${DUR_ROW}ms ease` }}>
@@ -3896,7 +3928,7 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
         sílabas con guion — "Tempori-zador", "Configura-ción" — en vez de un
         tajo feo a mitad de letra; overflowWrap queda de respaldo por si el
         navegador no tiene diccionario de guionado. */}
-    <div style={{ minWidth: 0 }}>
+    <div style={{ minWidth: 0, marginTop: "auto" }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "break-word", hyphens: "auto", WebkitHyphens: "auto" }}>{label}</div>
       {value != null && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 1, overflowWrap: "break-word" }}>{value}</div>}
     </div>
@@ -4167,7 +4199,7 @@ const OrderableGrid = ({ clave, items, cols = 3, gap = 9, orderable = true, modo
 
   return (
     <div className={"ord-grilla" + (editando ? " editando" : "")}
-      style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap }}>
+      style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap, alignItems: "stretch" }}>
       {ordered.map((it, i) => (
         <div key={it.key} className="ord-wrap" data-ord-clave={clave}
           style={it.span === "full" ? { gridColumn: "1 / -1" } : it.span ? { gridColumn: `span ${it.span}` } : undefined}
@@ -4209,13 +4241,18 @@ function useExitEditOnOutside(active, onExit) {
 // Ficha de KPI sin ícono: etiqueta chica arriba, dato grande, leyenda
 // chica abajo — distinta de `Tile` (que siempre lleva ícono) porque acá
 // el dato ES el ícono. Usada en "Estado de hoy" y equivalentes.
+// El renglón del subtítulo se reserva SIEMPRE, traiga texto o no. Sin esto,
+// "Atletas" (sin subtítulo) quedaba más baja que "Check-in · últimos 7 días"
+// en la misma fila del Panel: dos fichas vecinas con el borde inferior a
+// distinta altura es el defecto de simetría que más se nota de toda la app.
 const KpiTile = ({ top, value, sub, onClick }) => (
-  <button onClick={onClick} style={{ width: "100%", textAlign: "left",
+  <button onClick={onClick} style={{ width: "100%", height: "100%", textAlign: "left", boxSizing: "border-box",
     background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_TILE, padding: "14px 12px",
     display: "flex", flexDirection: "column", gap: 3 }}>
     <span style={{ fontSize: 13, color: P.faint2 }}>{top}</span>
-    <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: P.text, lineHeight: 1.15 }}>{value}</span>
-    {sub != null && <span style={{ fontSize: 13, color: P.faint2, lineHeight: 1.3 }}>{sub}</span>}
+    <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: P.text, lineHeight: 1.15, marginTop: "auto" }}>{value}</span>
+    <span style={{ fontSize: 13, color: P.faint2, lineHeight: 1.3, minHeight: 17,
+      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub != null ? sub : ""}</span>
   </button>
 );
 
@@ -4501,13 +4538,13 @@ const Txt = (props) => <textarea rows={props.rows || 3} {...props} style={{ widt
 // placeholder olvidado. La insignia circular le da el mismo peso visual
 // que el resto de las tarjetas de la app (mismo fondo/borde que Card).
 const Empty = ({ icon: Icon, title, body }) => (
-  <div style={{ textAlign: "center", padding: "48px 24px", color: P.faint }}>
-    <div style={{ width: 62, height: 62, borderRadius: "50%", background: P.s2, border: `1px solid ${P.line}`,
-      display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
-      <Icon size={27} style={{ opacity: .75 }} />
+  <div style={{ textAlign: "center", padding: "28px 20px", color: P.faint }}>
+    <div style={{ width: 48, height: 48, borderRadius: "50%", background: P.s2, border: `1px solid ${P.line}`,
+      display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+      <Icon size={21} style={{ opacity: .75 }} />
     </div>
-    <div style={{ fontWeight: 700, fontSize: 15.5, color: P.dim, marginBottom: 5 }}>{title}</div>
-    <div style={{ fontSize: 14.5, lineHeight: 1.5, maxWidth: 320, margin: "0 auto" }}>{body}</div>
+    <div style={{ ...TYPE.headline, color: P.dim, marginBottom: 4 }}>{title}</div>
+    <div style={{ ...TYPE.footnote, lineHeight: 1.5, maxWidth: 300, margin: "0 auto" }}>{body}</div>
   </div>
 );
 
@@ -5592,7 +5629,14 @@ const ExerciseProgress = ({ entries }) => {
 
   const rangeDelta = filtered.length >= 2 ? filtered[filtered.length - 1].best - filtered[0].best : null;
 
-  if (withBest.length === 0) return null;
+  if (withBest.length === 0) {
+    return (
+      <Card style={{ padding: 20, marginBottom: 16 }}>
+        <Empty icon={TrendingUp} title="Todavía sin datos de fuerza"
+          body="Cuando registres peso y reps de este ejercicio en una sesión, acá aparece su curva de progreso, sus récords y la comparación entre semanas." />
+      </Card>
+    );
+  }
 
   return (
     <div style={{ marginBottom: 16 }}>
@@ -7889,13 +7933,12 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
   if (listMode) {
     return (
       <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Entrenar</h1>
-        <div style={{ color: P.dim, fontSize: 15, marginBottom: 16 }}>Toca una rutina para desplegar sus entrenamientos y luego el día que quieras hacer. Te pregunta en qué gimnasio entrenas y empieza.</div>
+        <ScreenTitle title="Entrenar" sub="Elige la rutina y el día. Te preguntamos el gimnasio y arranca." />
         {/* Exportar todas las rutinas del plan (PDF / Word), ordenadas por
             rutina y día. Solo si hay algo que exportar. */}
         {plan.days.length > 0 && (
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-            <RoutinesExportButton plan={plan} toast={toast} small />
+          <div style={{ display: "flex", marginBottom: 12 }}>
+            <RoutinesExportButton plan={plan} toast={toast} small block />
           </div>
         )}
         {/* Entrenamiento libre: empezar una sesión vacía y armarla sobre la
@@ -8952,8 +8995,13 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         };
         const panels = [
           { key: "workout", span: "full", node: workout ? (
-            <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
+            /* En columna, no en fila: antes el nombre del día competía por
+               el ancho con el botón y se cortaba ("Lunes — Femoral /…").
+               Ahora el título ocupa el ancho completo y la acción del día
+               es una barra al pie — el destino táctil más grande de la
+               pantalla, que es lo que corresponde a la acción principal. */
+            <Card style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
                 <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".16em" }}>{workout.eyebrow}</span>
                 <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12,
                   display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{workout.title}</span>
@@ -8961,7 +9009,8 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
                   {workout.exs ? `${workout.exs.length} ${workout.exs.length === 1 ? "ejercicio" : "ejercicios"} · ${workout.sets} ${workout.sets === 1 ? "serie" : "series"} · ${estimateSessionMin(workout.sets)} min` : workout.sub}
                 </span>
               </div>
-              <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} style={{ flexShrink: 0 }}>{active ? "Continuar" : "Entrenar"}</Btn>
+              <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)}
+                style={{ width: "100%", minHeight: HIT }}>{active ? "Continuar" : "Entrenar"}</Btn>
             </Card>
           ) : emptyCard },
 
@@ -9515,9 +9564,9 @@ const AchievementGrid = ({ history }) => {
       {groups.map((g) => (
         <div key={g} style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>{g}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, alignItems: "stretch" }}>
             {list.filter((a) => a.group === g).map((a) => (
-              <div key={a.id} style={{ padding: "13px 10px", borderRadius: 13, textAlign: "center",
+              <div key={a.id} style={{ padding: "13px 10px", borderRadius: 13, textAlign: "center", height: "100%", boxSizing: "border-box",
                 background: a.earned ? P.s3 : P.s1,
                 border: `1px solid ${a.earned ? `${P.dim}` : P.line}`,
                 boxShadow: a.earned ? CARD_LIFT : "none", opacity: a.earned ? 1 : .68 }}>
@@ -10226,10 +10275,23 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           {allEx.length === 0 ? (
             <Card style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: P.faint2 }}>Todavía no hay ejercicios registrados.</div></Card>
           ) : (
-            <select value={exId} onChange={(e) => setExId(e.target.value)}
-              style={{ width: "100%", padding: "12px 14px", borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, color: P.text, fontSize: 15 }}>
-              {allEx.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-            </select>
+            /* El selector no decia que era ni que se podia tocar: una caja
+               blanca con un nombre adentro. Ahora lleva su rotulo a la
+               izquierda, el valor a la derecha y un chevron, como cualquier
+               fila del sistema que abre un selector. */
+            <div style={{ position: "relative", display: "flex", alignItems: "center",
+              borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, padding: "0 14px", minHeight: HIT }}>
+              <span className="mono" style={{ letterSpacing: ".08em", flexShrink: 0, marginRight: 10 }}>Ejercicio</span>
+              <select value={exId} onChange={(e) => setExId(e.target.value)}
+                aria-label="Elegir el ejercicio del que ver el progreso"
+                style={{ flex: 1, minWidth: 0, appearance: "none", WebkitAppearance: "none",
+                  padding: "12px 22px 12px 0", background: "transparent", border: "none",
+                  color: P.text, fontSize: 15, fontWeight: 600, textAlign: "right", fontFamily: "inherit" }}>
+                {allEx.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              </select>
+              <ChevronDown size={16} color={P.chevron} strokeWidth={2.4}
+                style={{ position: "absolute", right: 12, pointerEvents: "none" }} />
+            </div>
           )}
           <ExerciseProgress entries={entries} />
           {recentPRs.length > 0 && (
@@ -11888,10 +11950,7 @@ const DraftsPanel = ({ toast, onInfo, roster }) => {
   // ---- Lista de borradores ----
   return (
     <div style={{ padding: `14px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 6px" }}>Borradores</h1>
-      <div style={{ color: P.dim, fontSize: 15.5, marginBottom: 16, lineHeight: 1.5 }}>
-        Rutinas en construcción, sin alumno asignado — arma o prueba acá sin tocar el plan de nadie. Cuando esté lista, la envías a un alumno.
-      </div>
+      <ScreenTitle title="Borradores" sub="Rutinas en construcción, sin alumno asignado." />
       {drafts.length === 0 ? (
         <Card style={{ padding: 20 }}><Empty icon={ClipboardList} title="Sin borradores todavía" body="Crea uno para armar una rutina sin asignarla a ningún alumno." /></Card>
       ) : (
@@ -12310,30 +12369,35 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     // los botones finales ("Nueva rutina"/"Añadir día") no queden pegados
     // contra la barra — con solo TAB_BOTTOM_PAD respiran, pero muy justo.
     <div style={{ padding: `18px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 6px" }}>Rutina</h1>
-      <div style={{ color: P.dim, fontSize: easy ? 17 : 15.5, marginBottom: 8, lineHeight: 1.5 }}>
-        {easy
-          ? "Aquí armas el entrenamiento. Toca una rutina para abrirla y ver sus días."
-          : "Arma los días y ejercicios. Cada cambio se guarda solo y el alumno lo ve al instante."}
-      </div>
-      {/* Comparar: sirve con dos rutinas o con dos sesiones dentro de una
-          sola, así que la entrada aparece en cualquiera de los dos casos. */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-        {onOpenCompare && (groupDaysByRoutine(plan.days, plan.routineNames).length >= 2 || (plan.days || []).length >= 2) && (
-          <button onClick={onOpenCompare}
-            style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 14.5, fontWeight: 600,
-              color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px" }}>
-            <Columns2 size={16} /> Comparar
-          </button>
-        )}
-        {plan.days.length > 0 && (
-          <button onClick={() => setBulkOpen(true)}
-            style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 14.5, fontWeight: 600,
-              color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px" }}>
-            <Camera size={16} /> Poner imágenes
-          </button>
-        )}
-      </div>
+      <ScreenTitle title="Rutina" sub={easy ? "Toca una rutina para abrirla y ver sus días." : "Cada cambio se guarda solo y el alumno lo ve al instante."}
+        tabs={!easy ? (
+          <SectionSwitch value={view} onChange={setView}
+            items={[{ id: "dias", label: "Días" },
+                    { id: "partitura", label: "Partitura" },
+                    { id: "biblioteca", label: `Biblioteca${(library || []).length > 0 ? ` (${library.length})` : ""}` }]} />
+        ) : null}
+        actions={(
+        /* Comparar sirve con dos rutinas o con dos sesiones dentro de una
+           sola, así que la entrada aparece en cualquiera de los dos casos. */
+        <ActionRow>
+          {onOpenCompare && (groupDaysByRoutine(plan.days, plan.routineNames).length >= 2 || (plan.days || []).length >= 2) ? (
+            <button onClick={onOpenCompare}
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
+                minHeight: HIT, ...TYPE.subhead,
+                color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px" }}>
+              <Columns2 size={16} /> Comparar
+            </button>
+          ) : null}
+          {plan.days.length > 0 ? (
+            <button onClick={() => setBulkOpen(true)}
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
+                minHeight: HIT, ...TYPE.subhead,
+                color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px" }}>
+              <Camera size={16} /> Imágenes
+            </button>
+          ) : null}
+        </ActionRow>
+        )} />
       {/* Traer un ejercicio del catálogo a un día: llega con nombre, músculo,
           equipo y su imagen ya enlazada, listo para ajustarle las series. */}
       <CatalogAddSheet open={!!catalogoDia} onClose={() => setCatalogoDia(null)}
@@ -12365,16 +12429,6 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           Mesociclos: se entra directo a las rutinas, que es a lo que el
           coach viene la mayoría de las veces. Todo eso sigue existiendo
           y vuelve al instante con el switch ForjaMode. */}
-      {/* El mismo segmentado del sistema que usa la barra de secciones —
-          antes era un control dibujado aparte, con íconos y sombra, que no
-          se parecía a ningún otro selector de la app. */}
-      {!easy && (
-        <SectionSwitch style={{ marginBottom: 22 }} value={view} onChange={setView}
-          items={[{ id: "dias", label: "Días" },
-                  { id: "partitura", label: "Partitura" },
-                  { id: "biblioteca", label: `Biblioteca${(library || []).length > 0 ? ` (${library.length})` : ""}` }]} />
-      )}
-
       {!easy && view === "biblioteca" && <LibraryPanel plan={plan} history={history} library={library} onSaveLibrary={onSaveLibrary} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
       {!easy && view === "partitura" && <MesoPartitura plan={plan} />}
 
@@ -12398,8 +12452,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       {/* Exportar todas las rutinas del plan (PDF / Word), ordenadas por
           rutina y día. Solo cuando hay días cargados. */}
       {plan.days.length > 0 && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -14, marginBottom: 22 }}>
-          <RoutinesExportButton plan={plan} who={student?.name} toast={toast} small />
+        <div style={{ display: "flex", marginBottom: 22 }}>
+          <RoutinesExportButton plan={plan} who={student?.name} toast={toast} small block />
         </div>
       )}
 
@@ -13075,7 +13129,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
   };
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 12px" }}>Nutrición</h1>
+      <ScreenTitle title="Nutrición" />
       {onOpenNutritionAI && (
         <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden" }}>
           <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -13274,8 +13328,7 @@ const InstructionsEditor = ({ plan, savePlan }) => {
   const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Indicaciones</h1>
-      <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>Instrucciones generales del plan (cardio, pasos, sueño, suplementos…). El alumno las ve en su inicio.</div>
+      <ScreenTitle title="Indicaciones" sub="Cardio, pasos, sueño, suplementos. El alumno las ve en su inicio." />
       {plan.instructions.map((it, i) => (
         <Card key={it.id} style={{ padding: 13, marginBottom: 10 }}>
           <div style={{ display: "flex", gap: 8, marginBottom: 7 }}>
@@ -13339,10 +13392,11 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
 
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
+      <ScreenTitle title="Atletas" sub={`${rows.length} ${rows.length === 1 ? "alumno" : "alumnos"} · toca uno para gestionarlo`} />
       <div style={{ position: "relative", marginBottom: 12 }}>
         <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
         <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar atleta" aria-label="Buscar atleta"
-          style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, border: "none" }} />
+          style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, minHeight: HIT, border: "none" }} />
       </div>
       {filtered.length === 0 ? (
         <Empty icon={Users} title="Sin resultados" body="Prueba con otro nombre." />
@@ -13380,10 +13434,10 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
                     color: r.pct >= 70 ? SES.acc : P.faint }}>{r.pct}%</span>
                 )}
               </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Btn kind="ember" small onClick={() => onManage(r.id)}><ClipboardList size={13} /> Gestionar</Btn>
-                <Btn kind="line" small onClick={() => openDetail(r)}><History size={13} /> Actividad</Btn>
-              </div>
+              <ActionRow>
+                <Btn kind="ember" small onClick={() => onManage(r.id)} style={{ width: "100%" }}><ClipboardList size={13} /> Gestionar</Btn>
+                <Btn kind="line" small onClick={() => openDetail(r)} style={{ width: "100%" }}><History size={13} /> Actividad</Btn>
+              </ActionRow>
             </Card>
           ))}
         </div>
@@ -13452,8 +13506,7 @@ const ActivityTab = ({ plan, history }) => {
 
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 4px" }}>Actividad del alumno</h1>
-      <div style={{ color: P.dim, fontSize: 15, marginBottom: 14 }}>{history.sessions.length} sesiones registradas{commented ? ` · ${commented} con comentarios` : ""}. Revisa pesos, RIR, notas y fotos de cada entrenamiento.</div>
+      <ScreenTitle title="Actividad" sub={`${history.sessions.length} sesiones registradas${commented ? ` · ${commented} con comentarios` : ""}`} />
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
         {[["ses", "Por sesión"], ["ex", "Por ejercicio"], ["log", "Registro"]].map(([id, l]) => (
           <button key={id} onClick={() => setSub(id)} style={{ flex: 1, padding: "9px 4px", borderRadius: 10, fontSize: 14.5, fontWeight: 600,
@@ -13657,13 +13710,7 @@ const RankingsTab = ({ roster, toast }) => {
 
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <Trophy size={22} color={P.ember} />
-        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Rankings</h1>
-      </div>
-      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 16, lineHeight: 1.45 }}>
-        Compara a tus alumnos por distintos criterios. Las calorías son una estimación (duración × peso corporal) — FORJA no mide gasto real.
-      </div>
+      <ScreenTitle title="Rankings" sub="Compara a tus alumnos. Las calorías son una estimación." />
 
       <Card style={{ padding: 14, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -13886,10 +13933,7 @@ const DashboardTab = ({ roster, toast }) => {
   if (loading) return <LoadingBlock label="Cargando el panel de todo el equipo…" />;
 
   const header = (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-      <LayoutDashboard size={22} color={P.ember} />
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Dashboard</h1>
-    </div>
+    <ScreenTitle title="Dashboard" sub="Actividad, check-ins y cumplimiento de todo el equipo." />
   );
 
   if (rows.length === 0) {
@@ -14236,22 +14280,16 @@ const CobrosTab = ({ roster, toast }) => {
 
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <Wallet size={22} color={P.ember} />
-        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Cobros</h1>
-      </div>
-      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 16, lineHeight: 1.45 }}>
-        Define el pack de cada alumno, registra los pagos y mirá quién está al día de un vistazo. Es un registro manual — no cobra automáticamente por vos.
-      </div>
+      <ScreenTitle title="Cobros" sub="Registro manual de packs y pagos — no cobra automáticamente." />
 
       <BillingConfigCard />
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        <Card style={{ padding: "14px 15px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16, alignItems: "stretch" }}>
+        <Card style={{ padding: "14px 15px", height: "100%", boxSizing: "border-box" }}>
           <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Ingresos este mes</div>
           <div className="disp" style={{ fontSize: 22, fontWeight: 700, color: P.ember2, marginTop: 4 }}>{fmtMoney(monthRevenue, "CLP")}</div>
         </Card>
-        <Card style={{ padding: "14px 15px" }}>
+        <Card style={{ padding: "14px 15px", height: "100%", boxSizing: "border-box" }}>
           <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Vencidos / por vencer</div>
           <div className="disp" style={{ fontSize: 22, fontWeight: 700, color: counts.vencido ? P.text : (counts.por_vencer ? P.dim : P.faint), marginTop: 4 }}>{atRisk}</div>
         </Card>
@@ -14416,13 +14454,7 @@ const LeadsTab = ({ onCreateStudent, onManageStudent, toast }) => {
 
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <Zap size={22} color={P.ember} />
-        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Adquisición</h1>
-      </div>
-      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 14, lineHeight: 1.45 }}>
-        Embudo de prospectos hasta convertirse en alumno. Hoy se cargan a mano — cuando conectes campañas reales de Meta/Google/YouTube Ads, van a caer acá solas.
-      </div>
+      <ScreenTitle title="Adquisición" sub="Embudo de prospectos hasta convertirse en alumno." />
 
       <Btn kind="ember" onClick={() => setAdding(true)} style={{ width: "100%", marginBottom: 14 }}><Plus size={15} /> Nuevo lead</Btn>
 
@@ -14818,10 +14850,10 @@ REGLAS:
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Sparkles size={22} color={P.ember} />
-        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>IA Nutrición</h1>
+        <h1 style={{ ...TYPE.large, margin: 0 }}>IA Nutrición</h1>
       </div>
-      <div style={{ color: P.dim, fontSize: 14.5, marginBottom: 12, lineHeight: 1.5 }}>
-        Chat con Claude (Anthropic) para diseñar y ajustar planes nutricionales del alumno. La IA ya conoce el plan actual y los datos que has cargado.
+      <div style={{ ...TYPE.footnote, color: P.faint, marginBottom: SP.lg }}>
+        Diseña y ajusta la nutrición del alumno. Ya conoce el plan actual.
       </div>
 
       {!apiKey || showKeyEdit ? (
@@ -15656,7 +15688,7 @@ ${body}
 const slugForFile = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
 // Botón + hoja para exportar todas las rutinas. Se cae bien en cualquier
 // pantalla que tenga `plan` (Entrenar del alumno, Rutinas del coach).
-const RoutinesExportButton = ({ plan, who, toast, small }) => {
+const RoutinesExportButton = ({ plan, who, toast, small, block }) => {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const hayRutinas = (plan.days || []).length > 0;
@@ -15677,7 +15709,7 @@ const RoutinesExportButton = ({ plan, who, toast, small }) => {
   };
   return (
     <>
-      <Btn kind="line" small={small} onClick={() => setOpen(true)}><FileDown size={small ? 13 : 15} /> Exportar rutinas</Btn>
+      <Btn kind="line" small={small} onClick={() => setOpen(true)} style={block ? { width: "100%" } : undefined}><FileDown size={small ? 13 : 15} /> Exportar rutinas</Btn>
       <Sheet open={open} onClose={() => setOpen(false)} title="Exportar rutinas">
         {!hayRutinas ? (
           <Empty icon={FileDown} title="No hay rutinas para exportar" body="Cuando el plan tenga días de entrenamiento cargados, vas a poder bajar todas las rutinas ordenadas en PDF o Word." />
@@ -15686,10 +15718,10 @@ const RoutinesExportButton = ({ plan, who, toast, small }) => {
             <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.45 }}>
               Baja <b>todas las rutinas</b> ordenadas por rutina y día, con series, reps y RIR objetivo, descanso, agrupaciones y notas de cada ejercicio.
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              <Btn kind="ember" onClick={() => run("pdf")} disabled={!!busy}><FileDown size={15} /> {busy === "pdf" ? "…" : "PDF"}</Btn>
-              <Btn kind="line" onClick={() => run("word")} disabled={!!busy}><FileDown size={15} /> {busy === "word" ? "…" : "Word"}</Btn>
-              <Btn kind="line" onClick={() => run("share")} disabled={!!busy}><Share2 size={15} /> {busy === "share" ? "…" : "Compartir"}</Btn>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "stretch" }}>
+              <Btn kind="ember" onClick={() => run("pdf")} disabled={!!busy} style={{ width: "100%" }}><FileDown size={15} /> {busy === "pdf" ? "…" : "PDF"}</Btn>
+              <Btn kind="line" onClick={() => run("word")} disabled={!!busy} style={{ width: "100%" }}><FileDown size={15} /> {busy === "word" ? "…" : "Word"}</Btn>
+              <Btn kind="line" onClick={() => run("share")} disabled={!!busy} style={{ width: "100%", gridColumn: "1 / -1" }}><Share2 size={15} /> {busy === "share" ? "…" : "Compartir"}</Btn>
             </div>
             <div style={{ fontSize: 12, color: P.faint, lineHeight: 1.45 }}>
               "PDF" abre el diálogo de impresión — elige "Guardar como PDF". "Word" baja un .doc que abre Word o Google Docs. "Compartir" abre el panel del teléfono (WhatsApp, correo…) con el archivo.
@@ -16866,9 +16898,9 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Flame size={22} color={P.ember} />
-        <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0" }}>Coach IA</h1>
+        <h1 style={{ ...TYPE.large, margin: 0 }}>Coach IA</h1>
       </div>
-      <div style={{ color: P.dim, fontSize: 13.5, marginBottom: 12 }}>
+      <div style={{ ...TYPE.footnote, color: P.faint, marginBottom: SP.lg }}>
         Con el caso completo de <b>{currentStudent?.name || "este alumno"}</b> a la vista.
       </div>
       {(plan.athlete || {}).enhanced === "asistido" && (
@@ -17242,7 +17274,7 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
 
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <h1 style={{ fontSize: 30, letterSpacing: "-.022em", margin: "4px 0 8px" }}>Agenda</h1>
+      <ScreenTitle title="Agenda" />
 
       <EventReminderBanner events={plan.events} />
 
@@ -20833,21 +20865,30 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
    que hace que la app se lea como de sistema y no como una web.
    ============================================================ */
 // Segmentado de iOS: una pista gris con la opción activa en blanco.
+// Segmentado de iOS. Se pasa de flex a GRILLA: `repeat(n, 1fr)` garantiza
+// que las columnas midan exactamente lo mismo, cosa que `flex:1` no
+// asegura cuando las etiquetas tienen anchos muy distintos. Además la
+// tipografía baja un escalón a partir de 5 segmentos: con cinco
+// ("Fuerza · Cuerpo · Volumen · Logros · Historial") a 12,5 px la última
+// quedaba pegada al borde y recortada.
 const SectionSwitch = ({ items, value, onChange, style, compact }) => {
   if (!items || items.length < 2) return null;
-  const many = compact || items.length >= 4;
+  const n = items.length;
+  const many = compact || n >= 4;
+  const tight = n >= 5;
   return (
-    <div style={{ display: "flex", gap: 4, background: P.s4, borderRadius: 10, padding: 3, ...style }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`,
+      gap: 3, background: P.s4, borderRadius: 10, padding: 3, ...style }}>
       {items.map(({ id, label }) => {
         const on = value === id;
         return (
-          <button key={id} onClick={() => onChange(id)}
-            style={{ flex: 1, minWidth: 0, textAlign: "center", padding: many ? "9px 2px" : "9px 6px", borderRadius: 8,
+          <button key={id} onClick={() => onChange(id)} title={label}
+            style={{ minWidth: 0, textAlign: "center", padding: tight ? "9px 1px" : many ? "9px 2px" : "9px 6px", borderRadius: 8,
               background: on ? P.s1 : "transparent", color: on ? P.text : P.faint,
               // Única sombra permitida en todo el sistema: la pastilla del
               // segmentado. El README la lista como la excepción explícita.
               boxShadow: on ? "0 2px 6px -3px rgba(0,0,0,.3)" : "none",
-              fontSize: many ? 12.5 : 13.5, fontWeight: on ? 700 : 600,
+              fontSize: tight ? 11.5 : many ? 12.5 : 13.5, fontWeight: on ? 700 : 600,
               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</button>
         );
       })}
@@ -20868,16 +20909,60 @@ const PushHeader = ({ title, onBack }) => (
   </div>
 );
 
-// Título grande de iOS, con su micro-etiqueta encima.
-const ScreenTitle = ({ eyebrow, title, right, sub }) => (
-  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "6px 0 2px" }}>
-    <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
-      {eyebrow && <div className="mono" style={{ letterSpacing: ".16em" }}>{eyebrow}</div>}
-      <h1 style={{ margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: "-.025em", lineHeight: 1.05 }}>{title}</h1>
-      {sub && <div style={{ fontSize: 13.5, color: P.faint }}>{sub}</div>}
+// Título grande de iOS — la ÚNICA cabecera de pantalla de toda la app.
+// Antes convivían dos: este componente (32 px) en 7 pantallas y un <h1> a
+// mano de 30 px, con márgenes distintos en cada una (4px 0 4px, 4px 0 6px,
+// 4px 0 12px…), en otras 12. Esa diferencia de 2 px y de márgenes es
+// exactamente lo que se lee como "desprolijo" al pasar de pestaña en
+// pestaña. Ahora hay una sola medida y un solo ritmo.
+//
+// El título va SIEMPRE primero: si la pantalla tiene segmentado, va debajo
+// (`tabs`), nunca encima — en iOS el nombre de la pantalla manda y el
+// selector es subordinado. `sub` es UNA línea: si hace falta un párrafo
+// para explicar la pantalla, el problema es la pantalla.
+const ScreenTitle = ({ eyebrow, title, right, sub, tabs, actions }) => (
+  <div style={{ display: "flex", flexDirection: "column", gap: SP.md, marginBottom: SP.lg }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: SP.md }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: 1 }}>
+        {eyebrow && <div className="mono" style={{ letterSpacing: ".16em" }}>{eyebrow}</div>}
+        <h1 style={{ margin: 0, ...TYPE.large }}>{title}</h1>
+        {sub && (
+          <div style={{ ...TYPE.footnote, color: P.faint, overflow: "hidden", textOverflow: "ellipsis",
+            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{sub}</div>
+        )}
+      </div>
+      {right && <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: SP.sm }}>{right}</div>}
     </div>
-    {right}
+    {tabs}
+    {actions}
   </div>
+);
+
+/* Fila de acciones de ancho REPARTIDO: todos los botones miden lo mismo.
+   Antes cada botonera se armaba a mano y quedaba dentada — "Deshacer" y
+   "Rehacer" anchos contra un "Vaciar" corto, "Comparar" contra "Poner
+   imágenes" — que es el defecto de simetría más visible de la app. */
+const ActionRow = ({ children, cols }) => {
+  const items = React.Children.toArray(children).filter(Boolean);
+  if (!items.length) return null;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols || items.length}, minmax(0, 1fr))`,
+      gap: SP.sm, alignItems: "stretch" }}>
+      {items.map((c, i) => (
+        <div key={i} style={{ display: "flex", minWidth: 0, whiteSpace: "nowrap" }}>{c}</div>
+      ))}
+    </div>
+  );
+};
+
+/* Grilla de fichas con TODAS las celdas de la misma altura. El defecto que
+   corrige: en el Panel del coach, "Atletas 2" (sin nota) quedaba más baja
+   que "Check-in 100% · últimos 7 días" (con nota) en la misma fila. Con
+   alignItems:stretch + height:100% en la ficha, la fila se empareja sola
+   sin importar qué traiga cada una. */
+const StatGrid = ({ children, cols = 2 }) => (
+  <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+    gap: SP.stack, alignItems: "stretch" }}>{children}</div>
 );
 
 // Fila de ajustes: ícono en pastilla, título, pista y o bien un
@@ -20921,18 +21006,26 @@ const SettingGroup = ({ label, children }) => (
 // entera se vuelve tocable — con su propio chevron, para que quede claro
 // de un vistazo que hay más detrás, en vez de que el alumno tenga que
 // adivinar (o descubrir tocando a ciegas) qué responde y qué no.
+// El pie (nota o barra) ocupa SIEMPRE su renglón, aunque venga vacío: así
+// dos fichas vecinas alinean su número a la misma altura y su borde
+// inferior también, tengan o no nota. Es la diferencia entre una grilla y
+// un collage.
+const STAT_FOOT_H = 16;
 const StatTile = ({ label, value, unit, note, bar, onClick }) => (
   <Card onClick={onClick} style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5,
+    height: "100%", boxSizing: "border-box",
     cursor: onClick ? "pointer" : undefined, position: "relative" }}>
     <span className="mono" style={{ letterSpacing: ".08em" }}>{label}</span>
-    <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, letterSpacing: "-.02em" }}>
+    <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, letterSpacing: "-.02em", marginTop: "auto" }}>
       {value}{unit && <span style={{ fontSize: 14 }}>{unit}</span>}
     </span>
-    {bar != null ? (
-      <span style={{ display: "block", height: 5, borderRadius: 3, background: P.s4, overflow: "hidden" }}>
-        <i style={{ display: "block", width: `${Math.max(0, Math.min(100, bar))}%`, height: "100%", background: P.prog }} />
-      </span>
-    ) : note ? <span style={{ fontSize: 12, color: P.faint }}>{note}</span> : null}
+    <span style={{ display: "flex", alignItems: "center", minHeight: STAT_FOOT_H }}>
+      {bar != null ? (
+        <span style={{ display: "block", width: "100%", height: 5, borderRadius: 3, background: P.s4, overflow: "hidden" }}>
+          <i style={{ display: "block", width: `${Math.max(0, Math.min(100, bar))}%`, height: "100%", background: P.prog }} />
+        </span>
+      ) : note ? <span style={{ fontSize: 12, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{note}</span> : null}
+    </span>
     {onClick && <ChevronRight size={14} color={P.faint} style={{ position: "absolute", top: 14, right: 13 }} />}
   </Card>
 );
@@ -21896,7 +21989,7 @@ const AI_FAB_HOLD_MS = 550;
 // Suplementación y la quinta ficha de accesos en la sesión.
 const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatSignal, toast, hideFab }) => {
   const [visible, setVisible] = useAiFabVisible();
-  const [pos, setPos] = useState(() => clampFabPos(loadFabPos() || { right: 16, bottom: 110 }));
+  const [pos, setPos] = useState(() => clampFabPos(loadFabPos() || { right: 14, bottom: 82 }));
   const [dragging, setDragging] = useState(false);
   const [holding, setHolding] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -22945,7 +23038,7 @@ const App = () => {
             <PushHeader title={UTILITY_SCREENS[utility].label} onBack={() => setUtility(null)} />
             {utility === "timer" && <TimerTab />}
             {utility === "guia" && (
-              <div style={{ padding: `0 16px ${TAB_BOTTOM_PAD}` }}>
+              <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
                 <div style={{ color: P.dim, fontSize: 15, marginBottom: 10, lineHeight: 1.5 }}>
                   Todo lo que aparece en la rutina, explicado en simple. Durante el entrenamiento también puedes tocar cualquier etiqueta (TOP, B-O, DROP…) para abrir esta guía.
                 </div>
@@ -23034,11 +23127,30 @@ const App = () => {
             no en placa negra. Antes las tres eran placa: la acción más
             peligrosa de la pantalla era también la más llamativa. */}
         {mode === "coach" && (sub === "rutina" || sub === "nutricion" || sub === "indicaciones" || sub === "agenda") && roleTabAccess[sub] === "edit" && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "12px 16px 0" }}>
-            <Btn kind="ghost" small onClick={undoPlan} disabled={planHistoryRef.current.past.length === 0}><Undo2 size={14} /> Deshacer</Btn>
-            <Btn kind="ghost" small onClick={redoPlan} disabled={planHistoryRef.current.future.length === 0}><Redo2 size={14} /> Rehacer</Btn>
-            <div style={{ flex: 1 }} />
-            <Btn kind="line" small onClick={() => setConfirmReset(true)} title="Vaciar el plan y volver a empezar"><Trash2 size={13} /> Vaciar</Btn>
+          /* Barra de edición del plan. Antes eran tres botones con texto de
+             anchos distintos ("Deshacer"/"Rehacer" largos contra un "Vaciar"
+             corto) ocupando un renglón entero ENCIMA del título de la
+             pantalla — el nombre de la sección quedaba tercero, detrás del
+             segmentado y de esta barra. Ahora son tres destinos táctiles
+             cuadrados e idénticos, alineados a la derecha: pesan lo justo,
+             quedan simétricos y le devuelven el primer plano al título. Las
+             tres acciones son las mismas y conservan su etiqueta accesible. */
+          <div style={{ display: "flex", gap: SP.sm, alignItems: "center", justifyContent: "flex-end", padding: "10px 20px 0" }}>
+            {[
+              { k: "undo", Icon: Undo2, label: "Deshacer", onClick: undoPlan, off: planHistoryRef.current.past.length === 0 },
+              { k: "redo", Icon: Redo2, label: "Rehacer", onClick: redoPlan, off: planHistoryRef.current.future.length === 0 },
+              { k: "reset", Icon: Trash2, label: "Vaciar el plan y volver a empezar", onClick: () => setConfirmReset(true), danger: true },
+            ].map(({ k, Icon, label, onClick, off, danger }) => (
+              <button key={k} onClick={onClick} disabled={!!off} aria-label={label} title={label}
+                style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: danger ? "transparent" : P.s3,
+                  border: danger ? `1px solid ${P.line}` : "1px solid transparent",
+                  color: off ? P.textQuaternary : danger ? P.red : P.text,
+                  opacity: off ? .5 : 1 }}>
+                <Icon size={15} strokeWidth={2.2} />
+              </button>
+            ))}
           </div>
         )}
         {mode === "coach" && sub === "rutina" && (
