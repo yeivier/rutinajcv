@@ -637,6 +637,65 @@ function discosParaPeso(totalKg, barKg, plates) {
   return { porLado: out, resto: Math.round(porLado * 100) / 100 };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   FÓRMULA DE 1RM (v277)
+   ───────────────────────────────────────────────────────────────────────
+   Hasta acá el e1RM salía siempre de Epley. No es "la" fórmula: cada una
+   se ajusta mejor a un rango distinto de repeticiones, y quien lleva años
+   entrenando suele tener la suya. Brzycki acierta más fino por debajo de
+   10 reps y Epley se porta mejor por arriba; Lombardi y O'Conner son las
+   otras dos que se usan en preparación.
+
+   Se elige una y vale para toda la app — gráficas, calculadora y
+   sugerencias — porque comparar dos estimados hechos con fórmulas
+   distintas no significa nada.
+   ═══════════════════════════════════════════════════════════════════════ */
+const RM_FORMULAS = [
+  { id: "epley",    label: "Epley",    nota: "La de siempre. Buena de 1 a 10 reps y por arriba.",
+    calc: (w, r) => w * (1 + r / 30), inv: (e, r) => e / (1 + r / 30) },
+  { id: "brzycki",  label: "Brzycki",  nota: "Más fina por debajo de 10 reps; se dispara arriba de 12.",
+    calc: (w, r) => (r >= 37 ? w : w * 36 / (37 - r)), inv: (e, r) => (r >= 37 ? e : e * (37 - r) / 36) },
+  { id: "lombardi", label: "Lombardi", nota: "Curva potencial; estimados algo más conservadores.",
+    calc: (w, r) => w * Math.pow(Math.max(r, 1), 0.10), inv: (e, r) => e / Math.pow(Math.max(r, 1), 0.10) },
+  { id: "oconner",  label: "O'Conner", nota: "La más conservadora de las cuatro.",
+    calc: (w, r) => w * (1 + r / 40), inv: (e, r) => e / (1 + r / 40) },
+];
+let RM_FORMULA = "epley";
+try {
+  const raw = window.localStorage.getItem("forja-rm-formula");
+  if (raw && RM_FORMULAS.some((f) => f.id === raw)) RM_FORMULA = raw;
+} catch {}
+const rmListeners = new Set();
+function setRmFormula(id) {
+  RM_FORMULA = id;
+  try { window.localStorage.setItem("forja-rm-formula", id); } catch {}
+  rmListeners.forEach((fn) => fn(id));
+}
+function useRmFormula() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    rmListeners.add(fn);
+    return () => rmListeners.delete(fn);
+  }, []);
+  return [RM_FORMULA, setRmFormula];
+}
+const formulaActiva = () => RM_FORMULAS.find((f) => f.id === RM_FORMULA) || RM_FORMULAS[0];
+
+// e1RM con la fórmula elegida. El RIR suma a las reps: dejar 2 en el
+// tanque equivale, para el estimado, a haber hecho 2 repeticiones más.
+function e1rmDe(peso, reps, rir) {
+  const w = +peso || 0, r = +reps || 0, ri = +rir || 0;
+  if (!w || !r) return null;
+  return formulaActiva().calc(w, r + ri);
+}
+// El camino inverso: qué peso corresponde a un e1RM para N repeticiones.
+function pesoParaE1rm(e1rm, reps, rir) {
+  const e = +e1rm || 0, r = +reps || 0, ri = +rir || 0;
+  if (!e || !r) return null;
+  return formulaActiva().inv(e, r + ri);
+}
+
 // Estado del permiso de notificaciones del navegador. "unsupported" cuando
 // el aparato no tiene la API (iPhone fuera de la app instalada, sobre todo).
 function notifyState() {
@@ -2872,6 +2931,161 @@ const ROUTINE_A = "A";
    de las que le carga el coach (A, B, C…). Se agrupa y se etiqueta con el
    mismo mecanismo que cualquier otra rutina (routineNames), así aparece en
    Entrenar, en el export y en el volumen sin ningún caso especial. */
+/* ═══════════════════════════════════════════════════════════════════════
+   PROGRAMAS CONOCIDOS (v277)
+   ───────────────────────────────────────────────────────────────────────
+   Arrancar de cero es la parte que más cuesta. Estos son los esqueletos
+   publicados de programas que ya conoce cualquiera que entrene: se
+   copian como días propios en "Mis rutinas" y desde ahí se editan, se
+   entrenan y se les cambia lo que haga falta — no quedan atados a nada.
+
+   Van las series y el rango de reps de cada programa; los pesos no,
+   porque son de cada uno. Los nombres de ejercicio son los del catálogo
+   de la app para que enganchen con el historial y las gráficas.
+   ═══════════════════════════════════════════════════════════════════════ */
+const PROGRAMAS = [
+  { id: "sl5x5", nombre: "StrongLifts 5×5", meta: "Fuerza · principiante · 3 días",
+    desc: "Dos días que se alternan. Cinco series de cinco, subiendo el peso cada sesión mientras salga.",
+    dias: [
+      { name: "StrongLifts A", exs: [
+        { name: "Sentadilla", muscle: "Cuádriceps", sets: 5, reps: "5" },
+        { name: "Press de banca", muscle: "Pecho", sets: 5, reps: "5" },
+        { name: "Remo con barra", muscle: "Espalda", sets: 5, reps: "5" } ] },
+      { name: "StrongLifts B", exs: [
+        { name: "Sentadilla", muscle: "Cuádriceps", sets: 5, reps: "5" },
+        { name: "Press militar", muscle: "Hombro", sets: 5, reps: "5" },
+        { name: "Peso muerto", muscle: "Espalda", sets: 1, reps: "5" } ] },
+    ] },
+  { id: "ppl", nombre: "Push / Pull / Legs", meta: "Hipertrofia · intermedio · 3-6 días",
+    desc: "Empuje, tracción y pierna. El reparto más usado para entrenar cada músculo dos veces por semana.",
+    dias: [
+      { name: "Push (empuje)", exs: [
+        { name: "Press de banca", muscle: "Pecho", sets: 4, reps: "6-8" },
+        { name: "Press militar", muscle: "Hombro", sets: 3, reps: "8-10" },
+        { name: "Press inclinado con mancuernas", muscle: "Pecho", sets: 3, reps: "10-12" },
+        { name: "Elevaciones laterales", muscle: "Hombro", sets: 4, reps: "12-15" },
+        { name: "Extensión de tríceps en polea", muscle: "Tríceps", sets: 3, reps: "10-12" } ] },
+      { name: "Pull (tracción)", exs: [
+        { name: "Dominadas", muscle: "Espalda", sets: 4, reps: "6-10" },
+        { name: "Remo con barra", muscle: "Espalda", sets: 4, reps: "8-10" },
+        { name: "Jalón al pecho", muscle: "Espalda", sets: 3, reps: "10-12" },
+        { name: "Curl con barra", muscle: "Bíceps", sets: 3, reps: "10-12" },
+        { name: "Face pull", muscle: "Hombro", sets: 3, reps: "15" } ] },
+      { name: "Legs (pierna)", exs: [
+        { name: "Sentadilla", muscle: "Cuádriceps", sets: 4, reps: "6-8" },
+        { name: "Peso muerto rumano", muscle: "Femoral", sets: 3, reps: "8-10" },
+        { name: "Prensa", muscle: "Cuádriceps", sets: 3, reps: "10-12" },
+        { name: "Curl femoral tumbado", muscle: "Femoral", sets: 3, reps: "10-12" },
+        { name: "Elevación de talones", muscle: "Gemelo", sets: 4, reps: "12-15" } ] },
+    ] },
+  { id: "gvt", nombre: "German Volume Training", meta: "Hipertrofia · avanzado · 10×10",
+    desc: "Diez series de diez con el mismo peso (~60 % del 1RM) en un básico. Brutal de volumen: se usa por bloques cortos.",
+    dias: [
+      { name: "GVT — Pecho y espalda", exs: [
+        { name: "Press de banca", muscle: "Pecho", sets: 10, reps: "10" },
+        { name: "Remo con barra", muscle: "Espalda", sets: 10, reps: "10" },
+        { name: "Aperturas con mancuernas", muscle: "Pecho", sets: 3, reps: "12" } ] },
+      { name: "GVT — Pierna", exs: [
+        { name: "Sentadilla", muscle: "Cuádriceps", sets: 10, reps: "10" },
+        { name: "Curl femoral tumbado", muscle: "Femoral", sets: 10, reps: "10" } ] },
+    ] },
+  { id: "nsuns", nombre: "nSuns LP", meta: "Fuerza · intermedio · 4-6 días",
+    desc: "Progresión lineal sobre los cuatro básicos, con una serie al fallo que marca cuánto subir la semana siguiente.",
+    dias: [
+      { name: "nSuns — Banca", exs: [
+        { name: "Press de banca", muscle: "Pecho", sets: 9, reps: "3-8" },
+        { name: "Press militar", muscle: "Hombro", sets: 8, reps: "4-6" },
+        { name: "Jalón al pecho", muscle: "Espalda", sets: 3, reps: "12" } ] },
+      { name: "nSuns — Sentadilla", exs: [
+        { name: "Sentadilla", muscle: "Cuádriceps", sets: 9, reps: "3-8" },
+        { name: "Peso muerto rumano", muscle: "Femoral", sets: 3, reps: "8" } ] },
+      { name: "nSuns — Peso muerto", exs: [
+        { name: "Peso muerto", muscle: "Espalda", sets: 9, reps: "3-8" },
+        { name: "Remo con barra", muscle: "Espalda", sets: 3, reps: "10" } ] },
+    ] },
+  { id: "gzcl", nombre: "GZCL", meta: "Fuerza e hipertrofia · intermedio",
+    desc: "Tres niveles: T1 el básico pesado, T2 el accesorio fuerte, T3 el volumen liviano. La estructura, no un calendario fijo.",
+    dias: [
+      { name: "GZCL — T1 Sentadilla", exs: [
+        { name: "Sentadilla", muscle: "Cuádriceps", sets: 5, reps: "3" },
+        { name: "Prensa", muscle: "Cuádriceps", sets: 3, reps: "10" },
+        { name: "Curl femoral tumbado", muscle: "Femoral", sets: 3, reps: "15" } ] },
+      { name: "GZCL — T1 Banca", exs: [
+        { name: "Press de banca", muscle: "Pecho", sets: 5, reps: "3" },
+        { name: "Press inclinado con mancuernas", muscle: "Pecho", sets: 3, reps: "10" },
+        { name: "Elevaciones laterales", muscle: "Hombro", sets: 3, reps: "15" } ] },
+    ] },
+  { id: "rp", nombre: "RP Hipertrofia", meta: "Hipertrofia · volumen progresivo",
+    desc: "Arranca en el volumen mínimo que hace crecer y suma series semana a semana hasta el máximo recuperable. Después, descarga.",
+    dias: [
+      { name: "RP — Torso", exs: [
+        { name: "Press inclinado con mancuernas", muscle: "Pecho", sets: 3, reps: "8-12" },
+        { name: "Remo con barra", muscle: "Espalda", sets: 3, reps: "8-12" },
+        { name: "Elevaciones laterales", muscle: "Hombro", sets: 4, reps: "12-20" },
+        { name: "Curl con barra", muscle: "Bíceps", sets: 3, reps: "10-15" },
+        { name: "Extensión de tríceps en polea", muscle: "Tríceps", sets: 3, reps: "10-15" } ] },
+      { name: "RP — Pierna", exs: [
+        { name: "Sentadilla", muscle: "Cuádriceps", sets: 3, reps: "8-12" },
+        { name: "Peso muerto rumano", muscle: "Femoral", sets: 3, reps: "8-12" },
+        { name: "Extensión de cuádriceps", muscle: "Cuádriceps", sets: 3, reps: "12-20" },
+        { name: "Elevación de talones", muscle: "Gemelo", sets: 4, reps: "12-20" } ] },
+    ] },
+];
+
+// Los programas conocidos, para elegir uno y copiarlo. Cada uno dice qué
+// es y para quién, porque "nSuns" no le dice nada a quien recién empieza.
+const ProgramasSheet = ({ open, onClose, onCopiar }) => {
+  const [abierto, setAbierto] = useState(null);
+  return (
+    <Sheet open={open} onClose={onClose} title="Programas conocidos" tall>
+      <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.5, marginTop: -6, marginBottom: SP.lg }}>
+        Se copian a <b style={{ color: P.dim }}>{ROUTINE_MIA_LABEL}</b> como días tuyos: los editás, les cambiás
+        ejercicios y los entrenás como cualquier otra rutina. Las series y las reps vienen puestas; los pesos son tuyos.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: SP.stack }}>
+        {PROGRAMAS.map((pr) => {
+          const open2 = abierto === pr.id;
+          const totalEx = pr.dias.reduce((t, d) => t + d.exs.length, 0);
+          return (
+            <Card key={pr.id} style={{ padding: 0, overflow: "hidden" }}>
+              <button onClick={() => setAbierto(open2 ? null : pr.id)} aria-expanded={open2}
+                style={{ width: "100%", textAlign: "left", padding: `${SP.lg}px 15px`, display: "flex", alignItems: "center", gap: SP.md }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ ...TYPE.headline, color: P.text }}>{pr.nombre}</div>
+                  <div style={{ ...TYPE.caption, color: P.faint2, marginTop: 2 }}>{pr.meta}</div>
+                  <div style={{ ...TYPE.footnote, color: P.faint, marginTop: 5, lineHeight: 1.45 }}>{pr.desc}</div>
+                </div>
+                <ChevronDown size={17} color={P.chevron} strokeWidth={2.4}
+                  style={{ flexShrink: 0, transform: open2 ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+              </button>
+              {open2 && (
+                <div style={{ padding: `0 15px ${SP.lg}px`, borderTop: `1px solid ${P.line}` }}>
+                  {pr.dias.map((d, i) => (
+                    <div key={i} style={{ marginTop: SP.md }}>
+                      <div style={{ ...TYPE.subhead, color: P.dim }}>{d.name}</div>
+                      <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+                        {d.exs.map((e, j) => (
+                          <div key={j} style={{ ...TYPE.footnote, color: P.faint, display: "flex", gap: 8 }}>
+                            <span style={{ flex: 1, minWidth: 0 }}>{e.name}</span>
+                            <span style={{ flexShrink: 0, color: P.faint2 }}>{e.sets}×{e.reps}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <Btn kind="ember" onClick={() => onCopiar(pr)} style={{ width: "100%", marginTop: SP.lg }}>
+                    Copiar a {ROUTINE_MIA_LABEL} ({pr.dias.length} días · {totalEx} ejercicios)
+                  </Btn>
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+    </Sheet>
+  );
+};
+
 const ROUTINE_MIA = "MIA";
 const ROUTINE_MIA_LABEL = "Mis rutinas";
 const ROUTINE_B = "B";
@@ -6089,7 +6303,7 @@ const ExerciseProgress = ({ entries }) => {
     const e1rm = done.reduce((m, s) => {
       const w = +s.weight || 0, r = +s.reps || 0, ri = +s.rir || 0;
       if (!w || !r) return m;
-      return Math.max(m, Math.round(w * (1 + (r + ri) / 30)));
+      return Math.max(m, Math.round(e1rmDe(w, r, ri) || 0));
     }, 0) || null;
     return { en, best, setsDone: done.length, totalReps, volumen, e1rm };
   }).filter((x) => x.best != null), [all]);
@@ -8402,7 +8616,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
 
       <Sheet open={calcOpen} onClose={() => setCalcOpen(false)} title="Calculadoras" tall>
         {(() => {
-          const e1rmOf = (w, r, rir) => { const ww = num(w), rr = num(r), ri = num(rir) || 0; if (!ww || !rr) return null; return ww * (1 + (rr + ri) / 30); };
+          const e1rmOf = (w, r, rir) => e1rmDe(num(w), num(r), num(rir) || 0);
           const calcField = (label, value, onChange, placeholder) => (
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 12, color: P.faint2, fontWeight: 600, marginBottom: 4 }}>{label}</div>
@@ -8418,7 +8632,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             </div>
           );
           const e1 = e1rmOf(c1w, c1r, c1rir);
-          const targetW = (() => { const e = num(c2e), r = num(c2r), ri = num(c2rir) || 0; if (!e || !r) return null; return e / (1 + (r + ri) / 30); })();
+          const targetW = pesoParaE1rm(num(c2e), num(c2r), num(c2rir) || 0);
           const prNew = num(c3cur), prOld = num(c3prev);
           const prResult = (!prNew || !prOld) ? null : prNew > prOld
             ? `¡Récord! +${kg(prNew - prOld)} kg (+${Math.round(((prNew - prOld) / prOld) * 1000) / 10}%)`
@@ -8595,6 +8809,30 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
   // Ficha del ejercicio abierta desde la vista previa del día.
   const [fichaEx, setFichaEx] = useState(null);
   const [browsing, setBrowsing] = useState(false);   // ver la rutina aunque haya sesión abierta
+  const [programasOpen, setProgramasOpen] = useState(false);
+  // Copia un programa conocido como días propios en "Mis rutinas". Desde
+  // ahí se editan y se entrenan igual que cualquier otra rutina — no
+  // quedan atados al programa ni se pisan con los del coach.
+  const copiarPrograma = (prog) => {
+    const np = structuredClone(plan);
+    np.days = [...(np.days || [])];
+    prog.dias.forEach((d) => {
+      np.days.push({
+        id: uid(), name: d.name, routine: ROUTINE_MIA,
+        exs: d.exs.map((e) => ({
+          id: uid(), name: e.name, muscle: e.muscle, equipment: "", rest: 120,
+          video: "", superset: "", notes: "", secondary: [],
+          sets: Array.from({ length: e.sets }, () => ({ id: uid(), type: "normal", repsT: e.reps, rirT: "2" })),
+        })),
+      });
+    });
+    np.routineNames = { ...(np.routineNames || {}) };
+    if (!np.routineNames[ROUTINE_MIA]) np.routineNames[ROUTINE_MIA] = ROUTINE_MIA_LABEL;
+    np.updatedAt = todayISO();
+    savePlan(np);
+    setProgramasOpen(false);
+    toast && toast(`✓ ${prog.nombre} copiado a ${ROUTINE_MIA_LABEL} (${prog.dias.length} días)`);
+  };
   // Día esperando a que se elija gimnasio. La sesión no se crea hasta que
   // se elige: así el registro nunca queda sin sede.
   const [pidiendoGym, setPidiendoGym] = useState(null);
@@ -8722,6 +8960,22 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
             cuando quiera y le agrega ejercicios en vivo, igual que en el
             entrenamiento libre. Es lo que faltaba para que el modo libre
             sirva más de una vez. */}
+        {!active && (
+          <button onClick={() => setProgramasOpen(true)}
+            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, marginBottom: 14,
+              padding: "15px 15px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
+            <span style={{ width: 38, height: 38, borderRadius: 12, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Trophy size={19} />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 16.5 }}>Empezar con un programa conocido</div>
+              <div style={{ fontSize: 13, color: P.faint, marginTop: 1 }}>StrongLifts 5×5, Push/Pull/Legs, nSuns, GZCL, GVT, RP</div>
+            </div>
+            <ChevronRight size={18} color={P.faint} />
+          </button>
+        )}
+        <ProgramasSheet open={programasOpen} onClose={() => setProgramasOpen(false)}
+          onCopiar={copiarPrograma} />
         {!active && (
           <button onClick={() => {
               const nombre = (prompt("Nombre de tu rutina\n(por ejemplo: «Pecho y hombro» o «Día de pierna»)", "") || "").trim();
@@ -20518,6 +20772,9 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
           (mirar el cronómetro). */}
       <AvisoDescansoGroup />
 
+      {/* Con qué fórmula se estima el 1RM en toda la app. */}
+      <FormulaRMGroup />
+
       {/* Cambio de modo solo para el dueño: un perfil de acceso (alumno) no
           puede pasar a coach. */}
       {!isDelegate && (
@@ -22730,6 +22987,30 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
    la notificación; y a quien no quiere que nadie oiga nada le alcanza el
    destello en pantalla. La notificación además necesita el permiso del
    navegador, así que su fila lo pide y muestra en qué estado está. */
+// Elegir la fórmula de 1RM. Vale para toda la app a propósito: comparar
+// dos estimados hechos con fórmulas distintas no significa nada.
+const FormulaRMGroup = () => {
+  const [formula, setFormula] = useRmFormula();
+  const activa = RM_FORMULAS.find((f) => f.id === formula) || RM_FORMULAS[0];
+  // Un ejemplo concreto vale más que el nombre de un señor: 100 kg × 8
+  // reps, y cuánto dice cada fórmula. Así se elige viendo la diferencia.
+  const ejemplo = Math.round(activa.calc(100, 8));
+  return (
+    <SettingGroup label="Fórmula de 1RM">
+      {RM_FORMULAS.map((f, i) => (
+        <SettingRow key={f.id} Icon={TrendingUp} label={f.label} hint={f.nota}
+          last={i === RM_FORMULAS.length - 1}
+          onClick={() => setFormula(f.id)}
+          right={f.id === formula ? <Check size={16} color={P.ember2} strokeWidth={3} /> : null} />
+      ))}
+      <div style={{ padding: `10px ${SP.lg}px 12px`, ...TYPE.footnote, color: P.faint, lineHeight: 1.45, borderTop: `1px solid ${P.line}` }}>
+        Con {activa.label}, 100 kg × 8 reps estima <b style={{ color: P.dim }}>{ejemplo} kg</b> de 1RM.
+        Se usa en las gráficas de e1RM y en la calculadora.
+      </div>
+    </SettingGroup>
+  );
+};
+
 const AvisoDescansoGroup = () => {
   const [pref, setPref] = useRestAlert();
   const [permiso, setPermiso] = useState(notifyState());
