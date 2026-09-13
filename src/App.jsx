@@ -2684,6 +2684,12 @@ const sets = (arr) => arr.map(([type, repsT, rirT, pct]) => ({ id: uid(), type, 
    Rutina B es el bloque nuevo del documento «Entrenamiento Jose Miguel Posada».
    Un día sin etiqueta se considera Rutina A. */
 const ROUTINE_A = "A";
+/* Clave bajo la que viven las rutinas que se arma el propio atleta, aparte
+   de las que le carga el coach (A, B, C…). Se agrupa y se etiqueta con el
+   mismo mecanismo que cualquier otra rutina (routineNames), así aparece en
+   Entrenar, en el export y en el volumen sin ningún caso especial. */
+const ROUTINE_MIA = "MIA";
+const ROUTINE_MIA_LABEL = "Mis rutinas";
 const ROUTINE_B = "B";
 const ROUTINE_C = "C";
 // La Rutina C llega con nombre propio desde el día uno (el coach igual
@@ -3046,6 +3052,120 @@ function setTargets(ex, setIdx, week) {
     rirT: row && row.rirT !== undefined && row.rirT !== "" ? row.rirT : s.rirT,
     overridden: !!(row && ((row.repsT ?? "") !== "" || (row.rirT ?? "") !== "")),
   };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MYFITNESSPAL — importar el diario del atleta
+   ───────────────────────────────────────────────────────────────────────
+   MyFitnessPal cerró su API pública en 2019. Hoy el acceso por API es solo
+   para socios comerciales (hay que pedirlo a API@myfitnesspal.com y firmar
+   acuerdo, con client_id/client_secret), o vía un agregador de pago como
+   Terra. Es decir: NO existe forma de conectar la cuenta de un atleta sin
+   ese acuerdo, y cualquier cosa que diga lo contrario está inventando.
+
+   Lo que sí se puede hacer hoy, sin depender de nadie: MFP deja exportar
+   el diario en CSV desde su web, y esto lo lee. Cuando FORJA consiga las
+   credenciales de socio (o se contrate Terra), lo único que hay que
+   escribir es el fetch: el normalizador de abajo ya deja los datos con la
+   forma que usa el plan, así que el resto de la app no se entera.
+
+   El parser es a propósito tolerante: MFP tiene dos exportaciones con
+   columnas distintas (el resumen por comida y el diario detallado por
+   alimento), les cambia el nombre según el idioma de la cuenta, y algunas
+   traen la coma decimal. Se buscan las columnas por nombre aproximado en
+   vez de por posición.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+// Divide una línea de CSV respetando comillas ("Pollo, a la plancha").
+function csvLinea(linea) {
+  const out = []; let cur = "", enComillas = false;
+  for (let i = 0; i < linea.length; i++) {
+    const ch = linea[i];
+    if (ch === '"') {
+      if (enComillas && linea[i + 1] === '"') { cur += '"'; i++; }
+      else enComillas = !enComillas;
+    } else if (ch === "," && !enComillas) { out.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim());
+}
+
+// Número tolerante: "1.234,5" / "1,234.5" / "" → 0
+function mfpNum(v) {
+  if (v == null) return 0;
+  let t = String(v).replace(/[^\d.,-]/g, "").trim();
+  if (!t) return 0;
+  const coma = t.lastIndexOf(","), punto = t.lastIndexOf(".");
+  if (coma > punto) t = t.replace(/\./g, "").replace(",", ".");   // 1.234,5
+  else t = t.replace(/,/g, "");                                   // 1,234.5
+  const n = parseFloat(t);
+  return isFinite(n) ? n : 0;
+}
+
+// Busca el índice de la primera columna cuyo encabezado contenga alguno de
+// los términos. Así sirve para "Calories", "Calorías", "Energy (kcal)"…
+function colIdx(heads, ...terminos) {
+  const norm = (x) => (x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return heads.findIndex((h) => terminos.some((t) => norm(h).includes(norm(t))));
+}
+
+/* Lee un CSV de MyFitnessPal y lo deja con la forma del plan.
+   Devuelve { dias, total, aviso } — `dias` ordenado de más viejo a más
+   nuevo, cada uno con sus comidas y, si el export es el detallado, los
+   alimentos de cada comida. */
+function parseMFPCsv(texto) {
+  const lineas = String(texto || "").split(/\r?\n/).filter((l) => l.trim());
+  if (lineas.length < 2) return { dias: [], aviso: "El archivo está vacío o no tiene filas de datos." };
+  const heads = csvLinea(lineas[0]);
+  const iFecha = colIdx(heads, "date", "fecha");
+  const iComida = colIdx(heads, "meal", "comida");
+  const iAlimento = colIdx(heads, "food", "alimento", "item", "description");
+  const iCant = colIdx(heads, "amount", "serving", "cantidad", "raci");
+  const iKcal = colIdx(heads, "calorie", "caloria", "energy", "kcal");
+  const iProt = colIdx(heads, "protein", "proteina");
+  const iCarb = colIdx(heads, "carbohydrate", "carbohidrato", "carbs");
+  const iGrasa = colIdx(heads, "fat");   // "Fat (g)"; las saturadas caen después
+  if (iKcal < 0) {
+    return { dias: [], aviso: "No se encontró la columna de calorías. ¿Seguro que es el CSV del diario de MyFitnessPal?" };
+  }
+  const porFecha = new Map();
+  for (let i = 1; i < lineas.length; i++) {
+    const c = csvLinea(lineas[i]);
+    if (!c.length || c.every((x) => !x)) continue;
+    const fecha = iFecha >= 0 ? (c[iFecha] || "sin fecha") : "sin fecha";
+    const comida = (iComida >= 0 ? c[iComida] : "") || "Comida";
+    const kcal = mfpNum(c[iKcal]);
+    const p = iProt >= 0 ? mfpNum(c[iProt]) : 0;
+    const cb = iCarb >= 0 ? mfpNum(c[iCarb]) : 0;
+    const g = iGrasa >= 0 ? mfpNum(c[iGrasa]) : 0;
+    // Una fila con todo en cero no aporta (MFP exporta filas de totales vacías).
+    if (!kcal && !p && !cb && !g) continue;
+    if (!porFecha.has(fecha)) porFecha.set(fecha, new Map());
+    const comidas = porFecha.get(fecha);
+    if (!comidas.has(comida)) comidas.set(comida, { nombre: comida, items: [], kcal: 0, p: 0, c: 0, f: 0 });
+    const m = comidas.get(comida);
+    m.kcal += kcal; m.p += p; m.c += cb; m.f += g;
+    const alimento = iAlimento >= 0 ? (c[iAlimento] || "").trim() : "";
+    if (alimento) m.items.push({ food: alimento, qty: iCant >= 0 ? (c[iCant] || "").trim() : "", kcal });
+  }
+  const dias = [...porFecha.entries()].map(([fecha, comidas]) => {
+    const arr = [...comidas.values()].map((m) => ({
+      ...m, kcal: Math.round(m.kcal), p: Math.round(m.p), c: Math.round(m.c), f: Math.round(m.f),
+    }));
+    const tot = arr.reduce((t, m) => ({ kcal: t.kcal + m.kcal, p: t.p + m.p, c: t.c + m.c, f: t.f + m.f }), { kcal: 0, p: 0, c: 0, f: 0 });
+    return { fecha, comidas: arr, ...tot };
+  }).sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+  if (!dias.length) return { dias: [], aviso: "No se encontró ninguna fila con datos de comida." };
+  // Promedio de los días con calorías: es lo que sirve como objetivo.
+  const conKcal = dias.filter((d) => d.kcal > 0);
+  const prom = conKcal.length ? {
+    kcal: Math.round(conKcal.reduce((t, d) => t + d.kcal, 0) / conKcal.length),
+    p: Math.round(conKcal.reduce((t, d) => t + d.p, 0) / conKcal.length),
+    c: Math.round(conKcal.reduce((t, d) => t + d.c, 0) / conKcal.length),
+    f: Math.round(conKcal.reduce((t, d) => t + d.f, 0) / conKcal.length),
+  } : { kcal: 0, p: 0, c: 0, f: 0 };
+  return { dias, promedio: prom, aviso: "" };
 }
 
 const emptyPlan = () => ({ days: [], library: [], nutrition: { kcal: 0, p: 0, c: 0, f: 0, notes: "", meals: [] }, instructions: [], schedule: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, events: [], athlete: emptyAthlete(), meso: emptyMeso(), mesoState: emptyMesoState(), updatedAt: todayISO() });
@@ -5757,24 +5877,45 @@ const PROGRESS_RANGES = [
   { id: "all", label: "Todo", days: null },
 ];
 
+/* Las cuatro maneras de mirar la evolución de un ejercicio. Antes la
+   gráfica era una sola —el mejor peso— y eso esconde la mitad de lo que
+   pasa: se puede estar subiendo el volumen sin tocar el peso máximo, o
+   subir el peso perdiendo reps. Cada métrica trae su unidad y cómo se
+   calcula por sesión. */
+const EX_METRICS = [
+  { id: "peso", label: "Peso máx.", unit: "kg", calc: (x) => x.best },
+  { id: "volumen", label: "Volumen", unit: "kg", calc: (x) => x.volumen },
+  { id: "e1rm", label: "e1RM", unit: "kg", calc: (x) => x.e1rm },
+  { id: "reps", label: "Reps", unit: "", calc: (x) => x.totalReps },
+];
 const ExerciseProgress = ({ entries }) => {
   const [range, setRange] = useState("3m");
+  const [metric, setMetric] = useState("peso");
   const all = entries || [];
 
-  // Para cada sesión registrada, el mejor peso levantado, series hechas y
-  // reps totales (solo series marcadas como hechas y con peso cargado).
+  // Para cada sesión registrada: mejor peso, volumen (Σ peso × reps),
+  // e1RM estimado (Epley sobre la mejor serie) y reps totales. Solo cuentan
+  // las series hechas que no sean de calentamiento.
   const withBest = useMemo(() => all.map((en) => {
-    const done = (en.sets || []).filter((s) => s.done && s.weight !== "");
+    const done = (en.sets || []).filter((s) => s.done && s.weight !== "" && s.type !== "warmup");
     const best = done.length ? Math.max(...done.map((s) => +s.weight)) : null;
     const totalReps = done.reduce((a, s) => a + (+s.reps || 0), 0);
-    return { en, best, setsDone: done.length, totalReps };
+    const volumen = done.reduce((a, s) => a + (+s.weight || 0) * (+s.reps || 0), 0);
+    // e1RM de la serie que dé el estimado más alto, no solo de la más pesada.
+    const e1rm = done.reduce((m, s) => {
+      const w = +s.weight || 0, r = +s.reps || 0, ri = +s.rir || 0;
+      if (!w || !r) return m;
+      return Math.max(m, Math.round(w * (1 + (r + ri) / 30)));
+    }, 0) || null;
+    return { en, best, setsDone: done.length, totalReps, volumen, e1rm };
   }).filter((x) => x.best != null), [all]);
 
   const rangeDef = PROGRESS_RANGES.find((r) => r.id === range) || PROGRESS_RANGES[2];
   const cutoff = rangeDef.days ? Date.now() - rangeDef.days * 86400000 : null;
   const filtered = cutoff ? withBest.filter((x) => new Date(x.en.date).getTime() >= cutoff) : withBest;
 
-  const chartData = filtered.map((x) => ({ d: fmtDate(x.en.date), v: x.best }));
+  const metricDef = EX_METRICS.find((m) => m.id === metric) || EX_METRICS[0];
+  const chartData = filtered.map((x) => ({ d: fmtDate(x.en.date), v: metricDef.calc(x) || 0 }));
   const allTimeBest = withBest.length ? Math.max(...withBest.map((x) => x.best)) : null;
 
   // Delta de últimos 30 días: compara el último registro con el que había
@@ -5789,7 +5930,9 @@ const ExerciseProgress = ({ entries }) => {
     return recent[recent.length - 1].best - refBase;
   }, [withBest]);
 
-  const rangeDelta = filtered.length >= 2 ? filtered[filtered.length - 1].best - filtered[0].best : null;
+  // El delta del rango sigue la métrica elegida, no siempre el peso.
+  const rangeDelta = filtered.length >= 2
+    ? (metricDef.calc(filtered[filtered.length - 1]) || 0) - (metricDef.calc(filtered[0]) || 0) : null;
 
   if (withBest.length === 0) {
     return (
@@ -5811,27 +5954,34 @@ const ExerciseProgress = ({ entries }) => {
         ))}
       </div>
 
+      {/* Qué se grafica. Antes la gráfica era solo el peso máximo, que
+          esconde la mitad de lo que pasa: se puede estar subiendo el
+          volumen sin tocar el máximo, o subir el peso perdiendo reps. */}
+      <SectionSwitch style={{ marginBottom: 10 }} value={metric} onChange={setMetric}
+        items={EX_METRICS.map((m) => ({ id: m.id, label: m.label }))} />
+
       {chartData.length ? (
         <Card style={{ padding: "14px 8px 6px", marginBottom: 12 }}>
           {/* El dato en grande arriba de la curva, no solo el delta: lo
               primero que se busca al abrir esta pantalla es "¿en cuánto
               estoy?", y antes había que leerlo del último punto del eje. */}
           <div style={{ padding: "0 10px 6px" }}>
-            <div style={{ fontSize: 13, color: P.faint2 }}>Mejor peso por sesión</div>
+            <div style={{ fontSize: 13, color: P.faint2 }}>{metricDef.label} por sesión</div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
               <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>
-                {kg(filtered[filtered.length - 1].best)}
+                {(() => { const v = metricDef.calc(filtered[filtered.length - 1]) || 0;
+                  return metricDef.unit === "kg" ? kg(v) : Math.round(v).toLocaleString("es-CL"); })()}
               </span>
-              <span style={{ fontSize: 15, color: P.faint2 }}>kg</span>
+              {metricDef.unit && <span style={{ fontSize: 15, color: P.faint2 }}>{metricDef.unit}</span>}
               <span style={{ flex: 1 }} />
               {rangeDelta != null && (
                 <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2 }}>
-                  {rangeDelta >= 0 ? "+" : "−"}{kg(Math.abs(rangeDelta))} kg
+                  {rangeDelta >= 0 ? "+" : "−"}{metricDef.unit === "kg" ? `${kg(Math.abs(rangeDelta))} kg` : Math.round(Math.abs(rangeDelta)).toLocaleString("es-CL")}
                 </span>
               )}
             </div>
           </div>
-          <ChartBox data={chartData} unit="kg" />
+          <ChartBox data={chartData} unit={metricDef.unit} />
         </Card>
       ) : (
         <div style={{ fontSize: 14, color: P.faint, padding: "10px 2px", marginBottom: 12 }}>Sin sesiones en este rango. Prueba un rango más amplio.</div>
@@ -6924,7 +7074,7 @@ const FinDescansoAviso = ({ marca }) => {
   );
 };
 
-const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRenameEx, onRemoveEx }) => {
+const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRenameEx, onRemoveEx }) => {
   const [weightUnit, setWeightUnit] = useWeightUnit();
   const [themeMode, setThemeMode] = useTheme();
   const pendingWrites = usePendingWrites();
@@ -7782,6 +7932,20 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         </button>
       )}
 
+      {/* Guardar lo que estás haciendo como rutina propia, reutilizable.
+          Sin esto, lo que se armaba en un entrenamiento libre servía una
+          sola vez: quedaba en el historial pero había que rearmarlo
+          ejercicio por ejercicio la próxima. Se guarda la estructura
+          (ejercicios, series y objetivos), no los pesos de hoy. */}
+      {onGuardarRutina && exs.some((ex) => (ex.name || "").trim() && seriesDeTrabajo(ex.sets).length > 0) && (
+        <button onClick={onGuardarRutina}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
+            marginTop: 8, padding: "13px 6px", borderRadius: R_TILE, background: SES.campo, color: SES.dim,
+            border: `1px solid ${SES.line}`, fontSize: 14, fontWeight: 700 }}>
+          <ClipboardList size={16} /> Guardar como rutina
+        </button>
+      )}
+
       {/* El final de la sesión está donde termina la sesión: abajo del
           todo, después del último ejercicio. */}
       <div style={{ marginTop: 4 }}>
@@ -8175,7 +8339,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, onOpenAIChat, onLeave, onOpenDevices }) => {
+const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, onOpenAIChat, onLeave, onOpenDevices }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
   // Marca de tiempo del último fin de descanso: dispara el destello en
@@ -8344,6 +8508,35 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
             <ChevronRight size={18} />
           </button>
         )}
+        {/* Crear una rutina propia desde cero. El atleta le pone nombre y
+            queda como un día más en "Mis rutinas": desde ahí la entrena
+            cuando quiera y le agrega ejercicios en vivo, igual que en el
+            entrenamiento libre. Es lo que faltaba para que el modo libre
+            sirva más de una vez. */}
+        {!active && (
+          <button onClick={() => {
+              const nombre = (prompt("Nombre de tu rutina\n(por ejemplo: «Pecho y hombro» o «Día de pierna»)", "") || "").trim();
+              if (!nombre) return;
+              const np = structuredClone(plan);
+              np.days = [...(np.days || []), { id: uid(), name: nombre, routine: ROUTINE_MIA, exs: [] }];
+              np.routineNames = { ...(np.routineNames || {}) };
+              if (!np.routineNames[ROUTINE_MIA]) np.routineNames[ROUTINE_MIA] = ROUTINE_MIA_LABEL;
+              np.updatedAt = todayISO();
+              savePlan(np);
+              toast && toast(`✓ «${nombre}» creada — entrénala y agrégale ejercicios`);
+            }}
+            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, marginBottom: 14,
+              padding: "15px 15px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
+            <span style={{ width: 38, height: 38, borderRadius: 12, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <ClipboardList size={19} />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 16.5 }}>Crear mi rutina</div>
+              <div style={{ fontSize: 13, color: P.faint, marginTop: 1 }}>Tuya, aparte de las del coach — la armás y la repetís cuando quieras</div>
+            </div>
+            <ChevronRight size={18} color={P.faint} />
+          </button>
+        )}
         {active && (
           <Card style={{ padding: 16, marginBottom: 14, borderColor: P.text, borderWidth: 1.5 }}>
             <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 3 }}>Sesión en curso: {active.dayName}</div>
@@ -8429,6 +8622,38 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
     const st = active.exs[ei].sets[si];
     return (st.rest != null && st.rest !== "" ? +st.rest : (active.exs[ei].rest || 90));
   };
+  /* Guardar lo que estás entrenando como una rutina propia, reutilizable.
+     Es lo que le faltaba al "Entrenamiento libre": se podía armar una
+     sesión sobre la marcha, pero al terminar se perdía como plantilla y
+     había que rearmarla ejercicio por ejercicio la próxima vez.
+     Los pesos y reps ANOTADOS no se copian (eso es el registro de hoy, no
+     la plantilla): se guarda la estructura — ejercicios, cuántas series y
+     los objetivos de reps/RIR. El calentamiento tampoco: cada sesión
+     genera el suyo. */
+  const guardarComoRutina = (exsOrigen, nombre) => {
+    const limpio = (exsOrigen || [])
+      .filter((ex) => (ex.name || "").trim() && seriesDeTrabajo(ex.sets).length)
+      .map((ex) => ({
+        id: uid(), name: ex.name.trim(), muscle: ex.muscle || "Otro",
+        equipment: ex.equipment || "", rest: ex.rest || 90, video: ex.video || "",
+        superset: ex.superset || "", notes: ex.notes || "", secondary: ex.secondary || [],
+        sets: seriesDeTrabajo(ex.sets).map((st) => ({
+          id: uid(), type: st.type || "normal",
+          repsT: st.repsT || (st.reps != null && st.reps !== "" ? String(st.reps) : "8-12"),
+          rirT: st.rirT || "",
+        })),
+      }));
+    if (!limpio.length) { toast && toast("No hay ejercicios con series para guardar."); return false; }
+    const np = structuredClone(plan);
+    np.days = [...(np.days || []), { id: uid(), name: nombre, routine: ROUTINE_MIA, exs: limpio }];
+    np.routineNames = { ...(np.routineNames || {}) };
+    if (!np.routineNames[ROUTINE_MIA]) np.routineNames[ROUTINE_MIA] = ROUTINE_MIA_LABEL;
+    np.updatedAt = todayISO();
+    savePlan(np);
+    toast && toast(`✓ «${nombre}» guardada en ${ROUTINE_MIA_LABEL}`);
+    return true;
+  };
+
   const startRest = (ei, si) => {
     const rest = restOf(ei, si) || 90;
     setTimer({ exIdx: ei, setIdx: si, endsAt: Date.now() + rest * 1000, total: rest });
@@ -8511,6 +8736,11 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, finishSession,
         onStartRest={(seg, ei, si) => { setTimer({ exIdx: ei || 0, setIdx: si || 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
         onAddExercise={addExercise} onAddSet={addSet} onRemoveSet={removeSet} onRenameEx={renameEx} onRemoveEx={removeEx}
+        onGuardarRutina={() => {
+          const sug = active.dayName && !/^Entrenamiento libre$/i.test(active.dayName) ? active.dayName : "";
+          const nombre = (prompt("Nombre para esta rutina\n(se guarda la estructura: ejercicios, series y objetivos — no los pesos de hoy)", sug) || "").trim();
+          if (nombre) guardarComoRutina(active.exs, nombre);
+        }}
         onBrowseRoutine={() => setBrowsing(true)} />
       {summarySheet}
     </>
@@ -10044,6 +10274,66 @@ const PERIODOS = [
 
 // Series efectivas por músculo dentro de un periodo, contando el aporte
 // parcial de los secundarios igual que el resto de la app.
+/* Evolución SEMANA A SEMANA de las series efectivas por músculo. El panel
+   de volumen que ya existía muestra una foto del momento (cuánto llevás
+   esta semana contra MEV/MAV/MRV); esto muestra la película: si un músculo
+   viene subiendo, estancado o cayendo a lo largo de los meses, que es lo
+   que de verdad dice si el plan está progresando.
+
+   Cuenta lo mismo que el panel — series hechas que no sean calentamiento,
+   más la fracción que aporta cada músculo secundario — pero agrupado por
+   semana (lunes a domingo) en vez de por ventana móvil. */
+function volumenSemanalPorMusculo(plan, history, semanas = 12) {
+  const meta = {};
+  (plan.days || []).forEach((d) => (d.exs || []).forEach((e) => {
+    meta[e.id] = { muscle: e.muscle || "Otro", secondary: e.secondary || [] };
+  }));
+  // Lunes de la semana de una fecha, como clave YYYY-MM-DD.
+  const lunesDe = (iso) => {
+    const d = new Date(iso);
+    const dia = (d.getDay() + 6) % 7;           // 0 = lunes
+    d.setDate(d.getDate() - dia);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+  const hoyLunes = lunesDe(new Date().toISOString());
+  const claves = [];
+  for (let i = semanas - 1; i >= 0; i--) {
+    const d = new Date(hoyLunes); d.setDate(d.getDate() - i * 7);
+    claves.push({ key: d.toISOString().slice(0, 10), fecha: d });
+  }
+  const idx = Object.fromEntries(claves.map((c, i) => [c.key, i]));
+  // musculo -> array de series por semana (mismo largo que `claves`)
+  const porMusculo = {};
+  const suma = (m, i, n) => {
+    if (!porMusculo[m]) porMusculo[m] = claves.map(() => 0);
+    porMusculo[m][i] += n;
+  };
+  Object.keys(history.byEx || {}).forEach((exId) => {
+    (history.byEx[exId] || []).forEach((en) => {
+      const i = idx[lunesDe(en.date).toISOString().slice(0, 10)];
+      if (i === undefined) return;              // fuera de la ventana
+      const efectivas = (en.sets || []).filter((st) => st.done && st.type !== "warmup").length;
+      if (!efectivas) return;
+      const m = (meta[exId] || {}).muscle || "Otro";
+      suma(m, i, efectivas);
+      ((meta[exId] || {}).secondary || []).forEach((sec) => {
+        if (!sec || !sec.muscle || sec.muscle === m) return;
+        suma(sec.muscle, i, efectivas * ((sec.pct != null ? sec.pct : 50) / 100));
+      });
+    });
+  });
+  const etiqueta = (d) => `${d.getDate()}/${d.getMonth() + 1}`;
+  return {
+    semanas: claves.map((c) => etiqueta(c.fecha)),
+    musculos: Object.entries(porMusculo)
+      .map(([muscle, serie]) => ({ muscle, serie: serie.map((v) => Math.round(v * 10) / 10),
+        total: serie.reduce((a, b) => a + b, 0) }))
+      .filter((x) => x.total > 0)
+      .sort((a, b) => b.total - a.total),
+  };
+}
+
 function muscleWorkFromHistory(plan, history, days) {
   const cutoff = days ? Date.now() - days * 86400000 : null;
   // exId → {muscle, secondary, name} tomado del plan; lo que ya no esté
@@ -10218,6 +10508,67 @@ const LandmarkBar = ({ muscle, sets, actual, ref, max, open, onToggle }) => {
 // y la nota de dónde salen los landmarks. Al alumno le sirve otra cosa —
 // qué entrenó de verdad y qué está dejando de lado — así que acá manda el
 // mapa muscular, sacado del historial, no del plan.
+/* Gráfica de evolución por músculo: elegís el grupo y ves cómo vinieron
+   sus series efectivas semana a semana. Contesta "¿mi espalda viene
+   subiendo o llevo dos meses estancado?", que el panel de estado (una foto
+   de la semana en curso) no puede contestar. */
+const MuscleEvolution = ({ plan, history }) => {
+  const datos = useMemo(() => volumenSemanalPorMusculo(plan, history, 12), [plan, history]);
+  const [sel, setSel] = useState(null);
+  if (!datos.musculos.length) {
+    return (
+      <Card style={{ padding: 20, marginBottom: 16 }}>
+        <Empty icon={TrendingUp} title="Todavía sin volumen registrado"
+          body="Cuando termines sesiones, acá aparece cómo evolucionan las series de cada músculo semana a semana." />
+      </Card>
+    );
+  }
+  const activo = datos.musculos.find((m) => m.muscle === sel) || datos.musculos[0];
+  const chartData = activo.serie.map((v, i) => ({ d: datos.semanas[i], v }));
+  const ultima = activo.serie[activo.serie.length - 1] || 0;
+  // Tendencia: últimas 4 semanas contra las 4 anteriores. Es la ventana que
+  // usa el criterio de progresión (un mesociclo corto), no semana contra
+  // semana — que sube y baja por el día que caiga cada sesión.
+  const ult4 = activo.serie.slice(-4).reduce((a, b) => a + b, 0);
+  const prev4 = activo.serie.slice(-8, -4).reduce((a, b) => a + b, 0);
+  const dif = ult4 - prev4;
+  const pct = prev4 > 0 ? Math.round((dif / prev4) * 100) : null;
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div className="mono" style={{ margin: "0 4px 8px", letterSpacing: ".08em" }}>Evolución por músculo</div>
+      {/* Un chip por músculo, ordenados por cuánto volumen acumulan. */}
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch",
+        margin: "0 -20px 10px", padding: "0 20px 4px" }}>
+        {datos.musculos.map((m) => {
+          const on = m.muscle === activo.muscle;
+          return (
+            <button key={m.muscle} onClick={() => setSel(m.muscle)}
+              style={{ flexShrink: 0, padding: "7px 13px", borderRadius: 9, ...TYPE.footnote, fontWeight: 700,
+                background: on ? P.text : P.s3, color: on ? PLATE_FG : P.faint,
+                transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>{m.muscle}</button>
+          );
+        })}
+      </div>
+      <Card style={{ padding: "14px 6px 6px" }}>
+        <div style={{ padding: "0 10px 6px" }}>
+          <div style={{ fontSize: 13, color: P.faint2 }}>{activo.muscle} · series por semana</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{ultima}</span>
+            <span style={{ fontSize: 15, color: P.faint2 }}>esta semana</span>
+            <span style={{ flex: 1 }} />
+            {pct != null && (
+              <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2 }}>
+                {dif >= 0 ? "+" : "−"}{Math.abs(pct)}% vs. mes previo
+              </span>
+            )}
+          </div>
+        </div>
+        <BarChartBox data={chartData} unit="series" color={P.prog} />
+      </Card>
+    </div>
+  );
+};
+
 const AthleteVolumePanel = ({ plan, history }) => {
   const [periodo, setPeriodo] = useState("semana");
   const [pane, setPane] = useState(null);
@@ -10735,7 +11086,14 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
         </>
       )}
 
-      {sub === "volumen" && <AthleteVolumePanel plan={plan} history={history} />}
+      {sub === "volumen" && (
+        <>
+          {/* Primero la película (cómo viene cada músculo semana a semana),
+              después la foto (cómo va esta semana contra MEV/MAV/MRV). */}
+          <MuscleEvolution plan={plan} history={history} />
+          <AthleteVolumePanel plan={plan} history={history} />
+        </>
+      )}
 
       {sub === "logros" && <AchievementGrid history={history} />}
 
@@ -10818,7 +11176,126 @@ const parseMealOptions = (note) => {
   }));
   return { intro, options };
 };
-const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => {
+/* Hoja de importación de MyFitnessPal. Dice la verdad sobre por qué es un
+   archivo y no un botón de "conectar cuenta": la API pública de MFP está
+   cerrada desde 2019 y hoy solo se abre con acuerdo comercial. El día que
+   FORJA tenga esas credenciales, esta misma hoja gana un botón de conectar
+   y el resto (parseo → plan) no cambia. */
+const MyFitnessPalSheet = ({ open, onClose, plan, savePlan, toast }) => {
+  const [texto, setTexto] = useState("");
+  const [res, setRes] = useState(null);
+  const fileRef = useRef(null);
+
+  const analizar = (t) => {
+    setTexto(t);
+    if (!t.trim()) { setRes(null); return; }
+    setRes(parseMFPCsv(t));
+  };
+  const leerArchivo = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => analizar(String(r.result || ""));
+    r.readAsText(f);
+    e.target.value = "";
+  };
+  const aplicar = () => {
+    if (!res || !res.dias.length) return;
+    // El día más reciente del export es el que se vuelve el plan de comidas
+    // (es "cómo come hoy"); el promedio de todos, los objetivos de macros.
+    const ultimo = res.dias[res.dias.length - 1];
+    const np = structuredClone(plan);
+    np.nutrition = { ...(np.nutrition || {}) };
+    np.nutrition.kcal = res.promedio.kcal;
+    np.nutrition.p = res.promedio.p;
+    np.nutrition.c = res.promedio.c;
+    np.nutrition.f = res.promedio.f;
+    np.nutrition.meals = ultimo.comidas.map((m) => ({
+      id: uid(), name: m.nombre, time: "", kcal: String(m.kcal),
+      items: (m.items.length ? m.items : [{ food: "", qty: "" }]).map((it) => ({
+        id: uid(), food: it.food || "", qty: it.qty || "",
+      })),
+      notes: `${m.p} P · ${m.c} C · ${m.f} G — importado de MyFitnessPal`,
+    }));
+    np.nutrition.notes = `${(np.nutrition.notes || "").trim()}${np.nutrition.notes ? "\n" : ""}Importado de MyFitnessPal · ${res.dias.length} día${res.dias.length === 1 ? "" : "s"} · ${fmtDate(new Date().toISOString())}`.trim();
+    np.updatedAt = todayISO();
+    savePlan(np);
+    toast && toast(`✓ ${ultimo.comidas.length} comidas importadas de MyFitnessPal`);
+    setTexto(""); setRes(null);
+    onClose();
+  };
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Importar de MyFitnessPal" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ ...TYPE.footnote, color: P.dim, lineHeight: 1.5 }}>
+          MyFitnessPal cerró su API pública en 2019: hoy no existe un botón de
+          «conectar mi cuenta» que funcione sin un acuerdo comercial con ellos.
+          Lo que sí se puede, y ahora mismo, es traer tu diario exportado.
+        </div>
+        <Card style={{ padding: "13px 14px", background: P.s2 }}>
+          <div style={{ ...TYPE.subhead, color: P.text, marginBottom: 6 }}>Cómo sacar el archivo</div>
+          <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.55 }}>
+            1. Entra a myfitnesspal.com desde el navegador (no la app).<br />
+            2. Menú de tu perfil → <b>Configuración</b> → <b>Exportar datos</b>.<br />
+            3. Pide el diario de alimentos en CSV; te llega por correo.<br />
+            4. Abre el archivo acá abajo, o pega su contenido.
+          </div>
+        </Card>
+
+        <ActionRow>
+          <Btn kind="line" onClick={() => fileRef.current && fileRef.current.click()} style={{ width: "100%" }}>
+            <Upload size={15} /> Abrir CSV
+          </Btn>
+          <Btn kind="line" onClick={async () => {
+              try { const t = await navigator.clipboard.readText(); analizar(t); }
+              catch { toast && toast("No se pudo leer el portapapeles. Pega el texto abajo."); }
+            }} style={{ width: "100%" }}>
+            <Paperclip size={15} /> Pegar
+          </Btn>
+        </ActionRow>
+        <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" style={{ display: "none" }} onChange={leerArchivo} />
+
+        <Txt value={texto} onChange={(e) => analizar(e.target.value)}
+          placeholder="…o pega acá el contenido del CSV de MyFitnessPal" style={{ minHeight: 90 }} />
+
+        {res && res.aviso && (
+          <div style={{ ...TYPE.footnote, color: P.red, lineHeight: 1.45 }}>{res.aviso}</div>
+        )}
+        {res && !res.aviso && res.dias.length > 0 && (
+          <>
+            <div className="mono" style={{ letterSpacing: ".08em" }}>Lo que se va a importar</div>
+            <StatGrid>
+              <StatTile label="Días" value={String(res.dias.length)} note="del export" />
+              <StatTile label="Promedio" value={String(res.promedio.kcal)} unit=" kcal" note="objetivo de calorías" />
+              <StatTile label="Proteína" value={String(res.promedio.p)} unit=" g" note="promedio por día" />
+              <StatTile label="Carbos / Grasa" value={`${res.promedio.c} / ${res.promedio.f}`} unit=" g" note="promedio por día" />
+            </StatGrid>
+            <Card style={{ padding: "12px 14px" }}>
+              <div style={{ ...TYPE.subhead, color: P.text, marginBottom: 6 }}>
+                Comidas del último día ({res.dias[res.dias.length - 1].fecha})
+              </div>
+              {res.dias[res.dias.length - 1].comidas.map((m, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", ...TYPE.footnote, color: P.faint }}>
+                  <span style={{ color: P.text, fontWeight: 600 }}>{m.nombre}</span>
+                  <span>{m.kcal} kcal · {m.items.length} alim.</span>
+                </div>
+              ))}
+            </Card>
+            <Btn kind="ember" onClick={aplicar} style={{ width: "100%" }}>
+              Usar esto como mi plan de comidas
+            </Btn>
+            <div style={{ ...TYPE.caption, color: P.faint, textAlign: "center", lineHeight: 1.45 }}>
+              Reemplaza tus comidas y objetivos actuales. Tu coach puede ajustarlos después.
+            </div>
+          </>
+        )}
+      </div>
+    </Sheet>
+  );
+};
+
+const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenSupplements }) => {
   // Ciclado de carbohidratos (opcional, ver NutritionEditor): si está
   // activado, se muestran los macros de "hoy" según si hay rutina
   // programada (scheduledDayIdFor ya resuelve semana concreta/tipo y el
@@ -10833,6 +11310,7 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
   const todayKey = todayISO().slice(0, 10);
   const [shopOpen, setShopOpen] = useState(false);
   const [shopText, setShopText] = useState("");
+  const [mfpOpen, setMfpOpen] = useState(false);
 
   const mealChecks = (history && history.mealChecks && history.mealChecks[todayKey]) || {};
   const mealsDone = n.meals.filter((m) => mealChecks[m.id]).length;
@@ -10932,7 +11410,14 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
           {n.meals.length > 0 && <span style={{ fontSize: 13, color: P.faint2 }}>{mealsDone} de {n.meals.length}</span>}
         </div>
         {n.meals.length === 0 ? (
-          <Card style={{ padding: 20 }}><Empty icon={Utensils} title="Sin plan de comidas" body="Tu coach aún no carga las comidas del plan." /></Card>
+          <Card style={{ padding: 20 }}>
+            <Empty icon={Utensils} title="Sin plan de comidas" body="Tu coach aún no carga las comidas del plan — o traé el tuyo desde MyFitnessPal." />
+            {savePlan && (
+              <Btn kind="line" small onClick={() => setMfpOpen(true)} style={{ width: "100%", marginTop: 4 }}>
+                <Upload size={14} /> Importar de MyFitnessPal
+              </Btn>
+            )}
+          </Card>
         ) : (
           <Card style={{ overflow: "hidden" }}>
             {n.meals.map((m, i) => {
@@ -11029,6 +11514,11 @@ const NutritionView = ({ plan, n, history, saveHistory, onOpenSupplements }) => 
           </button>
         </Card>
       </div>
+
+      {savePlan && (
+        <MyFitnessPalSheet open={mfpOpen} onClose={() => setMfpOpen(false)}
+          plan={plan} savePlan={savePlan} toast={toast} />
+      )}
 
       <Sheet open={shopOpen} onClose={() => setShopOpen(false)} title="Lista de compras">
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -23518,7 +24008,7 @@ const App = () => {
             autoOpenPosing={autoOpenPosing} onAutoOpenPosingConsumed={() => setAutoOpenPosing(false)} />
         )}
         {mode === "alumno" && tab === "entrenar" && (
-          <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive}
+          <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive} savePlan={savePlan}
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             abrirDiaId={abrirDiaId} onAutoStartConsumed={() => setAbrirDiaId(null)}
@@ -23537,6 +24027,7 @@ const App = () => {
         )}
         {mode === "alumno" && tab === "nutricion" && (
           <NutritionView plan={plan} n={plan.nutrition} history={history} saveHistory={saveHistory}
+            savePlan={savePlan} toast={toast}
             onOpenSupplements={() => setSupplementsOpen(true)} />
         )}
         {mode === "alumno" && tab === "mas" && (
