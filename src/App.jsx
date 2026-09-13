@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v280";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v281";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -12166,6 +12166,7 @@ const HealthDashboardSheet = ({ open, onClose, history }) => {
             las sesiones de fuerza a propósito — una corrida no tiene
             series ni repeticiones, y sumarla al tonelaje sería mentir. */}
         <ActividadesImportadas history={history} />
+        <CruceDiario history={history} />
         <DiarioImportado history={history} />
       </div>
     </Sheet>
@@ -12230,6 +12231,102 @@ const ActividadesImportadas = ({ history }) => {
           {todas ? "Ver menos" : `Ver las ${acts.length}`}
         </button>
       )}
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EL DIARIO CONTRA LA RECUPERACIÓN (v281)
+   ───────────────────────────────────────────────────────────────────────
+   Desde v279 entran las dos mitades: qué hizo el atleta cada día (tomó,
+   usó pantallas, comió tarde) y cómo amaneció. Por separado son dos
+   listas; cruzadas responden la pregunta que de verdad cambia una
+   conducta: ¿ESTO, a MÍ, cuánto me cuesta?
+
+   Tres cuidados para no mentir con la estadística:
+
+   - Se compara la recuperación de los días CON la conducta contra la de
+     los días SIN ella, del mismo atleta. No contra una media general.
+   - Hace falta un mínimo de días de cada lado (3 y 3). Con dos noches no
+     se puede afirmar nada, y decirlo igual sería inventar.
+   - Se dice "coincide con", no "causa". Nadie midió una sola variable
+     acá: la noche que tomó también se acostó tarde. Confundir las dos
+     cosas es el error clásico de estos tableros.
+   ═══════════════════════════════════════════════════════════════════════ */
+const CRUCE_MIN_DIAS = 3;
+
+function cruceDiarioRecuperacion(history) {
+  const h = history || {};
+  const diario = h.journal || [];
+  const fis = h.physio || [];
+  if (diario.length < CRUCE_MIN_DIAS * 2 || !fis.length) return [];
+
+  // La recuperación de CADA día, por fecha. El diario de una noche se
+  // mide contra cómo amaneció al día siguiente — que es el registro que
+  // el reloj fecha con el ciclo que arranca esa madrugada.
+  const recPorDia = new Map();
+  fis.forEach((f) => {
+    if (f && f.date && isFinite(+f.recovery)) recPorDia.set((f.date || "").slice(0, 10), +f.recovery);
+  });
+
+  // Todas las preguntas que aparecieron alguna vez.
+  const preguntas = new Set();
+  diario.forEach((d) => Object.keys(d.entries || {}).forEach((k) => preguntas.add(k)));
+
+  const out = [];
+  preguntas.forEach((preg) => {
+    const con = [], sin = [];
+    diario.forEach((d) => {
+      const r = recPorDia.get((d.date || "").slice(0, 10));
+      if (r == null) return;
+      const v = (d.entries || {})[preg];
+      if (v == null) return;
+      // "Sí — nota" cuenta como sí; "No" como no; cualquier otra cosa
+      // (una nota suelta sin sí/no) no entra: no es una conducta binaria.
+      if (/^sí/i.test(String(v))) con.push(r);
+      else if (/^no$/i.test(String(v).trim())) sin.push(r);
+    });
+    if (con.length < CRUCE_MIN_DIAS || sin.length < CRUCE_MIN_DIAS) return;
+    const prom = (a) => a.reduce((t, x) => t + x, 0) / a.length;
+    const pCon = prom(con), pSin = prom(sin);
+    const dif = Math.round((pCon - pSin) * 10) / 10;
+    if (Math.abs(dif) < 3) return;   // menos de 3 puntos es ruido, no señal
+    out.push({ pregunta: preg, dif, con: con.length, sin: sin.length,
+      promCon: Math.round(pCon), promSin: Math.round(pSin) });
+  });
+  return out.sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
+}
+
+// Lo que le cuesta a ESTE atleta cada cosa que anota en el diario.
+const CruceDiario = ({ history }) => {
+  const filas = useMemo(() => cruceDiarioRecuperacion(history), [history]);
+  if (!filas.length) return null;
+  return (
+    <div style={{ marginTop: SP.section }}>
+      <div className="mono" style={{ margin: "0 4px 8px" }}>Qué te cuesta cada cosa</div>
+      <div style={{ ...TYPE.footnote, color: P.faint, margin: "0 4px 10px", lineHeight: 1.45 }}>
+        Tu recuperación los días que sí, contra los días que no. Es tuyo, no un promedio general.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 1, background: P.line, borderRadius: R_TILE, overflow: "hidden" }}>
+        {filas.map((f) => (
+          <div key={f.pregunta} style={{ background: P.s1, padding: `12px ${SP.lg}px` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
+              <span style={{ ...TYPE.body, color: P.text, flex: 1, minWidth: 0 }}>{f.pregunta}</span>
+              <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 13,
+                fontWeight: 700, flexShrink: 0, color: f.dif < 0 ? P.red : P.ember2 }}>
+                {f.dif > 0 ? "+" : "−"}{fmtUnit(Math.abs(f.dif))} pts
+              </span>
+            </div>
+            <div style={{ ...TYPE.caption, color: P.faint2, marginTop: 3 }}>
+              {f.promCon} % los {f.con} días que sí · {f.promSin} % los {f.sin} que no
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ ...TYPE.caption, color: P.faint2, marginTop: SP.sm, lineHeight: 1.45 }}>
+        Coincidencia, no causa: la noche que tomaste puede que también te hayas acostado tarde.
+        Sirve para saber dónde mirar, no para cerrar el caso.
+      </div>
     </div>
   );
 };
@@ -16432,7 +16529,7 @@ const DashboardTab = ({ roster, toast }) => {
    mismo propósito (avisar qué conversación necesita atención).
    ============================================================ */
 
-const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent, onOpenCobros, onOpenAtletas, onOpenMensajes, onOpenTeam, teamSize }) => {
+const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent, onOpenCobros, onOpenAtletas, onOpenProgresion, onOpenMensajes, onOpenTeam, teamSize }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, sessions, chat, pay }
   const [staleOpen, setStaleOpen] = useState(false);
@@ -16440,6 +16537,29 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
   // pieza que el Inicio del alumno y el Centro de Control).
   const [modoOrden, setModoOrden] = useState(null);
   useExitEditOnOutside(!!modoOrden, () => setModoOrden(null));
+
+  /* Avisos de ENTRENAMIENTO, no solo de asistencia. El panel ya avisaba
+     quién no vino, quién debe y quién escribió — todo lo administrativo.
+     Pero un alumno que viene religiosamente y hace tres semanas que no
+     progresa no aparecía en ningún lado, y es exactamente el que se va a
+     ir. Esto lo saca a la superficie usando el mismo cálculo de la
+     sección Progresión, sin releer nada: el historial ya vino arriba. */
+  const avisos = useMemo(() => {
+    const out = [];
+    rows.forEach((r) => {
+      const pr = progresionDeAtleta(r.hist);
+      const rec = pr.recuperacion || {};
+      if (pr.estado === "baja") out.push({ id: r.id, name: r.name, sev: 2, txt: pr.nota });
+      else if (pr.estado === "estancado" && pr.totalSesiones >= 4) out.push({ id: r.id, name: r.name, sev: 1, txt: pr.nota });
+      // Sin recuperarse: es la causa antes de que sea un problema de
+      // rendimiento, así que vale aunque todavía esté progresando.
+      if (rec.dias > 0 && (rec.rojos >= 3 || (rec.horas != null && rec.horas < 6))) {
+        out.push({ id: r.id, name: r.name, sev: 2,
+          txt: rec.rojos >= 3 ? `${rec.rojos} días en rojo esta semana` : `Durmiendo ${fmtUnit(rec.horas)} h de promedio` });
+      }
+    });
+    return out.sort((a, b) => b.sev - a.sev || a.name.localeCompare(b.name, "es"));
+  }, [rows]);
 
   useEffect(() => {
     let cancelled = false;
@@ -16456,6 +16576,9 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           id: s.id,
           name: s.name,
           sessions: (history && history.sessions) || [],
+          // El historial entero, para poder calcular la progresión sin una
+          // segunda vuelta de lecturas: ya vino en este mismo fetch.
+          hist: (history && history.sessions) ? history : emptyHistory(),
           chat: Array.isArray(chat) ? chat : [],
           pay: pay || emptyPayments(),
         });
@@ -16538,9 +16661,39 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           { key: "atencion", span: "full", node: (
             <RowGroup label="Requiere atención" rows={[
               stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
+              avisos.length > 0 && { label: `${avisos.length} con el entrenamiento trabado`, onClick: onOpenProgresion },
               dueCount > 0 && { label: `${dueCount} cuota${dueCount !== 1 ? "s" : ""} por vencer`, onClick: onOpenCobros },
               pendCount > 0 && { label: `${pendCount} mensaje${pendCount !== 1 ? "s" : ""} sin leer`, onClick: onOpenMensajes },
             ]} />
+          ) },
+          { key: "trabados", span: "full", node: avisos.length === 0 ? null : (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>
+                Entrenamiento trabado
+              </div>
+              <Card style={{ overflow: "hidden" }}>
+                {avisos.slice(0, 6).map((a, i) => (
+                  <button key={`${a.id}-${i}`} onClick={onOpenProgresion}
+                    style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 13, padding: "13px 14px",
+                      borderBottom: i === Math.min(avisos.length, 6) - 1 ? "none" : `1px solid ${P.line}` }}>
+                    <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center",
+                      justifyContent: "center", background: P.s3, color: a.sev === 2 ? P.red : P.faint2 }}>
+                      {a.sev === 2 ? <ArrowDown size={16} strokeWidth={2.4} /> : <Minus size={16} strokeWidth={2.4} />}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</div>
+                      <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.txt}</div>
+                    </div>
+                    <ChevronRight size={17} color={P.chevron} style={{ flexShrink: 0 }} />
+                  </button>
+                ))}
+              </Card>
+              {avisos.length > 6 && (
+                <button onClick={onOpenProgresion} style={{ width: "100%", marginTop: 8, fontSize: 13, fontWeight: 600, color: P.blue }}>
+                  Ver los {avisos.length} en Progresión
+                </button>
+              )}
+            </div>
           ) },
           { key: "hoy", span: "full", node: (
             <div>
@@ -26373,6 +26526,7 @@ const App = () => {
             onAddStudent={() => addStudent(false)}
             onOpenCobros={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "cobros" })); }}
             onOpenAtletas={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "actividad" })); }}
+            onOpenProgresion={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "progresion" })); }}
             onOpenMensajes={() => { setTab("indicaciones"); setSection((o) => ({ ...o, indicaciones: "chat" })); }}
             onOpenTeam={myRoleMeta.manageTeam ? () => setEquipoOpen(true) : null} teamSize={(team.members || []).length} />
         )}
