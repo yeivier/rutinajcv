@@ -9620,73 +9620,254 @@ const BotonDiscos = ({ onClick, exId, pal }) => {
   );
 };
 
-// Formulario de las 14 medidas corporales. Ninguna es obligatoria — se
-// guarda lo que el alumno haya llenado, y "guardar" queda deshabilitado
-// hasta que al menos una tenga un número real. El "?" de cada campo
-// despliega ahí mismo el punto exacto de esa medida (mismo texto que ya
-// usa la guía de Progreso → Cuerpo), sin abrir una hoja encima de esta.
-const BodyMeasureFormSheet = ({ open, onClose, onSave }) => {
-  // vals siempre guarda cm (o % para el campo que corresponda) — igual que
-  // WeightInput con kg, la conversión es solo de despliegue.
-  const [vals, setVals] = useState({});
-  const [howOpen, setHowOpen] = useState(null);
+/* ═══════════════════════════════════════════════════════════════════════
+   REGISTRO DE MÉTRICAS CORPORALES (v277)
+   ───────────────────────────────────────────────────────────────────────
+   Las 14 medidas son las mismas de siempre y se guardan igual. Lo que
+   cambia es CÓMO se anotan: antes eran catorce casillas de texto en una
+   lista, lo que obliga a abrir el teclado numérico catorce veces y a
+   escribir "38,5" con los dedos. Ahora cada parte se toca y se ajusta
+   con una regla — que es, literalmente, el gesto de medir.
+
+   El valor sigue viviendo en cm (o % para grasa) pase lo que pase: la
+   regla y el número grande son despliegue, igual que el chip KG/LB.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+// Rango y paso de la regla por tipo de medida. Un cuello no mide 120 cm
+// y una cintura no mide 25: acotar el rango a lo posible hace que un
+// deslizamiento corto caiga en el valor real en vez de barrer el vacío.
+const MEDIDA_RANGO = {
+  grasa:         { min: 3,  max: 50,  step: 0.1, corto: "Grasa" },
+  cuello:        { min: 25, max: 60,  step: 0.1, corto: "Cuello" },
+  hombros:       { min: 80, max: 180, step: 0.5, corto: "Hombros" },
+  pecho:         { min: 60, max: 170, step: 0.5, corto: "Pecho" },
+  cintura:       { min: 50, max: 160, step: 0.5, corto: "Cintura" },
+  cadera:        { min: 60, max: 170, step: 0.5, corto: "Cadera" },
+  brazoDer:      { min: 20, max: 65,  step: 0.1, corto: "Brazo der." },
+  brazoIzq:      { min: 20, max: 65,  step: 0.1, corto: "Brazo izq." },
+  antebrazoDer:  { min: 15, max: 50,  step: 0.1, corto: "Anteb. der." },
+  antebrazoIzq:  { min: 15, max: 50,  step: 0.1, corto: "Anteb. izq." },
+  musloDer:      { min: 35, max: 95,  step: 0.1, corto: "Muslo der." },
+  musloIzq:      { min: 35, max: 95,  step: 0.1, corto: "Muslo izq." },
+  pantorrillaDer:{ min: 25, max: 65,  step: 0.1, corto: "Pant. der." },
+  pantorrillaIzq:{ min: 25, max: 65,  step: 0.1, corto: "Pant. izq." },
+};
+const rangoDe = (k) => MEDIDA_RANGO[k] || { min: 10, max: 200, step: 0.5, corto: k };
+
+// El último valor registrado de UNA medida. No alcanza con mirar la
+// última entrada: si hoy solo se anotó el brazo, el pecho sigue teniendo
+// su valor de la semana pasada y hay que ir a buscarlo hacia atrás.
+function ultimaMedidaDe(measurements, key) {
+  const arr = measurements || [];
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const v = arr[i] && arr[i].values ? arr[i].values[key] : undefined;
+    if (v != null && v !== "") return { valor: +v, date: arr[i].date };
+  }
+  return null;
+}
+
+// Funde las medidas nuevas con las de hoy. Anotar el brazo y después el
+// pecho tiene que dejar UNA entrada de hoy con las dos, no dos entradas
+// sueltas con una medida cada una — que es lo que rompería el historial
+// y las comparaciones fecha contra fecha.
+function mergeMedidasHoy(measurements, values) {
+  const arr = [...(measurements || [])];
+  const hoy = todayISO().slice(0, 10);
+  const i = arr.findIndex((m) => (m.date || "").slice(0, 10) === hoy);
+  if (i >= 0) arr[i] = { ...arr[i], date: todayISO(), values: { ...(arr[i].values || {}), ...values } };
+  else arr.push({ date: todayISO(), values: { ...values } });
+  return arr;
+}
+
+// La regla: marcas finas cada paso, gruesas cada cinco, y el valor
+// elegido con un control deslizante nativo encima. Nativo a propósito —
+// un arrastre propio se pelea con el scroll de la hoja en un teléfono, y
+// además pierde el soporte de teclado y de lector de pantalla que este
+// trae de fábrica.
+const ReglaMedida = ({ value, min, max, step, onChange, label }) => {
+  const marcas = 41;
+  return (
+    <div style={{ position: "relative", padding: "6px 0 2px" }}>
+      <div aria-hidden="true" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", height: 30, marginBottom: -8 }}>
+        {Array.from({ length: marcas }).map((_, i) => (
+          <span key={i} style={{ width: 1, borderRadius: 1,
+            height: i % 5 === 0 ? 22 : 12,
+            background: i % 5 === 0 ? P.faint2 : P.line }} />
+        ))}
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        aria-label={label}
+        onChange={(e) => onChange(+e.target.value)}
+        style={{ width: "100%", accentColor: P.ember2, background: "transparent", position: "relative" }} />
+      <div style={{ display: "flex", justifyContent: "space-between", ...TYPE.caption, color: P.faint2, marginTop: -2 }}>
+        <span>{min}</span><span>{max}</span>
+      </div>
+    </div>
+  );
+};
+
+// La hoja de UNA medida: última vez, número grande con −/+, la regla,
+// dónde medir exactamente, y el historial de esa medida sola.
+const MedidaSheet = ({ open, onClose, field, measurements, onSave }) => {
   const [unit, setUnit] = useMeasureUnit();
-  useEffect(() => { if (open) { setVals({}); setHowOpen(null); } }, [open]);
-  const setF = (k, isPct, raw) => {
-    const n = parseFloat(String(raw).replace(",", "."));
-    if (raw === "") { setVals((o) => ({ ...o, [k]: "" })); return; }
-    if (isNaN(n)) return;
-    setVals((o) => ({ ...o, [k]: isPct || unit === "cm" ? n : inToCm(n) }));
-  };
-  const displayVal = (k, isPct) => {
-    const v = vals[k];
-    if (v === "" || v == null) return "";
-    return isPct || unit === "cm" ? String(v) : fmtUnit(cmToIn(v)).replace(",", ".");
-  };
-  const filledCount = BODY_MEASURE_FIELDS.filter((f) => num(vals[f.key]) > 0).length;
-  const save = () => {
-    const values = {};
-    BODY_MEASURE_FIELDS.forEach((f) => { const n = num(vals[f.key]); if (n > 0) values[f.key] = n; });
-    if (!Object.keys(values).length) return;
-    onSave(values);
-  };
+  const [val, setVal] = useState(0);
+  const [verHist, setVerHist] = useState(false);
+  const isPct = field && field.unit === "%";
+  const r = field ? rangoDe(field.key) : { min: 0, max: 100, step: 1 };
+  const ultima = field ? ultimaMedidaDe(measurements, field.key) : null;
+
+  useEffect(() => {
+    if (!open || !field) return;
+    setVerHist(false);
+    const base = ultima ? ultima.valor : Math.round((r.min + r.max) / 2);
+    setVal(Math.round(base * 10) / 10);
+  }, [open, field && field.key]);
+
+  if (!field) return null;
+  const paso = r.step;
+  const mostrar = (v) => (isPct || unit === "cm") ? v : Math.round(cmToIn(v) * 10) / 10;
+  const uLabel = isPct ? "%" : unit;
+  const clamp = (v) => Math.min(r.max, Math.max(r.min, Math.round(v * 10) / 10));
+  const hist = (measurements || [])
+    .map((m) => ({ date: m.date, v: m.values ? m.values[field.key] : undefined }))
+    .filter((x) => x.v != null && x.v !== "").reverse();
+
+  return (
+    <Sheet open={open} onClose={onClose} title={field.label} tall>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 999,
+          background: P.s3, ...TYPE.footnote, color: P.faint, marginBottom: SP.lg }}>
+          Última: {ultima ? `${fmtUnit(mostrar(ultima.valor))} ${uLabel} · ${daysAgoLabel(ultima.date)}` : "—"}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: SP.xl, marginBottom: SP.md }}>
+          <button onClick={() => setVal((v) => clamp(v - paso))} aria-label={`Bajar ${field.label}`}
+            style={{ width: HIT, height: HIT, borderRadius: 999, flexShrink: 0, background: P.s3, color: P.text,
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 600 }}>−</button>
+          <div style={{ minWidth: 120 }}>
+            <div style={{ fontSize: 44, fontWeight: 700, letterSpacing: "-.03em", color: P.text, lineHeight: 1.05 }}>
+              {fmtUnit(mostrar(val))}
+            </div>
+            <button onClick={() => !isPct && setUnit(unit === "cm" ? "in" : "cm")}
+              aria-label={isPct ? "Porcentaje" : `Unidad: ${unit}. Toca para cambiar`}
+              style={{ ...TYPE.footnote, color: P.faint, marginTop: 2 }}>{uLabel}</button>
+          </div>
+          <button onClick={() => setVal((v) => clamp(v + paso))} aria-label={`Subir ${field.label}`}
+            style={{ width: HIT, height: HIT, borderRadius: 999, flexShrink: 0, background: P.s3, color: P.text,
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 600 }}>+</button>
+        </div>
+      </div>
+
+      <ReglaMedida value={val} min={r.min} max={r.max} step={paso}
+        label={`${field.label} en ${isPct ? "por ciento" : unit}`}
+        onChange={(v) => setVal(Math.round(v * 10) / 10)} />
+
+      <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.5, marginTop: SP.lg,
+        padding: SP.md, background: P.s3, borderRadius: R_TILE }}>
+        <b style={{ color: P.dim }}>Dónde medir:</b> {field.how}
+      </div>
+
+      <Btn kind="ember" onClick={() => { onSave(field.key, val); onClose(); }} style={{ width: "100%", marginTop: SP.lg }}>
+        Guardar medida
+      </Btn>
+
+      <button onClick={() => setVerHist((v) => !v)}
+        style={{ width: "100%", marginTop: SP.md, ...TYPE.footnote, fontWeight: 600, color: P.blue, textDecoration: "underline" }}>
+        Historial de esta medida{hist.length ? ` (${hist.length})` : ""}
+      </button>
+      {verHist && (
+        <div style={{ marginTop: SP.md, display: "flex", flexDirection: "column", gap: 1, background: P.line, borderRadius: R_TILE, overflow: "hidden" }}>
+          {hist.length === 0 && (
+            <div style={{ background: P.s1, padding: SP.md, ...TYPE.footnote, color: P.faint }}>Todavía no registraste esta medida.</div>
+          )}
+          {hist.map((x, i) => {
+            const prev = hist[i + 1];
+            const dif = prev ? Math.round((x.v - prev.v) * 10) / 10 : null;
+            return (
+              <div key={i} style={{ background: P.s1, padding: `10px ${SP.md}px`, display: "flex", alignItems: "center", gap: SP.sm }}>
+                <span style={{ ...TYPE.footnote, color: P.faint, flex: 1 }}>{fmtDate(x.date)}</span>
+                {dif != null && dif !== 0 && (
+                  <span style={{ ...TYPE.caption, color: dif > 0 ? P.ember2 : P.faint2 }}>
+                    {dif > 0 ? "+" : "−"}{fmtUnit(Math.abs(dif))}
+                  </span>
+                )}
+                <span style={{ ...TYPE.body, color: P.text, fontWeight: 600 }}>{fmtUnit(mostrar(x.v))} {uLabel}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Sheet>
+  );
+};
+
+// Las 14 medidas, ahora como una grilla de partes: cada una muestra lo
+// último registrado y se toca para anotar la de hoy con la regla. Ningún
+// campo se perdió — están las catorce, con su guía de dónde medir; lo que
+// cambió es que ya no hay que recorrer catorce casillas de texto para
+// anotar una sola cosa.
+const BodyMeasureFormSheet = ({ open, onClose, onSave, measurements }) => {
+  const [unit, setUnit] = useMeasureUnit();
+  const [abierta, setAbierta] = useState(null);
+  useEffect(() => { if (open) setAbierta(null); }, [open]);
+  const hoyKey = todayISO().slice(0, 10);
+  const registradas = BODY_MEASURE_FIELDS.filter((f) => {
+    const u = ultimaMedidaDe(measurements, f.key);
+    return u && (u.date || "").slice(0, 10) === hoyKey;
+  }).length;
+
   return (
     <Sheet open={open} onClose={onClose} title="Métricas corporales" tall>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 16 }}>
-        <div style={{ fontSize: 13.5, color: MONO.inkDim, lineHeight: 1.5, flex: 1 }}>
-          Completa las que puedas medir hoy. Toca el <Info size={11} style={{ verticalAlign: -1 }} /> de cada una para ver el punto exacto donde medir.
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: SP.lg }}>
+        <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.5, flex: 1 }}>
+          {registradas > 0
+            ? `${registradas} ${registradas === 1 ? "medida anotada" : "medidas anotadas"} hoy. Tocá cualquier parte para anotar o corregir.`
+            : "Tocá la parte que mediste. No hace falta anotarlas todas."}
         </div>
         <button onClick={() => setUnit(unit === "cm" ? "in" : "cm")}
           title="Cambiar unidad de medidas" aria-label={`Unidad de medidas: ${unit}. Toca para cambiar a ${unit === "cm" ? "pulgadas" : "centímetros"}`}
           style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 700, letterSpacing: ".03em",
-            padding: "4px 8px", borderRadius: 8, border: `1px solid ${MONO.line}`, color: MONO.inkDim, flexShrink: 0 }}>
-          <span style={{ color: unit === "cm" ? P.ember2 : MONO.inkFaint }}>CM</span>
-          <span style={{ color: MONO.inkFaint }}>/</span>
-          <span style={{ color: unit === "in" ? P.ember2 : MONO.inkFaint }}>IN</span>
+            padding: "4px 8px", borderRadius: 8, border: `1px solid ${P.line}`, color: P.dim, flexShrink: 0 }}>
+          <span style={{ color: unit === "cm" ? P.ember2 : P.faint2 }}>CM</span>
+          <span style={{ color: P.faint2 }}>/</span>
+          <span style={{ color: unit === "in" ? P.ember2 : P.faint2 }}>IN</span>
         </button>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: SP.sm, alignItems: "stretch" }}>
         {BODY_MEASURE_FIELDS.map((f) => {
           const isPct = f.unit === "%";
+          const u = ultimaMedidaDe(measurements, f.key);
+          const hoy = u && (u.date || "").slice(0, 10) === hoyKey;
+          const corto = rangoDe(f.key).corto || f.label;
+          const mostrado = u ? ((isPct || unit === "cm") ? u.valor : Math.round(cmToIn(u.valor) * 10) / 10) : null;
           return (
-            <div key={f.key}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <button onClick={() => setHowOpen(howOpen === f.key ? null : f.key)}
-                  style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, fontSize: 14.5, fontWeight: 600, color: MONO.ink, textAlign: "left" }}>
-                  {f.label} <Info size={12} color={MONO.inkFaint} style={{ flexShrink: 0 }} />
-                </button>
-                <NumInput placeholder={isPct ? "%" : unit} value={displayVal(f.key, isPct)}
-                  onChange={(e) => setF(f.key, isPct, e.target.value)}
-                  style={{ width: 78, padding: "9px 10px", borderRadius: 10, background: MONO.chipBg, border: `1px solid ${MONO.chipBorder}`, color: MONO.ink, fontSize: 14.5, textAlign: "right", flexShrink: 0 }} />
-              </div>
-              {howOpen === f.key && <div style={{ fontSize: 12.5, color: MONO.inkFaint, lineHeight: 1.45, marginTop: 5 }}>{f.how}</div>}
-            </div>
+            <button key={f.key} onClick={() => setAbierta(f)}
+              aria-label={`Anotar ${f.label}${u ? `. Última: ${fmtUnit(mostrado)}` : ""}`}
+              style={{ height: "100%", boxSizing: "border-box", textAlign: "left", padding: "11px 10px",
+                background: P.s1, border: `1px solid ${hoy ? PLATE_BORDER : P.frame}`, borderRadius: R_TILE,
+                display: "flex", flexDirection: "column", gap: 3, minHeight: 76 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ ...TYPE.caption, color: P.faint2, flex: 1, minWidth: 0, overflow: "hidden",
+                  textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{corto.toUpperCase()}</span>
+                {hoy
+                  ? <Check size={12} color={P.ember2} strokeWidth={3} />
+                  : <Plus size={12} color={P.faint2} strokeWidth={3} />}
+              </span>
+              <span style={{ fontSize: 19, fontWeight: 700, letterSpacing: "-.02em", color: u ? P.text : P.faint2,
+                lineHeight: 1.15, marginTop: "auto" }}>
+                {u ? fmtUnit(mostrado) : "—"}
+              </span>
+              <span style={{ ...TYPE.caption, color: P.faint2, minHeight: 14 }}>
+                {u ? (isPct ? "%" : unit) : "sin datos"}
+              </span>
+            </button>
           );
         })}
       </div>
-      <Btn kind="ember" onClick={save} disabled={!filledCount} style={{ width: "100%", marginTop: 20 }}>
-        Guardar métricas{filledCount ? ` (${filledCount})` : ""}
-      </Btn>
+
+      <MedidaSheet open={!!abierta} onClose={() => setAbierta(null)} field={abierta}
+        measurements={measurements} onSave={(k, v) => onSave({ [k]: v })} />
     </Sheet>
   );
 };
@@ -9833,12 +10014,11 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const saveMeasurements = async (values) => {
     if (!saveHistory) return;
     const h = structuredClone(history);
-    h.measurements = [...(h.measurements || []), { date: todayISO(), values }];
+    h.measurements = mergeMedidasHoy(h.measurements, values);
     const lines = BODY_MEASURE_FIELDS.filter((f) => values[f.key] != null)
       .map((f) => `${f.label}: ${kg(values[f.key])}${f.unit === "%" ? "%" : " cm"}`);
     pushActivity(h, `Registró medidas corporales (${lines.length})`);
     saveHistory(h);
-    setMeasureOpen(false);
     await sendChatText(`Check-in · ${fmtDateFull(todayISO())}\nMétricas corporales:\n${lines.join("\n")}`);
   };
 
@@ -10310,7 +10490,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         )}
       </Sheet>
 
-      <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} />
+      <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} measurements={history.measurements || []} />
 
       <Sheet open={recoveryOpen} onClose={() => setRecoveryOpen(false)} title="Cuestionario 1–10" tall>
         <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -11355,9 +11535,8 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
   const saveMeasurements = (values) => {
     if (!saveHistory) return;
     const h = structuredClone(history);
-    h.measurements = [...(h.measurements || []), { date: todayISO(), values }];
+    h.measurements = mergeMedidasHoy(h.measurements, values);
     saveHistory(h);
-    setMeasureOpen(false);
   };
 
   const stepsEntries = history.steps || [];
@@ -11464,7 +11643,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           entradas/salidas) — acá es el propio alumno viendo lo suyo. */}
       {sub === "historial" && <ActivityTab plan={plan} history={history} />}
 
-      <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} />
+      <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} measurements={history.measurements || []} />
       <PhotoCompareSheet open={compareOpen} onClose={() => setCompareOpen(false)} photos={photos} bodyweight={bwEntries} />
       <HealthDashboardSheet open={dashboardOpen} onClose={() => setDashboardOpen(false)} history={history} />
     </div>
@@ -16738,8 +16917,13 @@ const FichaCheckin = ({ history, notes, onNotesChange, toast }) => {
         note={notes.medidas} onChange={(v) => onNotesChange("medidas", v)} toast={toast}>
         {lastMeasure && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-            {Object.entries(lastMeasure).filter(([k, v]) => k !== "date" && v != null && v !== "").map(([k, v]) => (
-              <span key={k} style={{ fontSize: 12, color: P.dim, background: P.s3, borderRadius: 7, padding: "3px 8px" }}>{k}: {v}</span>
+            {BODY_MEASURE_FIELDS.filter((f) => {
+              const v = (lastMeasure.values || {})[f.key];
+              return v != null && v !== "";
+            }).map((f) => (
+              <span key={f.key} style={{ fontSize: 12, color: P.dim, background: P.s3, borderRadius: 7, padding: "3px 8px" }}>
+                {f.label}: {fmtUnit(lastMeasure.values[f.key])}{f.unit === "%" ? " %" : " cm"}
+              </span>
             ))}
           </div>
         )}
