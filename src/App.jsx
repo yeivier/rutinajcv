@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v288";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v295";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6662,32 +6662,32 @@ const ChatPlusButton = ({ onAttached }) => {
      la foto directo desde acá, sin abrir el editor completo del ejercicio. */
 
 /* ============================================================
-   Catálogo de ejercicios (1.324, con imagen y pasos)
+   Catálogo de ejercicios (1.323, con GIF demostrativo y pasos)
    ------------------------------------------------------------
-   Los datos salen de github.com/yeivier/exercises-dataset y viven en
-   `catalogo-ejercicios.json`, en la raíz del sitio. Son ~890 KB (unos
-   114 KB comprimidos, que es lo que viaja de verdad), así que NO van
+   Los datos salen de github.com/yeivier/Biblioteca-ejercicios-1 y viven
+   en `catalogo-ejercicios.json`, en la raíz del sitio. Son ~690 KB (unos
+   pocos comprimidos, que es lo que viaja de verdad), así que NO van
    dentro del bundle: se piden por HTTP la primera vez que alguien abre
    el catálogo y quedan en memoria para el resto de la sesión.
 
-   Las imágenes NO se copian a este repo. Son © Gym visual y sus términos
-   piden 180×180 y atribución a la vista; se muestran desde el
-   repositorio de origen a través de jsDelivr, apuntando a un commit fijo
-   para que no cambien bajo los pies.
+   Las imágenes/GIF NO se copian a este repo (los .gif y .thumb.webp del
+   propio repositorio de ejercicios); se muestran con atribución a la
+   vista desde el repositorio de origen a través de jsDelivr, apuntando a
+   un commit fijo para que no cambien bajo los pies.
    ============================================================ */
-const CAT_URL = "/catalogo-ejercicios.json?v=1";
+const CAT_URL = "/catalogo-ejercicios.json?v=2";
 // Commit fijo del dataset: sin él, un cambio allá movería las imágenes de
 // todos los ejercicios sin que nos enteremos.
-const CAT_REF = "7455efae41b330c265e7cd4b78dfa848e7ce5ebd";
+const CAT_REF = "f6d16e977fbee3c04295311c44cb8374ca8ff182";
 // Dos orígenes para la misma imagen. jsDelivr es el bueno (CDN pensada
 // justo para esto, con caché); raw.githubusercontent es el respaldo para
 // las redes que bloquean jsDelivr — pasa más de lo que uno cree en redes
 // corporativas y en algunos gimnasios.
 const CAT_HOSTS = [
-  `https://cdn.jsdelivr.net/gh/yeivier/exercises-dataset@${CAT_REF}`,
-  `https://raw.githubusercontent.com/yeivier/exercises-dataset/${CAT_REF}`,
+  `https://cdn.jsdelivr.net/gh/yeivier/Biblioteca-ejercicios-1@${CAT_REF}`,
+  `https://raw.githubusercontent.com/yeivier/Biblioteca-ejercicios-1/${CAT_REF}`,
 ];
-const CAT_CREDITO = "© Gym visual — gymvisual.com";
+const CAT_CREDITO = "Demostraciones: ExerciseGymGifsDB (jsDelivr)";
 // Cuál de los dos orígenes está respondiendo. Se aprende con la primera
 // imagen que falla y vale para toda la sesión: sin esto, en una red que
 // bloquea jsDelivr CADA miniatura esperaría a que se caiga la conexión
@@ -6697,10 +6697,16 @@ let _catHost = 0;
 const CAT_ESPERA = 5000;
 const catHostInicial = () => _catHost;
 const catHostFalla = (h) => { if (h + 1 > _catHost && h + 1 < CAT_HOSTS.length) _catHost = h + 1; };
+// La imagen de un ejercicio del catálogo se arma con su ruta `g`
+// (`<musculo>/<slug>`) dentro del repo Biblioteca-ejercicios-1: el GIF
+// animado es `<g>.gif` y la miniatura fija es `<g>.thumb.webp`. (El
+// esquema viejo `<i>-<m>` se mantiene por si quedara algún dato antiguo.)
 const catMedia = (e, carpeta, ext, host = 0) =>
   (e && e.i && e.m && CAT_HOSTS[host] ? `${CAT_HOSTS[host]}/${carpeta}/${e.i}-${e.m}.${ext}` : "");
-const catImg = (e, host = 0) => catMedia(e, "images", "jpg", host);
-const catGif = (e, host = 0) => catMedia(e, "videos", "gif", host);
+const catGif = (e, host = 0) =>
+  (e && e.g && CAT_HOSTS[host] ? `${CAT_HOSTS[host]}/${e.g}.gif` : catMedia(e, "videos", "gif", host));
+const catImg = (e, host = 0) =>
+  (e && e.g && CAT_HOSTS[host] ? `${CAT_HOSTS[host]}/${e.g}.thumb.webp` : catMedia(e, "images", "jpg", host));
 
 let _catDatos = null;
 let _catPromesa = null;
@@ -6711,7 +6717,7 @@ function cargarCatalogo() {
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((j) => {
         const lista = (j && j.ejercicios) || [];
-        // El índice de búsqueda se calcula UNA vez: con 1.324 ejercicios,
+        // El índice de búsqueda se calcula UNA vez: con 1.323 ejercicios,
         // normalizar en cada tecleo se nota en un teléfono modesto.
         // Va el nombre en español Y en inglés, el músculo principal, los
         // secundarios y el equipo. Con espacios a los lados para poder
@@ -8579,6 +8585,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [cmtKey, setCmtKey] = useState(null);
   // Qué serie tiene abierto el teclado de discos (clave "ei-si"), o null.
   const [discosEn, setDiscosEn] = useState(null);
+  const [tipoEn, setTipoEn] = useState(null); // {ei, si} de la serie cuyo tipo se está eligiendo
   // Ajuste de carga por prontitud: guarda el estado previo para poder
   // deshacerlo. Es una sugerencia que el atleta acepta, no una
   // decisión que la app toma por él.
@@ -8630,7 +8637,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [c1w, setC1w] = useState(""); const [c1r, setC1r] = useState(""); const [c1rir, setC1rir] = useState("");
   const [c2e, setC2e] = useState(""); const [c2r, setC2r] = useState(""); const [c2rir, setC2rir] = useState("");
   const [c3prev, setC3prev] = useState(""); const [c3cur, setC3cur] = useState("");
-  const [c4top, setC4top] = useState(""); const [c4pct, setC4pct] = useState("85"); const [c4round, setC4round] = useState(2.5);
+  const [c4top, setC4top] = useState(""); const [c4pct, setC4pct] = useState("85");
   const cmtTimer = useRef(null);
   const cmtRef = useRef(null);
   const didPrefill = useRef(false);
@@ -8788,6 +8795,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // (`ex.unit`), o la unidad global de la sesión. Así el alumno puede llevar un
   // ejercicio en kg y otro en lb (mancuernas en libras, barra en kilos…).
   const unitFor = (ei) => (exs[ei] && exs[ei].unit) || weightUnit;
+  // Unidad de UNA serie: su override propio (`st.unit`) si lo tiene, o la del
+  // ejercicio. Así el conversor kg↔lb es por serie —una serie en libras, otra
+  // en kilos dentro del mismo ejercicio— y no del bloque entero.
+  const unitDeSerie = (st, ei) => (st && st.unit) || unitFor(ei);
   // Lo que quedó registrado en una serie, ya en la unidad que el alumno
   // está viendo. `setSummary` toma el peso guardado —siempre en kilos— y
   // le pega la etiqueta de la unidad activa: entrenando en libras decía
@@ -9042,9 +9053,19 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: st.done ? SES.acc : isWarm ? SES.dim : SES.ink }}>
                     {etiqueta}
                   </span>
-                  {tipo && st.type !== "normal" && !isWarm && (
+                  {/* El tipo de serie es tocable: abre el selector para
+                      cambiarla entre calentamiento, trabajo, top set, drop,
+                      rest-pause, AMRAP y demás. En superserie no aplica. */}
+                  {puedeEditar && !block.group ? (
+                    <button onClick={() => setTipoEn({ ei: r.ei, si: r.si })}
+                      aria-label={`Cambiar el tipo de la ${dónde} (ahora ${(SET_TYPES[st.type] || SET_TYPES.normal).label})`}
+                      className="mono" style={{ fontSize: 9.5, letterSpacing: ".05em", color: SES.acc, background: SES.campo,
+                        borderRadius: 5, padding: "2px 7px", border: "none", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      {isWarm ? "WRM" : (tipo || "WRK")} <ChevronDown size={9} />
+                    </button>
+                  ) : (tipo && st.type !== "normal" && !isWarm && (
                     <span className="mono" style={{ fontSize: 9.5, letterSpacing: ".05em", color: SES.dim, background: SES.campo, borderRadius: 5, padding: "1px 6px" }}>{tipo}</span>
-                  )}
+                  ))}
                 </div>
                 {block.group && <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2 }}>{exx.name}</div>}
                 <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{detalle}</div>
@@ -9054,12 +9075,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     sesión. No aplica al calentamiento (no es carga de
                     trabajo) ni a las superseries (rondas, no series). */}
                 {!isWarm && !block.group && (
-                  <RetoSerie actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitFor(r.ei)} />
+                  <RetoSerie actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitDeSerie(st, r.ei)} />
                 )}
               </div>
-              <NumCell aria={`Peso de la ${dónde} (${unitFor(r.ei)})`} placeholder={unitFor(r.ei)}
-                valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitFor(r.ei))).replace(".", ",")}
-                onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitFor(r.ei)))))} />
+              <NumCell aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)}
+                valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitDeSerie(st, r.ei))).replace(".", ",")}
+                onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitDeSerie(st, r.ei)))))} />
               <NumCell aria={`Repeticiones de la ${dónde}`} placeholder="reps"
                 valor={st.reps == null ? "" : String(st.reps)}
                 onCommit={(v) => setVal(r.ei, r.si, "reps", v)} />
@@ -9090,6 +9111,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     hecha con los dedos en vez de con la cabeza. */}
                 <BotonDiscos exId={exs[r.ei].id} pal={SES}
                   onClick={() => setDiscosEn(restKey(r.ei, r.si))} />
+                {/* Conversor kg⇄lb de ESTA serie: convierte el peso ya
+                    escrito a la otra unidad, sin tocar las demás series ni
+                    el ejercicio. */}
+                <button onClick={() => setVal(r.ei, r.si, "unit", unitDeSerie(st, r.ei) === "lb" ? "kg" : "lb")}
+                  aria-label={`Anotar esta serie en ${unitDeSerie(st, r.ei) === "lb" ? "kilos" : "libras"} (ahora ${unitDeSerie(st, r.ei)})`}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
+                  <ArrowUpDown size={12} /> {unitDeSerie(st, r.ei)}
+                </button>
                 {!st.comment && ((st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null)) ? (
                   <button onClick={() => clearSet(r.ei, r.si)}
                     style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
@@ -9670,6 +9699,38 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         okLabel="Descartar" onOk={() => { setConfirmDiscard(false); onDismissRest(); onDiscard(); }} onCancel={() => setConfirmDiscard(false)} />
       <ExerciseInfoSheet ex={ficha != null ? exs[ficha] : null} open={ficha != null} onClose={() => setFicha(null)}
         onPatchEx={ficha != null && patchEx ? (p) => patchEx(ficha, p) : null} onOpenImg={setViewImg} onError={onError} history={history} />
+
+      {/* Selector del TIPO de una serie: calentamiento, trabajo, top set,
+          drop set, rest-pause, AMRAP… El alumno lo elige libremente en la
+          sesión, tocando el tipo de la fila. Marcar "Calentamiento" la saca
+          del volumen efectivo (no cuenta). */}
+      <Sheet open={!!tipoEn} onClose={() => setTipoEn(null)} title="Tipo de serie" tall>
+        {tipoEn && (() => {
+          const st = ((exs[tipoEn.ei] || {}).sets || [])[tipoEn.si] || {};
+          return (
+            <>
+              <div style={{ ...TYPE.footnote, color: SES.faint, marginTop: -6, marginBottom: SP.md }}>
+                {exs[tipoEn.ei] ? exs[tipoEn.ei].name : ""}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {Object.entries(SET_TYPES).map(([key, meta]) => {
+                  const sel = (st.type || "normal") === key;
+                  return (
+                    <button key={key} data-keep onClick={() => { patchSet(tipoEn.ei, tipoEn.si, { type: key }); setTipoEn(null); }}
+                      style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", width: "100%", padding: "12px 13px",
+                        borderRadius: R_TILE, background: sel ? SES.campo : "transparent", border: `1px solid ${sel ? SES.acc : SES.line}` }}>
+                      <span className="mono" style={{ width: 44, flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: sel ? SES.acc : SES.faint, textAlign: "center" }}>{meta.short}</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: SES.ink }}>{meta.label}</span>
+                      {key === "warmup" && <span style={{ ...TYPE.caption, color: SES.faint }}>no cuenta</span>}
+                      {sel && <Check size={16} color={SES.acc} strokeWidth={3} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          );
+        })()}
+      </Sheet>
       <Sheet open={histEx != null} onClose={() => setHistEx(null)} title={histEx != null ? `Historial · ${exs[histEx].name}` : "Historial"} tall>
         <ExHistorySheetInline entries={(histEx != null && history.byEx[exs[histEx].id]) || []} onOpenImg={setViewImg} />
       </Sheet>
@@ -9743,7 +9804,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           const prResult = (!prNew || !prOld) ? null : prNew > prOld
             ? `¡Récord! +${kg(prNew - prOld)} kg (+${Math.round(((prNew - prOld) / prOld) * 1000) / 10}%)`
             : `Aún no — faltan ${kg(prOld - prNew)} kg`;
-          const workW = (() => { const t = num(c4top), p = num(c4pct); if (!t || !p) return null; return Math.round((t * (p / 100)) / c4round) * c4round; })();
+          const workW = (() => { const t = num(c4top), p = num(c4pct); if (!t || !p) return null; return Math.round(t * (p / 100) * 100) / 100; })();
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -9806,15 +9867,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("Top set", c4top, setC4top)}
                   {calcField("%", c4pct, setC4pct)}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, color: P.faint2, fontWeight: 600, marginBottom: 4 }}>Redondeo</div>
-                    <select value={c4round} onChange={(e) => setC4round(+e.target.value)}
-                      style={{ width: "100%", padding: "10px 8px", borderRadius: 10, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14, fontWeight: 700 }}>
-                      <option value={1}>1 kg</option>
-                      <option value={2.5}>2,5 kg</option>
-                      <option value={5}>5 kg</option>
-                    </select>
-                  </div>
                 </div>
                 {calcResult("Peso de trabajo", workW != null ? `${kg(workW)} kg` : null)}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -10871,6 +10923,15 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
   const bar = barraActiva();
   const barKg = bar ? +bar.kg || 0 : 0;
   const elegido = exId != null ? discos.porEjercicio[exId] : undefined;
+  // Libertad en la sesión: no siempre es una barra. La "base" puede ser una
+  // barra, cero (sin barra: solo discos, p. ej. una mancuerna con discos o
+  // apilar discos sueltos) o un peso propio (la placa base de una máquina,
+  // un Smith, lo que sea). Y los discos pueden contar POR LADO (×2, como una
+  // barra) o como PESO TOTAL (×1, una máquina cargada por un solo punto).
+  const [baseKg, setBaseKg] = useState(barKg);
+  const [modo, setModo] = useState(bar ? "porLado" : "total");   // porLado ×2 | total ×1
+  const [baseTxt, setBaseTxt] = useState("");
+  const factor = modo === "porLado" ? 2 : 1;
 
   // Al abrir con un peso ya escrito, arrancar con los discos que lo arman:
   // corregir "de 90 a 95" es entonces un toque, no rearmar la barra entera.
@@ -10878,6 +10939,7 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
     if (!open) return;
     const plates = cfg ? cfg.plates : [];
     const n = +valueKg;
+    setBaseKg(barKg); setModo(bar ? "porLado" : "total"); setBaseTxt("");
     if (valueKg !== "" && valueKg != null && !isNaN(n) && n > barKg) {
       setPorLado(discosParaPeso(n, barKg, plates).porLado);
     } else setPorLado([]);
@@ -10897,10 +10959,13 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
     const resto = prev.filter((d) => d.kg !== k);
     return n > 0 ? [...resto, { kg: k, n }].sort((a, b) => b.kg - a.kg) : resto;
   });
-  const total = pesoDeDiscos(porLado, barKg);
+  const sumaLado = (porLado || []).reduce((t, d) => t + (+d.kg || 0) * (+d.n || 0), 0);
+  const total = Math.round((baseKg + sumaLado * factor) * 100) / 100;
   const hayDiscos = porLado.length > 0;
   const detalle = [...porLado].sort((a, b) => b.kg - a.kg)
     .map((d) => `${d.n}×${d.kg % 1 === 0 ? d.kg : String(d.kg).replace(".", ",")}`).join(" + ");
+  const baseBar = baseTxt === "" ? (discos.bars || []).find((b) => Math.abs((+b.kg || 0) - baseKg) < 0.01) : null;
+  const baseNombre = baseBar ? baseBar.name : (baseKg > 0 ? "Base" : "Sin barra");
 
   return (
     <Sheet open={open} onClose={onClose} title="Teclado de discos" tall>
@@ -10915,9 +10980,37 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
             </div>
             <div style={{ ...TYPE.footnote, color: P.faint, marginTop: 4 }}>
               {hayDiscos
-                ? `${bar ? bar.name : "Barra"} ${kg(barKg)} + ${detalle} por lado`
-                : `${bar ? bar.name : "Barra"} sola · ${kg(barKg)} kg`}
+                ? `${baseNombre}${baseKg > 0 ? ` ${kg(baseKg)} +` : " ·"} ${detalle} ${modo === "porLado" ? "por lado" : "en total"}`
+                : (baseBar ? `${baseBar.name} sola · ${kg(baseKg)} kg` : (baseKg > 0 ? `Base ${kg(baseKg)} kg, sin discos` : "Sin barra ni discos"))}
             </div>
+          </div>
+
+          {/* Base: barra, sin barra o un peso propio (máquina/Smith). */}
+          <div style={{ display: "flex", gap: SP.xs, flexWrap: "wrap", marginBottom: SP.sm }}>
+            {(discos.bars || []).map((b2) => (
+              <button key={b2.id} onClick={() => setBaseKg(+b2.kg || 0)}
+                style={{ padding: "7px 11px", borderRadius: R_TILE, ...TYPE.footnote, fontWeight: 600,
+                  border: `1px solid ${Math.abs(baseKg - (+b2.kg || 0)) < 0.01 && baseTxt === "" ? P.text : P.line}`,
+                  background: Math.abs(baseKg - (+b2.kg || 0)) < 0.01 && baseTxt === "" ? P.s3 : P.s2, color: P.text }}>
+                {b2.name} · {kg(+b2.kg || 0)}
+              </button>
+            ))}
+            <button onClick={() => { setBaseKg(0); setBaseTxt(""); }}
+              style={{ padding: "7px 11px", borderRadius: R_TILE, ...TYPE.footnote, fontWeight: 600,
+                border: `1px solid ${baseKg === 0 && baseTxt === "" ? P.text : P.line}`,
+                background: baseKg === 0 && baseTxt === "" ? P.s3 : P.s2, color: P.text }}>
+              Sin barra
+            </button>
+            <input type="number" inputMode="decimal" value={baseTxt} placeholder="Base…"
+              onChange={(e) => { setBaseTxt(e.target.value); const v = +e.target.value; if (isFinite(v) && v >= 0) setBaseKg(Math.round(v * 100) / 100); }}
+              aria-label="Peso base personalizado"
+              style={{ width: 78, padding: "7px 8px", ...TYPE.footnote, textAlign: "center" }} />
+          </div>
+
+          {/* Cómo cuentan los discos: por lado (×2) o peso total (×1). */}
+          <div style={{ marginBottom: SP.sm }}>
+            <SectionSwitch value={modo} onChange={setModo}
+              items={[{ id: "porLado", label: "Por lado (×2)" }, { id: "total", label: "Peso total (×1)" }]} />
           </div>
 
           <div style={{ display: "flex", gap: SP.xs, marginBottom: SP.sm }}>
@@ -10927,11 +11020,11 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
             ))}
           </div>
           <div style={{ ...TYPE.caption, color: P.faint2, textAlign: "center", marginBottom: SP.md }}>
-            Cada toque suma un disco POR LADO
+            {modo === "porLado" ? "Cada toque suma un disco POR LADO" : "Cada toque suma un disco al total"}
           </div>
 
           <ActionRow>
-            <Btn kind="ghost" onClick={() => setPorLado([])} disabled={!hayDiscos}>Vaciar barra</Btn>
+            <Btn kind="ghost" onClick={() => setPorLado([])} disabled={!hayDiscos}>Vaciar discos</Btn>
             <Btn kind="ember" onClick={() => { onPick(String(total)); onClose(); }}>
               Usar {unit === "kg" ? kg(total) : fmtUnit(kgToLb(total))} {unit}
             </Btn>
@@ -12682,6 +12775,26 @@ function ultimosDias(entries, field, days) {
   return [...porDia.entries()].sort((a, b) => a[0].localeCompare(b[0]))
     .map(([day, e]) => ({ d: chartDayLabel(day), v: Math.round(e[field] * 10) / 10 }));
 }
+// Igual que ultimosDias pero agrupando por SEMANA (lunes a domingo): un
+// punto por semana con el promedio del campo. Para ver tendencias sin el
+// ruido del día a día — el sueño y la recuperación se leen mejor así.
+function porSemanaSerie(entries, field, days) {
+  const cutoff = Date.now() - days * 86400000;
+  const porSem = new Map();
+  entries.forEach((e) => {
+    if (e[field] == null) return;
+    const t = new Date(e.date).getTime();
+    if (!isFinite(t) || t < cutoff) return;
+    const k = weekKey(e.date);
+    const g = porSem.get(k) || { s: 0, n: 0 };
+    g.s += e[field]; g.n++; porSem.set(k, g);
+  });
+  const mm = (d) => ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"][d.getMonth()];
+  return [...porSem.entries()].sort((a, b) => a[0] - b[0]).map(([k, g]) => {
+    const ini = new Date(k);
+    return { d: `${ini.getDate()} ${mm(ini)}`, v: Math.round((g.s / g.n) * 10) / 10 };
+  });
+}
 // Promedio de un campo sobre los registros del periodo que lo tengan.
 // null si ninguno lo trae (así no se dibuja una tarjeta vacía).
 function promedioCampo(entries, field, days) {
@@ -12708,20 +12821,23 @@ const DashStat = ({ label, value, unit }) => (
 // reposo, HRV, esfuerzo…) en una sola pantalla con gráficos.
 const HealthDashboardSheet = ({ open, onClose, history }) => {
   const [dias, setDias] = useState(14);
-  useEffect(() => { if (!open) setDias(14); }, [open]);
+  const [vista, setVista] = useState("dia"); // "dia" | "semana"
+  useEffect(() => { if (!open) { setDias(14); setVista("dia"); } }, [open]);
 
   const bw = history.bodyweight || [];
   const steps = history.steps || [];
   const sleep = history.sleep || [];
   const physio = history.physio || [];
 
-  const pesoSerie = useMemo(() => ultimosDias(bw, "kg", dias), [bw, dias]);
-  const pasosSerie = useMemo(() => ultimosDias(steps, "count", dias), [steps, dias]);
-  const suenoSerie = useMemo(() => ultimosDias(sleep, "hours", dias), [sleep, dias]);
-  const recuperacionSerie = useMemo(() => ultimosDias(physio, "recovery", dias), [physio, dias]);
-  const rhrSerie = useMemo(() => ultimosDias(physio, "restingHr", dias), [physio, dias]);
-  const hrvSerie = useMemo(() => ultimosDias(physio, "hrv", dias), [physio, dias]);
-  const strainSerie = useMemo(() => ultimosDias(physio, "strain", dias), [physio, dias]);
+  // Cada serie sale por día o por semana según la vista elegida.
+  const serieDe = (entries, field) => vista === "semana" ? porSemanaSerie(entries, field, dias) : ultimosDias(entries, field, dias);
+  const pesoSerie = useMemo(() => serieDe(bw, "kg"), [bw, dias, vista]);
+  const pasosSerie = useMemo(() => serieDe(steps, "count"), [steps, dias, vista]);
+  const suenoSerie = useMemo(() => serieDe(sleep, "hours"), [sleep, dias, vista]);
+  const recuperacionSerie = useMemo(() => serieDe(physio, "recovery"), [physio, dias, vista]);
+  const rhrSerie = useMemo(() => serieDe(physio, "restingHr"), [physio, dias, vista]);
+  const hrvSerie = useMemo(() => serieDe(physio, "hrv"), [physio, dias, vista]);
+  const strainSerie = useMemo(() => serieDe(physio, "strain"), [physio, dias, vista]);
 
   const recovAvg = useMemo(() => promedioCampo(physio, "recovery", dias), [physio, dias]);
   const physioStats = useMemo(() => {
@@ -12777,6 +12893,8 @@ const HealthDashboardSheet = ({ open, onClose, history }) => {
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <SectionSwitch value={dias} onChange={setDias}
           items={[{ id: 14, label: "14 días" }, { id: 30, label: "30 días" }, { id: 90, label: "90 días" }]} />
+        <SectionSwitch value={vista} onChange={setVista}
+          items={[{ id: "dia", label: "Por día" }, { id: "semana", label: "Por semana" }]} />
 
         {!hayDatos ? (
           <Card style={{ padding: 22, textAlign: "center" }}>
@@ -13820,7 +13938,7 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
   return (
     <Sheet open={!!ex} onClose={onClose} title={ex.isNew ? "Nuevo ejercicio" : "Editar ejercicio"} tall>
       <Field label="Imagen del catálogo"
-        hint="Sale del catálogo de 1.324 ejercicios. Se ve en la rutina y al entrenar, y trae los pasos de ejecución.">
+        hint="Sale del catálogo de 1.323 ejercicios. Se ve en la rutina y al entrenar, y trae los pasos de ejecución.">
         <CatalogLinkRow catId={d.catId} nombre={d.name} onOpen={() => setPickerOpen(true)} />
       </Field>
       <CatalogPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} nombre={d.name}
@@ -14369,14 +14487,94 @@ REGLAS ESTRICTAS:
 /* ---- Mesociclos: uno o varios bloques, cada uno con sus propias semanas.
    El header de cada bloque muestra su NOMBRE (Mesociclo 1, o el que le
    pongas) — las "Semana 1, 2, 3..." solo aparecen al desplegarlo. ---- */
-const MesociclosPanel = ({ plan, savePlan, toast }) => {
+/* Macrociclo: el plan-año que envuelve a todos los mesociclos. Vive en
+   `mesoState.macro` (opcional, retrocompatible): si no está, se deriva uno
+   con la suma de semanas de todos los mesociclos. `objetivoSemanas` es la
+   meta que fija el coach (editable); si no la puso, es la suma actual. */
+function macroDe(plan) {
+  const st = mesoStateOf(plan);
+  const totalSemanas = st.mesociclos.reduce((a, m) => a + (m.weeks || []).length, 0);
+  const macro = (st.macro && typeof st.macro === "object") ? st.macro : {};
+  // Semanas ya recorridas: las de los mesociclos anteriores al actual, más
+  // la semana en curso del actual.
+  let recorridas = 0, encontrado = false;
+  st.mesociclos.forEach((m) => {
+    if (m.id === st.currentMesoId) { recorridas += Math.min((m.current || 0) + 1, m.weeks.length); encontrado = true; }
+    else if (!encontrado && st.currentMesoId) recorridas += m.weeks.length;
+  });
+  if (!st.currentMesoId) recorridas = 0;
+  return {
+    name: macro.name || "Macrociclo",
+    objetivoSemanas: Number.isFinite(+macro.objetivoSemanas) && +macro.objetivoSemanas > 0 ? +macro.objetivoSemanas : totalSemanas,
+    totalSemanas, mesos: st.mesociclos.length, recorridas,
+  };
+}
+
+/* Recomendación de la IA sobre el ciclo: mira cómo viene el atleta
+   (progresión, volumen del mes, recuperación de la semana) y sugiere qué
+   hacer con la periodización — avanzar de semana, meter una descarga o
+   arrancar el próximo mesociclo. TODO es una sugerencia: los botones
+   aplican el cambio pero el coach edita lo que quiera. Heurística local,
+   sin llamar a la IA en la nube: funciona aunque no haya red. */
+const CICLO_ACC = { none: null, avanzar: "avanzar", deload: "deload", nuevoMeso: "nuevoMeso" };
+function recomendacionCiclo(plan, history) {
+  const st = mesoStateOf(plan);
+  const m = currentMesociclo(plan);
+  const prog = progresionDeAtleta(history || {});
+  const semanas = m ? m.weeks.length : 0;
+  const idx = m ? Math.min(m.current || 0, semanas - 1) : -1;
+  const wk = idx >= 0 ? m.weeks[idx] : null;
+  const esUltimaSemana = m && idx === semanas - 1;
+  const idxMeso = m ? st.mesociclos.findIndex((x) => x.id === m.id) : -1;
+  const hayProximoMeso = idxMeso >= 0 && idxMeso < st.mesociclos.length - 1;
+  const rec = prog.recuperacion || {};
+  const recPobre = (rec.dias >= 3) && ((rec.recovery != null && rec.recovery < 40) || (rec.rojos || 0) >= 2 || (rec.horas != null && rec.horas < 6));
+
+  let titulo, detalle, accion = CICLO_ACC.none, tono = "neutro";
+  if (!m) {
+    titulo = "Sin mesociclo en curso";
+    detalle = "Asigná o creá un mesociclo abajo para que la IA pueda recomendar cuándo avanzar de semana o de ciclo.";
+  } else if (prog.estado === "inactivo") {
+    titulo = "En pausa"; tono = "alerta";
+    detalle = `${prog.nota} Retomá el entrenamiento antes de avanzar de semana.`;
+  } else if (recPobre) {
+    titulo = "La recuperación viene baja"; tono = "alerta";
+    detalle = `Recuperación floja esta semana${rec.horas != null ? ` (durmiendo ~${rec.horas} h)` : ""}. Antes de subir carga conviene una semana de descarga.`;
+    accion = wk && wk.deload ? CICLO_ACC.none : CICLO_ACC.deload;
+  } else if (wk && wk.deload) {
+    titulo = "Semana de descarga"; tono = "ok";
+    detalle = esUltimaSemana
+      ? "Bajá intensidad y volumen esta semana. Al terminarla, arrancá el próximo mesociclo."
+      : "Bajá intensidad y volumen esta semana; después seguí con la próxima.";
+    accion = esUltimaSemana ? (hayProximoMeso ? CICLO_ACC.nuevoMeso : CICLO_ACC.none) : CICLO_ACC.avanzar;
+  } else if (prog.estado === "sube") {
+    titulo = "Progresando bien"; tono = "ok";
+    detalle = esUltimaSemana
+      ? `${prog.nota} Es la última semana del bloque: meté una descarga antes del próximo mesociclo.`
+      : `${prog.nota} Cuando toque, avanzá a la próxima semana con un poco más de carga.`;
+    accion = esUltimaSemana ? CICLO_ACC.deload : CICLO_ACC.avanzar;
+  } else if (prog.estado === "baja" || prog.estado === "estancado") {
+    titulo = prog.estado === "baja" ? "Rindiendo menos" : "Estancado"; tono = "alerta";
+    detalle = `${prog.nota} Toca una semana de descarga o cambiar el estímulo antes de seguir subiendo carga.`;
+    accion = wk && wk.deload ? CICLO_ACC.none : CICLO_ACC.deload;
+  } else {
+    titulo = "Faltan datos para recomendar"; tono = "neutro";
+    detalle = `${prog.nota} Con un par de sesiones más la IA ya puede sugerir cuándo avanzar de ciclo.`;
+  }
+
+  const macro = macroDe(plan);
+  const faltanSemanas = Math.max(0, macro.objetivoSemanas - macro.recorridas);
+  return { titulo, detalle, accion, tono, prog, esUltimaSemana, hayProximoMeso, semanaActual: idx + 1, semanas, faltanSemanas, macro };
+}
+
+const MesociclosPanel = ({ plan, savePlan, toast, startOpen = false }) => {
   // La tarjeta entera arranca colapsada — antes, entrar a Rutina abría de
   // entrada toda esta sección (texto explicativo, botón "Sin mesociclo" y
   // la lista de mesociclos) aunque nadie la hubiera tocado. Un toque en la
   // cabecera la despliega; adentro, cada mesociclo se sigue abriendo por
   // separado (openMesoId, más abajo) — dos niveles de "ir abriendo de a
   // poco" en vez de todo de una.
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(startOpen);
   const [openMesoId, setOpenMesoId] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -14606,6 +14804,119 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
         body={delTarget ? `Se eliminará «${delTarget.name}» con sus ${delTarget.weeks.length} semana${delTarget.weeks.length !== 1 ? "s" : ""}. Los objetivos por semana que tuvieran cargados los ejercicios para esas semanas también se borran. Esta acción no se puede deshacer.` : ""}
         okLabel="Eliminar" onOk={() => { delMesociclo(confirmDel); setConfirmDel(null); }} onCancel={() => setConfirmDel(null)} />
     </>
+  );
+};
+
+/* Periodización — la vista que reemplazó a la vieja "Partitura" (un mapa de
+   calor de solo lectura que no se entendía). Acá el coach ve y edita de
+   verdad: el macrociclo (el plan-año), la recomendación de la IA sobre
+   cuándo avanzar, y el editor de mesociclos completo. Todo cliqueable. */
+const PeriodizacionView = ({ plan, savePlan, history, toast }) => {
+  const macro = macroDe(plan);
+  const rec = recomendacionCiclo(plan, history);
+  const [editMacro, setEditMacro] = useState(false);
+  const mut = (fn) => {
+    const p = structuredClone(plan);
+    if (!p.mesoState || !Array.isArray(p.mesoState.mesociclos) || !p.mesoState.mesociclos.length) p.mesoState = mesoStateOf(p);
+    fn(p);
+    p.updatedAt = todayISO();
+    savePlan(p);
+  };
+  const setMacro = (patch) => mut((p) => { p.mesoState.macro = { ...(p.mesoState.macro || {}), ...patch }; });
+
+  // Acciones de la recomendación: aplican el cambio pero todo queda editable.
+  const aplicar = (accion) => {
+    if (accion === CICLO_ACC.avanzar) {
+      mut((p) => { const m = currentMesociclo(p); if (m && (m.current || 0) < m.weeks.length - 1) m.current = (m.current || 0) + 1; });
+      toast && toast("✓ Avanzaste a la próxima semana");
+    } else if (accion === CICLO_ACC.deload) {
+      mut((p) => { const m = currentMesociclo(p); if (m) { m.weeks.push({ id: uid(), name: `Semana ${m.weeks.length + 1}`, deload: true }); m.current = m.weeks.length - 1; } });
+      toast && toast("✓ Agregada una semana de descarga");
+    } else if (accion === CICLO_ACC.nuevoMeso) {
+      mut((p) => {
+        const st = p.mesoState; const i = st.mesociclos.findIndex((x) => x.id === st.currentMesoId);
+        const next = st.mesociclos[i + 1];
+        if (next) { st.currentMesoId = next.id; next.current = 0; }
+      });
+      toast && toast("✓ Arrancó el próximo mesociclo");
+    }
+  };
+
+  const ACC_LABEL = { avanzar: "Avanzar a la próxima semana", deload: "Agregar semana de descarga", nuevoMeso: "Empezar el próximo mesociclo" };
+  const tonoColor = rec.tono === "ok" ? SES.acc : rec.tono === "alerta" ? P.red : P.blue;
+  const pct = macro.objetivoSemanas ? Math.min(100, Math.round((macro.recorridas / macro.objetivoSemanas) * 100)) : 0;
+
+  return (
+    <div style={{ marginBottom: 26 }}>
+      {/* ── Macrociclo: el plan-año ── */}
+      <Card style={{ padding: "14px 15px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 11, background: `${P.blue}1E`, border: `1px solid ${P.blue}55`,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <LayoutDashboard size={19} color={P.blue} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ ...TYPE.footnote, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" }}>Macrociclo</div>
+            {editMacro ? (
+              <input autoFocus value={macro.name} onChange={(e) => setMacro({ name: e.target.value })}
+                onBlur={() => setEditMacro(false)} onKeyDown={(e) => { if (e.key === "Enter") setEditMacro(false); }}
+                aria-label="Nombre del macrociclo" style={{ width: "100%", padding: "5px 7px", fontSize: 16, fontWeight: 700 }} />
+            ) : (
+              <button onClick={() => setEditMacro(true)} style={{ textAlign: "left", width: "100%" }}>
+                <span style={{ fontSize: 16.5, fontWeight: 700, color: P.text }}>{macro.name}</span>
+                <PencilLine size={12} color={P.faint2} style={{ marginLeft: 6, verticalAlign: "middle" }} />
+              </button>
+            )}
+          </div>
+        </div>
+        {/* barra de avance del macro */}
+        <div style={{ height: 8, borderRadius: 4, background: P.s3, overflow: "hidden", marginBottom: 7 }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: SES.acc, transition: "width .3s ease" }} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ ...TYPE.footnote, color: P.dim }}>
+            {macro.mesos} mesociclo{macro.mesos !== 1 ? "s" : ""} · semana {Math.max(0, macro.recorridas)} de {macro.objetivoSemanas}
+          </span>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, ...TYPE.footnote, color: P.faint }}>
+            Meta (semanas):
+            <input type="number" min="1" max="80" value={macro.objetivoSemanas}
+              onChange={(e) => setMacro({ objetivoSemanas: Math.max(1, Math.min(80, +e.target.value || 1)) })}
+              aria-label="Meta de semanas del macrociclo"
+              style={{ width: 56, padding: "5px 6px", fontSize: 14, textAlign: "center" }} />
+          </label>
+        </div>
+        {macro.totalSemanas !== macro.objetivoSemanas && (
+          <div style={{ ...TYPE.caption, color: P.faint2, marginTop: 6 }}>
+            Cargadas {macro.totalSemanas} semana{macro.totalSemanas !== 1 ? "s" : ""} en total; la meta son {macro.objetivoSemanas}. {macro.totalSemanas < macro.objetivoSemanas ? "Agregá semanas o mesociclos abajo." : "Podés recortar semanas si querés."}
+          </div>
+        )}
+      </Card>
+
+      {/* ── Recomendación de la IA ── */}
+      <Card style={{ padding: "13px 15px", marginBottom: 16, borderColor: `${tonoColor}55` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Sparkles size={15} color={tonoColor} style={{ flexShrink: 0 }} />
+          <span style={{ ...TYPE.subhead, fontWeight: 700, color: P.text }}>{rec.titulo}</span>
+        </div>
+        <div style={{ ...TYPE.footnote, color: P.dim, lineHeight: 1.5 }}>{rec.detalle}</div>
+        {rec.semanas > 0 && (
+          <div style={{ ...TYPE.caption, color: P.faint2, marginTop: 6 }}>
+            Semana {rec.semanaActual} de {rec.semanas} del mesociclo en curso{rec.faltanSemanas > 0 ? ` · faltan ~${rec.faltanSemanas} para cerrar el macro` : ""}.
+          </div>
+        )}
+        {rec.accion && (
+          <Btn kind="ember" small onClick={() => aplicar(rec.accion)} style={{ marginTop: 11 }}>
+            <Check size={13} /> {ACC_LABEL[rec.accion]}
+          </Btn>
+        )}
+        <div style={{ ...TYPE.caption, color: P.faint2, marginTop: 9, lineHeight: 1.4 }}>
+          Es una sugerencia según cómo viene el atleta. Editá abajo lo que quieras: agregar semanas, marcar descargas, cambiar el mesociclo en curso.
+        </div>
+      </Card>
+
+      {/* ── Editor de mesociclos (ya abierto) ── */}
+      <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} startOpen />
+    </div>
   );
 };
 
@@ -15030,95 +15341,6 @@ const DraftsPanel = ({ toast, onInfo, roster }) => {
   );
 };
 
-/* ============================================================
-   La rutina como partitura — el mesociclo entero en una pantalla.
-   Hoy el editor es una lista de días, cada uno con su lista de
-   ejercicios: para ver "cómo viene la carga esta semana" hay que abrir
-   uno por uno. Acá las semanas del mesociclo activo son columnas y los
-   días de la semana filas; cada casilla es cuántas series tiene ESE día
-   (el número no cambia semana a semana en este modelo de datos — lo que
-   varía por semana son reps/RIR objetivo, en `ex.weekly`, no la cantidad
-   de series — así que el valor real que aporta esta vista es comparar
-   la carga ENTRE días de un vistazo, y ver de un vistazo qué semana es
-   la de descarga y cuál es "hoy"). Solo lectura: para editar se sigue
-   usando el editor de siempre. */
-const MesoPartitura = ({ plan }) => {
-  const meso = currentMesociclo(plan);
-  const DIAS = [["mon", "Lun"], ["tue", "Mar"], ["wed", "Mié"], ["thu", "Jue"], ["fri", "Vie"], ["sat", "Sáb"], ["sun", "Dom"]];
-  const filas = DIAS.map(([dk, label]) => {
-    const dayId = plan.schedule ? plan.schedule[dk] : null;
-    const day = dayId ? plan.days.find((d) => d.id === dayId) : null;
-    const series = day ? day.exs.reduce((a, e) => a + e.sets.length, 0) : 0;
-    return { dk, label, day, series };
-  });
-  const maxSeries = Math.max(1, ...filas.map((f) => f.series));
-  const semanas = meso ? meso.weeks : [];
-  const semanaActualIdx = meso ? Math.min(meso.current || 0, semanas.length - 1) : -1;
-
-  if (!plan.days.length) {
-    return <Empty icon={Calendar} title="Todavía no hay rutina" body="Agrega días en «Días» y después vuelve acá para ver cómo se reparte la carga semana a semana." />;
-  }
-
-  return (
-    <div style={{ marginBottom: 26 }}>
-      <div style={{ fontSize: 13.5, color: P.faint2, lineHeight: 1.5, marginBottom: 14 }}>
-        {meso ? <>«{meso.name}» · {semanas.length} semana{semanas.length !== 1 ? "s" : ""}</> : "Este alumno entrena sin mesociclo asignado."}
-        {" — "}el número es cuántas series tiene ese día; el color, cuánta carga relativa a los demás días.
-      </div>
-      <Card style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: semanas.length ? 60 + semanas.length * 46 : 200 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: "10px 10px 8px 14px", fontSize: 11.5, fontWeight: 600, color: P.faint, position: "sticky", left: 0, background: P.s1 }}>Día</th>
-                {semanas.map((w, wi) => (
-                  <th key={w.id} style={{ padding: "10px 4px 8px", fontSize: 11, fontWeight: 600,
-                    color: wi === semanaActualIdx ? P.text : P.faint, textAlign: "center", minWidth: 42 }}>
-                    {wi + 1}{w.deload ? "·D" : ""}
-                  </th>
-                ))}
-                {!semanas.length && <th style={{ padding: "10px 12px 8px", fontSize: 11.5, color: P.faint, textAlign: "center" }}>Series</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {filas.map((f) => (
-                <tr key={f.dk} style={{ borderTop: `1px solid ${P.line}` }}>
-                  <td style={{ padding: "8px 10px 8px 14px", position: "sticky", left: 0, background: P.s1 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: f.day ? P.text : P.faint }}>{f.label}</div>
-                    <div style={{ fontSize: 10.5, color: P.faint2, marginTop: 1, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {f.day ? f.day.name : "Libre"}
-                    </div>
-                  </td>
-                  {(semanas.length ? semanas : [null]).map((w, wi) => {
-                    const esHoy = w && wi === semanaActualIdx;
-                    const opac = f.series ? 0.16 + 0.7 * (f.series / maxSeries) : 0;
-                    return (
-                      <td key={w ? w.id : "u"} style={{ padding: "6px 4px" }}>
-                        {f.day ? (
-                          <div style={{ height: 30, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: 11.5, fontWeight: 700, fontVariantNumeric: "tabular-nums",
-                            background: SES.acc, opacity: opac, color: SES.accInk,
-                            border: esHoy ? `1.5px solid ${SES.acc}` : "none",
-                            ...(w && w.deload ? { border: `1px dashed ${P.faint}`, background: "transparent", opacity: 1, color: P.faint } : {}) }}>
-                            {f.series}
-                          </div>
-                        ) : <div style={{ height: 30 }} />}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      <div className="mono" style={{ fontSize: 10.5, color: P.faint2, marginTop: 10, letterSpacing: ".03em" }}>
-        {semanaActualIdx >= 0 && `Semana ${semanaActualIdx + 1} = la actual · `}punteado = semana de descarga
-      </div>
-    </div>
-  );
-};
-
 const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent, library, onSaveLibrary, onOpenCompare }) => {
   const [mrvRutina, setMrvRutina] = useState(false);
   const [easy] = useEasyMode();
@@ -15419,7 +15641,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         tabs={!easy ? (
           <SectionSwitch value={view} onChange={setView}
             items={[{ id: "dias", label: "Días" },
-                    { id: "partitura", label: "Partitura" },
+                    { id: "periodo", label: "Periodización" },
                     { id: "biblioteca", label: `Biblioteca${(library || []).length > 0 ? ` (${library.length})` : ""}` }]} />
         ) : null}
         actions={(
@@ -15476,7 +15698,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           coach viene la mayoría de las veces. Todo eso sigue existiendo
           y vuelve al instante con el switch ForjaMode. */}
       {!easy && view === "biblioteca" && <LibraryPanel plan={plan} history={history} library={library} onSaveLibrary={onSaveLibrary} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
-      {!easy && view === "partitura" && <MesoPartitura plan={plan} />}
+      {!easy && view === "periodo" && <PeriodizacionView plan={plan} savePlan={savePlan} history={history} toast={toast} />}
 
       {(easy || view === "dias") && (<>
 
@@ -16528,11 +16750,44 @@ function groupSessionsByGym(sessions) {
   return grupos;
 }
 
+/* Agrupa las sesiones por SEMANA (lunes a domingo), de la más reciente a
+   la más vieja, mezclando todas las sedes — así el historial se lee como
+   un calendario de entrenamiento. Dentro de cada semana, la más reciente
+   primero. La etiqueta dice el rango de fechas y marca "Esta semana". */
+function etiquetaSemana(weekStartMs) {
+  const ini = new Date(weekStartMs); const fin = new Date(weekStartMs + 6 * 86400000);
+  const esta = weekKey(todayISO()) === weekStartMs;
+  const prev = weekKey(todayISO()) - 7 * 86400000 === weekStartMs;
+  const dd = (d) => d.getDate();
+  const mm = (d) => ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"][d.getMonth()];
+  const rango = ini.getMonth() === fin.getMonth()
+    ? `${dd(ini)}–${dd(fin)} ${mm(fin)}`
+    : `${dd(ini)} ${mm(ini)} – ${dd(fin)} ${mm(fin)}`;
+  return { rango, esta, prev, titulo: esta ? "Esta semana" : prev ? "Semana pasada" : `Semana del ${rango}` };
+}
+function groupSessionsByWeek(sessions) {
+  const porSem = new Map();
+  (sessions || []).forEach((s) => {
+    const k = weekKey(s.date);
+    if (!porSem.has(k)) porSem.set(k, []);
+    porSem.get(k).push(s);
+  });
+  return [...porSem.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([k, ses]) => ({
+      week: k, ...etiquetaSemana(k),
+      sesiones: [...ses].sort((a, b) => new Date(b.date) - new Date(a.date)),
+      series: ses.reduce((t, s) => t + (+s.setsDone || 0), 0),
+      volumen: ses.reduce((t, s) => t + (+s.volume || 0), 0),
+    }));
+}
+
 /* ============================================================
    MODO COACH — actividad del alumno
    ============================================================ */
 const ActivityTab = ({ plan, history, saveHistory }) => {
   const [sub, setSub] = useState("ses");
+  const [sesModo, setSesModo] = useState("semana"); // "semana" | "sede"
   const [openSession, setOpenSession] = useState(null);
   const [exId, setExId] = useState("");
   const [viewImg, setViewImg] = useState(null);
@@ -16586,35 +16841,74 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
       </div>
       {sub === "ses" && (history.sessions.length === 0 ? (
         <Empty icon={Users} title="Aún no hay sesiones" body="Cuando el alumno termine su primera sesión, acá verás todo el detalle: series, comentarios y adjuntos." />
-      ) : groupSessionsByGym(history.sessions).map((grp) => (
-        <div key={grp.gym || "_sin_gym_"} style={{ marginBottom: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 2px 8px" }}>
-            <Home size={13} color={P.faint} style={{ flexShrink: 0 }} />
-            <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: P.faint,
-              textTransform: "uppercase", letterSpacing: ".04em" }}>{grp.gym || "Sin gimnasio registrado"}</span>
-            {puedeEditarGym && (
-              <button onClick={() => setAsignar({ sesiones: grp.sesiones, gym: grp.gym })}
-                aria-label={grp.gym ? `Cambiar el gimnasio de las sesiones de ${grp.gym}` : "Asignar gimnasio a las sesiones sin gimnasio"}
-                style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 600, color: P.ember2 }}>
-                <PencilLine size={12} /> {grp.gym ? "Cambiar" : "Asignar"}
-              </button>
-            )}
-          </div>
-          {grp.sesiones.map((s) => (
-            <Card key={s.id} style={{ marginBottom: 10 }}>
-              <button onClick={() => setOpenSession(s)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.dayName}</div>
-                  <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>{fmtDateFull(s.date)} · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg</div>
-                </div>
-                {s.hasComments && <MessageSquare size={15} color={P.ember2} />}
-                {(s.prs || []).length > 0 && <Award size={15} color={P.ember2} />}
-                <ChevronRight size={16} color={P.faint} />
-              </button>
-            </Card>
-          ))}
+      ) : (<>
+        {/* Cómo se ordena el historial: por semana (calendario, todas las
+            sedes juntas) o por sede (agrupado por gimnasio). */}
+        <div style={{ marginBottom: 14 }}>
+          <SectionSwitch value={sesModo} onChange={setSesModo}
+            items={[{ id: "semana", label: "Por semana" }, { id: "sede", label: "Por sede" }]} />
         </div>
-      )))}
+
+        {sesModo === "semana" && groupSessionsByWeek(history.sessions).map((wk) => (
+          <div key={wk.week} style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "0 2px 8px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 14.5, fontWeight: 700, color: P.text }}>{wk.titulo}</span>
+              {!wk.esta && !wk.prev && <span style={{ fontSize: 12, color: P.faint2 }}>({wk.rango})</span>}
+              <span style={{ marginLeft: "auto", fontSize: 12.5, color: P.faint2, fontVariantNumeric: "tabular-nums" }}>
+                {wk.sesiones.length} ses · {wk.series} series · {Math.round(wk.volumen).toLocaleString("es-CL")} kg
+              </span>
+            </div>
+            {wk.sesiones.map((s) => (
+              <Card key={s.id} style={{ marginBottom: 10 }}>
+                <button onClick={() => setOpenSession(s)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.dayName}</div>
+                    <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>{fmtDateFull(s.date)} · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg</div>
+                    {(s.gym || "").trim() && (
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 5, ...TYPE.caption, color: P.faint2 }}>
+                        <Home size={11} /> {s.gym}
+                      </div>
+                    )}
+                  </div>
+                  {s.hasComments && <MessageSquare size={15} color={P.ember2} />}
+                  {(s.prs || []).length > 0 && <Award size={15} color={P.ember2} />}
+                  <ChevronRight size={16} color={P.faint} />
+                </button>
+              </Card>
+            ))}
+          </div>
+        ))}
+
+        {sesModo === "sede" && groupSessionsByGym(history.sessions).map((grp) => (
+          <div key={grp.gym || "_sin_gym_"} style={{ marginBottom: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 2px 8px" }}>
+              <Home size={13} color={P.faint} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: P.faint,
+                textTransform: "uppercase", letterSpacing: ".04em" }}>{grp.gym || "Sin gimnasio registrado"}</span>
+              {puedeEditarGym && (
+                <button onClick={() => setAsignar({ sesiones: grp.sesiones, gym: grp.gym })}
+                  aria-label={grp.gym ? `Cambiar el gimnasio de las sesiones de ${grp.gym}` : "Asignar gimnasio a las sesiones sin gimnasio"}
+                  style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 600, color: P.ember2 }}>
+                  <PencilLine size={12} /> {grp.gym ? "Cambiar" : "Asignar"}
+                </button>
+              )}
+            </div>
+            {grp.sesiones.map((s) => (
+              <Card key={s.id} style={{ marginBottom: 10 }}>
+                <button onClick={() => setOpenSession(s)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.dayName}</div>
+                    <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>{fmtDateFull(s.date)} · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg</div>
+                  </div>
+                  {s.hasComments && <MessageSquare size={15} color={P.ember2} />}
+                  {(s.prs || []).length > 0 && <Award size={15} color={P.ember2} />}
+                  <ChevronRight size={16} color={P.faint} />
+                </button>
+              </Card>
+            ))}
+          </div>
+        ))}
+      </>))}
       {sub === "ex" && (
         <div>
           <select value={exId} onChange={(e) => setExId(e.target.value)} style={{ width: "100%", padding: "11px 12px", marginBottom: 12 }}>
@@ -23842,7 +24136,7 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
     (e) => e._b || "");
   const hayFiltro = musculos.length > 0 || equipos.length > 0 || q.trim() !== "";
   const limpiar = () => { setQ(""); setMusculos([]); setEquipos([]); setConSec(false); setTope(60); };
-  // Con 1.324 ejercicios no se pintan todos de una: se muestran de a 60 y
+  // Con 1.323 ejercicios no se pintan todos de una: se muestran de a 60 y
   // el resto entra con «Ver más». Sin esto, la hoja tarda casi un segundo
   // en abrir en un teléfono modesto.
   const catVisibles = catF.slice(0, tope);
@@ -23959,9 +24253,9 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
         </Card>
 
         <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.5, padding: "0 2px 4px" }}>
-          Catálogo de 1.324 ejercicios de{" "}
-          <a href="https://github.com/yeivier/exercises-dataset" target="_blank" rel="noreferrer" style={{ color: P.dim, textDecoration: "underline" }}>exercises-dataset</a>{" "}
-          (datos MIT). Imágenes y animaciones {CAT_CREDITO}, mostradas desde el repositorio de origen.
+          Catálogo de 1.323 ejercicios de{" "}
+          <a href="https://github.com/yeivier/Biblioteca-ejercicios-1" target="_blank" rel="noreferrer" style={{ color: P.dim, textDecoration: "underline" }}>Biblioteca-ejercicios-1</a>.
+          Imágenes y animaciones {CAT_CREDITO}, mostradas desde el repositorio de origen.
         </div>
       </div>
 
