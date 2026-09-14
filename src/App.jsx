@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v288";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v289";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -14369,14 +14369,94 @@ REGLAS ESTRICTAS:
 /* ---- Mesociclos: uno o varios bloques, cada uno con sus propias semanas.
    El header de cada bloque muestra su NOMBRE (Mesociclo 1, o el que le
    pongas) — las "Semana 1, 2, 3..." solo aparecen al desplegarlo. ---- */
-const MesociclosPanel = ({ plan, savePlan, toast }) => {
+/* Macrociclo: el plan-año que envuelve a todos los mesociclos. Vive en
+   `mesoState.macro` (opcional, retrocompatible): si no está, se deriva uno
+   con la suma de semanas de todos los mesociclos. `objetivoSemanas` es la
+   meta que fija el coach (editable); si no la puso, es la suma actual. */
+function macroDe(plan) {
+  const st = mesoStateOf(plan);
+  const totalSemanas = st.mesociclos.reduce((a, m) => a + (m.weeks || []).length, 0);
+  const macro = (st.macro && typeof st.macro === "object") ? st.macro : {};
+  // Semanas ya recorridas: las de los mesociclos anteriores al actual, más
+  // la semana en curso del actual.
+  let recorridas = 0, encontrado = false;
+  st.mesociclos.forEach((m) => {
+    if (m.id === st.currentMesoId) { recorridas += Math.min((m.current || 0) + 1, m.weeks.length); encontrado = true; }
+    else if (!encontrado && st.currentMesoId) recorridas += m.weeks.length;
+  });
+  if (!st.currentMesoId) recorridas = 0;
+  return {
+    name: macro.name || "Macrociclo",
+    objetivoSemanas: Number.isFinite(+macro.objetivoSemanas) && +macro.objetivoSemanas > 0 ? +macro.objetivoSemanas : totalSemanas,
+    totalSemanas, mesos: st.mesociclos.length, recorridas,
+  };
+}
+
+/* Recomendación de la IA sobre el ciclo: mira cómo viene el atleta
+   (progresión, volumen del mes, recuperación de la semana) y sugiere qué
+   hacer con la periodización — avanzar de semana, meter una descarga o
+   arrancar el próximo mesociclo. TODO es una sugerencia: los botones
+   aplican el cambio pero el coach edita lo que quiera. Heurística local,
+   sin llamar a la IA en la nube: funciona aunque no haya red. */
+const CICLO_ACC = { none: null, avanzar: "avanzar", deload: "deload", nuevoMeso: "nuevoMeso" };
+function recomendacionCiclo(plan, history) {
+  const st = mesoStateOf(plan);
+  const m = currentMesociclo(plan);
+  const prog = progresionDeAtleta(history || {});
+  const semanas = m ? m.weeks.length : 0;
+  const idx = m ? Math.min(m.current || 0, semanas - 1) : -1;
+  const wk = idx >= 0 ? m.weeks[idx] : null;
+  const esUltimaSemana = m && idx === semanas - 1;
+  const idxMeso = m ? st.mesociclos.findIndex((x) => x.id === m.id) : -1;
+  const hayProximoMeso = idxMeso >= 0 && idxMeso < st.mesociclos.length - 1;
+  const rec = prog.recuperacion || {};
+  const recPobre = (rec.dias >= 3) && ((rec.recovery != null && rec.recovery < 40) || (rec.rojos || 0) >= 2 || (rec.horas != null && rec.horas < 6));
+
+  let titulo, detalle, accion = CICLO_ACC.none, tono = "neutro";
+  if (!m) {
+    titulo = "Sin mesociclo en curso";
+    detalle = "Asigná o creá un mesociclo abajo para que la IA pueda recomendar cuándo avanzar de semana o de ciclo.";
+  } else if (prog.estado === "inactivo") {
+    titulo = "En pausa"; tono = "alerta";
+    detalle = `${prog.nota} Retomá el entrenamiento antes de avanzar de semana.`;
+  } else if (recPobre) {
+    titulo = "La recuperación viene baja"; tono = "alerta";
+    detalle = `Recuperación floja esta semana${rec.horas != null ? ` (durmiendo ~${rec.horas} h)` : ""}. Antes de subir carga conviene una semana de descarga.`;
+    accion = wk && wk.deload ? CICLO_ACC.none : CICLO_ACC.deload;
+  } else if (wk && wk.deload) {
+    titulo = "Semana de descarga"; tono = "ok";
+    detalle = esUltimaSemana
+      ? "Bajá intensidad y volumen esta semana. Al terminarla, arrancá el próximo mesociclo."
+      : "Bajá intensidad y volumen esta semana; después seguí con la próxima.";
+    accion = esUltimaSemana ? (hayProximoMeso ? CICLO_ACC.nuevoMeso : CICLO_ACC.none) : CICLO_ACC.avanzar;
+  } else if (prog.estado === "sube") {
+    titulo = "Progresando bien"; tono = "ok";
+    detalle = esUltimaSemana
+      ? `${prog.nota} Es la última semana del bloque: meté una descarga antes del próximo mesociclo.`
+      : `${prog.nota} Cuando toque, avanzá a la próxima semana con un poco más de carga.`;
+    accion = esUltimaSemana ? CICLO_ACC.deload : CICLO_ACC.avanzar;
+  } else if (prog.estado === "baja" || prog.estado === "estancado") {
+    titulo = prog.estado === "baja" ? "Rindiendo menos" : "Estancado"; tono = "alerta";
+    detalle = `${prog.nota} Toca una semana de descarga o cambiar el estímulo antes de seguir subiendo carga.`;
+    accion = wk && wk.deload ? CICLO_ACC.none : CICLO_ACC.deload;
+  } else {
+    titulo = "Faltan datos para recomendar"; tono = "neutro";
+    detalle = `${prog.nota} Con un par de sesiones más la IA ya puede sugerir cuándo avanzar de ciclo.`;
+  }
+
+  const macro = macroDe(plan);
+  const faltanSemanas = Math.max(0, macro.objetivoSemanas - macro.recorridas);
+  return { titulo, detalle, accion, tono, prog, esUltimaSemana, hayProximoMeso, semanaActual: idx + 1, semanas, faltanSemanas, macro };
+}
+
+const MesociclosPanel = ({ plan, savePlan, toast, startOpen = false }) => {
   // La tarjeta entera arranca colapsada — antes, entrar a Rutina abría de
   // entrada toda esta sección (texto explicativo, botón "Sin mesociclo" y
   // la lista de mesociclos) aunque nadie la hubiera tocado. Un toque en la
   // cabecera la despliega; adentro, cada mesociclo se sigue abriendo por
   // separado (openMesoId, más abajo) — dos niveles de "ir abriendo de a
   // poco" en vez de todo de una.
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(startOpen);
   const [openMesoId, setOpenMesoId] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -14606,6 +14686,119 @@ const MesociclosPanel = ({ plan, savePlan, toast }) => {
         body={delTarget ? `Se eliminará «${delTarget.name}» con sus ${delTarget.weeks.length} semana${delTarget.weeks.length !== 1 ? "s" : ""}. Los objetivos por semana que tuvieran cargados los ejercicios para esas semanas también se borran. Esta acción no se puede deshacer.` : ""}
         okLabel="Eliminar" onOk={() => { delMesociclo(confirmDel); setConfirmDel(null); }} onCancel={() => setConfirmDel(null)} />
     </>
+  );
+};
+
+/* Periodización — la vista que reemplazó a la vieja "Partitura" (un mapa de
+   calor de solo lectura que no se entendía). Acá el coach ve y edita de
+   verdad: el macrociclo (el plan-año), la recomendación de la IA sobre
+   cuándo avanzar, y el editor de mesociclos completo. Todo cliqueable. */
+const PeriodizacionView = ({ plan, savePlan, history, toast }) => {
+  const macro = macroDe(plan);
+  const rec = recomendacionCiclo(plan, history);
+  const [editMacro, setEditMacro] = useState(false);
+  const mut = (fn) => {
+    const p = structuredClone(plan);
+    if (!p.mesoState || !Array.isArray(p.mesoState.mesociclos) || !p.mesoState.mesociclos.length) p.mesoState = mesoStateOf(p);
+    fn(p);
+    p.updatedAt = todayISO();
+    savePlan(p);
+  };
+  const setMacro = (patch) => mut((p) => { p.mesoState.macro = { ...(p.mesoState.macro || {}), ...patch }; });
+
+  // Acciones de la recomendación: aplican el cambio pero todo queda editable.
+  const aplicar = (accion) => {
+    if (accion === CICLO_ACC.avanzar) {
+      mut((p) => { const m = currentMesociclo(p); if (m && (m.current || 0) < m.weeks.length - 1) m.current = (m.current || 0) + 1; });
+      toast && toast("✓ Avanzaste a la próxima semana");
+    } else if (accion === CICLO_ACC.deload) {
+      mut((p) => { const m = currentMesociclo(p); if (m) { m.weeks.push({ id: uid(), name: `Semana ${m.weeks.length + 1}`, deload: true }); m.current = m.weeks.length - 1; } });
+      toast && toast("✓ Agregada una semana de descarga");
+    } else if (accion === CICLO_ACC.nuevoMeso) {
+      mut((p) => {
+        const st = p.mesoState; const i = st.mesociclos.findIndex((x) => x.id === st.currentMesoId);
+        const next = st.mesociclos[i + 1];
+        if (next) { st.currentMesoId = next.id; next.current = 0; }
+      });
+      toast && toast("✓ Arrancó el próximo mesociclo");
+    }
+  };
+
+  const ACC_LABEL = { avanzar: "Avanzar a la próxima semana", deload: "Agregar semana de descarga", nuevoMeso: "Empezar el próximo mesociclo" };
+  const tonoColor = rec.tono === "ok" ? SES.acc : rec.tono === "alerta" ? P.red : P.blue;
+  const pct = macro.objetivoSemanas ? Math.min(100, Math.round((macro.recorridas / macro.objetivoSemanas) * 100)) : 0;
+
+  return (
+    <div style={{ marginBottom: 26 }}>
+      {/* ── Macrociclo: el plan-año ── */}
+      <Card style={{ padding: "14px 15px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 11, background: `${P.blue}1E`, border: `1px solid ${P.blue}55`,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <LayoutDashboard size={19} color={P.blue} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ ...TYPE.footnote, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" }}>Macrociclo</div>
+            {editMacro ? (
+              <input autoFocus value={macro.name} onChange={(e) => setMacro({ name: e.target.value })}
+                onBlur={() => setEditMacro(false)} onKeyDown={(e) => { if (e.key === "Enter") setEditMacro(false); }}
+                aria-label="Nombre del macrociclo" style={{ width: "100%", padding: "5px 7px", fontSize: 16, fontWeight: 700 }} />
+            ) : (
+              <button onClick={() => setEditMacro(true)} style={{ textAlign: "left", width: "100%" }}>
+                <span style={{ fontSize: 16.5, fontWeight: 700, color: P.text }}>{macro.name}</span>
+                <PencilLine size={12} color={P.faint2} style={{ marginLeft: 6, verticalAlign: "middle" }} />
+              </button>
+            )}
+          </div>
+        </div>
+        {/* barra de avance del macro */}
+        <div style={{ height: 8, borderRadius: 4, background: P.s3, overflow: "hidden", marginBottom: 7 }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: SES.acc, transition: "width .3s ease" }} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ ...TYPE.footnote, color: P.dim }}>
+            {macro.mesos} mesociclo{macro.mesos !== 1 ? "s" : ""} · semana {Math.max(0, macro.recorridas)} de {macro.objetivoSemanas}
+          </span>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, ...TYPE.footnote, color: P.faint }}>
+            Meta (semanas):
+            <input type="number" min="1" max="80" value={macro.objetivoSemanas}
+              onChange={(e) => setMacro({ objetivoSemanas: Math.max(1, Math.min(80, +e.target.value || 1)) })}
+              aria-label="Meta de semanas del macrociclo"
+              style={{ width: 56, padding: "5px 6px", fontSize: 14, textAlign: "center" }} />
+          </label>
+        </div>
+        {macro.totalSemanas !== macro.objetivoSemanas && (
+          <div style={{ ...TYPE.caption, color: P.faint2, marginTop: 6 }}>
+            Cargadas {macro.totalSemanas} semana{macro.totalSemanas !== 1 ? "s" : ""} en total; la meta son {macro.objetivoSemanas}. {macro.totalSemanas < macro.objetivoSemanas ? "Agregá semanas o mesociclos abajo." : "Podés recortar semanas si querés."}
+          </div>
+        )}
+      </Card>
+
+      {/* ── Recomendación de la IA ── */}
+      <Card style={{ padding: "13px 15px", marginBottom: 16, borderColor: `${tonoColor}55` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Sparkles size={15} color={tonoColor} style={{ flexShrink: 0 }} />
+          <span style={{ ...TYPE.subhead, fontWeight: 700, color: P.text }}>{rec.titulo}</span>
+        </div>
+        <div style={{ ...TYPE.footnote, color: P.dim, lineHeight: 1.5 }}>{rec.detalle}</div>
+        {rec.semanas > 0 && (
+          <div style={{ ...TYPE.caption, color: P.faint2, marginTop: 6 }}>
+            Semana {rec.semanaActual} de {rec.semanas} del mesociclo en curso{rec.faltanSemanas > 0 ? ` · faltan ~${rec.faltanSemanas} para cerrar el macro` : ""}.
+          </div>
+        )}
+        {rec.accion && (
+          <Btn kind="ember" small onClick={() => aplicar(rec.accion)} style={{ marginTop: 11 }}>
+            <Check size={13} /> {ACC_LABEL[rec.accion]}
+          </Btn>
+        )}
+        <div style={{ ...TYPE.caption, color: P.faint2, marginTop: 9, lineHeight: 1.4 }}>
+          Es una sugerencia según cómo viene el atleta. Editá abajo lo que quieras: agregar semanas, marcar descargas, cambiar el mesociclo en curso.
+        </div>
+      </Card>
+
+      {/* ── Editor de mesociclos (ya abierto) ── */}
+      <MesociclosPanel plan={plan} savePlan={savePlan} toast={toast} startOpen />
+    </div>
   );
 };
 
@@ -15030,95 +15223,6 @@ const DraftsPanel = ({ toast, onInfo, roster }) => {
   );
 };
 
-/* ============================================================
-   La rutina como partitura — el mesociclo entero en una pantalla.
-   Hoy el editor es una lista de días, cada uno con su lista de
-   ejercicios: para ver "cómo viene la carga esta semana" hay que abrir
-   uno por uno. Acá las semanas del mesociclo activo son columnas y los
-   días de la semana filas; cada casilla es cuántas series tiene ESE día
-   (el número no cambia semana a semana en este modelo de datos — lo que
-   varía por semana son reps/RIR objetivo, en `ex.weekly`, no la cantidad
-   de series — así que el valor real que aporta esta vista es comparar
-   la carga ENTRE días de un vistazo, y ver de un vistazo qué semana es
-   la de descarga y cuál es "hoy"). Solo lectura: para editar se sigue
-   usando el editor de siempre. */
-const MesoPartitura = ({ plan }) => {
-  const meso = currentMesociclo(plan);
-  const DIAS = [["mon", "Lun"], ["tue", "Mar"], ["wed", "Mié"], ["thu", "Jue"], ["fri", "Vie"], ["sat", "Sáb"], ["sun", "Dom"]];
-  const filas = DIAS.map(([dk, label]) => {
-    const dayId = plan.schedule ? plan.schedule[dk] : null;
-    const day = dayId ? plan.days.find((d) => d.id === dayId) : null;
-    const series = day ? day.exs.reduce((a, e) => a + e.sets.length, 0) : 0;
-    return { dk, label, day, series };
-  });
-  const maxSeries = Math.max(1, ...filas.map((f) => f.series));
-  const semanas = meso ? meso.weeks : [];
-  const semanaActualIdx = meso ? Math.min(meso.current || 0, semanas.length - 1) : -1;
-
-  if (!plan.days.length) {
-    return <Empty icon={Calendar} title="Todavía no hay rutina" body="Agrega días en «Días» y después vuelve acá para ver cómo se reparte la carga semana a semana." />;
-  }
-
-  return (
-    <div style={{ marginBottom: 26 }}>
-      <div style={{ fontSize: 13.5, color: P.faint2, lineHeight: 1.5, marginBottom: 14 }}>
-        {meso ? <>«{meso.name}» · {semanas.length} semana{semanas.length !== 1 ? "s" : ""}</> : "Este alumno entrena sin mesociclo asignado."}
-        {" — "}el número es cuántas series tiene ese día; el color, cuánta carga relativa a los demás días.
-      </div>
-      <Card style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: semanas.length ? 60 + semanas.length * 46 : 200 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: "10px 10px 8px 14px", fontSize: 11.5, fontWeight: 600, color: P.faint, position: "sticky", left: 0, background: P.s1 }}>Día</th>
-                {semanas.map((w, wi) => (
-                  <th key={w.id} style={{ padding: "10px 4px 8px", fontSize: 11, fontWeight: 600,
-                    color: wi === semanaActualIdx ? P.text : P.faint, textAlign: "center", minWidth: 42 }}>
-                    {wi + 1}{w.deload ? "·D" : ""}
-                  </th>
-                ))}
-                {!semanas.length && <th style={{ padding: "10px 12px 8px", fontSize: 11.5, color: P.faint, textAlign: "center" }}>Series</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {filas.map((f) => (
-                <tr key={f.dk} style={{ borderTop: `1px solid ${P.line}` }}>
-                  <td style={{ padding: "8px 10px 8px 14px", position: "sticky", left: 0, background: P.s1 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: f.day ? P.text : P.faint }}>{f.label}</div>
-                    <div style={{ fontSize: 10.5, color: P.faint2, marginTop: 1, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {f.day ? f.day.name : "Libre"}
-                    </div>
-                  </td>
-                  {(semanas.length ? semanas : [null]).map((w, wi) => {
-                    const esHoy = w && wi === semanaActualIdx;
-                    const opac = f.series ? 0.16 + 0.7 * (f.series / maxSeries) : 0;
-                    return (
-                      <td key={w ? w.id : "u"} style={{ padding: "6px 4px" }}>
-                        {f.day ? (
-                          <div style={{ height: 30, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: 11.5, fontWeight: 700, fontVariantNumeric: "tabular-nums",
-                            background: SES.acc, opacity: opac, color: SES.accInk,
-                            border: esHoy ? `1.5px solid ${SES.acc}` : "none",
-                            ...(w && w.deload ? { border: `1px dashed ${P.faint}`, background: "transparent", opacity: 1, color: P.faint } : {}) }}>
-                            {f.series}
-                          </div>
-                        ) : <div style={{ height: 30 }} />}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      <div className="mono" style={{ fontSize: 10.5, color: P.faint2, marginTop: 10, letterSpacing: ".03em" }}>
-        {semanaActualIdx >= 0 && `Semana ${semanaActualIdx + 1} = la actual · `}punteado = semana de descarga
-      </div>
-    </div>
-  );
-};
-
 const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateStudent, library, onSaveLibrary, onOpenCompare }) => {
   const [mrvRutina, setMrvRutina] = useState(false);
   const [easy] = useEasyMode();
@@ -15419,7 +15523,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         tabs={!easy ? (
           <SectionSwitch value={view} onChange={setView}
             items={[{ id: "dias", label: "Días" },
-                    { id: "partitura", label: "Partitura" },
+                    { id: "periodo", label: "Periodización" },
                     { id: "biblioteca", label: `Biblioteca${(library || []).length > 0 ? ` (${library.length})` : ""}` }]} />
         ) : null}
         actions={(
@@ -15476,7 +15580,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           coach viene la mayoría de las veces. Todo eso sigue existiendo
           y vuelve al instante con el switch ForjaMode. */}
       {!easy && view === "biblioteca" && <LibraryPanel plan={plan} history={history} library={library} onSaveLibrary={onSaveLibrary} onInfo={onInfo} toast={toast} onCopyExercise={copyExercise} />}
-      {!easy && view === "partitura" && <MesoPartitura plan={plan} />}
+      {!easy && view === "periodo" && <PeriodizacionView plan={plan} savePlan={savePlan} history={history} toast={toast} />}
 
       {(easy || view === "dias") && (<>
 
