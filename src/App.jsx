@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v291";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v292";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -12723,6 +12723,26 @@ function ultimosDias(entries, field, days) {
   return [...porDia.entries()].sort((a, b) => a[0].localeCompare(b[0]))
     .map(([day, e]) => ({ d: chartDayLabel(day), v: Math.round(e[field] * 10) / 10 }));
 }
+// Igual que ultimosDias pero agrupando por SEMANA (lunes a domingo): un
+// punto por semana con el promedio del campo. Para ver tendencias sin el
+// ruido del día a día — el sueño y la recuperación se leen mejor así.
+function porSemanaSerie(entries, field, days) {
+  const cutoff = Date.now() - days * 86400000;
+  const porSem = new Map();
+  entries.forEach((e) => {
+    if (e[field] == null) return;
+    const t = new Date(e.date).getTime();
+    if (!isFinite(t) || t < cutoff) return;
+    const k = weekKey(e.date);
+    const g = porSem.get(k) || { s: 0, n: 0 };
+    g.s += e[field]; g.n++; porSem.set(k, g);
+  });
+  const mm = (d) => ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"][d.getMonth()];
+  return [...porSem.entries()].sort((a, b) => a[0] - b[0]).map(([k, g]) => {
+    const ini = new Date(k);
+    return { d: `${ini.getDate()} ${mm(ini)}`, v: Math.round((g.s / g.n) * 10) / 10 };
+  });
+}
 // Promedio de un campo sobre los registros del periodo que lo tengan.
 // null si ninguno lo trae (así no se dibuja una tarjeta vacía).
 function promedioCampo(entries, field, days) {
@@ -12749,20 +12769,23 @@ const DashStat = ({ label, value, unit }) => (
 // reposo, HRV, esfuerzo…) en una sola pantalla con gráficos.
 const HealthDashboardSheet = ({ open, onClose, history }) => {
   const [dias, setDias] = useState(14);
-  useEffect(() => { if (!open) setDias(14); }, [open]);
+  const [vista, setVista] = useState("dia"); // "dia" | "semana"
+  useEffect(() => { if (!open) { setDias(14); setVista("dia"); } }, [open]);
 
   const bw = history.bodyweight || [];
   const steps = history.steps || [];
   const sleep = history.sleep || [];
   const physio = history.physio || [];
 
-  const pesoSerie = useMemo(() => ultimosDias(bw, "kg", dias), [bw, dias]);
-  const pasosSerie = useMemo(() => ultimosDias(steps, "count", dias), [steps, dias]);
-  const suenoSerie = useMemo(() => ultimosDias(sleep, "hours", dias), [sleep, dias]);
-  const recuperacionSerie = useMemo(() => ultimosDias(physio, "recovery", dias), [physio, dias]);
-  const rhrSerie = useMemo(() => ultimosDias(physio, "restingHr", dias), [physio, dias]);
-  const hrvSerie = useMemo(() => ultimosDias(physio, "hrv", dias), [physio, dias]);
-  const strainSerie = useMemo(() => ultimosDias(physio, "strain", dias), [physio, dias]);
+  // Cada serie sale por día o por semana según la vista elegida.
+  const serieDe = (entries, field) => vista === "semana" ? porSemanaSerie(entries, field, dias) : ultimosDias(entries, field, dias);
+  const pesoSerie = useMemo(() => serieDe(bw, "kg"), [bw, dias, vista]);
+  const pasosSerie = useMemo(() => serieDe(steps, "count"), [steps, dias, vista]);
+  const suenoSerie = useMemo(() => serieDe(sleep, "hours"), [sleep, dias, vista]);
+  const recuperacionSerie = useMemo(() => serieDe(physio, "recovery"), [physio, dias, vista]);
+  const rhrSerie = useMemo(() => serieDe(physio, "restingHr"), [physio, dias, vista]);
+  const hrvSerie = useMemo(() => serieDe(physio, "hrv"), [physio, dias, vista]);
+  const strainSerie = useMemo(() => serieDe(physio, "strain"), [physio, dias, vista]);
 
   const recovAvg = useMemo(() => promedioCampo(physio, "recovery", dias), [physio, dias]);
   const physioStats = useMemo(() => {
@@ -12818,6 +12841,8 @@ const HealthDashboardSheet = ({ open, onClose, history }) => {
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <SectionSwitch value={dias} onChange={setDias}
           items={[{ id: 14, label: "14 días" }, { id: 30, label: "30 días" }, { id: 90, label: "90 días" }]} />
+        <SectionSwitch value={vista} onChange={setVista}
+          items={[{ id: "dia", label: "Por día" }, { id: "semana", label: "Por semana" }]} />
 
         {!hayDatos ? (
           <Card style={{ padding: 22, textAlign: "center" }}>
