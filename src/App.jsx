@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v292";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v293";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8579,6 +8579,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [cmtKey, setCmtKey] = useState(null);
   // Qué serie tiene abierto el teclado de discos (clave "ei-si"), o null.
   const [discosEn, setDiscosEn] = useState(null);
+  const [tipoEn, setTipoEn] = useState(null); // {ei, si} de la serie cuyo tipo se está eligiendo
   // Ajuste de carga por prontitud: guarda el estado previo para poder
   // deshacerlo. Es una sugerencia que el atleta acepta, no una
   // decisión que la app toma por él.
@@ -8788,6 +8789,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // (`ex.unit`), o la unidad global de la sesión. Así el alumno puede llevar un
   // ejercicio en kg y otro en lb (mancuernas en libras, barra en kilos…).
   const unitFor = (ei) => (exs[ei] && exs[ei].unit) || weightUnit;
+  // Unidad de UNA serie: su override propio (`st.unit`) si lo tiene, o la del
+  // ejercicio. Así el conversor kg↔lb es por serie —una serie en libras, otra
+  // en kilos dentro del mismo ejercicio— y no del bloque entero.
+  const unitDeSerie = (st, ei) => (st && st.unit) || unitFor(ei);
   // Lo que quedó registrado en una serie, ya en la unidad que el alumno
   // está viendo. `setSummary` toma el peso guardado —siempre en kilos— y
   // le pega la etiqueta de la unidad activa: entrenando en libras decía
@@ -9042,9 +9047,19 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: st.done ? SES.acc : isWarm ? SES.dim : SES.ink }}>
                     {etiqueta}
                   </span>
-                  {tipo && st.type !== "normal" && !isWarm && (
+                  {/* El tipo de serie es tocable: abre el selector para
+                      cambiarla entre calentamiento, trabajo, top set, drop,
+                      rest-pause, AMRAP y demás. En superserie no aplica. */}
+                  {puedeEditar && !block.group ? (
+                    <button onClick={() => setTipoEn({ ei: r.ei, si: r.si })}
+                      aria-label={`Cambiar el tipo de la ${dónde} (ahora ${(SET_TYPES[st.type] || SET_TYPES.normal).label})`}
+                      className="mono" style={{ fontSize: 9.5, letterSpacing: ".05em", color: SES.acc, background: SES.campo,
+                        borderRadius: 5, padding: "2px 7px", border: "none", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      {isWarm ? "WRM" : (tipo || "WRK")} <ChevronDown size={9} />
+                    </button>
+                  ) : (tipo && st.type !== "normal" && !isWarm && (
                     <span className="mono" style={{ fontSize: 9.5, letterSpacing: ".05em", color: SES.dim, background: SES.campo, borderRadius: 5, padding: "1px 6px" }}>{tipo}</span>
-                  )}
+                  ))}
                 </div>
                 {block.group && <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2 }}>{exx.name}</div>}
                 <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{detalle}</div>
@@ -9054,12 +9069,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     sesión. No aplica al calentamiento (no es carga de
                     trabajo) ni a las superseries (rondas, no series). */}
                 {!isWarm && !block.group && (
-                  <RetoSerie actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitFor(r.ei)} />
+                  <RetoSerie actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitDeSerie(st, r.ei)} />
                 )}
               </div>
-              <NumCell aria={`Peso de la ${dónde} (${unitFor(r.ei)})`} placeholder={unitFor(r.ei)}
-                valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitFor(r.ei))).replace(".", ",")}
-                onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitFor(r.ei)))))} />
+              <NumCell aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)}
+                valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitDeSerie(st, r.ei))).replace(".", ",")}
+                onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitDeSerie(st, r.ei)))))} />
               <NumCell aria={`Repeticiones de la ${dónde}`} placeholder="reps"
                 valor={st.reps == null ? "" : String(st.reps)}
                 onCommit={(v) => setVal(r.ei, r.si, "reps", v)} />
@@ -9090,6 +9105,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     hecha con los dedos en vez de con la cabeza. */}
                 <BotonDiscos exId={exs[r.ei].id} pal={SES}
                   onClick={() => setDiscosEn(restKey(r.ei, r.si))} />
+                {/* Conversor kg⇄lb de ESTA serie: convierte el peso ya
+                    escrito a la otra unidad, sin tocar las demás series ni
+                    el ejercicio. */}
+                <button onClick={() => setVal(r.ei, r.si, "unit", unitDeSerie(st, r.ei) === "lb" ? "kg" : "lb")}
+                  aria-label={`Anotar esta serie en ${unitDeSerie(st, r.ei) === "lb" ? "kilos" : "libras"} (ahora ${unitDeSerie(st, r.ei)})`}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
+                  <ArrowUpDown size={12} /> {unitDeSerie(st, r.ei)}
+                </button>
                 {!st.comment && ((st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null)) ? (
                   <button onClick={() => clearSet(r.ei, r.si)}
                     style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
@@ -9670,6 +9693,38 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         okLabel="Descartar" onOk={() => { setConfirmDiscard(false); onDismissRest(); onDiscard(); }} onCancel={() => setConfirmDiscard(false)} />
       <ExerciseInfoSheet ex={ficha != null ? exs[ficha] : null} open={ficha != null} onClose={() => setFicha(null)}
         onPatchEx={ficha != null && patchEx ? (p) => patchEx(ficha, p) : null} onOpenImg={setViewImg} onError={onError} history={history} />
+
+      {/* Selector del TIPO de una serie: calentamiento, trabajo, top set,
+          drop set, rest-pause, AMRAP… El alumno lo elige libremente en la
+          sesión, tocando el tipo de la fila. Marcar "Calentamiento" la saca
+          del volumen efectivo (no cuenta). */}
+      <Sheet open={!!tipoEn} onClose={() => setTipoEn(null)} title="Tipo de serie" tall>
+        {tipoEn && (() => {
+          const st = ((exs[tipoEn.ei] || {}).sets || [])[tipoEn.si] || {};
+          return (
+            <>
+              <div style={{ ...TYPE.footnote, color: SES.faint, marginTop: -6, marginBottom: SP.md }}>
+                {exs[tipoEn.ei] ? exs[tipoEn.ei].name : ""}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {Object.entries(SET_TYPES).map(([key, meta]) => {
+                  const sel = (st.type || "normal") === key;
+                  return (
+                    <button key={key} data-keep onClick={() => { patchSet(tipoEn.ei, tipoEn.si, { type: key }); setTipoEn(null); }}
+                      style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", width: "100%", padding: "12px 13px",
+                        borderRadius: R_TILE, background: sel ? SES.campo : "transparent", border: `1px solid ${sel ? SES.acc : SES.line}` }}>
+                      <span className="mono" style={{ width: 44, flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: sel ? SES.acc : SES.faint, textAlign: "center" }}>{meta.short}</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: SES.ink }}>{meta.label}</span>
+                      {key === "warmup" && <span style={{ ...TYPE.caption, color: SES.faint }}>no cuenta</span>}
+                      {sel && <Check size={16} color={SES.acc} strokeWidth={3} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          );
+        })()}
+      </Sheet>
       <Sheet open={histEx != null} onClose={() => setHistEx(null)} title={histEx != null ? `Historial · ${exs[histEx].name}` : "Historial"} tall>
         <ExHistorySheetInline entries={(histEx != null && history.byEx[exs[histEx].id]) || []} onOpenImg={setViewImg} />
       </Sheet>
