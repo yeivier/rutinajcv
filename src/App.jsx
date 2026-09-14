@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v286";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v287";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4227,6 +4227,104 @@ function addExerciseVolume(perMuscle, ex) {
 const MRV_MAX_SERIES_EJ = 6;   // techo por ejercicio: más que esto no es una serie, es otro ejercicio
 const MRV_MIN_SERIES_EJ = 1;
 const MRV_MAX_PASOS = 200;     // corta cualquier oscilación; en la práctica termina en pocas decenas
+const MRV_MAX_EJ_NUEVOS = 5;   // por músculo: más que esto no es una rutina, es un maratón
+
+/* Ejercicios de reserva para llegar al MRV cuando la rutina se queda corta.
+
+   Un músculo al que le faltan 25 series no llega repartiéndolas entre los
+   ejercicios que ya tiene: con el techo de seis series por ejercicio, se
+   acaba el margen mucho antes. Hay que AGREGAR ejercicios — que es lo que
+   haría cualquier entrenador, y lo que el propio motor venía diciendo en
+   su mensaje de "falta agregar un ejercicio" sin poder hacerlo.
+
+   Todos son de aislamiento a propósito. Para rellenar el volumen de un
+   músculo rezagado se agregan aislamientos, no más compuestos: el
+   compuesto arrastra a los vecinos y te come el margen de ELLOS (la
+   guardia de `rompeTecho` lo frenaría igual, dejando al músculo objetivo
+   sin llegar). Van ordenados: primero el que más suele faltar.
+
+   `tecnica` es la que se le pone a la ÚLTIMA serie del ejercicio nuevo
+   —drop set, rest-pause, parciales al fallo— para sacarle estímulo sin
+   sumar otra serie más a una sesión que ya creció. Sólo se aplica a los
+   ejercicios que agrega la herramienta: lo que ya venía prescrito no se
+   toca. */
+const TECNICAS_MRV = {
+  drop: { tipo: "drop", nota: "Última serie con drop set: al fallo, baja ~25 % el peso y sigue hasta el fallo otra vez." },
+  restpause: { tipo: "restpause", nota: "Última serie con rest-pause: al fallo, descansa 15 s y vuelve al fallo con el mismo peso." },
+  parciales: { tipo: "amrap", nota: "Última serie: al llegar al fallo, repeticiones parciales en el rango más corto hasta no poder más." },
+};
+
+const EJERCICIOS_EXTRA = {
+  Hombro: [
+    { name: "Elevación lateral en polea", equipment: "Polea", reps: "12-15", rir: "0", rest: 75, tecnica: "drop" },
+    { name: "Pájaro en máquina contractora", equipment: "Máquina", reps: "12-15", rir: "0", rest: 75, tecnica: "parciales" },
+    { name: "Elevación lateral con mancuernas en banco inclinado", equipment: "Mancuernas", reps: "10-14", rir: "0", rest: 75, tecnica: "restpause" },
+    { name: "Elevación lateral en máquina", equipment: "Máquina", reps: "12-15", rir: "0", rest: 75, tecnica: "drop" },
+    { name: "Face pull en polea alta", equipment: "Polea", reps: "14-18", rir: "1", rest: 75, tecnica: "parciales" },
+  ],
+  "Bíceps": [
+    { name: "Curl martillo con mancuernas", equipment: "Mancuernas", reps: "10-12", rir: "0", rest: 75, tecnica: "drop" },
+    { name: "Curl predicador en máquina", equipment: "Máquina", reps: "10-14", rir: "0", rest: 75, tecnica: "parciales" },
+    { name: "Curl bayesian en polea", equipment: "Polea", reps: "10-14", rir: "0", rest: 75, tecnica: "restpause" },
+    { name: "Curl inclinado con mancuernas", equipment: "Mancuernas", reps: "10-12", rir: "0", rest: 75, tecnica: "drop" },
+    { name: "Curl araña con barra Z", equipment: "Barra", reps: "10-14", rir: "0", rest: 75, tecnica: "parciales" },
+  ],
+  "Tríceps": [
+    { name: "Extensión de tríceps en polea con cuerda", equipment: "Polea", reps: "12-15", rir: "0", rest: 75, tecnica: "drop" },
+    { name: "Extensión de tríceps sobre la cabeza en polea", equipment: "Polea", reps: "10-14", rir: "0", rest: 75, tecnica: "restpause" },
+    { name: "Press francés con barra Z", equipment: "Barra", reps: "10-12", rir: "0", rest: 90, tecnica: "parciales" },
+    { name: "Extensión de tríceps unilateral en polea", equipment: "Polea", reps: "12-15", rir: "0", rest: 60, tecnica: "drop" },
+    { name: "Patada de tríceps en polea", equipment: "Polea", reps: "14-18", rir: "0", rest: 60, tecnica: "parciales" },
+  ],
+  Pecho: [
+    { name: "Contractora pectoral", equipment: "Máquina", reps: "10-14", rir: "0", rest: 90, tecnica: "drop" },
+    { name: "Cruce de poleas", equipment: "Polea", reps: "12-15", rir: "0", rest: 75, tecnica: "parciales" },
+    { name: "Aperturas con mancuernas en banco inclinado", equipment: "Mancuernas", reps: "10-14", rir: "0", rest: 90, tecnica: "restpause" },
+  ],
+  Espalda: [
+    { name: "Pull over en polea alta", equipment: "Polea", reps: "12-15", rir: "0", rest: 90, tecnica: "drop" },
+    { name: "Remo en máquina con apoyo de pecho", equipment: "Máquina", reps: "10-14", rir: "0", rest: 90, tecnica: "parciales" },
+    { name: "Jalón unilateral en polea", equipment: "Polea", reps: "10-14", rir: "0", rest: 90, tecnica: "restpause" },
+  ],
+};
+
+/* Nombre de ejercicio comparable: sin tildes, sin signos, sin espacios
+   de más. «Elevación lateral» y «elevacion  lateral!» son el mismo. */
+const normNombreEj = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+
+/* Dónde meter un ejercicio nuevo de `m`. Primero, entre los días que YA
+   entrenan ese músculo, el que menos series de trabajo tiene en total:
+   respeta el reparto de la rutina (una elevación lateral va al día de
+   hombro, no al de pierna) y carga la sesión más corta. Si ningún día lo
+   entrena —el músculo no está en la rutina— cae en el día más liviano. */
+function diaParaEjercicioNuevo(days, m) {
+  const conteo = (days || []).map((d, i) => {
+    let delMusculo = 0, total = 0;
+    (d.exs || []).forEach((ex) => {
+      const n = seriesEfectivas(ex);
+      total += n;
+      if (aporteDeUnaSerie(ex)[m] > 0) delMusculo += n;
+    });
+    return { i, delMusculo, total };
+  });
+  if (!conteo.length) return -1;
+  const entrenan = conteo.filter((c) => c.delMusculo > 0);
+  const pool = entrenan.length ? entrenan : conteo;
+  return pool.slice().sort((a, b) => a.total - b.total || a.i - b.i)[0].i;
+}
+
+/* Arma el ejercicio nuevo con UNA serie de trabajo. Una sola a propósito:
+   el bucle del ajuste cuenta un paso = una serie, así que si naciera con
+   tres, la cuenta del paso mentiría y podría pasarse del objetivo. Las
+   que falten se las agrega el mismo bucle en los pasos siguientes. */
+function ejercicioNuevoDe(plantilla, m) {
+  return { id: uid(), name: plantilla.name, muscle: m, equipment: plantilla.equipment || "",
+    rest: plantilla.rest || 90, video: "", superset: "", secondary: [],
+    notes: "Agregado para llegar al MRV.",
+    mrvNuevo: true, mrvTecnica: plantilla.tecnica || "",
+    sets: [{ id: uid(), type: "normal", repsT: plantilla.reps || "10-12", rirT: plantilla.rir || "0" }] };
+}
 
 // Series efectivas (sin calentamiento) de un ejercicio.
 const seriesEfectivas = (ex) => (ex.sets || []).filter((st) => st.type !== "warmup").length;
@@ -4313,6 +4411,20 @@ function ajustarAlMrv(days, musculos, refTable = BB_VOLUME_REF) {
   // el ajuste ENTERO, así que un bíceps sin margen dejaba a hombro y
   // tríceps sin ajustar aunque a esos sí les quedara recorrido.
   const sinMargen = new Set();
+  // Los ejercicios que la herramienta agregó, por músculo. Se reportan
+  // aparte: el coach tiene que ver qué apareció en la rutina, no
+  // encontrárselo después.
+  const agregados = [];
+  // Nombres ya presentes en la rutina, para no proponer dos veces el mismo
+  // ejercicio. Compara normalizado (sin tildes ni signos) y EXACTO, no por
+  // substring: un «Elevación lateral» genérico no puede bloquear a la
+  // elevación lateral en polea, en máquina y en banco inclinado — son
+  // estímulos distintos y meterlos es justo lo que hace un entrenador
+  // cuando hay que sumar 30 series a un hombro. Bloquear por substring
+  // dejaba al músculo 16 series por debajo de su MRV.
+  const yaEstan = new Set();
+  nuevos.forEach((d) => (d.exs || []).forEach((ex) => yaEstan.add(normNombreEj(ex.name))));
+  const yaHay = (nombre) => yaEstan.has(normNombreEj(nombre));
   for (let paso = 0; paso < MRV_MAX_PASOS; paso++) {
     const actual = volumenDeDias(nuevos);
     // El músculo más lejos de su objetivo manda: así ninguno queda
@@ -4357,9 +4469,27 @@ function ajustarAlMrv(days, musculos, refTable = BB_VOLUME_REF) {
       .filter(Boolean)
       .sort((a, b) => a.colateral - b.colateral || a.primario - b.primario
         || (subir ? a.n - b.n : b.n - a.n));
-    // Sin candidatos para ESTE músculo: se lo marca y se sigue con los
-    // demás, en vez de abandonar todo el ajuste.
-    if (!cands.length) { sinMargen.add(peor.m); continue; }
+    // Sin candidatos para ESTE músculo. Antes de rendirse: si hace falta
+    // SUBIR, se agrega un ejercicio de aislamiento y se sigue. Es lo que
+    // haría un entrenador, y sin esto un músculo al que le faltan 25
+    // series nunca llega — el techo de seis por ejercicio se acaba antes.
+    if (!cands.length) {
+      const puestos = agregados.filter((a) => a.musculo === peor.m).length;
+      const banco = EJERCICIOS_EXTRA[peor.m] || [];
+      const plantilla = subir && puestos < MRV_MAX_EJ_NUEVOS
+        ? banco.find((x) => !yaHay(x.name))
+        : null;
+      const di = plantilla ? diaParaEjercicioNuevo(nuevos, peor.m) : -1;
+      if (!plantilla || di < 0) { sinMargen.add(peor.m); continue; }
+      const ejNuevo = ejercicioNuevoDe(plantilla, peor.m);
+      nuevos[di].exs = [...(nuevos[di].exs || []), ejNuevo];
+      indice.push({ di, ei: nuevos[di].exs.length - 1 });
+      yaEstan.add(normNombreEj(plantilla.name));
+      agregados.push({ musculo: peor.m, ejercicio: plantilla.name, dia: nuevos[di].name });
+      cambios.push({ dia: nuevos[di].name, ejercicio: plantilla.name, musculo: peor.m,
+        delta: 1, series: 1, nuevo: true });
+      continue;
+    }
 
     const c = cands[0];
     const ex = c.ex;
@@ -4376,6 +4506,22 @@ function ajustarAlMrv(days, musculos, refTable = BB_VOLUME_REF) {
       delta: subir ? 1 : -1, series: seriesEfectivas(ex) });
   }
 
+  /* Técnicas avanzadas, al final y sólo en lo que agregó la herramienta.
+     Va acá y no al crear el ejercicio porque la última serie recién se
+     sabe cuál es cuando el bucle terminó de repartir. Un ejercicio que
+     quedó con una sola serie no lleva técnica: una serie al fallo con
+     drop set de entrada es una forma de lesionarse, no de progresar. */
+  nuevos.forEach((d) => (d.exs || []).forEach((ex) => {
+    if (!ex.mrvNuevo) return;
+    const tec = TECNICAS_MRV[ex.mrvTecnica];
+    const trabajo = (ex.sets || []).filter((st) => st.type !== "warmup");
+    if (tec && trabajo.length >= 2) {
+      trabajo[trabajo.length - 1].type = tec.tipo;
+      ex.notes = `Agregado para llegar al MRV. ${tec.nota}`;
+    }
+    delete ex.mrvNuevo; delete ex.mrvTecnica;
+  }));
+
   const final = volumenDeDias(nuevos);
   const resumen = Object.keys(objetivos).map((m) => {
     const res = Math.round((final[m] || 0) * 100) / 100;
@@ -4387,7 +4533,7 @@ function ajustarAlMrv(days, musculos, refTable = BB_VOLUME_REF) {
     if (!exacto) {
       if (sinEjercicio.includes(m)) motivo = "no hay ningún ejercicio de este músculo en la rutina";
       else if (sinMargen.has(m)) motivo = res < objetivos[m]
-        ? `todos sus ejercicios llegaron al techo de ${MRV_MAX_SERIES_EJ} series: falta agregar un ejercicio`
+        ? `se agregaron los ${MRV_MAX_EJ_NUEVOS} ejercicios de reserva y aun así no alcanza: hay que sumar ejercicios a mano`
         : `todos sus ejercicios están en el mínimo de ${MRV_MIN_SERIES_EJ} serie: sobra volumen que viene de compuestos`;
       else motivo = "el aporte de los compuestos no permite caer justo en el número";
     }
@@ -4409,7 +4555,7 @@ function ajustarAlMrv(days, musculos, refTable = BB_VOLUME_REF) {
     .filter((x) => Math.abs(x.despues - x.antes) > 0.01)
     .sort((a, b) => (b.despues - b.antes) - (a.despues - a.antes));
 
-  return { days: nuevos, cambios, resumen, colaterales };
+  return { days: nuevos, cambios, resumen, colaterales, agregados };
 }
 
 const statusFor = (sets, ref) => {
@@ -19335,8 +19481,12 @@ const MrvSheet = ({ open, onClose, days, refTable, etiqueta, perfil, toast }) =>
       const idx = await sGet(DRAFTS_KEY);
       const lista = idx && Array.isArray(idx.drafts) ? idx.drafts : [];
       const ahora = todayISO();
+      // `planStats` NO es decorativo: la ficha del borrador muestra "N días ·
+      // N ejercicios" leyendo estos campos. Sin ellos la rutina aparecía
+      // listada pero anunciándose como "0 días · 0 ejercicios", que es
+      // exactamente igual de inútil que no aparecer.
       await sSet(DRAFTS_KEY, { ...(idx || {}),
-        drafts: [{ id, name: nom, createdAt: ahora, updatedAt: ahora }, ...lista] });
+        drafts: [{ id, name: nom, createdAt: ahora, updatedAt: ahora, ...planStats(p) }, ...lista] });
       toast && toast(`✓ «${nom}» guardado en Borradores`);
       onClose();
     } catch (e) {
@@ -19412,6 +19562,29 @@ const MrvSheet = ({ open, onClose, days, refTable, etiqueta, perfil, toast }) =>
             ))}
           </div>
 
+          {(res.agregados || []).length > 0 && (
+            <div style={{ marginTop: SP.lg }}>
+              <div className="mono" style={{ margin: "0 2px 8px" }}>Ejercicios nuevos</div>
+              <div style={{ ...TYPE.footnote, color: P.faint, lineHeight: 1.5, margin: "0 2px 8px" }}>
+                Con el techo de {MRV_MAX_SERIES_EJ} series por ejercicio, los que ya estaban no alcanzaban
+                para tanto volumen. Son aislamientos —no compuestos, que arrastrarían a los vecinos— y la
+                última serie de cada uno lleva una técnica avanzada.
+              </div>
+              <Card style={{ overflow: "hidden" }}>
+                {(res.agregados || []).map((a, i) => (
+                  <div key={`${a.musculo}-${a.ejercicio}`} style={{ display: "flex", alignItems: "center", gap: SP.sm,
+                    padding: "10px 13px", borderBottom: i < res.agregados.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                    <Plus size={14} color={P.ember2} style={{ flexShrink: 0 }} />
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", ...TYPE.subhead, fontWeight: 600, color: P.text }}>{a.ejercicio}</span>
+                      <span style={{ display: "block", ...TYPE.caption, color: P.faint2, marginTop: 1 }}>{a.musculo} · {a.dia}</span>
+                    </span>
+                  </div>
+                ))}
+              </Card>
+            </div>
+          )}
+
           {res.colaterales.length > 0 && (
             <div style={{ marginTop: SP.lg }}>
               <div className="mono" style={{ margin: "0 2px 8px" }}>También se movieron</div>
@@ -19431,7 +19604,10 @@ const MrvSheet = ({ open, onClose, days, refTable, etiqueta, perfil, toast }) =>
           )}
 
           <div style={{ ...TYPE.caption, color: P.faint2, marginTop: SP.md }}>
-            {res.cambios.length} {res.cambios.length === 1 ? "serie ajustada" : "series ajustadas"} en total.
+            {res.cambios.length} {res.cambios.length === 1 ? "serie ajustada" : "series ajustadas"} en total
+            {(res.agregados || []).length > 0
+              ? `, ${res.agregados.length} ${res.agregados.length === 1 ? "en un ejercicio nuevo" : "repartidas en ejercicios nuevos"}.`
+              : "."}
           </div>
 
           <Field label="Nombre del borrador" hint="Se guarda en Borradores; la rutina original no se toca.">
