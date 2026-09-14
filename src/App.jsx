@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v294";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v295";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6662,32 +6662,32 @@ const ChatPlusButton = ({ onAttached }) => {
      la foto directo desde acá, sin abrir el editor completo del ejercicio. */
 
 /* ============================================================
-   Catálogo de ejercicios (1.324, con imagen y pasos)
+   Catálogo de ejercicios (1.323, con GIF demostrativo y pasos)
    ------------------------------------------------------------
-   Los datos salen de github.com/yeivier/exercises-dataset y viven en
-   `catalogo-ejercicios.json`, en la raíz del sitio. Son ~890 KB (unos
-   114 KB comprimidos, que es lo que viaja de verdad), así que NO van
+   Los datos salen de github.com/yeivier/Biblioteca-ejercicios-1 y viven
+   en `catalogo-ejercicios.json`, en la raíz del sitio. Son ~690 KB (unos
+   pocos comprimidos, que es lo que viaja de verdad), así que NO van
    dentro del bundle: se piden por HTTP la primera vez que alguien abre
    el catálogo y quedan en memoria para el resto de la sesión.
 
-   Las imágenes NO se copian a este repo. Son © Gym visual y sus términos
-   piden 180×180 y atribución a la vista; se muestran desde el
-   repositorio de origen a través de jsDelivr, apuntando a un commit fijo
-   para que no cambien bajo los pies.
+   Las imágenes/GIF NO se copian a este repo (los .gif y .thumb.webp del
+   propio repositorio de ejercicios); se muestran con atribución a la
+   vista desde el repositorio de origen a través de jsDelivr, apuntando a
+   un commit fijo para que no cambien bajo los pies.
    ============================================================ */
-const CAT_URL = "/catalogo-ejercicios.json?v=1";
+const CAT_URL = "/catalogo-ejercicios.json?v=2";
 // Commit fijo del dataset: sin él, un cambio allá movería las imágenes de
 // todos los ejercicios sin que nos enteremos.
-const CAT_REF = "7455efae41b330c265e7cd4b78dfa848e7ce5ebd";
+const CAT_REF = "f6d16e977fbee3c04295311c44cb8374ca8ff182";
 // Dos orígenes para la misma imagen. jsDelivr es el bueno (CDN pensada
 // justo para esto, con caché); raw.githubusercontent es el respaldo para
 // las redes que bloquean jsDelivr — pasa más de lo que uno cree en redes
 // corporativas y en algunos gimnasios.
 const CAT_HOSTS = [
-  `https://cdn.jsdelivr.net/gh/yeivier/exercises-dataset@${CAT_REF}`,
-  `https://raw.githubusercontent.com/yeivier/exercises-dataset/${CAT_REF}`,
+  `https://cdn.jsdelivr.net/gh/yeivier/Biblioteca-ejercicios-1@${CAT_REF}`,
+  `https://raw.githubusercontent.com/yeivier/Biblioteca-ejercicios-1/${CAT_REF}`,
 ];
-const CAT_CREDITO = "© Gym visual — gymvisual.com";
+const CAT_CREDITO = "Demostraciones: ExerciseGymGifsDB (jsDelivr)";
 // Cuál de los dos orígenes está respondiendo. Se aprende con la primera
 // imagen que falla y vale para toda la sesión: sin esto, en una red que
 // bloquea jsDelivr CADA miniatura esperaría a que se caiga la conexión
@@ -6697,10 +6697,16 @@ let _catHost = 0;
 const CAT_ESPERA = 5000;
 const catHostInicial = () => _catHost;
 const catHostFalla = (h) => { if (h + 1 > _catHost && h + 1 < CAT_HOSTS.length) _catHost = h + 1; };
+// La imagen de un ejercicio del catálogo se arma con su ruta `g`
+// (`<musculo>/<slug>`) dentro del repo Biblioteca-ejercicios-1: el GIF
+// animado es `<g>.gif` y la miniatura fija es `<g>.thumb.webp`. (El
+// esquema viejo `<i>-<m>` se mantiene por si quedara algún dato antiguo.)
 const catMedia = (e, carpeta, ext, host = 0) =>
   (e && e.i && e.m && CAT_HOSTS[host] ? `${CAT_HOSTS[host]}/${carpeta}/${e.i}-${e.m}.${ext}` : "");
-const catImg = (e, host = 0) => catMedia(e, "images", "jpg", host);
-const catGif = (e, host = 0) => catMedia(e, "videos", "gif", host);
+const catGif = (e, host = 0) =>
+  (e && e.g && CAT_HOSTS[host] ? `${CAT_HOSTS[host]}/${e.g}.gif` : catMedia(e, "videos", "gif", host));
+const catImg = (e, host = 0) =>
+  (e && e.g && CAT_HOSTS[host] ? `${CAT_HOSTS[host]}/${e.g}.thumb.webp` : catMedia(e, "images", "jpg", host));
 
 let _catDatos = null;
 let _catPromesa = null;
@@ -6711,7 +6717,7 @@ function cargarCatalogo() {
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((j) => {
         const lista = (j && j.ejercicios) || [];
-        // El índice de búsqueda se calcula UNA vez: con 1.324 ejercicios,
+        // El índice de búsqueda se calcula UNA vez: con 1.323 ejercicios,
         // normalizar en cada tecleo se nota en un teléfono modesto.
         // Va el nombre en español Y en inglés, el músculo principal, los
         // secundarios y el equipo. Con espacios a los lados para poder
@@ -13932,7 +13938,7 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
   return (
     <Sheet open={!!ex} onClose={onClose} title={ex.isNew ? "Nuevo ejercicio" : "Editar ejercicio"} tall>
       <Field label="Imagen del catálogo"
-        hint="Sale del catálogo de 1.324 ejercicios. Se ve en la rutina y al entrenar, y trae los pasos de ejecución.">
+        hint="Sale del catálogo de 1.323 ejercicios. Se ve en la rutina y al entrenar, y trae los pasos de ejecución.">
         <CatalogLinkRow catId={d.catId} nombre={d.name} onOpen={() => setPickerOpen(true)} />
       </Field>
       <CatalogPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} nombre={d.name}
@@ -24130,7 +24136,7 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
     (e) => e._b || "");
   const hayFiltro = musculos.length > 0 || equipos.length > 0 || q.trim() !== "";
   const limpiar = () => { setQ(""); setMusculos([]); setEquipos([]); setConSec(false); setTope(60); };
-  // Con 1.324 ejercicios no se pintan todos de una: se muestran de a 60 y
+  // Con 1.323 ejercicios no se pintan todos de una: se muestran de a 60 y
   // el resto entra con «Ver más». Sin esto, la hoja tarda casi un segundo
   // en abrir en un teléfono modesto.
   const catVisibles = catF.slice(0, tope);
@@ -24247,9 +24253,9 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
         </Card>
 
         <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.5, padding: "0 2px 4px" }}>
-          Catálogo de 1.324 ejercicios de{" "}
-          <a href="https://github.com/yeivier/exercises-dataset" target="_blank" rel="noreferrer" style={{ color: P.dim, textDecoration: "underline" }}>exercises-dataset</a>{" "}
-          (datos MIT). Imágenes y animaciones {CAT_CREDITO}, mostradas desde el repositorio de origen.
+          Catálogo de 1.323 ejercicios de{" "}
+          <a href="https://github.com/yeivier/Biblioteca-ejercicios-1" target="_blank" rel="noreferrer" style={{ color: P.dim, textDecoration: "underline" }}>Biblioteca-ejercicios-1</a>.
+          Imágenes y animaciones {CAT_CREDITO}, mostradas desde el repositorio de origen.
         </div>
       </div>
 
