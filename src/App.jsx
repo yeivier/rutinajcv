@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v293";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v294";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8631,7 +8631,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [c1w, setC1w] = useState(""); const [c1r, setC1r] = useState(""); const [c1rir, setC1rir] = useState("");
   const [c2e, setC2e] = useState(""); const [c2r, setC2r] = useState(""); const [c2rir, setC2rir] = useState("");
   const [c3prev, setC3prev] = useState(""); const [c3cur, setC3cur] = useState("");
-  const [c4top, setC4top] = useState(""); const [c4pct, setC4pct] = useState("85"); const [c4round, setC4round] = useState(2.5);
+  const [c4top, setC4top] = useState(""); const [c4pct, setC4pct] = useState("85");
   const cmtTimer = useRef(null);
   const cmtRef = useRef(null);
   const didPrefill = useRef(false);
@@ -9798,7 +9798,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           const prResult = (!prNew || !prOld) ? null : prNew > prOld
             ? `¡Récord! +${kg(prNew - prOld)} kg (+${Math.round(((prNew - prOld) / prOld) * 1000) / 10}%)`
             : `Aún no — faltan ${kg(prOld - prNew)} kg`;
-          const workW = (() => { const t = num(c4top), p = num(c4pct); if (!t || !p) return null; return Math.round((t * (p / 100)) / c4round) * c4round; })();
+          const workW = (() => { const t = num(c4top), p = num(c4pct); if (!t || !p) return null; return Math.round(t * (p / 100) * 100) / 100; })();
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -9861,15 +9861,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 <div style={{ display: "flex", gap: 8 }}>
                   {calcField("Top set", c4top, setC4top)}
                   {calcField("%", c4pct, setC4pct)}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, color: P.faint2, fontWeight: 600, marginBottom: 4 }}>Redondeo</div>
-                    <select value={c4round} onChange={(e) => setC4round(+e.target.value)}
-                      style={{ width: "100%", padding: "10px 8px", borderRadius: 10, background: P.s3, border: `1px solid ${P.separatorStrong}`, color: P.text, fontSize: 14, fontWeight: 700 }}>
-                      <option value={1}>1 kg</option>
-                      <option value={2.5}>2,5 kg</option>
-                      <option value={5}>5 kg</option>
-                    </select>
-                  </div>
                 </div>
                 {calcResult("Peso de trabajo", workW != null ? `${kg(workW)} kg` : null)}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
