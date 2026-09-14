@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v287";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v288";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3323,6 +3323,9 @@ const ROUTINE_MIA = "MIA";
 const ROUTINE_MIA_LABEL = "Mis rutinas";
 const ROUTINE_B = "B";
 const ROUTINE_C = "C";
+// Borrador sembrado: la RUTINA A_V3 del atleta, llevada al MRV asistido de
+// hombro, bíceps y tríceps. Clave propia para que no choque con A/B/C.
+const ROUTINE_A3B = "A3B";
 // La Rutina C llega con nombre propio desde el día uno (el coach igual
 // puede renombrarla; esto es solo el valor con el que se carga).
 const ROUTINE_C_NAME = "RUTINA A_V4";
@@ -3625,6 +3628,83 @@ function routineCDays() {
       ex("Curl bíceps martillo mancuerna", "Bíceps", 45,
         "2 series: rest-pause + drop set (rp+dp). Las capturas no traían el detalle fino.",
         sets([rp("10-12", ""), dr("10-12", "")]), "https://youtu.be/5pEG7Cj0-0Y"),
+    ]),
+  ];
+}
+
+
+const ROUTINE_A3B_NAME = "RUTINA A_V3Borrador";
+const ROUTINE_A3B_INTRO = {
+  title: "RUTINA A_V3Borrador · Antes de empezar",
+  body: "Borrador de la RUTINA A_V3 llevada al MRV (volumen máximo recuperable) asistido de HOMBRO, BÍCEPS y TRÍCEPS.\n\nHombro 24→40 · Bíceps 15→40 · Tríceps 13→34 series/semana. El resto de los músculos queda igual que en tu A_V3 (pecho, espalda, pierna). Se sumaron ejercicios de aislamiento y, en la última serie de cada aislamiento de brazo/hombro, una técnica avanzada (drop set, rest-pause o parciales al fallo) para exprimir el estímulo sin alargar la sesión.\n\nOJO: en tu A_V3 ningún ejercicio tiene músculos secundarios marcados, así que el volumen real de hombro/bíceps/tríceps ya es más alto de lo que muestran los números (los compuestos también los trabajan). Revisá cargas y sensaciones antes de subir todo de golpe.",
+};
+
+/* RUTINA A_V3Borrador — la RUTINA A_V3 del atleta llevada al MRV asistido de
+   hombro, bíceps y tríceps. Generada con el motor de MRV (ajustarAlMrv) a
+   partir de la reconstrucción fiel de la A_V3 (mismos días y misma
+   distribución de volumen que las capturas), y fijada acá como semilla para
+   que aparezca sola en Borradores. Series exactas: Hombro 40 · Bíceps 40 ·
+   Tríceps 34. Pecho/Espalda/Pierna sin tocar. */
+
+function routineA3BorradorDays() {
+  const ex = (name, muscle, equipment, rest, notes, s) => ({ id: uid(), name, muscle, equipment: equipment || "", rest, superset: "", video: "", notes: notes || "", secondary: [], sets: s });
+  const S = (type, reps, rir) => ({ id: uid(), type, repsT: reps, rirT: rir });
+  const day = (clave, name, exs) => ({ id: uid(), seedKey: clave, name, routine: ROUTINE_A3B, exs });
+  return [
+    day("A3B1", "Lunes Entren. A", [
+      ex("Press inclinado con mancuernas", "Pecho", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Press plano en máquina", "Pecho", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Contractora pectoral", "Pecho", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Cruce de poleas", "Pecho", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Press militar en máquina", "Hombro", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Elevación lateral con mancuernas", "Hombro", "", 90, "Última serie con drop set: al fallo, baja ~25 % el peso y sigue hasta el fallo.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("drop", "8-10", "1")]),
+      ex("Extensión de tríceps en polea", "Tríceps", "", 90, "Última serie con rest-pause: al fallo, descansa 15 s y vuelve al fallo con el mismo peso.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("restpause", "8-10", "1")]),
+    ]),
+    day("A3B2", "Martes Entren. B", [
+      ex("Dominadas", "Espalda", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Remo con barra", "Espalda", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Jalón al pecho", "Espalda", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Remo en polea sentado", "Espalda", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Elevación lateral en polea", "Hombro", "", 90, "Última serie: al llegar al fallo, repeticiones parciales en el rango corto hasta no poder más.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("amrap", "8-10", "1")]),
+      ex("Curl con barra", "Bíceps", "", 90, "Última serie con drop set: al fallo, baja ~25 % el peso y sigue hasta el fallo.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("drop", "8-10", "1")]),
+      ex("Curl predicador en máquina", "Bíceps", "Máquina", 75, "Agregado para llegar al MRV. Última serie: al llegar al fallo, repeticiones parciales en el rango más corto hasta no poder más.", [S("normal", "10-14", "0"), S("normal", "10-14", "0"), S("normal", "10-14", "0"), S("amrap", "10-14", "0")]),
+    ]),
+    day("A3B3", "Miércoles Entren. C", [
+      ex("Peso muerto rumano", "Femoral", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Curl femoral sentado", "Femoral", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Prensa inclinada", "Cuádriceps", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Extensión de cuádriceps", "Cuádriceps", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Hip thrust", "Glúteo", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Face pull", "Hombro", "", 90, "Última serie con rest-pause: al fallo, descansa 15 s y vuelve al fallo con el mismo peso.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("restpause", "8-10", "1")]),
+    ]),
+    day("A3B4", "Jueves Brazos", [
+      ex("Curl con barra Z", "Bíceps", "", 90, "Última serie: al llegar al fallo, repeticiones parciales en el rango corto hasta no poder más.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("amrap", "8-10", "1")]),
+      ex("Curl martillo con mancuernas", "Bíceps", "", 90, "Última serie con drop set: al fallo, baja ~25 % el peso y sigue hasta el fallo.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("drop", "8-10", "1")]),
+      ex("Curl predicador", "Bíceps", "", 90, "Última serie con rest-pause: al fallo, descansa 15 s y vuelve al fallo con el mismo peso.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("restpause", "8-10", "1")]),
+      ex("Curl concentrado", "Bíceps", "", 90, "Última serie: al llegar al fallo, repeticiones parciales en el rango corto hasta no poder más.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("amrap", "8-10", "1")]),
+      ex("Press francés", "Tríceps", "", 90, "Última serie con drop set: al fallo, baja ~25 % el peso y sigue hasta el fallo.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("drop", "8-10", "1")]),
+      ex("Extensión de tríceps sobre la cabeza en polea", "Tríceps", "", 90, "Última serie con rest-pause: al fallo, descansa 15 s y vuelve al fallo con el mismo peso.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("restpause", "8-10", "1")]),
+      ex("Fondos en paralelas", "Tríceps", "", 90, "Última serie: al llegar al fallo, repeticiones parciales en el rango corto hasta no poder más.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("amrap", "8-10", "1")]),
+      ex("Elevación lateral sentado", "Hombro", "", 90, "Última serie con drop set: al fallo, baja ~25 % el peso y sigue hasta el fallo.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("drop", "8-10", "1")]),
+      ex("Curl de muñeca (antebrazo)", "Antebrazo", "", 90, "", [S("normal", "8-10", "1")]),
+    ]),
+    day("A3B5", "Viernes Entren. D", [
+      ex("Press declinado", "Pecho", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Aperturas en banco inclinado", "Pecho", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Cruce de poleas ascendente", "Pecho", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Contractora", "Pecho", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Press militar con mancuernas", "Hombro", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Elevación lateral en polea", "Hombro", "", 90, "Última serie con rest-pause: al fallo, descansa 15 s y vuelve al fallo con el mismo peso.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("restpause", "8-10", "1")]),
+      ex("Extensión de tríceps unilateral en polea", "Tríceps", "", 90, "Última serie: al llegar al fallo, repeticiones parciales en el rango corto hasta no poder más.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("amrap", "8-10", "1")]),
+      ex("Extensión de tríceps en polea con cuerda", "Tríceps", "Polea", 75, "Agregado para llegar al MRV. Última serie con drop set: al fallo, baja ~25 % el peso y sigue hasta el fallo otra vez.", [S("normal", "12-15", "0"), S("normal", "12-15", "0"), S("normal", "12-15", "0"), S("drop", "12-15", "0")]),
+    ]),
+    day("A3B6", "Sábado Entren. E", [
+      ex("Remo T con agarre prono", "Espalda", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Jalón al pecho neutro", "Espalda", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Pull over en polea", "Espalda", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Remo bajo en polea", "Espalda", "", 90, "", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1")]),
+      ex("Pájaro en contractora", "Hombro", "", 90, "Última serie con drop set: al fallo, baja ~25 % el peso y sigue hasta el fallo.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("drop", "8-10", "1")]),
+      ex("Curl bayesian en polea", "Bíceps", "", 90, "Última serie con rest-pause: al fallo, descansa 15 s y vuelve al fallo con el mismo peso.", [S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("normal", "8-10", "1"), S("restpause", "8-10", "1")]),
     ]),
   ];
 }
@@ -14731,11 +14811,16 @@ const DRAFT_SEEDS = [
     notas: () => seedPlan().instructions || [] },
   { key: "B", nombre: "Rutina B", dias: routineBDays, notas: () => [] },
   { key: "C", nombre: ROUTINE_C_NAME, dias: routineCDays, notas: () => [{ id: uid(), ...ROUTINE_C_INTRO }] },
+  { key: "A3B", nombre: ROUTINE_A3B_NAME, dias: routineA3BorradorDays, notas: () => [{ id: uid(), ...ROUTINE_A3B_INTRO }],
+    routineNames: { [ROUTINE_A3B]: ROUTINE_A3B_NAME } },
 ];
 const planDeBorrador = (semilla) => {
   const p = emptyPlan();
   p.days = semilla.dias();
   p.instructions = semilla.notas();
+  // Semillas con clave de rutina propia (p. ej. el borrador al MRV) traen su
+  // etiqueta, para que el grupo se lea con su nombre dentro del borrador.
+  if (semilla.routineNames) p.routineNames = { ...(p.routineNames || {}), ...semilla.routineNames };
   return p;
 };
 const planStats = (p) => {
