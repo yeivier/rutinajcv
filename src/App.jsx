@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v289";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v290";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10871,6 +10871,15 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
   const bar = barraActiva();
   const barKg = bar ? +bar.kg || 0 : 0;
   const elegido = exId != null ? discos.porEjercicio[exId] : undefined;
+  // Libertad en la sesión: no siempre es una barra. La "base" puede ser una
+  // barra, cero (sin barra: solo discos, p. ej. una mancuerna con discos o
+  // apilar discos sueltos) o un peso propio (la placa base de una máquina,
+  // un Smith, lo que sea). Y los discos pueden contar POR LADO (×2, como una
+  // barra) o como PESO TOTAL (×1, una máquina cargada por un solo punto).
+  const [baseKg, setBaseKg] = useState(barKg);
+  const [modo, setModo] = useState(bar ? "porLado" : "total");   // porLado ×2 | total ×1
+  const [baseTxt, setBaseTxt] = useState("");
+  const factor = modo === "porLado" ? 2 : 1;
 
   // Al abrir con un peso ya escrito, arrancar con los discos que lo arman:
   // corregir "de 90 a 95" es entonces un toque, no rearmar la barra entera.
@@ -10878,6 +10887,7 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
     if (!open) return;
     const plates = cfg ? cfg.plates : [];
     const n = +valueKg;
+    setBaseKg(barKg); setModo(bar ? "porLado" : "total"); setBaseTxt("");
     if (valueKg !== "" && valueKg != null && !isNaN(n) && n > barKg) {
       setPorLado(discosParaPeso(n, barKg, plates).porLado);
     } else setPorLado([]);
@@ -10897,10 +10907,13 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
     const resto = prev.filter((d) => d.kg !== k);
     return n > 0 ? [...resto, { kg: k, n }].sort((a, b) => b.kg - a.kg) : resto;
   });
-  const total = pesoDeDiscos(porLado, barKg);
+  const sumaLado = (porLado || []).reduce((t, d) => t + (+d.kg || 0) * (+d.n || 0), 0);
+  const total = Math.round((baseKg + sumaLado * factor) * 100) / 100;
   const hayDiscos = porLado.length > 0;
   const detalle = [...porLado].sort((a, b) => b.kg - a.kg)
     .map((d) => `${d.n}×${d.kg % 1 === 0 ? d.kg : String(d.kg).replace(".", ",")}`).join(" + ");
+  const baseBar = baseTxt === "" ? (discos.bars || []).find((b) => Math.abs((+b.kg || 0) - baseKg) < 0.01) : null;
+  const baseNombre = baseBar ? baseBar.name : (baseKg > 0 ? "Base" : "Sin barra");
 
   return (
     <Sheet open={open} onClose={onClose} title="Teclado de discos" tall>
@@ -10915,9 +10928,37 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
             </div>
             <div style={{ ...TYPE.footnote, color: P.faint, marginTop: 4 }}>
               {hayDiscos
-                ? `${bar ? bar.name : "Barra"} ${kg(barKg)} + ${detalle} por lado`
-                : `${bar ? bar.name : "Barra"} sola · ${kg(barKg)} kg`}
+                ? `${baseNombre}${baseKg > 0 ? ` ${kg(baseKg)} +` : " ·"} ${detalle} ${modo === "porLado" ? "por lado" : "en total"}`
+                : (baseBar ? `${baseBar.name} sola · ${kg(baseKg)} kg` : (baseKg > 0 ? `Base ${kg(baseKg)} kg, sin discos` : "Sin barra ni discos"))}
             </div>
+          </div>
+
+          {/* Base: barra, sin barra o un peso propio (máquina/Smith). */}
+          <div style={{ display: "flex", gap: SP.xs, flexWrap: "wrap", marginBottom: SP.sm }}>
+            {(discos.bars || []).map((b2) => (
+              <button key={b2.id} onClick={() => setBaseKg(+b2.kg || 0)}
+                style={{ padding: "7px 11px", borderRadius: R_TILE, ...TYPE.footnote, fontWeight: 600,
+                  border: `1px solid ${Math.abs(baseKg - (+b2.kg || 0)) < 0.01 && baseTxt === "" ? P.text : P.line}`,
+                  background: Math.abs(baseKg - (+b2.kg || 0)) < 0.01 && baseTxt === "" ? P.s3 : P.s2, color: P.text }}>
+                {b2.name} · {kg(+b2.kg || 0)}
+              </button>
+            ))}
+            <button onClick={() => { setBaseKg(0); setBaseTxt(""); }}
+              style={{ padding: "7px 11px", borderRadius: R_TILE, ...TYPE.footnote, fontWeight: 600,
+                border: `1px solid ${baseKg === 0 && baseTxt === "" ? P.text : P.line}`,
+                background: baseKg === 0 && baseTxt === "" ? P.s3 : P.s2, color: P.text }}>
+              Sin barra
+            </button>
+            <input type="number" inputMode="decimal" value={baseTxt} placeholder="Base…"
+              onChange={(e) => { setBaseTxt(e.target.value); const v = +e.target.value; if (isFinite(v) && v >= 0) setBaseKg(Math.round(v * 100) / 100); }}
+              aria-label="Peso base personalizado"
+              style={{ width: 78, padding: "7px 8px", ...TYPE.footnote, textAlign: "center" }} />
+          </div>
+
+          {/* Cómo cuentan los discos: por lado (×2) o peso total (×1). */}
+          <div style={{ marginBottom: SP.sm }}>
+            <SectionSwitch value={modo} onChange={setModo}
+              items={[{ id: "porLado", label: "Por lado (×2)" }, { id: "total", label: "Peso total (×1)" }]} />
           </div>
 
           <div style={{ display: "flex", gap: SP.xs, marginBottom: SP.sm }}>
@@ -10927,11 +10968,11 @@ const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
             ))}
           </div>
           <div style={{ ...TYPE.caption, color: P.faint2, textAlign: "center", marginBottom: SP.md }}>
-            Cada toque suma un disco POR LADO
+            {modo === "porLado" ? "Cada toque suma un disco POR LADO" : "Cada toque suma un disco al total"}
           </div>
 
           <ActionRow>
-            <Btn kind="ghost" onClick={() => setPorLado([])} disabled={!hayDiscos}>Vaciar barra</Btn>
+            <Btn kind="ghost" onClick={() => setPorLado([])} disabled={!hayDiscos}>Vaciar discos</Btn>
             <Btn kind="ember" onClick={() => { onPick(String(total)); onClose(); }}>
               Usar {unit === "kg" ? kg(total) : fmtUnit(kgToLb(total))} {unit}
             </Btn>
