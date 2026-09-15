@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v295";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v297";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4803,7 +4803,7 @@ const GlobalStyle = () => {
        un corte dibujado genuino en absolutamente cualquier fuente de
        sistema (Apple, Windows, Android) — 800/900 sin Inter de por medio
        el navegador los "engorda" a mano (negrita falsa), y eso sí se nota. */
-    .fj h1,.fj h2,.fj .disp { font-family: inherit; letter-spacing: -.022em; font-weight: 700; }
+    .fj h1,.fj h2,.fj .disp,.fj .fj-display { font-family: inherit; letter-spacing: -.022em; font-weight: 700; }
     .fj h1 { font-size: 34px; line-height: 1.06; }
     .fj b, .fj strong { font-weight: 600; }
     /* Micro-etiquetas en versalitas (ENTRENO DE HOY, VOLUMEN, ADHERENCIA…):
@@ -25763,6 +25763,183 @@ const FaceIdOfferSheet = ({ offer, onClose }) => {
   );
 };
 
+/* ============================================================
+   Landing pública — la primera pantalla que ve un visitante nuevo, ANTES
+   del login. Explica el valor y separa los dos caminos (atleta que entrena
+   solo / entrenador que gestiona atletas) en vez de dejar el "panel
+   cerrado" de perfiles como puerta. Marca FORJA: hierro oscuro + brasa,
+   titulares en Barlow Condensed. Se muestra una vez por dispositivo
+   (forja-landing-seen); cualquier CTA la marca vista y entra a la app. */
+const LandingCTAs = ({ onAtleta, onEntrenador, size = "big" }) => (
+  <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 360, margin: "0 auto" }}>
+    <Btn kind="ember" onClick={onAtleta} style={{ width: "100%", padding: "15px 20px", fontSize: 16.5 }}>
+      <Dumbbell size={18} /> Soy atleta
+    </Btn>
+    <Btn kind="line" onClick={onEntrenador}
+      style={{ width: "100%", padding: "15px 20px", fontSize: 16.5, borderColor: P.ember, color: P.ember, borderWidth: 1.5 }}>
+      <ClipboardList size={18} /> Soy entrenador
+    </Btn>
+  </div>
+);
+
+const LandingFaq = ({ q, a }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ borderBottom: `1px solid ${P.line}` }}>
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open}
+        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+          padding: "16px 2px", textAlign: "left", color: P.text, fontSize: 15.5, fontWeight: 600 }}>
+        {q}
+        <ChevronDown size={18} color={P.faint} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+      </button>
+      {open && <div style={{ padding: "0 2px 16px", color: P.faint, fontSize: 14.5, lineHeight: 1.55 }}>{a}</div>}
+    </div>
+  );
+};
+
+const LandingView = ({ onAtleta, onEntrenador, onLogin }) => {
+  const rotulo = { fontSize: 11.5, fontWeight: 700, letterSpacing: ".14em", color: P.ember, textTransform: "uppercase" };
+  const h2 = { className: "fj-display", style: { fontSize: 30, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".01em", color: P.text, margin: "10px 0 0", lineHeight: 1.04 } };
+  const seccion = { maxWidth: 620, margin: "0 auto", padding: "0 20px" };
+  const pilares = [
+    { Icon: Flame, t: "Mesociclos", d: "Bloques con fases de acumulación, intensificación y descarga. RIR objetivo por serie, no fitness genérico." },
+    { Icon: Dumbbell, t: "Ejecución en el gym", d: "Logger a pantalla completa: peso × reps × RIR, historial de la última vez, timer de descanso y PRs al terminar." },
+    { Icon: Camera, t: "Físico medible", d: "e1RM, volumen por grupo muscular y check-ins de físico con fotos F/S/B y comparador antes/después." },
+  ];
+  const pasos = [
+    { n: "1", t: "Elige tu camino", d: "Atleta que entrena solo o entrenador que gestiona atletas. Puedes ser ambos en la misma cuenta." },
+    { n: "2", t: "Arranca tu bloque", d: "Plantilla PPL, Upper/Lower o Full body — o el bloque que te asigne tu coach." },
+    { n: "3", t: "Registra bajo la barra", d: "Cada serie con su RIR. FORJA calcula carga, volumen y progreso mientras entrenas." },
+  ];
+  return (
+    <div className="fj" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bg, color: P.text, overflowX: "hidden" }}>
+      <GlobalStyle />
+      {/* Barra superior */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "calc(12px + env(safe-area-inset-top)) 20px 12px", maxWidth: 620, margin: "0 auto" }}>
+        <div className="fj-display" style={{ fontSize: 22, fontWeight: 700, letterSpacing: ".2em", color: P.text }}>{BRAND.name}</div>
+        <button onClick={onLogin} style={{ color: P.faint, fontSize: 14, fontWeight: 600 }}>Ya tengo cuenta</button>
+      </div>
+
+      {/* Hero */}
+      <div style={{ ...seccion, paddingTop: 30, paddingBottom: 40, textAlign: "center" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 13px", borderRadius: 999,
+          background: hexRgba(P.ember, 0.12), border: `1px solid ${hexRgba(P.ember, 0.3)}`, marginBottom: 22 }}>
+          <Flame size={13} color={P.ember} /><span style={{ ...rotulo, letterSpacing: ".1em" }}>Culturismo con precisión</span>
+        </div>
+        <h1 className="fj-display" style={{ fontSize: "clamp(38px, 11vw, 60px)", lineHeight: 0.98, textTransform: "uppercase", margin: "0 0 18px", color: P.text }}>
+          La forja del<br />culturismo
+        </h1>
+        <div style={{ fontSize: 17, color: P.faint, lineHeight: 1.5, maxWidth: 480, margin: "0 auto 30px" }}>
+          Entrena solo o con tu coach. Registra series con RIR, sigue mesociclos de hipertrofia y prep,
+          y mide tu físico. Hecha para la barra, no para fitness genérico.
+        </div>
+        <LandingCTAs onAtleta={onAtleta} onEntrenador={onEntrenador} />
+        <button onClick={onLogin} style={{ marginTop: 16, color: P.faint2, fontSize: 14, fontWeight: 600 }}>
+          ¿Ya tienes cuenta? Inicia sesión
+        </button>
+      </div>
+
+      {/* Dual atleta / entrenador */}
+      <div style={{ ...seccion, paddingBottom: 44 }}>
+        <div style={{ display: "grid", gap: 14 }}>
+          {[
+            { Icon: Dumbbell, r: "Para el atleta", t: "Entrena con método", bullets: ["Mesociclos y plantillas serias (PPL, Upper/Lower, Full body)", "Logger rápido con RIR, historial y timer de descanso", "e1RM, volumen por músculo y check-ins de físico"], cta: onAtleta, ctaTxt: "Empezar como atleta" },
+            { Icon: ClipboardList, r: "Para el entrenador", t: "Gestiona tus atletas", bullets: ["Biblioteca de bloques y 1.300+ ejercicios con demo", "Asigna un bloque a uno o varios atletas en un minuto", "Adherencia, últimas sesiones y check-ins en un panel"], cta: onEntrenador, ctaTxt: "Empezar como entrenador" },
+          ].map((c) => (
+            <div key={c.r} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_CARD, padding: 22 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: hexRgba(P.ember, 0.14),
+                display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+                <c.Icon size={22} color={P.ember} />
+              </div>
+              <div style={rotulo}>{c.r}</div>
+              <div className="fj-display" style={{ fontSize: 25, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".01em", margin: "3px 0 14px", color: P.text }}>{c.t}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 9, marginBottom: 18 }}>
+                {c.bullets.map((b) => (
+                  <div key={b} style={{ display: "flex", gap: 9, alignItems: "flex-start", fontSize: 14.5, color: P.dim, lineHeight: 1.4 }}>
+                    <Check size={16} color={P.ember} style={{ flexShrink: 0, marginTop: 2 }} />{b}
+                  </div>
+                ))}
+              </div>
+              <Btn kind="line" onClick={c.cta} style={{ borderColor: P.ember, color: P.ember }}>{c.ctaTxt} <ChevronRight size={16} /></Btn>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 3 pilares */}
+      <div style={{ background: P.s1, borderTop: `1px solid ${P.line}`, borderBottom: `1px solid ${P.line}`, padding: "44px 0" }}>
+        <div style={seccion}>
+          <div style={{ textAlign: "center", marginBottom: 28 }}>
+            <div style={rotulo}>Tres pilares</div>
+            <h2 {...h2}>Planifica. Ejecuta. Mide.</h2>
+          </div>
+          <div style={{ display: "grid", gap: 14 }}>
+            {pilares.map((p) => (
+              <div key={p.t} style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                <div style={{ width: 42, height: 42, borderRadius: 11, background: hexRgba(P.ember, 0.14), flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}><p.Icon size={21} color={P.ember} /></div>
+                <div>
+                  <div className="fj-display" style={{ fontSize: 19, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".02em", color: P.text }}>{p.t}</div>
+                  <div style={{ fontSize: 14.5, color: P.faint, lineHeight: 1.5, marginTop: 3 }}>{p.d}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Cómo funciona en 3 pasos */}
+      <div style={{ ...seccion, padding: "44px 20px" }}>
+        <div style={{ textAlign: "center", marginBottom: 26 }}>
+          <div style={rotulo}>Cómo funciona</div>
+          <h2 {...h2}>De cero a la barra en 3 pasos</h2>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {pasos.map((s) => (
+            <div key={s.n} style={{ display: "flex", gap: 15, alignItems: "flex-start", background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_CARD, padding: 18 }}>
+              <div className="fj-display" style={{ width: 40, height: 40, borderRadius: 11, background: PLATE_GRAD, color: PLATE_FG,
+                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 21, fontWeight: 700, flexShrink: 0 }}>{s.n}</div>
+              <div>
+                <div className="fj-display" style={{ fontSize: 18, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".02em", color: P.text }}>{s.t}</div>
+                <div style={{ fontSize: 14.5, color: P.faint, lineHeight: 1.5, marginTop: 2 }}>{s.d}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* FAQ */}
+      <div style={{ ...seccion, paddingBottom: 44 }}>
+        <div style={{ textAlign: "center", marginBottom: 12 }}>
+          <div style={rotulo}>Dudas</div>
+          <h2 {...h2}>Preguntas frecuentes</h2>
+        </div>
+        <LandingFaq q="¿Necesito un coach para usar FORJA?" a="No. Un atleta puede entrenar solo: eliges una plantilla o creas tu bloque, registras tus series y ves tu progreso. Si más adelante vinculas un coach, tu historial no se pierde." />
+        <LandingFaq q="¿Sirve para preparación / definición?" a="Sí. Los mesociclos manejan fases (acumulación, intensificación, descarga) y los check-ins de físico con fotos y medidas están pensados para prep y para seguir el cambio del físico." />
+        <LandingFaq q="¿Puedo ser atleta y entrenador a la vez?" a="Sí. Una misma cuenta alterna entre “Yo entreno” y “Mis atletas”. El coach puede entrenar él mismo sin crear otra cuenta." />
+        <LandingFaq q="¿Funciona en el móvil dentro del gym?" a="Está hecha para eso: logger a pantalla completa, botones grandes, alto contraste y teclado numérico, para usarla con una mano entre series." />
+      </div>
+
+      {/* Cierre CTA */}
+      <div style={{ background: P.s1, borderTop: `1px solid ${P.line}`, padding: "48px 20px 40px", textAlign: "center" }}>
+        <div style={{ maxWidth: 620, margin: "0 auto" }}>
+          <h2 className="fj-display" style={{ fontSize: 34, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".01em", margin: "0 0 10px", color: P.text }}>
+            Empieza a forjar
+          </h2>
+          <div style={{ fontSize: 16, color: P.faint, lineHeight: 1.5, maxWidth: 420, margin: "0 auto 26px" }}>
+            Elige tu camino y empieza tu primer mesociclo hoy.
+          </div>
+          <LandingCTAs onAtleta={onAtleta} onEntrenador={onEntrenador} />
+          <div style={{ marginTop: 34, fontSize: 12.5, color: P.faint2, letterSpacing: ".04em" }}>
+            {BRAND.name} · Culturismo con precisión
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* Selector de identidades recordadas en ESTE dispositivo — se muestra
    SOLO cuando hay 2 o más (ver `deviceIdentities` arriba: el caso real es
    el dueño que además entrena con su propio perfil de alumno). Tocar una
@@ -26766,6 +26943,13 @@ const App = () => {
   // por las fichas de "¿Quién entra?". El boot lo confirma según el marcador
   // del dispositivo (dueño/alumno recordado) o lo deja en login.
   const [showLogin, setShowLogin] = useState(true);
+  // Landing pública: se muestra una vez por dispositivo, antes del login,
+  // para un visitante nuevo. Cualquier CTA la marca vista y entra a la app.
+  const [landingSeen, setLandingSeen] = useState(() => { try { return localStorage.getItem("forja-landing-seen") === "1"; } catch { return false; } });
+  const dismissLanding = (intent) => {
+    try { localStorage.setItem("forja-landing-seen", "1"); if (intent) localStorage.setItem("forja-intent-role", intent); } catch {}
+    setLandingSeen(true); setShowLogin(true);
+  };
   // Face ID pendiente: este dispositivo ya está recordado (dueño o un
   // perfil con acceso) Y tiene Face ID activado, así que antes de
   // entrar directo como siempre hace falta que lo desbloquee. Null =
@@ -27622,6 +27806,13 @@ const App = () => {
   if (identityPicker) {
     return <DeviceIdentityPicker items={identityPicker} onPick={pickIdentity}
       onOther={() => { setIdentityPicker(null); setShowLogin(true); }} />;
+  }
+
+  if (!ready && !landingSeen) {
+    return <LandingView
+      onAtleta={() => dismissLanding("atleta")}
+      onEntrenador={() => dismissLanding("coach")}
+      onLogin={() => dismissLanding()} />;
   }
 
   if (!ready) {
