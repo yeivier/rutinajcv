@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v296";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v297";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -168,36 +168,9 @@ const PINK_THEME = {
   plateDim: "#E888BE",
   plateBorder: "#DB2777",
 };
-// Tema de MARCA FORJA (por defecto para quien no eligió apariencia; los
-// que ya escogieron claro/oscuro/rosa la conservan). Culturismo "hierro
-// caliente": fondo Dark Iron #12100E, acento y CTA Forge Orange #FF6B2C,
-// texto secundario Raw Sand #A2957F, bordes sutiles #3A3226. Mismo patrón
-// de paquete que los otros: solo colores. El rojo de peligro se mantiene.
-const FORJA_THEME = {
-  P: {
-    bg: "#12100E", s1: "#1A1713", s2: "#201C17", s3: "#262019", s4: "#2F2820",
-    line: "#3A3226", text: "#F5EFE6", dim: "#E8DFD2",
-    faint: "#A2957F", faint2: "#877B68",
-    // Acento = brasa (Forge Orange). ember2/glow apuntan al mismo naranja.
-    ember: "#FF6B2C", ember2: "#FF7C42", glow: "#FF6B2C",
-    // Semánticos: verde de éxito y rojo de peligro legibles sobre hierro;
-    // NO cambian con la marca. "blue" informativo cae a arena, sin color.
-    green: "#46C98A", blue: "#A2957F", red: "#FF5A47",
-    prog: "#FF6B2C",
-    frame: "#3A3226", bgGrad: "#12100E",
-    fillTertiary: "#241E17", separatorStrong: "#4A4132",
-    textQuaternary: "#6E6455", chevron: "#5A5142", dotInactive: "#322B22",
-  },
-  // Placas (botón primario, pestaña activa, chip de estado): brasa plena
-  // con tinta oscura encima (AA sobre el naranja).
-  plateGrad: "#FF6B2C",
-  plateFg: "#1A120A",
-  plateDim: "#7A4A28",
-  plateBorder: "#FF6B2C",
-};
-// Paquete por modo — mode ("light"|"dark"|"pink"|"forja") ya viene resuelto
+// Paquete por modo — mode ("light"|"dark"|"pink") ya viene resuelto
 // (resolveTheme() ya convirtió "auto" a light/dark antes de llegar acá).
-const THEME_PACKAGES = { light: LIGHT_THEME, dark: DARK_THEME, pink: PINK_THEME, forja: FORJA_THEME };
+const THEME_PACKAGES = { light: LIGHT_THEME, dark: DARK_THEME, pink: PINK_THEME };
 
 const P = { ...LIGHT_THEME.P };
 let PLATE_GRAD = LIGHT_THEME.plateGrad;
@@ -443,8 +416,8 @@ function applyAccent(resolved) {
 // de verdad se aplica ("light" | "dark") se resuelve aparte cuando la
 // preferencia es "auto", siguiendo prefers-color-scheme del sistema. Antes
 // solo existían "light"/"dark" — S4 del handoff pide un tercer valor real.
-let THEME_MODE = "forja";
-try { THEME_MODE = window.localStorage.getItem("forja-theme") || "forja"; } catch {}
+let THEME_MODE = "light";
+try { THEME_MODE = window.localStorage.getItem("forja-theme") || "light"; } catch {}
 // Fondo personalizado elegido (hex) o "" = ninguno (usa el fondo del tema).
 // Cuando hay uno, la Apariencia es "Personalizado": base clara con ese fondo.
 let BG = "";
@@ -459,10 +432,8 @@ function applyTheme(mode) {
   // La sesión (Entrenar) solo tiene paleta clara/oscura propia — "pink" es
   // una variante clara (tarjetas blancas, fondo suave), así que usa la
   // paleta clara de la sesión igual que "light": lo único realmente
-  // oscuro es "dark". FORJA (hierro caliente) también es oscuro real, así
-  // que la sesión usa su paleta oscura.
-  const esOscuro = resolved === "dark" || resolved === "forja";
-  Object.assign(SES, teColors(!esOscuro));
+  // oscuro es "dark".
+  Object.assign(SES, teColors(resolved !== "dark"));
   PLATE_GRAD = t.plateGrad; PLATE_FG = t.plateFg; PLATE_DIM = t.plateDim; PLATE_BORDER = t.plateBorder;
   // El acento elegido se aplica ENCIMA del tema base (pisa ember/placas y el
   // acento de la sesión). Va después de asignar el tema, para ganarle.
@@ -474,7 +445,7 @@ function applyTheme(mode) {
   // porque sale del mismo color de acento. En oscuro suben un poco para que
   // se noten sobre el fondo. `accWell` es el fondo del contenedor anidado;
   // `accEdge` un borde/riel apenas visible.
-  const _dk = resolved === "dark" || resolved === "forja";
+  const _dk = resolved === "dark";
   P.accWell = hexRgba(P.ember, _dk ? 0.10 : 0.055);
   P.accEdge = hexRgba(P.ember, _dk ? 0.28 : 0.16);
   // Fondo personalizado: sobre la base CLARA (nunca en oscuro), pinta el fondo
@@ -4822,17 +4793,9 @@ const GlobalStyle = () => {
     @keyframes fjSpin { to { transform: rotate(360deg); } }
     .fj-spin { animation: fjSpin .85s linear infinite; }
     .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
       color: ${P.text}; font-variant-numeric: tabular-nums;
       line-height: 1.42; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-    /* Titulares de marca FORJA en Barlow Condensed (condensada, con carácter
-       de hierro). El large title (h1) y la utilidad .fj-display la usan; el
-       resto de la UI y los subtítulos van en Inter. La condensada aprieta
-       tracking sola, así que se le deja algo de aire. Cae a Inter/sistema
-       si la fuente no cargó. */
-    .fj h1, .fj .fj-display {
-      font-family: 'Barlow Condensed', 'Inter', -apple-system, system-ui, sans-serif;
-      letter-spacing: 0; font-weight: 700; }
     /* Los títulos ya no cambian de familia — solo de tamaño, peso y
        tracking. A partir de 22px iOS aprieta el interletrado; acá se hace
        igual. El peso se queda en 700 (Bold real, no 800/900): es el mismo
@@ -4840,7 +4803,7 @@ const GlobalStyle = () => {
        un corte dibujado genuino en absolutamente cualquier fuente de
        sistema (Apple, Windows, Android) — 800/900 sin Inter de por medio
        el navegador los "engorda" a mano (negrita falsa), y eso sí se nota. */
-    .fj h2,.fj .disp { font-family: inherit; letter-spacing: -.022em; font-weight: 700; }
+    .fj h1,.fj h2,.fj .disp,.fj .fj-display { font-family: inherit; letter-spacing: -.022em; font-weight: 700; }
     .fj h1 { font-size: 34px; line-height: 1.06; }
     .fj b, .fj strong { font-weight: 600; }
     /* Micro-etiquetas en versalitas (ENTRENO DE HOY, VOLUMEN, ADHERENCIA…):
@@ -22921,15 +22884,14 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
       )}
 
       <SettingGroup label="Ajustes">
-        {/* Apariencia: FORJA / Claro / Oscuro / Personalizado. "FORJA" es el
-            tema de marca (hierro y brasa). "Personalizado" abre una paleta de
-            fondos claros (las familias del acento + otras aptas de fondo, 4
-            tonos cada una) que tiñen TODA la app y la sesión. */}
-        <SettingRow Icon={theme === "forja" ? Flame : theme === "dark" ? Moon : bg ? Palette : Sun} label="Apariencia"
-          hint={theme === "forja" ? "FORJA — hierro y brasa (por defecto)" : theme === "dark" ? "Oscuro — gris oscuro, sin negro puro" : bg ? "Personalizado — fondo a tu gusto" : "Claro"}
-          control={<SectionSwitch items={[{ id: "forja", label: "FORJA" }, { id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }, { id: "custom", label: "Personalizado" }]}
-            value={theme === "forja" ? "forja" : theme === "dark" ? "dark" : bg ? "custom" : "light"} onChange={setAppearance} />} />
-        {theme !== "dark" && theme !== "forja" && bg && (
+        {/* Apariencia: Claro / Oscuro / Personalizado. "Personalizado" abre una
+            paleta de fondos claros (las familias del acento + otras aptas de
+            fondo, 4 tonos cada una) que tiñen TODA la app y la sesión. */}
+        <SettingRow Icon={theme === "dark" ? Moon : bg ? Palette : Sun} label="Apariencia"
+          hint={theme === "dark" ? "Oscuro — gris oscuro, sin negro puro" : bg ? "Personalizado — fondo a tu gusto" : "Claro"}
+          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }, { id: "custom", label: "Personalizado" }]}
+            value={theme === "dark" ? "dark" : bg ? "custom" : "light"} onChange={setAppearance} />} />
+        {theme !== "dark" && bg && (
           <div style={{ padding: "12px 16px", borderTop: `1px solid ${P.line}` }}>
             <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 12 }}>Color de fondo — elige un tono; se aplica a toda la app y a la sesión.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

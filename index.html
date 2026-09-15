@@ -53,7 +53,7 @@
   <meta name="apple-mobile-web-app-title" content="FORJA" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="format-detection" content="telephone=no" />
-  <meta name="theme-color" content="#12100E" />
+  <meta name="theme-color" content="#F2F2F7" />
   <meta property="og:url" content="https://fitnesselitetracker.com/" />
   <link rel="canonical" href="https://fitnesselitetracker.com/" />
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -69,16 +69,10 @@
        es. Sacar Inter de la carga (y de la pila de App.jsx) es lo que de
        verdad logra "el mismo tipo de letra". -->
   <link rel="preconnect" href="https://vzenlmcbftopyjzcltxa.supabase.co" />
-  <!-- Tipografía de marca FORJA: Barlow Condensed (titulares, impacto) +
-       Inter (UI/cuerpo). Cargan con display=swap y caen a la fuente del
-       sistema si no hay red — la app sigue legible sin ellas. -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" />
   <title>FORJA</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23FFFFFF'/><g fill='%23171512'><rect x='11' y='14.2' width='10' height='3.6' rx='1.3'/><rect x='4' y='11' width='2.6' height='10' rx='.9'/><rect x='7.6' y='9' width='3.2' height='14' rx='1.1'/><rect x='21.2' y='9' width='3.2' height='14' rx='1.1'/><rect x='25.4' y='11' width='2.6' height='10' rx='.9'/></g></svg>" />
   <style>
-    html, body, #root { margin: 0; padding: 0; height: 100%; background: #12100E; }
+    html, body, #root { margin: 0; padding: 0; height: 100%; background: #F2F2F7; }
   </style>
 </head>
 <body>
@@ -91,7 +85,7 @@
   <!-- v206: type="module" para poder partir el bundle en trozos (recharts,
        ~320 KB, ahora va aparte y solo se baja al abrir un gráfico). Un
        módulo se ejecuta como defer y respeta el orden con config.js. -->
-  <script type="module" src="/bundle.js?v=296"></script>
+  <script type="module" src="/bundle.js?v=297"></script>
   <script>
     // Registra el service worker que permite abrir la app sin internet
     // (sirve la última copia guardada de index.html/bundle.js cuando no
