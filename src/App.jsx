@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v301";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v302";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3333,6 +3333,7 @@ const ROUTINE_META = {
   A: { note: "Todo lo que ya estaba cargado, tal cual" },
   B: { note: "Empujes · Tirones · Pierna, dos vueltas" },
   C: { note: "Pecho·Hombro·Tríceps · Pull · Brazos·Femoral (semanas 5 a 9)" },
+  LPF: { note: "Plan del equipo LP · Lun a Sáb + ABS y Calves" },
 };
 const routineOf = (day) => (day && day.routine) || ROUTINE_A;
 // El coach puede renombrar cada rutina (se guarda en `plan.routineNames`,
@@ -3630,6 +3631,201 @@ function routineCDays() {
         sets([rp("10-12", ""), dr("10-12", "")]), "https://youtu.be/5pEG7Cj0-0Y"),
     ]),
   ];
+}
+
+/* ---- RUTINA FINAL (Javier Corral) ----
+   Transcripción de las capturas del plan del equipo LP que trajo Javier
+   (rutina + dieta). Se siembra SOLO en el plan del atleta Javier, una sola
+   vez, sin pisar nada de lo ya cargado (ver el bloque en loadStudent).
+   Cronograma de las capturas: Lun A (+ABS) · Mar B (+Calves) · Mié C ·
+   Jue Hombros/Bíceps/Tríceps (+ABS) · Vie D (+Calves) · Sáb E · Dom descanso.
+   Cardio: 20 min post entreno a 5,5 km/h. Casi todo el plan va a RIR 0. */
+const ROUTINE_FINAL = "LPF";
+const ROUTINE_FINAL_NAME = "RUTINA FINAL";
+const ROUTINE_FINAL_INTRO = {
+  title: "RUTINA FINAL · Cronograma",
+  body:
+    "Plan traído del equipo LP (Javier Corral). Realiza los ejercicios de forma individual respetando los tiempos de descanso indicados. Prioriza la técnica sobre la carga, especialmente en los ejercicios de aislamiento. Ajusta los pesos para llegar a las repeticiones objetivo cerca del fallo técnico.\n\n" +
+    "CRONOGRAMA SEMANAL:\n" +
+    "Lunes · Entrenamiento A (Pecho/Hombro/Tríceps) + ABS + Cardio\n" +
+    "Martes · Entrenamiento B (Espalda) + Calves + Cardio\n" +
+    "Miércoles · Entrenamiento C (Piernas) + Cardio\n" +
+    "Jueves · Hombros, Bíceps y Tríceps + ABS + Cardio\n" +
+    "Viernes · Entrenamiento D (Pecho/Hombro) + Calves + Cardio\n" +
+    "Sábado · Entrenamiento E (Espalda + Femoral) + Cardio\n" +
+    "Domingo · descanso\n\n" +
+    "CARDIO: 20 min post entreno a 5,5 km/h.\n" +
+    "ABS: 2 veces por semana (lunes y jueves). Calves: 2 veces por semana (martes y viernes).",
+};
+
+/* Rutina + días de la RUTINA FINAL. El «/» en las repeticiones separa el
+   tramo de reps de cada serie. Casi todo el plan es a RIR 0. */
+function routineFinalDays() {
+  const ex = (name, muscle, rest, notes, s) => ({ id: uid(), name, muscle, rest, superset: "", notes: notes || "", video: "", sets: s });
+  const n = (reps, rir) => ["normal", reps, rir];
+  const day = (clave, name, exs) => ({ id: uid(), seedKey: clave, name, routine: ROUTINE_FINAL, exs });
+  const ss = (rounds, ...exs) => { const g = uid(); exs.forEach((e) => { e.group = g; e.groupRounds = rounds; }); return exs; };
+
+  return [
+    day("LPF-A", "Entrenamiento A · Pecho/Hombro/Tríceps", [
+      ex("Aperturas en máquina", "Pecho", 120, "Pausa al inicio y final del movimiento.",
+        sets([n("10-12", "0"), n("8-10", "0"), n("6-8", "0")])),
+      ex("Press de pecho inclinado en multipower", "Pecho", 180, "",
+        sets([n("10-12", "0"), n("8-10", "0"), n("6-8", "0")])),
+      ex("Press de pecho en máquina", "Pecho", 120, "Pausa al inicio y final del movimiento.",
+        sets([n("10-12", "0"), n("8-10", "0")])),
+      ex("Press militar en máquina neutro", "Hombro", 120, "",
+        sets([n("10-12", "0"), n("8-10", "0")])),
+      ex("Aperturas en banco inclinado con poleas", "Pecho", 120, "Banco en 15 grados, brazos de la Free Motion.",
+        sets([n("10-12", "0"), n("8-10", "0")])),
+      ex("Vuelo Y Free Motion", "Hombro", 120, "",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-10", "0"), n("6-8", "0")])),
+      ex("Tríceps pushdown unilateral", "Tríceps", 120, "Aproxima por lo menos 2 series con el 80%.",
+        sets([n("10-12", "0"), n("8-10", "0"), n("8", "0"), n("6-8", "0")])),
+      ex("Elevaciones laterales con mancuernas sentado", "Hombro", 120, "",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-10", "0"), n("6-8", "0")])),
+    ]),
+    day("LPF-B", "Entrenamiento B · Espalda", [
+      ex("Pull down prono con barra", "Espalda", 180, "",
+        sets([n("10-12", "0"), n("8-12", "0")])),
+      ex("Pull down unilateral hammer", "Espalda", 180, "",
+        sets([n("10-12", "0"), n("8-12", "0")])),
+      ex("Remo T", "Espalda", 180, "",
+        sets([n("10-12", "0"), n("8-12", "0")])),
+      ex("Pull over con soga", "Espalda", 180, "",
+        sets([n("10-12", "0"), n("8-12", "0")])),
+      ex("Seated cable bar row", "Espalda", 180, "",
+        sets([n("10-12", "0"), n("8-12", "0")])),
+      ex("Mid trap flyes", "Trapecio", 180, "Free Motion con los brazos paralelos al suelo y entre sí.",
+        sets([n("15-12", "0"), n("10-12", "0"), n("8-12", "0")])),
+      ex("Curl de bíceps martillo (Hammer Biceps 2 DB)", "Bíceps", 120, "",
+        sets([n("15-12", "0"), n("10-12", "0"), n("10-12", "0"), n("8-6", "0")])),
+    ]),
+    day("LPF-C", "Entrenamiento C · Piernas", [
+      ex("Aductor en máquina", "Glúteo", 120, "",
+        sets([n("10-15", "0"), n("10-12", "0"), n("8-10", "0")])),
+      ex("Peso muerto rumano", "Femoral", 180, "",
+        sets([n("10-15", "0"), n("10-12", "0")])),
+      ex("Prensa inclinada", "Cuádriceps", 180, "",
+        sets([n("10-15", "0"), n("10-12", "0")])),
+      ex("Pendulum squat", "Cuádriceps", 180, "",
+        sets([n("10-15", "0"), n("10-12", "0")])),
+      ex("Extensión de cuádriceps en máquina de palanca", "Cuádriceps", 180, "",
+        sets([n("10-15", "0"), n("10-12", "0")])),
+      ex("Curl de femoral en máquina", "Femoral", 180, "",
+        sets([n("10-12", "0"), n("10-12", "0")])),
+    ]),
+    day("LPF-HBT", "Hombros, Bíceps y Tríceps", [
+      // Bloque 1 — Hombros
+      ex("Vuelo Y Free Motion", "Hombro", 120, "Pausa al inicio y al final del movimiento.",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-10", "0")])),
+      ex("Press de hombro sentado en multipower", "Hombro", 120, "Pausa al inicio del movimiento.",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-10", "0")])),
+      ex("Rear delt cable", "Hombro", 120, "Pausa al inicio y al final del movimiento.",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-10", "0")])),
+      // Bloque 2 — Bíceps y Tríceps
+      ex("Curl bayesian", "Bíceps", 120, "Pausa al inicio y al final del movimiento.",
+        sets([n("8-10", "0"), n("8-10", "0")])),
+      ex("Tríceps en máquina", "Tríceps", 120, "Pausa en la contracción.",
+        sets([n("8-10", "0"), n("8-10", "0")])),
+      ex("Preacher curl", "Bíceps", 120, "Pausa al inicio y al final del movimiento.",
+        sets([n("8-10", "0"), n("8-10", "0")])),
+      ex("Tríceps pushdown unilateral", "Tríceps", 120, "Pausa al inicio y al final del movimiento.",
+        sets([n("8-10", "0"), n("8-10", "0")])),
+    ]),
+    day("LPF-D", "Entrenamiento D · Pecho/Hombro", [
+      ex("Aperturas en máquina", "Pecho", 120, "Puede ser Free Motion.",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-12", "0")])),
+      ex("Press de pecho inclinado en multipower", "Pecho", 180, "",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-12", "0")])),
+      ex("Press de pecho en máquina", "Pecho", 180, "Pausa al inicio y final del movimiento.",
+        sets([n("10-12", "0"), n("8-12", "0")])),
+      ex("Press declinado en máquina", "Pecho", 180, "",
+        sets([n("10-12", "0"), n("8-12", "0")])),
+      ex("Press militar en máquina neutro", "Hombro", 180, "",
+        sets([n("10-12", "0"), n("8-12", "0")])),
+      ex("Lateral raises machine", "Hombro", 120, "",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-12", "0"), n("12", "0")])),
+      ex("Rear delt fly machine", "Hombro", 120, "",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-12", "0"), n("12", "0")])),
+    ]),
+    day("LPF-E", "Entrenamiento E · Espalda + Femoral", [
+      // Bloque 1 — Espalda
+      ex("Pull down unilateral hammer", "Espalda", 180, "",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-10", "0")])),
+      ex("Remo con barra (Bent over row)", "Espalda", 180, "",
+        sets([n("10-12", "0"), n("8-10", "0")])),
+      ex("Low row hammer", "Espalda", 180, "",
+        sets([n("10-12", "0"), n("8-10", "0")])),
+      ex("Curl de bíceps martillo (Hammer Biceps 2 DB)", "Bíceps", 120, "",
+        sets([n("10-12", "0"), n("10-12", "0"), n("10-12", "0")])),
+      // Bloque 2 — Femoral
+      ex("Femoral en máquina de palanca unilateral", "Femoral", 180, "",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-10", "0")])),
+      ex("Sillón femoral", "Femoral", 120, "",
+        sets([n("12-15", "0"), n("10-12", "0")])),
+      ex("Hip thrust en máquina", "Glúteo", 180, "",
+        sets([n("12-15", "0"), n("10-12", "0"), n("8-10", "0")])),
+    ]),
+    day("LPF-ABS", "ABS", [
+      ex("Elevaciones de piernas colgado (Hanging Leg Raise)", "Core", 60, "Puede ser en máquina con apoyo en los antebrazos.",
+        sets([n("10-20", "0"), n("10-20", "0"), n("10-20", "0"), n("10-20", "0")])),
+      ex("Abs hammer machine", "Core", 60, "",
+        sets([n("10-20", "0"), n("10-20", "0"), n("10-20", "0"), n("10-20", "0")])),
+    ]),
+    day("LPF-CALVES", "Calves", [
+      ex("Elevación de talones en Smith", "Gemelo", 60, "1 segundo de pausa en el máximo estiramiento.",
+        sets([n("10-15", "0"), n("10-15", "0"), n("10-15", "0"), n("10-15", "0"), n("10-15", "0")])),
+    ]),
+  ];
+  // (ss se deja disponible por si se convierten los dos bloques en superseries;
+  //  las capturas los muestran como ejercicios individuales, así que van sueltos.)
+  void ss;
+}
+
+/* Dieta de la RUTINA FINAL (Meal Plan Javier Corral, equipo LP) — ~3966 kcal. */
+function routineFinalNutrition() {
+  const meal = (name, kcal, notes, items) => ({ id: uid(), name, time: "", kcal, items: items.map(([food, qty]) => ({ id: uid(), food, qty })), notes });
+  const supp = (name, dose, when, group) => ({ id: uid(), name, dose, when, group: group || "diario" });
+  return {
+    kcal: 3966, p: 0, c: 0, f: 0, solve: "kcal",
+    notes:
+      "Plan del equipo LP · Javier Corral — ~3966 kcal al día.\n\n" +
+      "EQUIVALENCIAS\n" +
+      "Proteínas: 100 g pollo = 100 g posta = 115 g atún\n" +
+      "Carbohidratos: 100 g arroz = 100 g pasta = 175 g papa cruda\n" +
+      "Grasas: 100 g palta = 25 g aceite de oliva\n\n" +
+      "Intra entreno: 10 g creatina + 10 g glutamina + 1 g sal.\n" +
+      "Hidratación: 5 L de agua al día.\n\n" +
+      "CARDIO: 20 min post entreno a 5,5 km/h.\n\n" +
+      "Estos planes han sido redactados por el profesional del equipo LP.",
+    meals: [
+      meal("Desayuno", 713, "3 huevos, 120 g de pan, 200 g de piña y 60 g de jamón de pavo.",
+        [["Huevo", "150 g"], ["Pan", "120 g"], ["Piña", "200 g"], ["Jamón de pavo", "60 g"]]),
+      meal("Comida 2", 1149, "200 g de pechuga de pollo, 400 g de pasta cocida y 25 ml de aceite de oliva.",
+        [["Pasta cocida congelada — Hacendado", "400 g"], ["Pechuga de pollo — DIA", "200 g"], ["Aceite de oliva", "25 g"]]),
+      meal("Comida 3", 793, "200 g de pechuga de pollo, 200 g de pasta cocida y 25 ml de aceite de oliva.",
+        [["Pechuga de pollo — DIA", "200 g"], ["Pasta cocida congelada — Hacendado", "200 g"], ["Aceite de oliva", "25 g"]]),
+      meal("Post entreno", 784, "1 scoop de proteína whey, 150 g de cereales, 200 g de piña y 10 g de creatina.",
+        [["Whey protein", "33 g"], ["Cereal — Kellogg's", "150 g"], ["Piña", "200 g"]]),
+      meal("Comida 5", 527, "150 g de manzana, 1 banana y 60 g de maní.",
+        [["Manzana", "150 g"], ["Plátano", "100 g"], ["Maní tostado en seco (sin sal)", "60 g"]]),
+    ],
+    supplements: [
+      supp("Omega 3", "5 caps", "Con la comida 1", "diario"),
+      supp("Vitamina D", "10.000 UI", "Con la comida 1", "diario"),
+      supp("Multivitamínico", "1 cáp", "Con la comida 1", "diario"),
+      supp("Berberina", "500 mg", "En ayunas", "diario"),
+      supp("Magnesio glicinato", "200 mg", "Antes de dormir", "diario"),
+      supp("Ashwagandha", "600 mg", "Antes de dormir", "diario"),
+      supp("Zinc", "50 mg", "Antes de dormir", "diario"),
+      supp("NAC", "600 mg", "Antes de dormir", "diario"),
+      supp("Nattoquinasa", "200 mg", "Con la comida 1", "diario"),
+      supp("Saw palmetto", "1000 mg", "En ayunas", "diario"),
+      supp("CoQ10", "200 mg", "Antes de dormir", "diario"),
+      supp("Intra entreno (creatina + glutamina + sal)", "10 g + 10 g + 1 g", "Durante el entreno", "entreno"),
+    ],
+  };
 }
 
 
@@ -27392,7 +27588,7 @@ const App = () => {
   const delegateRef = useRef(null);
   const delegateSessionStartRef = useRef(null);
 
-  const loadStudent = async (id) => {
+  const loadStudent = async (id, name) => {
     let p = await sGet(`forja-plan:${id}`); if (!p) p = emptyPlan();
     // Migración: planes viejos sin schedule/events
     if (!p.schedule) p.schedule = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
@@ -27411,6 +27607,34 @@ const App = () => {
         p.warmups = { ...(p.warmups || {}), A: CONI_WARMUP };
         await sSet(`forja-plan:${id}`, p);
       }
+    }
+    // RUTINA FINAL + dieta del atleta Javier (plan del equipo LP que trajo él
+    // mismo). Se siembra UNA sola vez y SOLO en el plan de Javier — no en el
+    // resto de alumnos. La rutina se añade como bloque nuevo sin tocar lo que
+    // ya estaba; la dieta y su cronograma se cargan porque es su plan actual.
+    // Independiente de seedVersion (una bandera propia, `seedFinalDone`).
+    if (/\bjavier\b/i.test(name || "") && !p.seedFinalDone) {
+      if (!(p.days || []).some((d) => d.routine === ROUTINE_FINAL)) {
+        const dias = routineFinalDays();
+        p.days = [...(p.days || []), ...dias];
+        p.routineNames = { ...(p.routineNames || {}), [ROUTINE_FINAL]: ROUTINE_FINAL_NAME };
+        // El cronograma semanal apunta a la RUTINA FINAL (es su plan actual);
+        // ABS/Calves/Cardio quedan como días de la rutina para iniciarlos a mano.
+        const byKey = (k) => (dias.find((d) => d.seedKey === k) || {}).id || null;
+        p.schedule = {
+          mon: byKey("LPF-A"), tue: byKey("LPF-B"), wed: byKey("LPF-C"),
+          thu: byKey("LPF-HBT"), fri: byKey("LPF-D"), sat: byKey("LPF-E"), sun: null,
+        };
+      }
+      if (!(p.instructions || []).some((i) => i.title === ROUTINE_FINAL_INTRO.title)) {
+        p.instructions = [...(p.instructions || []), { id: uid(), ...ROUTINE_FINAL_INTRO }];
+      }
+      // Dieta: es el plan de alimentación actual de Javier. Solo se pisa una
+      // vez (la bandera evita volver a hacerlo si él luego la edita).
+      p.nutrition = routineFinalNutrition();
+      p.seedFinalDone = true;
+      p.updatedAt = todayISO();
+      await sSet(`forja-plan:${id}`, p);
     }
     if ((p.seedVersion || 0) < SEED_VERSION) {
       const trainingB = (p.days || []).find((day) => day.name === "Entrenamiento B");
@@ -27502,7 +27726,8 @@ const App = () => {
     const r = rosterArg || roster;
     if (!id) id = r.students[0]?.id;
     if (!id) { setLoading(false); return; }
-    const { p, h, a } = await loadStudent(id);
+    const nm = (r.students.find((s) => s.id === id) || {}).name || "";
+    const { p, h, a } = await loadStudent(id, nm);
     sidRef.current = id; activeRef.current = a;
     setMode(m); setSid(id); setPlan(p); setHistory(h); setActive(a); setSavedAt("");
     setMyTeamId(teamId || null);
