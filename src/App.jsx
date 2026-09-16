@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v299";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v300";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8683,7 +8683,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // posibles, sin la lista entera compitiendo por la atención.
   const [focusUno, setFocusUnoState] = useState(() => { try { return localStorage.getItem("forja-focus-uno") === "1"; } catch { return false; } });
   const setFocusUno = (v) => { setFocusUnoState(v); try { localStorage.setItem("forja-focus-uno", v ? "1" : "0"); } catch {} };
-  const [curBlock, setCurBlock] = useState(0); // ejercicio/bloque visible en Focus Mode
+  const [curFlat, setCurFlat] = useState(0); // índice de la SERIE visible en Focus Mode (una a la vez)
   // Ajuste de carga por prontitud: guarda el estado previo para poder
   // deshacerlo. Es una sugerencia que el atleta acepta, no una
   // decisión que la app toma por él.
@@ -8805,12 +8805,19 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     return out;
   }, [exs]);
 
-  // Al entrar a Focus Mode, empezar en el ejercicio activo (el primer bloque
-  // con series pendientes) para no tener que buscarlo.
+  // Lista PLANA de todas las series, en orden (ejercicio por ejercicio):
+  // cada una es {bi, ri} = bloque + fila. Es sobre lo que navega Focus Mode,
+  // una serie a la vez.
+  const flatSets = useMemo(() => {
+    const out = [];
+    blocks.forEach((b, bi) => b.rows.forEach((_, ri) => out.push({ bi, ri })));
+    return out;
+  }, [blocks]);
+  // Al entrar a Focus Mode, empezar en la primera serie pendiente.
   useEffect(() => {
-    if (!focusUno || !blocks.length) return;
-    const activo = blocks.findIndex((b) => b.rows.some((r) => exs[r.ei].sets[r.si] && !exs[r.ei].sets[r.si].done));
-    setCurBlock(activo >= 0 ? activo : (bi) => Math.min(bi, blocks.length - 1));
+    if (!focusUno || !flatSets.length) return;
+    const idx = flatSets.findIndex(({ bi, ri }) => { const r = blocks[bi].rows[ri]; const s = exs[r.ei].sets[r.si]; return s && !s.done; });
+    setCurFlat(idx >= 0 ? idx : 0);
   }, [focusUno]);
 
   // El progreso de la sesión se mide sobre las SERIES DE TRABAJO: las de
@@ -8984,7 +8991,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
      podía volver a corregir algo sin deshacer el camino. Ahora la sesión
      entera se despliega hacia abajo, en orden, y se rellena donde haga
      falta — no hay «siguiente» que tocar ni sitio donde perderse. */
-  const tablaDe = (block, bi) => {
+  const tablaDe = (block, bi, soloRow) => {
     const consignas = block.group ? null : consignasPorSerie(exs[block.ei]);
     const titulo = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
     // La primera serie sin marcar DE ESTE ejercicio: es la que se resalta.
@@ -9118,6 +9125,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         </div>
 
         {block.rows.map((r, i) => {
+          // Focus Mode (una serie a la vez): solo se pinta la fila pedida.
+          if (soloRow != null && i !== soloRow) return null;
           const exx = exs[r.ei];
           const st = exx.sets[r.si];
           const meta = rowMeta[i];
@@ -9461,7 +9470,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         {/* Selector rápido de vista: "Lista" (todo a la vista) o "Focus" (un
             ejercicio a la vez, para registrar con los menos toques posibles).
             Se recuerda entre sesiones. */}
-        {blocks.length > 1 && (
+        {flatSets.length > 1 && (
           <div role="tablist" aria-label="Vista de la sesión"
             style={{ display: "flex", gap: 3, marginTop: 10, padding: 3, background: SES.campo, borderRadius: 11, border: `1px solid ${SES.line}` }}>
             {[["list", "Lista", false], ["focus", "Focus", true]].map(([id, label, val]) => {
@@ -9587,56 +9596,63 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         );
       })()}
 
-      {focusUno && blocks.length > 0 ? (() => {
-        // Focus Mode: un solo ejercicio a la vista, con toda su tabla de
-        // series. Cabecera con "Ejercicio i/N" y saltos ◀ ▶; abajo, un botón
-        // grande para pasar al siguiente ejercicio (o al primero pendiente).
-        const bi = Math.min(Math.max(0, curBlock), blocks.length - 1);
+      {focusUno && flatSets.length > 0 ? (() => {
+        // Focus Mode: UNA serie a la vez. Se ve solo la serie que toca —con
+        // todos sus controles (peso/reps/RIR, tipo, comentario, discos,
+        // conversor kg⇄lb)— y con «Siguiente» se pasa a la próxima. La última
+        // «Siguiente» termina la sesión.
+        const idx = Math.min(Math.max(0, curFlat), flatSets.length - 1);
+        const { bi, ri } = flatSets[idx];
         const b = blocks[bi];
-        const bloqueListo = (bb) => bb.rows.every((r) => { const s = exs[r.ei].sets[r.si]; return s && (s.type === "warmup" || s.done); });
-        const proxPendiente = () => {
-          for (let k = 1; k <= blocks.length; k++) { const j = (bi + k) % blocks.length; if (!bloqueListo(blocks[j])) return j; }
-          return -1;
+        const r = b.rows[ri];
+        const st = exs[r.ei] && exs[r.ei].sets[r.si];
+        const last = idx === flatSets.length - 1;
+        const irA = (j) => { setCurFlat(Math.min(Math.max(0, j), flatSets.length - 1)); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {} };
+        const siguiente = () => {
+          // Registrar la serie (marca hecha, rellena lo que falte y arranca el
+          // descanso) y pasar a la siguiente. En la última, abre el cierre.
+          if (st && !st.done) onToggleDone(r.ei, r.si);
+          if (last) setSalida(true); else irA(idx + 1);
         };
-        const irA = (j) => { setCurBlock(j); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {} };
         return (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 2 }}>
-              <button onClick={() => irA(Math.max(0, bi - 1))} disabled={bi === 0} aria-label="Ejercicio anterior"
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <button onClick={() => irA(idx - 1)} disabled={idx === 0} aria-label="Serie anterior"
                 style={{ width: 40, height: 40, borderRadius: 12, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink,
-                  display: "flex", alignItems: "center", justifyContent: "center", opacity: bi === 0 ? 0.4 : 1, flexShrink: 0 }}>
+                  display: "flex", alignItems: "center", justifyContent: "center", opacity: idx === 0 ? 0.4 : 1, flexShrink: 0 }}>
                 <ChevronLeft size={20} strokeWidth={2.6} />
               </button>
               <div className="mono" style={{ fontSize: 12, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint }}>
-                Ejercicio {bi + 1} / {blocks.length}
+                Serie {idx + 1} / {flatSets.length}
               </div>
-              <button onClick={() => irA(Math.min(blocks.length - 1, bi + 1))} disabled={bi === blocks.length - 1} aria-label="Siguiente ejercicio"
+              <button onClick={() => irA(idx + 1)} disabled={last} aria-label="Serie siguiente"
                 style={{ width: 40, height: 40, borderRadius: 12, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink,
-                  display: "flex", alignItems: "center", justifyContent: "center", opacity: bi === blocks.length - 1 ? 0.4 : 1, flexShrink: 0 }}>
+                  display: "flex", alignItems: "center", justifyContent: "center", opacity: last ? 0.4 : 1, flexShrink: 0 }}>
                 <ChevronRight size={20} strokeWidth={2.6} />
               </button>
             </div>
             <div id={`fm-b-${bi}`} style={{ display: "flex", flexDirection: "column", gap: 6, scrollMarginTop: 56 }}>
-              {tablaDe(b, bi)}
-              {accionesDe(b, bi)}
+              {tablaDe(b, bi, ri)}
             </div>
-            {/* Un toque para avanzar: al primer ejercicio pendiente si este ya
-                está completo, o al siguiente de la lista. */}
-            {(() => {
-              const listo = bloqueListo(b);
-              const prox = proxPendiente();
-              const btnBase = { width: "100%", marginTop: 4, padding: "14px 6px", borderRadius: R_TILE, fontSize: 15, fontWeight: 700,
-                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 };
-              if (listo && prox >= 0) {
-                return <button onClick={() => irA(prox)} style={{ ...btnBase, background: SES.acc, color: SES.accInk, border: `1px solid ${SES.acc}` }}>
-                  Siguiente ejercicio <ChevronRight size={17} /></button>;
-              }
-              if (bi < blocks.length - 1) {
-                return <button onClick={() => irA(bi + 1)} style={{ ...btnBase, background: SES.campo, color: SES.dim, border: `1px solid ${SES.line}` }}>
-                  Ir al siguiente ejercicio <ChevronRight size={16} /></button>;
-              }
-              return null;
-            })()}
+            {/* Puntos de progreso: una serie por punto; la actual resaltada,
+                las hechas llenas. Un toque salta a esa serie. */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", padding: "2px 0" }}>
+              {flatSets.map((f, k) => {
+                const sr = blocks[f.bi].rows[f.ri]; const ss = exs[sr.ei].sets[sr.si];
+                const act = k === idx;
+                return <button key={k} onClick={() => irA(k)} aria-label={`Ir a la serie ${k + 1}`}
+                  style={{ width: act ? 22 : 9, height: 9, borderRadius: 5, flexShrink: 0, border: "none",
+                    background: act ? SES.acc : (ss && ss.done ? SES.acc : SES.line),
+                    opacity: act ? 1 : (ss && ss.done ? 0.55 : 1), transition: `width ${DUR_MICRO}ms ease` }} />;
+              })}
+            </div>
+            {/* «Siguiente»: registra esta serie y pasa a la próxima. */}
+            <button onClick={siguiente}
+              style={{ width: "100%", padding: "15px 6px", borderRadius: R_TILE, fontSize: 16, fontWeight: 700,
+                background: SES.acc, color: SES.accInk, border: `1px solid ${SES.acc}`,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              {last ? <>Terminar sesión <Check size={17} strokeWidth={3} /></> : <>Siguiente <ChevronRight size={18} strokeWidth={2.6} /></>}
+            </button>
           </div>
         );
       })() : (
