@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v297";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v298";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7839,6 +7839,97 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
    queda con ella: después el historial se puede leer por sede. El último
    elegido va primero y preseleccionado, porque lo normal es repetir
    gimnasio; escribir uno nuevo lo agrega a la lista para la próxima. */
+/* Registrar una sesión PASADA (retroactiva): el atleta entrenó —o pudo
+   entrenar— un día de esta semana o la anterior y no cargó los datos. Elige
+   la fecha (chips de los últimos días, en un toque, u «Otra fecha» para ir
+   más atrás) y el día de la rutina; de ahí sigue el mismo flujo —gimnasio y
+   Focus Mode— pero la sesión se archiva en esa fecha. Pensada para el menor
+   número de toques: fecha (1) + día (1). */
+const localYmd = (d) => { const z = new Date(d); z.setMinutes(z.getMinutes() - z.getTimezoneOffset()); return z.toISOString().slice(0, 10); };
+const PastSessionSheet = ({ open, onClose, onElegir, days }) => {
+  const hoy = new Date();
+  const ayer = new Date(hoy); ayer.setDate(hoy.getDate() - 1);
+  const [fecha, setFecha] = useState(localYmd(ayer));
+  const [otra, setOtra] = useState(false);
+  useEffect(() => { if (open) { setFecha(localYmd(ayer)); setOtra(false); } }, [open]);
+  // Chips de los últimos 8 días (ayer primero, hacia atrás): un toque para
+  // elegir la fecha sin abrir el teclado de fechas del sistema.
+  const chips = Array.from({ length: 8 }, (_, i) => {
+    const d = new Date(hoy); d.setDate(hoy.getDate() - (i + 1)); return localYmd(d);
+  });
+  const etiquetaChip = (ymd) => {
+    const d = new Date(ymd + "T12:00:00");
+    return d.toLocaleDateString("es-CL", { weekday: "short", day: "numeric" });
+  };
+  const abrir = (day) => { if (fecha) onElegir(day, fecha); };
+  const hoyYmd = localYmd(hoy);
+  return (
+    <Sheet open={open} onClose={onClose} title="Registrar sesión pasada" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ fontSize: 13.5, color: P.faint2 }}>
+          Elige el día que entrenaste y la fecha. Se guarda en la semana que corresponde, con todo lo que registres.
+        </div>
+        {/* Fecha */}
+        <div>
+          <div className="mono" style={{ fontSize: 11, color: P.faint, marginBottom: 7 }}>FECHA</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+            {chips.map((ymd) => {
+              const sel = ymd === fecha && !otra;
+              return (
+                <button key={ymd} data-keep onClick={() => { setOtra(false); setFecha(ymd); }} aria-pressed={sel}
+                  style={{ padding: "9px 12px", borderRadius: R_ROW, fontSize: 13.5, fontWeight: 600, textTransform: "capitalize",
+                    background: sel ? PLATE_GRAD : P.s3, color: sel ? PLATE_FG : P.text, border: `1px solid ${sel ? PLATE_GRAD : P.line}` }}>
+                  {etiquetaChip(ymd)}
+                </button>
+              );
+            })}
+            <button data-keep onClick={() => setOtra(true)} aria-pressed={otra}
+              style={{ padding: "9px 12px", borderRadius: R_ROW, fontSize: 13.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6,
+                background: otra ? PLATE_GRAD : "transparent", color: otra ? PLATE_FG : P.text, border: `1px ${otra ? "solid" : "dashed"} ${otra ? PLATE_GRAD : P.separatorStrong}` }}>
+              <Calendar size={15} /> Otra fecha
+            </button>
+          </div>
+          {otra && (
+            <input type="date" value={fecha} max={hoyYmd} data-keep onChange={(e) => setFecha(e.target.value)}
+              style={{ marginTop: 9, width: "100%", padding: "11px 12px", fontSize: 15, background: P.s3,
+                border: `1px solid ${P.line}`, borderRadius: R_TILE, color: P.text, appearance: "none", WebkitAppearance: "none" }} />
+          )}
+        </div>
+        {/* Día */}
+        <div>
+          <div className="mono" style={{ fontSize: 11, color: P.faint, margin: "2px 0 7px" }}>¿QUÉ ENTRENASTE?</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(days || []).map((d) => (
+              <button key={d.id} data-keep onClick={() => abrir(d)}
+                style={{ display: "flex", alignItems: "center", gap: 11, textAlign: "left", width: "100%",
+                  padding: "13px 14px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.line}` }}>
+                <Dumbbell size={17} color={P.faint2} style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text }}>{d.name}</div>
+                  {(() => { const ne = d.exs.length, ns = d.exs.reduce((a, e) => a + e.sets.length, 0);
+                    return <div style={{ fontSize: 12.5, color: P.faint }}>{ne} ejercicio{ne !== 1 ? "s" : ""} · {ns} serie{ns !== 1 ? "s" : ""}</div>; })()}
+                </div>
+                <ChevronRight size={17} color={P.faint} />
+              </button>
+            ))}
+            {/* Sesión libre pasada: por si entrenó algo que no está en su rutina. */}
+            <button data-keep onClick={() => abrir({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true })}
+              style={{ display: "flex", alignItems: "center", gap: 11, padding: "13px 14px", borderRadius: R_TILE,
+                background: "transparent", border: `1px dashed ${P.separatorStrong}`, color: P.text }}>
+              <Plus size={17} style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15.5, fontWeight: 600 }}>Sesión libre</div>
+                <div style={{ fontSize: 12.5, color: P.faint }}>Algo que no está en tu rutina — la armas sobre la marcha</div>
+              </div>
+              <ChevronRight size={17} color={P.faint} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </Sheet>
+  );
+};
+
 const GymPickerSheet = ({ open, onClose, onElegir, dayName }) => {
   const [lista, setLista] = useState(GIMNASIOS);
   const [ultimo, setUltimo] = useState("");
@@ -9336,6 +9427,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</span>
           {onBrowseRoutine && <ChevronRight size={16} color={SES.faint} strokeWidth={2.6} style={{ flexShrink: 0 }} />}
         </button>
+        {/* Aviso de sesión retroactiva: deja claro que se está registrando un
+            día pasado, no hoy — la fecha en la que quedará archivada. */}
+        {active.backfilled && active.sessionDate && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, padding: "3px 9px",
+            borderRadius: 999, background: SES.accSoft, color: SES.acc, fontSize: 12, fontWeight: 600, textTransform: "capitalize" }}>
+            <History size={12} strokeWidth={2.6} /> Sesión del {fmtDateFull(active.sessionDate)}
+          </div>
+        )}
         {/* Cuánto de la sesión llevas hecho, en una barra. Antes era un
             tramo por ejercicio marcando en cuál estabas; ya no hace falta
             porque están todos a la vista. */}
@@ -9998,6 +10097,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
   // se elige: así el registro nunca queda sin sede.
   const [pidiendoGym, setPidiendoGym] = useState(null);
   const [previewDay, setPreviewDay] = useState(null);   // día cuya lista de ejercicios se previsualiza antes del gimnasio
+  const [pastOpen, setPastOpen] = useState(false);      // hoja "Registrar sesión pasada" (retroactiva)
   const [confirmSwitch, setConfirmSwitch] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
   const [, tick] = useState(0);
@@ -10016,14 +10116,21 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
     setOpenRoutines((o) => (o.includes(activeRoutine) ? o : [...o, activeRoutine]));
   }, [activeRoutine]);
 
-  const startSession = (day, gym) => {
+  const startSession = (day, gym, fecha) => {
     // Las reps y el RIR salen de la semana en curso del mesociclo; si esa
     // semana no fija nada para el ejercicio, se usan los del propio ejercicio.
     // `week` es null cuando el coach eligió «Sin mesociclo»: entonces la sesión
     // se arma con los valores base del ejercicio y sin etiqueta de semana.
     const week = currentWeek(plan);
+    // Sesión pasada (retroactiva): `fecha` = "YYYY-MM-DD" del día que se
+    // entrenó y no se registró. Se guarda a mediodía local para que caiga en
+    // el día correcto sin importar la zona horaria; `startedAt` sigue siendo
+    // AHORA (el cronómetro cuenta lo que tarda en cargar los datos), pero la
+    // sesión se archiva en la fecha —y por lo tanto en la semana— que toca.
+    const sessionDate = fecha ? new Date(fecha + "T12:00:00").toISOString() : null;
     const snap = {
       id: uid(), dayId: day.id, dayName: day.name, startedAt: todayISO(),
+      sessionDate, backfilled: !!fecha,
       weekId: week ? week.id : null, weekName: week ? week.name : "", deload: !!(week && week.deload),
       gym: gym || "",
       // Calentamiento de la rutina, para poder mostrarlo también DENTRO de la
@@ -10114,6 +10221,25 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
               <div style={{ fontSize: 13, opacity: .85, marginTop: 1 }}>Empieza vacío y agrega ejercicios y series sobre la marcha</div>
             </div>
             <ChevronRight size={18} />
+          </button>
+        )}
+        {/* Registrar una sesión PASADA: el atleta entrenó (o pudo entrenar)
+            un día de esta semana o la anterior y se le olvidó cargar los
+            datos. Elige el día y la fecha y entra al mismo Focus Mode —
+            optimizado, con series, comentarios y conversor kg/lb— pero la
+            sesión queda archivada en la fecha y la semana que corresponde. */}
+        {!active && plan.days.length > 0 && (
+          <button onClick={() => setPastOpen(true)}
+            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, marginBottom: 14,
+              padding: "15px 15px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
+            <span style={{ width: 38, height: 38, borderRadius: 12, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <History size={19} />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 16.5 }}>Registrar sesión pasada</div>
+              <div style={{ fontSize: 13, color: P.faint, marginTop: 1 }}>¿Entrenaste y no lo cargaste? Elige el día y la fecha y regístralo ahora</div>
+            </div>
+            <ChevronRight size={18} color={P.faint} />
           </button>
         )}
         {/* Crear una rutina propia desde cero. El atleta le pone nombre y
@@ -10225,9 +10351,11 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
           warmup={previewDay ? (plan.warmups || {})[routineOf(previewDay)] : ""}
           onClose={() => setPreviewDay(null)}
           onContinue={() => { const d = previewDay; setPreviewDay(null); if (d) setPidiendoGym(d); }} />
+        <PastSessionSheet open={pastOpen} days={plan.days} onClose={() => setPastOpen(false)}
+          onElegir={(day, fecha) => { setPastOpen(false); setPidiendoGym({ ...day, _fecha: fecha }); }} />
         <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
           onClose={() => setPidiendoGym(null)}
-          onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g); }} />
+          onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g, d._fecha); }} />
         {/* Empezar otro día con una sesión abierta descarta lo registrado,
             así que se avisa antes de preguntar siquiera el gimnasio. */}
         <Confirm open={!!confirmSwitch} danger title="Ya tienes una sesión en curso"
@@ -10354,7 +10482,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
     <>
       <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
         onClose={() => setPidiendoGym(null)}
-        onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g); }} />
+        onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g, d._fecha); }} />
       <FocusModeMono active={active} history={history} plan={plan} patch={patch} onOpenDevices={onOpenDevices} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
         timer={timer} finDescanso={finDescanso} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
         onStartRest={(seg, ei, si) => { setTimer({ exIdx: ei || 0, setIdx: si || 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
@@ -27647,7 +27775,10 @@ const App = () => {
       if (hasData) s.done = true;
     }));
     const h = structuredClone(history);
-    const date = todayISO();
+    // Sesión pasada (retroactiva): se archiva en la fecha que el atleta eligió
+    // (a.sessionDate), no en hoy — así cae en la semana correspondiente del
+    // Progreso y en el historial de cada ejercicio con la fecha real.
+    const date = a.sessionDate || todayISO();
     const durationMin = Math.max(1, Math.round((Date.now() - new Date(a.startedAt).getTime()) / 60000));
     const setsTotal = a.exs.reduce((acc, e) => acc + e.sets.length, 0);
     let volume = 0, setsDone = 0, hasComments = false;
