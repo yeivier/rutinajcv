@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v300";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v301";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -9394,8 +9394,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       {/* Barra de herramientas de la sesión, siempre a la vista (antes
           escondida tras el «···»): cambiar de tema claro/oscuro, arrancar
           un descanso a mano, deshacer/rehacer, la unidad de peso y el
-          video/fotos del día. Todo de un toque, sin abrir menús. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          video/fotos del día. Todo de un toque, sin abrir menús.
+          En Focus Mode se oculta: ahí la pantalla se deja lo más limpia
+          posible, solo con lo justo para registrar la serie. */}
+      {!focusUno && <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         {(() => {
           const isLight = themeMode !== "dark";
           const tbBtn = (key, Icon, label, onClick, on) => (
@@ -9442,15 +9444,19 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             </>
           );
         })()}
-      </div>
+      </div>}
 
       <div>
+        {/* En Focus se esconde el nombre del día y la barra de progreso:
+            la pantalla queda solo con el selector y la serie que toca. */}
+        {!focusUno && (
         <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${active.dayName} — ver la rutina completa`}
           style={{ display: "flex", alignItems: "flex-start", gap: 6, textAlign: "left", width: "100%" }}>
           <span style={{ fontSize: 16, fontWeight: 700, color: SES.ink, minWidth: 0, flex: 1,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</span>
           {onBrowseRoutine && <ChevronRight size={16} color={SES.faint} strokeWidth={2.6} style={{ flexShrink: 0 }} />}
         </button>
+        )}
         {/* Aviso de sesión retroactiva: deja claro que se está registrando un
             día pasado, no hoy — la fecha en la que quedará archivada. */}
         {active.backfilled && active.sessionDate && (
@@ -9461,12 +9467,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         )}
         {/* Cuánto de la sesión llevas hecho, en una barra. Antes era un
             tramo por ejercicio marcando en cuál estabas; ya no hace falta
-            porque están todos a la vista. */}
+            porque están todos a la vista. En Focus se oculta. */}
+        {!focusUno && (
         <div style={{ height: 3, borderRadius: 2, background: SES.line, marginTop: 8, overflow: "hidden" }}>
           <i style={{ display: "block", height: "100%", borderRadius: 2, background: SES.acc,
             width: `${totalSets ? Math.round((doneSets / totalSets) * 100) : 0}%`,
             transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
         </div>
+        )}
         {/* Selector rápido de vista: "Lista" (todo a la vista) o "Focus" (un
             ejercicio a la vez, para registrar con los menos toques posibles).
             Se recuerda entre sesiones. */}
@@ -9631,9 +9639,65 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 <ChevronRight size={20} strokeWidth={2.6} />
               </button>
             </div>
-            <div id={`fm-b-${bi}`} style={{ display: "flex", flexDirection: "column", gap: 6, scrollMarginTop: 56 }}>
-              {tablaDe(b, bi, ri)}
-            </div>
+            {(() => {
+              // Tarjeta minimalista de la serie: solo lo justo para registrar
+              // rápido — nombre, la serie, los tres campos, kg⇄lb y comentar.
+              const u = unitDeSerie(st, r.ei);
+              const isWarm = st && st.type === "warmup";
+              // Número de la serie DENTRO del ejercicio (aprox. aparte del trabajo).
+              let warmN = 0, workN = 0;
+              const exSets = exs[r.ei].sets;
+              for (let k2 = 0; k2 <= r.si; k2++) { if (exSets[k2].type === "warmup") warmN++; else workN++; }
+              const label = b.group ? `Ronda ${ri + 1}` : isWarm ? `Aprox. ${warmN}` : `Serie ${workN}`;
+              const meta = isWarm
+                ? (st.pctT || (st.repsT ? `${st.repsT} reps` : ""))
+                : [st.repsT ? `${st.repsT} reps` : null, st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null].filter(Boolean).join(" · ");
+              // Última vez en esta misma serie de trabajo, en una línea.
+              let ult = null;
+              if (!isWarm && !b.group) {
+                const en = history.byEx[exs[r.ei].id] || [];
+                const le = en.length ? en[en.length - 1] : null;
+                const pt = le ? seriesDeTrabajo(le.sets) : [];
+                const pv = pt[workN - 1];
+                if (pv && pv.weight !== "" && pv.weight != null) ult = `Última vez: ${kg(pesoMostrado(pv.weight, u))} ${u} × ${pv.reps ?? "—"}`;
+              }
+              const campo = (lab, val, onCommit, ph) => (
+                <div style={{ flex: 1, minWidth: 0, textAlign: "center" }}>
+                  <div className="mono" style={{ fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", color: SES.faint, marginBottom: 6 }}>{lab}</div>
+                  <NumCell aria={`${lab} de la ${label}`} placeholder={ph} valor={val} onCommit={onCommit} ancho={72} />
+                </div>
+              );
+              return (
+                <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: R_CARD, padding: 18 }}>
+                  <div style={{ fontSize: 19, fontWeight: 800, color: SES.ink, lineHeight: 1.15 }}>{exs[r.ei].name}</div>
+                  <div style={{ fontSize: 13, color: SES.faint, marginTop: 3 }}>
+                    {label}{meta ? ` · meta ${meta}` : ""}
+                  </div>
+                  {ult && <div style={{ fontSize: 12.5, color: SES.faint, marginTop: 2 }}>{ult}</div>}
+                  {/* Los tres campos, grandes y centrados: peso, reps y RIR. */}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, margin: "16px 0 4px" }}>
+                    {campo(`Peso ${u}`, st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, u)).replace(".", ","),
+                      (v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, u)))), u)}
+                    {campo("Reps", st.reps == null ? "" : String(st.reps), (v) => setVal(r.ei, r.si, "reps", v), "reps")}
+                    {campo("RIR", st.rir == null ? "" : String(st.rir), (v) => setVal(r.ei, r.si, "rir", v), "RIR")}
+                  </div>
+                  {/* Solo dos accesos, chicos: cambiar la unidad de esta serie y
+                      comentarla. Nada más, para no recargar la pantalla. */}
+                  <div style={{ display: "flex", gap: 18, marginTop: 10 }}>
+                    <button onClick={() => setVal(r.ei, r.si, "unit", u === "lb" ? "kg" : "lb")}
+                      aria-label={`Anotar esta serie en ${u === "lb" ? "kilos" : "libras"} (ahora ${u})`}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: SES.faint, background: "none", border: "none" }}>
+                      <ArrowUpDown size={13} /> {u}
+                    </button>
+                    <button onClick={() => openCmt(restKey(r.ei, r.si))}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: st.comment ? SES.acc : SES.faint, background: "none", border: "none" }}>
+                      <MessageSquare size={13} /> {st.comment ? "Editar comentario" : "Comentar"}
+                    </button>
+                  </div>
+                  {renderCommentBlock(r.ei, r.si)}
+                </div>
+              );
+            })()}
             {/* Puntos de progreso: una serie por punto; la actual resaltada,
                 las hechas llenas. Un toque salta a esa serie. */}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", padding: "2px 0" }}>
@@ -9675,8 +9739,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       )}
 
       {/* Añadir ejercicio EN VIVO — sirve tanto para el entrenamiento libre
-          como para sumar algo extra a una rutina cargada. */}
-      {puedeEditar && (
+          como para sumar algo extra a una rutina cargada. En Focus se oculta. */}
+      {puedeEditar && !focusUno && (
         <button onClick={onAddExercise}
           style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
             padding: "13px 6px", borderRadius: R_TILE, background: SES.campo, color: SES.acc,
@@ -9690,7 +9754,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           sola vez: quedaba en el historial pero había que rearmarlo
           ejercicio por ejercicio la próxima. Se guarda la estructura
           (ejercicios, series y objetivos), no los pesos de hoy. */}
-      {onGuardarRutina && exs.some((ex) => (ex.name || "").trim() && seriesDeTrabajo(ex.sets).length > 0) && (
+      {!focusUno && onGuardarRutina && exs.some((ex) => (ex.name || "").trim() && seriesDeTrabajo(ex.sets).length > 0) && (
         <button onClick={onGuardarRutina}
           style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
             marginTop: 8, padding: "13px 6px", borderRadius: R_TILE, background: SES.campo, color: SES.dim,
@@ -9704,7 +9768,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       <div style={{ marginTop: 4 }}>
         {/* Verde solo cuando la sesión quedó completa — mientras se está
             entrenando es un botón gris más, no compite con la serie
-            activa por la atención. */}
+            activa por la atención. En Focus se ocultan estos dos: el cierre
+            va con la última «Siguiente» y con la ✕ de arriba. */}
+        {!focusUno && (
         <button onClick={() => setSalida(true)}
           style={{ width: "100%", padding: "15px 6px", borderRadius: R_TILE,
             background: doneSets === totalSets ? SES.acc : SES.campo, color: doneSets === totalSets ? SES.accInk : SES.dim,
@@ -9712,11 +9778,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             fontSize: 15, fontWeight: 700 }}>
           {doneSets === 0 ? "Terminar sesión" : doneSets === totalSets ? "Terminar sesión · completa" : `Terminar sesión · ${doneSets} de ${totalSets}`}
         </button>
+        )}
+        {!focusUno && (
         <button onClick={() => setExiting(true)}
           style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", marginTop: 8,
             background: "none", border: "none", color: SES.faint, fontSize: 13, fontWeight: 600 }}>
           <BarChart3 size={14} /> Cómo va la sesión
         </button>
+        )}
         {/* Nadie tiene que acordarse de guardar. Se dice una vez, chico
             y abajo, para que no haga falta preguntarlo. */}
         <div className="mono" style={{ fontSize: 11, color: SES.faint, textAlign: "center", marginTop: 10, letterSpacing: ".05em" }}>
