@@ -8,7 +8,7 @@ import {
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText, Volume2,
   UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, Pill,
-  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette
+  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette, Crosshair, List
 } from "lucide-react";
 
 /* ============================================================
@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v298";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v299";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8677,6 +8677,13 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // Qué serie tiene abierto el teclado de discos (clave "ei-si"), o null.
   const [discosEn, setDiscosEn] = useState(null);
   const [tipoEn, setTipoEn] = useState(null); // {ei, si} de la serie cuyo tipo se está eligiendo
+  // Focus Mode: modo aparte que se activa rápido (segmentado "Lista / Focus")
+  // y se recuerda. En Focus se ve UN ejercicio a la vez —la misma tabla de
+  // series, con todos sus controles— para registrar con los menos toques
+  // posibles, sin la lista entera compitiendo por la atención.
+  const [focusUno, setFocusUnoState] = useState(() => { try { return localStorage.getItem("forja-focus-uno") === "1"; } catch { return false; } });
+  const setFocusUno = (v) => { setFocusUnoState(v); try { localStorage.setItem("forja-focus-uno", v ? "1" : "0"); } catch {} };
+  const [curBlock, setCurBlock] = useState(0); // ejercicio/bloque visible en Focus Mode
   // Ajuste de carga por prontitud: guarda el estado previo para poder
   // deshacerlo. Es una sugerencia que el atleta acepta, no una
   // decisión que la app toma por él.
@@ -8797,6 +8804,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     // el estado vacío + "Añadir ejercicio".
     return out;
   }, [exs]);
+
+  // Al entrar a Focus Mode, empezar en el ejercicio activo (el primer bloque
+  // con series pendientes) para no tener que buscarlo.
+  useEffect(() => {
+    if (!focusUno || !blocks.length) return;
+    const activo = blocks.findIndex((b) => b.rows.some((r) => exs[r.ei].sets[r.si] && !exs[r.ei].sets[r.si].done));
+    setCurBlock(activo >= 0 ? activo : (bi) => Math.min(bi, blocks.length - 1));
+  }, [focusUno]);
 
   // El progreso de la sesión se mide sobre las SERIES DE TRABAJO: las de
   // aproximación (calentamiento) se anotan igual pero no cuentan para el
@@ -9443,6 +9458,25 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             width: `${totalSets ? Math.round((doneSets / totalSets) * 100) : 0}%`,
             transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
         </div>
+        {/* Selector rápido de vista: "Lista" (todo a la vista) o "Focus" (un
+            ejercicio a la vez, para registrar con los menos toques posibles).
+            Se recuerda entre sesiones. */}
+        {blocks.length > 1 && (
+          <div role="tablist" aria-label="Vista de la sesión"
+            style={{ display: "flex", gap: 3, marginTop: 10, padding: 3, background: SES.campo, borderRadius: 11, border: `1px solid ${SES.line}` }}>
+            {[["list", "Lista", false], ["focus", "Focus", true]].map(([id, label, val]) => {
+              const activo = focusUno === val;
+              return (
+                <button key={id} role="tab" aria-selected={activo} onClick={() => setFocusUno(val)}
+                  style={{ flex: 1, padding: "7px 0", borderRadius: 8, fontSize: 13.5, fontWeight: 700,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    background: activo ? SES.acc : "transparent", color: activo ? SES.accInk : SES.dim, border: "none" }}>
+                  {val ? <Crosshair size={14} /> : <List size={14} />} {label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* La sesión entera, ejercicio por ejercicio, hacia abajo. Cada uno
@@ -9454,7 +9488,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           está ni de saltar a un ejercicio sin arrastrar. El activo (primer
           bloque con series pendientes) va en tinta; los terminados, con
           tilde; un toque lleva al bloque. */}
-      {blocks.length > 1 && (() => {
+      {!focusUno && blocks.length > 1 && (() => {
         const bloqueActivo = blocks.findIndex((b) => b.rows.some((r) => !exs[r.ei].sets[r.si].done));
         return (
           <div style={{ position: "sticky", top: "env(safe-area-inset-top)", zIndex: 30, margin: "0 -16px", padding: "8px 16px",
@@ -9553,12 +9587,66 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         );
       })()}
 
-      {blocks.map((b, bi) => (
-        <div key={bi} id={`fm-b-${bi}`} style={{ display: "flex", flexDirection: "column", gap: 6, scrollMarginTop: 56 }}>
-          {tablaDe(b, bi)}
-          {accionesDe(b, bi)}
-        </div>
-      ))}
+      {focusUno && blocks.length > 0 ? (() => {
+        // Focus Mode: un solo ejercicio a la vista, con toda su tabla de
+        // series. Cabecera con "Ejercicio i/N" y saltos ◀ ▶; abajo, un botón
+        // grande para pasar al siguiente ejercicio (o al primero pendiente).
+        const bi = Math.min(Math.max(0, curBlock), blocks.length - 1);
+        const b = blocks[bi];
+        const bloqueListo = (bb) => bb.rows.every((r) => { const s = exs[r.ei].sets[r.si]; return s && (s.type === "warmup" || s.done); });
+        const proxPendiente = () => {
+          for (let k = 1; k <= blocks.length; k++) { const j = (bi + k) % blocks.length; if (!bloqueListo(blocks[j])) return j; }
+          return -1;
+        };
+        const irA = (j) => { setCurBlock(j); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {} };
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 2 }}>
+              <button onClick={() => irA(Math.max(0, bi - 1))} disabled={bi === 0} aria-label="Ejercicio anterior"
+                style={{ width: 40, height: 40, borderRadius: 12, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink,
+                  display: "flex", alignItems: "center", justifyContent: "center", opacity: bi === 0 ? 0.4 : 1, flexShrink: 0 }}>
+                <ChevronLeft size={20} strokeWidth={2.6} />
+              </button>
+              <div className="mono" style={{ fontSize: 12, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint }}>
+                Ejercicio {bi + 1} / {blocks.length}
+              </div>
+              <button onClick={() => irA(Math.min(blocks.length - 1, bi + 1))} disabled={bi === blocks.length - 1} aria-label="Siguiente ejercicio"
+                style={{ width: 40, height: 40, borderRadius: 12, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink,
+                  display: "flex", alignItems: "center", justifyContent: "center", opacity: bi === blocks.length - 1 ? 0.4 : 1, flexShrink: 0 }}>
+                <ChevronRight size={20} strokeWidth={2.6} />
+              </button>
+            </div>
+            <div id={`fm-b-${bi}`} style={{ display: "flex", flexDirection: "column", gap: 6, scrollMarginTop: 56 }}>
+              {tablaDe(b, bi)}
+              {accionesDe(b, bi)}
+            </div>
+            {/* Un toque para avanzar: al primer ejercicio pendiente si este ya
+                está completo, o al siguiente de la lista. */}
+            {(() => {
+              const listo = bloqueListo(b);
+              const prox = proxPendiente();
+              const btnBase = { width: "100%", marginTop: 4, padding: "14px 6px", borderRadius: R_TILE, fontSize: 15, fontWeight: 700,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 };
+              if (listo && prox >= 0) {
+                return <button onClick={() => irA(prox)} style={{ ...btnBase, background: SES.acc, color: SES.accInk, border: `1px solid ${SES.acc}` }}>
+                  Siguiente ejercicio <ChevronRight size={17} /></button>;
+              }
+              if (bi < blocks.length - 1) {
+                return <button onClick={() => irA(bi + 1)} style={{ ...btnBase, background: SES.campo, color: SES.dim, border: `1px solid ${SES.line}` }}>
+                  Ir al siguiente ejercicio <ChevronRight size={16} /></button>;
+              }
+              return null;
+            })()}
+          </div>
+        );
+      })() : (
+        blocks.map((b, bi) => (
+          <div key={bi} id={`fm-b-${bi}`} style={{ display: "flex", flexDirection: "column", gap: 6, scrollMarginTop: 56 }}>
+            {tablaDe(b, bi)}
+            {accionesDe(b, bi)}
+          </div>
+        ))
+      )}
 
       {/* Sesión vacía (entrenamiento libre) recién empezada: guía en vez de
           una pantalla en blanco. */}
