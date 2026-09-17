@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v305";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v306";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -14512,19 +14512,33 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
   );
 };
 
-const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
+const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso, history }) => {
   const [easy] = useEasyMode();
   const [d, setD] = useState(ex);
   const [attachErr, setAttachErr] = useState("");
   const [preview, setPreview] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   useEffect(() => { setD(ex); setAttachErr(""); }, [ex]);
+  // Sugerencia de series/RIR según el historial REAL de este ejercicio — se
+  // calcula una vez al abrir (con las series que tenía guardadas), no en
+  // cada tecleo del coach mientras edita.
+  const sug = useMemo(() => (ex ? sugerenciaEjercicio(ex.id, ex.sets, history) : null), [ex && ex.id, ex && ex.sets, history]);
   if (!ex || !d) return null;
   const set = (p) => setD((x) => ({ ...x, ...p }));
+  const aplicarSugerencia = () => {
+    if (!sug || !sug.accion) return;
+    if (sug.accion.tipo === "rir") {
+      set({ sets: (d.sets || []).map((s) => (s.type === "warmup" ? s : { ...s, rirT: String(sug.accion.rir) })) });
+    } else if (sug.accion.tipo === "series") {
+      const trabajo = (d.sets || []).filter((s) => s.type !== "warmup");
+      const base = trabajo[trabajo.length - 1] || d.sets[d.sets.length - 1];
+      if (base) set({ sets: [...d.sets, { ...base, id: uid() }] });
+    }
+  };
   return (
     <Sheet open={!!ex} onClose={onClose} title={ex.isNew ? "Nuevo ejercicio" : "Editar ejercicio"} tall>
       <Field label="Imagen del catálogo"
-        hint="Sale del catálogo de 1.323 ejercicios. Se ve en la rutina y al entrenar, y trae los pasos de ejecución.">
+        hint="Sale del catálogo de 2.199 ejercicios. Se ve en la rutina y al entrenar, y trae los pasos de ejecución.">
         <CatalogLinkRow catId={d.catId} nombre={d.name} onOpen={() => setPickerOpen(true)} />
       </Field>
       <CatalogPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} nombre={d.name}
@@ -14577,6 +14591,23 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso }) => {
         }}><Plus size={14} /> Añadir músculo secundario</Btn>
       </Field>
       </>}
+      {sug && (
+        <Card style={{ padding: "12px 14px", marginBottom: 14, borderColor: `${sug.tono === "alerta" ? P.red : sug.tono === "ok" ? SES.acc : P.blue}55` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+            <Sparkles size={14} color={sug.tono === "alerta" ? P.red : sug.tono === "ok" ? SES.acc : P.blue} style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: 14.5, fontWeight: 700, color: P.text }}>{sug.titulo}</span>
+          </div>
+          <div style={{ fontSize: 13, color: P.dim, lineHeight: 1.45 }}>{sug.detalle}</div>
+          <div style={{ fontSize: 11.5, color: P.faint2, marginTop: 5 }}>
+            Según la sesión del {fmtDate(sug.fecha)} ({sug.n} serie{sug.n !== 1 ? "s" : ""} con RIR anotado).
+          </div>
+          {sug.accion && (
+            <Btn kind="ember" small onClick={aplicarSugerencia} style={{ marginTop: 9 }}>
+              <Check size={13} /> {sug.accion.tipo === "rir" ? `Poner RIR ${sug.accion.rir} en todas las series` : `Sumar una serie más (${sug.accion.series})`}
+            </Btn>
+          )}
+        </Card>
+      )}
       <Field label="Series"><SetsEditor sets={d.sets} onChange={(sets) => set({ sets })} onInfo={onInfo} exRest={d.rest} /></Field>
       <Field label="Vista previa del alumno" hint="Así verá el alumno este ejercicio al entrenar. Para armar una superserie/triserie une este ejercicio con el siguiente usando el clip de la lista de ejercicios.">
         <div style={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 11, padding: "11px 12px" }}>
@@ -15153,6 +15184,67 @@ function recomendacionCiclo(plan, history) {
   return { titulo, detalle, accion, tono, prog, esUltimaSemana, hayProximoMeso, semanaActual: idx + 1, semanas, faltanSemanas, macro };
 }
 
+/* Sugerencia de la IA para UN ejercicio: series, RIR e intensidad para la
+   PRÓXIMA vez, según cómo le fue al atleta la última vez que lo hizo —
+   comparando el RIR que en verdad logró (`s.rir`, lo que anotó al terminar
+   la serie) contra el RIR que tenía de objetivo (`s.rirT`). Mismo espíritu
+   que recomendacionCiclo: heurística local (autorregulación por RIR, un
+   criterio estándar de programación), sin llamar a la IA en la nube — y
+   TODO queda como sugerencia con botón «Aplicar»: el coach decide, nunca
+   se pisa el objetivo solo. Devuelve null si no hay una sesión reciente
+   con series marcadas como hechas y con RIR anotado (nada que opinar). */
+function sugerenciaEjercicio(exId, sets, history) {
+  if (!exId) return null;
+  const entradas = ((history && history.byEx) || {})[exId] || [];
+  if (!entradas.length) return null;
+  const ultima = entradas[entradas.length - 1];
+  const hechas = (ultima.sets || []).filter((s) =>
+    s.done && s.rir !== "" && s.rir != null && isFinite(+s.rir) && s.rirT !== "" && s.rirT != null && isFinite(+s.rirT));
+  if (hechas.length < 2) return null;
+
+  // Diferencia RIR logrado − RIR objetivo, promediada. Positiva = le sobró
+  // margen (más fácil de lo pedido); negativa = llegó más cerca del fallo
+  // de lo pedido.
+  let sumaDif = 0, sumaObjetivo = 0, fallos = 0;
+  hechas.forEach((s) => {
+    const objetivo = +s.rirT, logrado = +s.rir;
+    sumaDif += (logrado - objetivo);
+    sumaObjetivo += objetivo;
+    if (logrado <= 0 && objetivo > 0) fallos++;
+  });
+  const promDif = sumaDif / hechas.length;
+  const rirActual = Math.round(sumaObjetivo / hechas.length);
+  const seriesActuales = (sets || []).filter((s) => s.type !== "warmup").length || hechas.length;
+
+  let titulo, detalle, tono, rirSugerido = rirActual, seriesSugeridas = seriesActuales, accion = null;
+  if (fallos >= Math.ceil(hechas.length / 2)) {
+    rirSugerido = Math.min(4, rirActual + 1);
+    titulo = "Bajale un cambio"; tono = "alerta";
+    detalle = `La última vez llegó al fallo en ${fallos} de ${hechas.length} series sin que fuera la meta. Subile el RIR objetivo a ${rirSugerido} para la próxima.`;
+    accion = { tipo: "rir", rir: rirSugerido };
+  } else if (promDif <= -1.2) {
+    rirSugerido = Math.min(4, rirActual + 1);
+    titulo = "Viene muy exigido"; tono = "alerta";
+    detalle = `El RIR real vino ${Math.abs(promDif).toFixed(1)} por debajo del objetivo en promedio. Subí el RIR objetivo a ${rirSugerido} (más margen) para la próxima.`;
+    accion = { tipo: "rir", rir: rirSugerido };
+  } else if (promDif >= 1.2 && rirActual > 0) {
+    rirSugerido = Math.max(0, rirActual - 1);
+    titulo = "Le sobró margen"; tono = "ok";
+    detalle = `El RIR real vino ${promDif.toFixed(1)} por arriba del objetivo en promedio: le sobró recorrido. Bajá el RIR objetivo a ${rirSugerido} para exigir más.`;
+    accion = { tipo: "rir", rir: rirSugerido };
+  } else if (promDif >= 1.2 && rirActual <= 0) {
+    seriesSugeridas = seriesActuales + 1;
+    titulo = "Puede sumar una serie"; tono = "ok";
+    detalle = `Ya está al RIR objetivo mínimo y le sobra margen: en vez de seguir bajando el RIR, sumale una serie (${seriesSugeridas} en total) para la próxima.`;
+    accion = { tipo: "series", series: seriesSugeridas };
+  } else {
+    titulo = "Vas bien, mantené"; tono = "neutro";
+    detalle = `El RIR real quedó cerca del objetivo (RIR ${rirActual}). Mantené series, reps y RIR como están.`;
+  }
+
+  return { titulo, detalle, tono, accion, rirActual, rirSugerido, seriesActuales, seriesSugeridas, n: hechas.length, fecha: ultima.date };
+}
+
 const MesociclosPanel = ({ plan, savePlan, toast, startOpen = false }) => {
   // La tarjeta entera arranca colapsada — antes, entrar a Rutina abría de
   // entrada toda esta sección (texto explicativo, botón "Sin mesociclo" y
@@ -15292,7 +15384,13 @@ const MesociclosPanel = ({ plan, savePlan, toast, startOpen = false }) => {
           {state.mesociclos.map((m) => {
             const open = openMesoId === m.id;
             const isCurrent = state.currentMesoId === m.id;
-            const cur = m.weeks[Math.min(m.current || 0, m.weeks.length - 1)];
+            // Blindaje: un mesociclo con `weeks` vacío (dato viejo, o una
+            // importación que falló a mitad de camino) no debe tirar abajo
+            // TODO el panel — antes `m.weeks[...]` daba `undefined` y leer
+            // `cur.name` reventaba el render de la lista entera, dejando
+            // sin clic ni ese mesociclo ni los demás.
+            const semanas = (m.weeks && m.weeks.length) ? m.weeks : [{ id: "sin-semanas", name: "Semana 1", deload: false }];
+            const cur = semanas[Math.min(m.current || 0, semanas.length - 1)];
             const dragging = mesoDragging === m.id;
             return (
               <div key={m.id} data-mesociclo={m.id}
@@ -15662,7 +15760,7 @@ const LibraryPanel = ({ plan, history, library, onSaveLibrary, onInfo, toast, on
         ))
       )}
 
-      <ExerciseEditorSheet ex={editEx} onClose={() => setEditEx(null)} onInfo={onInfo}
+      <ExerciseEditorSheet ex={editEx} onClose={() => setEditEx(null)} onInfo={onInfo} history={history}
         onSave={(exd) => { const { isNew, ...clean } = exd; mut((next) => {
           const i = next.findIndex((x) => x.id === clean.id);
           if (i >= 0) next[i] = clean; else next.push(clean);
@@ -15943,6 +16041,20 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
   const [fichaEx, setFichaEx] = useState(null); // ejercicio con la ficha técnica abierta (vista previa del coach)
   const [viewImg, setViewImg] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
+  // Todas las hojas de esta pestaña (Editar ejercicio, Confirmar borrado,
+  // Importar rutina, catálogo de ejercicio, ficha técnica, imagen ampliada)
+  // viven FUERA del if de "Días"/"Periodización"/"Biblioteca" — a propósito,
+  // para no perder su estado si el coach cambia de sub-pestaña a mitad de
+  // edición. Pero eso significa que si una se queda abierta y el coach
+  // cambia de sub-pestaña de otra forma (o de alumno), su scrim de pantalla
+  // completa se queda tapando TODO lo de abajo — clics que no responden en
+  // ninguna sub-pestaña, aunque se vea "normal". Cambiar de sub-pestaña
+  // cierra cualquier hoja que hubiera quedado abierta, así nunca puede
+  // pasar.
+  useEffect(() => {
+    setEditEx(null); setDel(null); setImportOpen(false); setBulkOpen(false);
+    setCatalogoDia(null); setFichaEx(null); setViewImg(null);
+  }, [view]);
   const toggleRoutine = (key) => setOpenRoutines((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]));
   // Ocultar/mostrar una rutina para el alumno actual. Nunca deja que el
   // alumno se quede sin ninguna rutina visible.
@@ -16635,7 +16747,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       </div>
       </>)}
 
-      <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo} meso={currentMesociclo(plan)}
+      <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo} meso={currentMesociclo(plan)} history={history}
         onSave={(exd) => { const { isNew, ...clean } = exd; mut((p) => { const day = p.days.find((x) => x.id === editEx.dayId);
           const i = day.exs.findIndex((x) => x.id === clean.id);
           if (i >= 0) day.exs[i] = clean; else day.exs.push(clean); }); setEditEx(null); }} />
@@ -16683,7 +16795,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
    reescribiendo estilos de un formulario con 13 tipos de serie.
    ============================================================ */
 
-const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBack }) => {
+const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBack, history }) => {
   const [editEx, setEditEx] = useState(null); // { ex }
   const [openExId, setOpenExId] = useState(null);
   const [del, setDel] = useState(null); // { exId, name }
@@ -16798,7 +16910,7 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
         </MonoCard>
       )}
 
-      <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo} meso={currentMesociclo(plan)}
+      <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo} meso={currentMesociclo(plan)} history={history}
         onSave={(exd) => { const { isNew, ...clean } = exd; mut((p) => { const dd = p.days[dayIndex];
           const i = dd.exs.findIndex((x) => x.id === clean.id);
           if (i >= 0) dd.exs[i] = clean; else dd.exs.push(clean); }); setEditEx(null); }} />
@@ -16820,7 +16932,7 @@ const RoutineTabMono = (props) => {
   if (openDayId) {
     const idx = plan.days.findIndex((d) => d.id === openDayId);
     if (idx < 0) { setOpenDayId(null); return null; } // el día se borró en otro lado — la próxima vuelta cae a la lista
-    return <RoutineDayEditorMono plan={plan} savePlan={savePlan} dayIndex={idx} onInfo={onInfo} student={student} onBack={() => setOpenDayId(null)} />;
+    return <RoutineDayEditorMono plan={plan} savePlan={savePlan} dayIndex={idx} onInfo={onInfo} student={student} onBack={() => setOpenDayId(null)} history={props.history} />;
   }
 
   return (
@@ -26459,7 +26571,7 @@ const LandingView = ({ onAtleta, onEntrenador, onLogin }) => {
         <div style={{ display: "grid", gap: 14 }}>
           {[
             { Icon: Dumbbell, r: "Para el atleta", t: "Entrena con método", bullets: ["Mesociclos y plantillas serias (PPL, Upper/Lower, Full body)", "Logger rápido con RIR, historial y timer de descanso", "e1RM, volumen por músculo y check-ins de físico"], cta: onAtleta, ctaTxt: "Empezar como atleta" },
-            { Icon: ClipboardList, r: "Para el entrenador", t: "Gestiona tus atletas", bullets: ["Biblioteca de bloques y 1.300+ ejercicios con demo", "Asigna un bloque a uno o varios atletas en un minuto", "Adherencia, últimas sesiones y check-ins en un panel"], cta: onEntrenador, ctaTxt: "Empezar como entrenador" },
+            { Icon: ClipboardList, r: "Para el entrenador", t: "Gestiona tus atletas", bullets: ["Biblioteca de bloques y 2.200+ ejercicios con demo", "Asigna un bloque a uno o varios atletas en un minuto", "Adherencia, últimas sesiones y check-ins en un panel"], cta: onEntrenador, ctaTxt: "Empezar como entrenador" },
           ].map((c) => (
             <div key={c.r} style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_CARD, padding: 22 }}>
               <div style={{ width: 44, height: 44, borderRadius: 12, background: hexRgba(P.ember, 0.14),
@@ -28690,7 +28802,15 @@ const App = () => {
         )}
         {mode === "coach" && sub === "rutina" && (
           <ReadOnlyLock active={roleTabAccess.rutina === "view"} toast={toast}>
-            <RoutineTabRouter plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history}
+            {/* key=sid: si el coach cambia de alumno con una hoja abierta
+                (editar ejercicio, borrar, importar…), esa hoja vive FUERA
+                del contenido de cada sub-pestaña (ver el useEffect junto a
+                sus useState) — sin remontar, seguiría "abierta" pero ahora
+                sobre el plan del alumno nuevo, con su scrim de pantalla
+                completa tapando todo. El key fuerza un remontado limpio en
+                cada cambio de alumno, así nunca puede quedar una hoja
+                fantasma bloqueando la pantalla. */}
+            <RoutineTabRouter key={currentStudent ? currentStudent.id : "self"} plan={plan} savePlan={savePlan} onInfo={onInfo} toast={toast} history={history}
               student={currentStudent} onUpdateStudent={(patch) => currentStudent && updateStudent(currentStudent.id, patch)}
               library={library} onSaveLibrary={saveLibrary} onOpenCompare={() => setCompareOpen(true)} />
           </ReadOnlyLock>
