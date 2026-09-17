@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v310";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v311";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -9898,7 +9898,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           patch(() => clone);
         }}
         onDeshacer={() => { if (ajusteHecho) { patch(() => ajusteHecho.antes); setAjusteHecho(null); } }} />
-      <RetoSesion exs={exs} history={history} />
+      {/* En Focus el reto de la sesión ya no cabe: es una tarjeta pensada
+          para verse de un vistazo entre ejercicios (Lista), y ahí compite
+          por espacio con la serie que se está anotando ahora mismo, arriba
+          de todo lo demás. En Focus alcanza con la línea de "Última vez"
+          que ya trae cada serie. */}
+      {!focusUno && <RetoSesion exs={exs} history={history} />}
 
       {/* Calentamiento GENERAL de la sesión (cardio · movilidad · activación):
           arriba de todo, plegable y como CHECKLIST tildable — se "registra"
@@ -10029,9 +10034,16 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     {campo("Reps", st.reps == null ? "" : String(st.reps), (v) => setVal(r.ei, r.si, "reps", v), "reps")}
                     {campo("RIR", st.rir == null ? "" : String(st.rir), (v) => setVal(r.ei, r.si, "rir", v), "RIR")}
                   </div>
-                  {/* Solo dos accesos, chicos: cambiar la unidad de esta serie y
-                      comentarla. Nada más, para no recargar la pantalla. */}
+                  {/* Tres accesos chicos: historial del ejercicio, cambiar la
+                      unidad de esta serie y comentarla. El historial faltaba
+                      acá — en Focus no había forma de abrirlo, a diferencia
+                      de Lista, que sí lo tiene entre sus acciones. */}
                   <div style={{ display: "flex", gap: 18, marginTop: 10 }}>
+                    <button onClick={() => setHistEx(b.group ? b.members[0] : r.ei)}
+                      aria-label={`Historial de ${exs[r.ei].name}`}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: SES.faint, background: "none", border: "none" }}>
+                      <History size={13} /> Historial
+                    </button>
                     <button onClick={() => setVal(r.ei, r.si, "unit", u === "lb" ? "kg" : "lb")}
                       aria-label={`Anotar esta serie en ${u === "lb" ? "kilos" : "libras"} (ahora ${u})`}
                       style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: SES.faint, background: "none", border: "none" }}>
