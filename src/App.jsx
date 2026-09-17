@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v311";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v312";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -9049,6 +9049,49 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // había ninguna. Ahora la "✕" siempre ofrece las cuatro salidas.
   const [salida, setSalida] = useState(false);
   const [histEx, setHistEx] = useState(null);
+  // Reordenar series con "mantén pulsado y arrastra" — mismo mecanismo que
+  // ya usa el editor de rutina para ejercicios y días (useHoldDragHandle +
+  // DragHandle). Sirve para acomodar una serie que cayó en el lugar
+  // equivocado: "Añadir serie" siempre la agrega al final, así que una WRM
+  // de más queda mezclada con las de trabajo hasta que se la sube a mano,
+  // junto con las otras WRM. Solo dentro del mismo ejercicio — no tiene
+  // sentido arrastrar una serie de un ejercicio a otro.
+  const [setDragging, setSetDragging] = useState(null); // {ei, si}
+  const [setDragOver, setSetDragOver] = useState(null); // {ei, si}
+  const setDragRef = useRef({ blockUntil: 0 });
+  const setFromRef = useRef(null);
+  const setOverRef = useRef(null);
+  const startSetDrag = (ei, si) => {
+    setFromRef.current = { ei, si }; setOverRef.current = null;
+    setSetDragging({ ei, si });
+    document.body.classList.add("fj-dragging");
+  };
+  const setDragMove = (clientY) => {
+    const from = setFromRef.current;
+    if (!from) return;
+    autoScrollNearEdge(clientY);
+    const candidates = Array.from(document.querySelectorAll("[data-set-row]")).filter((c) => +c.getAttribute("data-set-ei") === from.ei);
+    const card = elementUnderY(candidates, clientY);
+    const overSi = card ? +card.getAttribute("data-set-si") : null;
+    setOverRef.current = overSi != null ? { ei: from.ei, si: overSi } : null;
+    setSetDragOver(setOverRef.current);
+  };
+  const endSetDrag = () => {
+    const from = setFromRef.current, to = setOverRef.current;
+    if (from) {
+      setDragRef.current.blockUntil = Date.now() + 250;
+      if (to && to.ei === from.ei && to.si !== from.si) {
+        const sets = [...exs[from.ei].sets];
+        const [moved] = sets.splice(from.si, 1);
+        const insertAt = to.si > from.si ? to.si - 1 : to.si;
+        sets.splice(insertAt, 0, moved);
+        patchEx(from.ei, { sets });
+      }
+    }
+    setFromRef.current = null; setOverRef.current = null;
+    document.body.classList.remove("fj-dragging");
+    setSetDragging(null); setSetDragOver(null);
+  };
   // "···" de la fila activa: deshacer/rehacer, borrar la serie, comentario
   // y unidad — todo lo que en el diseño anterior vivía como 4 íconos
   // sueltos en la tarjeta y ahora se junta en una sola hoja chica.
@@ -9508,8 +9551,15 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 Series de trabajo
               </div>
             )}
-            <div
-              style={{ padding: "10px 0", borderBottom: i < block.rows.length - 1 ? `1px solid ${SES.line}` : "none" }}>
+            <div data-set-row data-set-ei={r.ei} data-set-si={r.si}
+              onClickCapture={(ev) => { if (Date.now() < (setDragRef.current.blockUntil || 0)) { ev.stopPropagation(); ev.preventDefault(); } }}
+              style={{ padding: "10px 0", borderBottom: i < block.rows.length - 1 ? `1px solid ${SES.line}` : "none",
+                background: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? SES.campo : "transparent",
+                boxShadow: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_SHADOW : "none",
+                transform: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_TRANSFORM
+                  : (setDragOver && setDragOver.ei === r.ei && setDragOver.si === r.si && setDragging && setDragging.si !== r.si ? "scale(.98)" : "none"),
+                borderRadius: (setDragging && setDragging.ei === r.ei && setDragging.si === r.si) || (setDragOver && setDragOver.ei === r.ei && setDragOver.si === r.si) ? 10 : 0,
+                transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 5 }}>
               <div style={{ flex: 1, minWidth: 0, paddingRight: 6 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -9529,6 +9579,19 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                   ) : (tipo && st.type !== "normal" && !isWarm && (
                     <span className="mono" style={{ fontSize: 9.5, letterSpacing: ".05em", color: SES.dim, background: SES.campo, borderRadius: 5, padding: "1px 6px" }}>{tipo}</span>
                   ))}
+                  {/* Reordenar series: mantén pulsado y arrastra hasta el
+                      lugar que corresponde — por ejemplo, subir una WRM que
+                      "Añadir serie" agregó al final hasta juntarla con las
+                      otras WRM. Solo en ejercicios simples: en superserie
+                      las filas son rondas, no series propias. */}
+                  {puedeEditar && !block.group && (
+                    <DragHandle active={!!(setDragging && setDragging.ei === r.ei && setDragging.si === r.si)}
+                      label={`Mantén pulsado y arrastra para mover la ${dónde}`}
+                      onActivate={() => startSetDrag(r.ei, r.si)}
+                      onDragMove={setDragMove}
+                      onDragEnd={endSetDrag}
+                      style={{ margin: "0 0 0 auto", minWidth: 30, minHeight: 30, padding: 4 }} />
+                  )}
                 </div>
                 {block.group && <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2 }}>{exx.name}</div>}
                 <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{detalle}</div>
