@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v312";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v313";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7308,15 +7308,36 @@ const EX_METRICS = [
   { id: "e1rm", label: "e1RM", unit: "kg", calc: (x) => x.e1rm },
   { id: "reps", label: "Reps", unit: "", calc: (x) => x.totalReps },
 ];
-const ExerciseProgress = ({ entries }) => {
+const ExerciseProgress = ({ entries, sessions }) => {
   const [range, setRange] = useState("3m");
   const [metric, setMetric] = useState("peso");
+  const [gymFiltro, setGymFiltro] = useState("todos");
   const all = entries || [];
+
+  // A qué gimnasio pertenece cada sesión (por sessionId) — el peso/e1RM no
+  // es comparable entre gimnasios (discos, máquinas y calibraciones
+  // distintas), así que mezclarlos todos en una sola curva puede
+  // confundir más de lo que ayuda. `entries` (history.byEx) no trae el
+  // gimnasio; vive en `history.sessions`, se cruza acá por sessionId.
+  const gymDeSesion = useMemo(() => {
+    const m = new Map();
+    (sessions || []).forEach((s) => m.set(s.id, (s.gym || "").trim()));
+    return m;
+  }, [sessions]);
+  const gimnasios = useMemo(() => {
+    const set = new Set();
+    all.forEach((en) => { const g = gymDeSesion.get(en.sessionId); if (g) set.add(g); });
+    return [...set].sort((a, b) => a.localeCompare(b, "es"));
+  }, [all, gymDeSesion]);
+  // Si el gimnasio elegido dejó de aparecer (cambiaste de rango, o ya no
+  // hay registros ahí) se vuelve a "Todos" en vez de mostrar una curva vacía.
+  useEffect(() => { if (gymFiltro !== "todos" && !gimnasios.includes(gymFiltro)) setGymFiltro("todos"); }, [gimnasios, gymFiltro]);
+  const porGym = gymFiltro === "todos" ? all : all.filter((en) => gymDeSesion.get(en.sessionId) === gymFiltro);
 
   // Para cada sesión registrada: mejor peso, volumen (Σ peso × reps),
   // e1RM estimado (Epley sobre la mejor serie) y reps totales. Solo cuentan
   // las series hechas que no sean de calentamiento.
-  const withBest = useMemo(() => all.map((en) => {
+  const withBest = useMemo(() => porGym.map((en) => {
     const done = (en.sets || []).filter((s) => s.done && s.weight !== "" && s.type !== "warmup");
     const best = done.length ? Math.max(...done.map((s) => +s.weight)) : null;
     const totalReps = done.reduce((a, s) => a + (+s.reps || 0), 0);
@@ -7328,7 +7349,7 @@ const ExerciseProgress = ({ entries }) => {
       return Math.max(m, Math.round(e1rmDe(w, r, ri) || 0));
     }, 0) || null;
     return { en, best, setsDone: done.length, totalReps, volumen, e1rm };
-  }).filter((x) => x.best != null), [all]);
+  }).filter((x) => x.best != null), [porGym]);
 
   const rangeDef = PROGRESS_RANGES.find((r) => r.id === range) || PROGRESS_RANGES[2];
   const cutoff = rangeDef.days ? Date.now() - rangeDef.days * 86400000 : null;
@@ -7354,17 +7375,42 @@ const ExerciseProgress = ({ entries }) => {
   const rangeDelta = filtered.length >= 2
     ? (metricDef.calc(filtered[filtered.length - 1]) || 0) - (metricDef.calc(filtered[0]) || 0) : null;
 
+  // Chips de gimnasio: solo si el ejercicio se registró en más de uno —
+  // con un solo gimnasio (o ninguno asignado) filtrar no aporta nada.
+  const gymChips = gimnasios.length > 1 && (
+    <div style={{ display: "flex", gap: 4, marginBottom: 10, overflowX: "auto" }}>
+      <button onClick={() => setGymFiltro("todos")} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
+        display: "inline-flex", alignItems: "center", gap: 5,
+        background: gymFiltro === "todos" ? P.s3 : "transparent", color: gymFiltro === "todos" ? P.text : P.faint, border: `1px solid ${gymFiltro === "todos" ? P.line : "transparent"}` }}>
+        Todos los gimnasios
+      </button>
+      {gimnasios.map((g) => (
+        <button key={g} onClick={() => setGymFiltro(g)} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
+          display: "inline-flex", alignItems: "center", gap: 5,
+          background: gymFiltro === g ? P.s3 : "transparent", color: gymFiltro === g ? P.text : P.faint, border: `1px solid ${gymFiltro === g ? P.line : "transparent"}` }}>
+          <Home size={12} /> {g}
+        </button>
+      ))}
+    </div>
+  );
+
   if (withBest.length === 0) {
     return (
-      <Card style={{ padding: 20, marginBottom: 16 }}>
-        <Empty icon={TrendingUp} title="Todavía sin datos de fuerza"
-          body="Cuando registres peso y reps de este ejercicio en una sesión, acá aparece su curva de progreso, sus récords y la comparación entre semanas." />
-      </Card>
+      <div style={{ marginBottom: 16 }}>
+        {gymChips}
+        <Card style={{ padding: 20 }}>
+          <Empty icon={TrendingUp} title={gymFiltro === "todos" ? "Todavía sin datos de fuerza" : `Sin registros en ${gymFiltro}`}
+            body={gymFiltro === "todos"
+              ? "Cuando registres peso y reps de este ejercicio en una sesión, acá aparece su curva de progreso, sus récords y la comparación entre semanas."
+              : "No hay series de este ejercicio registradas en ese gimnasio todavía. Probá con \"Todos los gimnasios\" u otro."} />
+        </Card>
+      </div>
     );
   }
 
   return (
     <div style={{ marginBottom: 16 }}>
+      {gymChips}
       <div style={{ display: "flex", gap: 4, marginBottom: 10, overflowX: "auto" }}>
         {PROGRESS_RANGES.map((r) => (
           <button key={r.id} onClick={() => setRange(r.id)} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
@@ -7467,13 +7513,13 @@ const ExerciseProgress = ({ entries }) => {
 /* ============================================================
    Historial por ejercicio (la ficha que Harbiz no tiene)
    ============================================================ */
-const ExHistorySheet = ({ open, onClose, exName, entries, onOpenImg }) => (
+const ExHistorySheet = ({ open, onClose, exName, entries, sessions, onOpenImg }) => (
   <Sheet open={open} onClose={onClose} title={`Historial · ${exName}`} tall>
     {(!entries || entries.length === 0) ? (
       <Empty icon={History} title="Sin registros todavía" body="Cuando completes este ejercicio en una sesión, acá verás tus pesos, repeticiones, RIR y todos tus comentarios anteriores." />
     ) : (
       <>
-      <ExerciseProgress entries={entries} />
+      <ExerciseProgress entries={entries} sessions={sessions} />
       {[...entries].reverse().map((en, i) => (
         <div key={i} style={{ padding: "13px 0", borderBottom: `1px solid ${P.line}` }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
@@ -8029,7 +8075,7 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
             value={ex.comment} onChange={(e) => onPatchEx({ comment: e.target.value })} style={{ fontSize: 14.5, marginTop: 4 }} />
         </div>
       )}
-      <ExHistorySheet open={hist} onClose={() => setHist(false)} exName={ex.name} entries={entries} onOpenImg={onOpenImg} />
+      <ExHistorySheet open={hist} onClose={() => setHist(false)} exName={ex.name} entries={entries} sessions={history.sessions} onOpenImg={onOpenImg} />
       <ExerciseInfoSheet ex={ex} open={info} onClose={() => setInfo(false)} onPatchEx={onPatchEx} onOpenImg={onOpenImg} onError={onError} />
     </Card>
   );
@@ -14062,7 +14108,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
                 style={{ position: "absolute", right: 12, pointerEvents: "none" }} />
             </div>
           )}
-          <ExerciseProgress entries={entries} />
+          <ExerciseProgress entries={entries} sessions={history.sessions} />
           {recentPRs.length > 0 && (
             <Collapsible title="Récords recientes" summary={`${recentPRs.length}`}>
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
@@ -17780,7 +17826,7 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
             ? <Empty icon={History} title="Sin registros" body="Este ejercicio aún no tiene sesiones registradas." />
             : (
               <>
-                <ExerciseProgress entries={history.byEx[exId]} />
+                <ExerciseProgress entries={history.byEx[exId]} sessions={history.sessions} />
                 <ExHistorySheetInline entries={history.byEx[exId]} onOpenImg={setViewImg} />
               </>
             )}
