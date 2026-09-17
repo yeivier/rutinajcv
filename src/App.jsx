@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v308";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v309";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -698,6 +698,32 @@ function useRestAlert() {
     return () => restAlertListeners.delete(fn);
   }, []);
   return [REST_ALERT, setRestAlertPref];
+}
+
+// Descanso por defecto: cuánto precargar en el campo "rest" de cada
+// ejercicio NUEVO (libre, importado del catálogo o del Atlas). No toca
+// los ejercicios que ya existen —cada uno conserva el suyo, editable
+// como siempre— solo cambia el punto de partida de los que se agregan
+// de acá en más.
+let DEFAULT_REST = 90;
+try {
+  const raw = window.localStorage.getItem("forja-default-rest");
+  if (raw) DEFAULT_REST = Math.max(15, +raw) || 90;
+} catch {}
+const defaultRestListeners = new Set();
+function setDefaultRestPref(v) {
+  DEFAULT_REST = Math.max(15, +v) || 90;
+  try { window.localStorage.setItem("forja-default-rest", String(DEFAULT_REST)); } catch {}
+  defaultRestListeners.forEach((fn) => fn(DEFAULT_REST));
+}
+function useDefaultRest() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    defaultRestListeners.add(fn);
+    return () => defaultRestListeners.delete(fn);
+  }, []);
+  return [DEFAULT_REST, setDefaultRestPref];
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -10568,7 +10594,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
       np.days.push({
         id: uid(), name: d.name, routine: ROUTINE_MIA,
         exs: d.exs.map((e) => ({
-          id: uid(), name: e.name, muscle: e.muscle, equipment: "", rest: 120,
+          id: uid(), name: e.name, muscle: e.muscle, equipment: "", rest: DEFAULT_REST,
           video: "", superset: "", notes: "", secondary: [],
           sets: Array.from({ length: e.sets }, () => ({ id: uid(), type: "normal", repsT: e.reps, rirT: "2" })),
         })),
@@ -10968,7 +10994,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
     repsT: ref ? (ref.repsT || "") : "", rirT: ref ? (ref.rirT || "") : "",
     weight: "", reps: "", rir: "", done: false, comment: "", drops: [] });
   const addExercise = () => patch((a) => {
-    a.exs.push({ id: uid(), name: "", muscle: "Otro", equipment: "", rest: 120, video: "",
+    a.exs.push({ id: uid(), name: "", muscle: "Otro", equipment: "", rest: DEFAULT_REST, video: "",
       superset: "", notes: "", comment: "", attachIds: [], secondary: [], unit: undefined,
       sets: [nuevaSerie(null)] });
     return a;
@@ -15733,7 +15759,7 @@ const LibraryPanel = ({ plan, history, library, onSaveLibrary, onInfo, toast, on
     return true;
   });
 
-  const newExTemplate = () => ({ id: uid(), isNew: true, name: "", muscle: MUSCLES[0], equipment: "", rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] });
+  const newExTemplate = () => ({ id: uid(), isNew: true, name: "", muscle: MUSCLES[0], equipment: "", rest: DEFAULT_REST, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] });
 
   // Suma a la biblioteca todo lo que ya está registrado en las rutinas (A/B/C…)
   // y en el historial de sesiones del alumno que se está gestionando (por si
@@ -16429,7 +16455,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
             const d = p.days.find((x) => x.id === dayId);
             if (!d) return;
             d.exs.push({ id: uid(), name: c.n, muscle: c.mu, equipment: c.eq === "Otro" ? "" : c.eq,
-              rest: 90, video: "", superset: "", notes: "", catId: c.i,
+              rest: DEFAULT_REST, video: "", superset: "", notes: "", catId: c.i,
               secondary: (c.s || []).map((m) => ({ muscle: m, pct: 50 })),
               sets: [1, 2, 3].map(() => ({ id: uid(), type: "normal", repsT: "8-10", rirT: "2" })) });
           });
@@ -16740,7 +16766,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                     <Paperclip size={12} /> Toca el clip de un ejercicio para unirlo con el de abajo. Dos = superserie, tres = triserie, cuatro o más = serie gigante. Une otro más para agrandar el bloque.
                   </div>
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                    <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] } })} style={{ flex: 1, minWidth: 150 }}>
+                    <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: DEFAULT_REST, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] } })} style={{ flex: 1, minWidth: 150 }}>
                       <Plus size={15} /> Añadir ejercicio
                     </Btn>
                     <Btn kind="ghost" small onClick={() => setCatalogoDia(d.id)} style={{ flex: 1, minWidth: 170 }}>
@@ -16950,7 +16976,7 @@ const RoutineDayEditorMono = ({ plan, savePlan, dayIndex, onInfo, student, onBac
         })}
       </div>
 
-      <button onClick={() => setEditEx({ ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: 120, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] } })}
+      <button onClick={() => setEditEx({ ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: DEFAULT_REST, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] } })}
         style={{ border: `1.5px dashed ${MONO.line}`, borderRadius: 14, padding: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 9 }}>
         <Plus size={17} color={MONO.inkFaint} />
         <span style={{ fontSize: 14.5, fontWeight: 700, color: MONO.inkDim }}>Añadir ejercicio</span>
@@ -23556,6 +23582,18 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
   const [aiFab, setAiFab] = useAiFabVisible();
   const [weightUnit, setWeightUnitPref] = useWeightUnit();
   const [measureUnit, setMeasureUnitPref] = useMeasureUnit();
+  const [defaultRest, setDefaultRestPref] = useDefaultRest();
+  const [restAlert] = useRestAlert();
+  // Pantallas de detalle de "Configuración": cada fila que hoy junta más
+  // de una opción (Tema, Unidades, Descanso por defecto, Avisar al
+  // terminar) abre la suya propia en vez de desplegarse inline — así
+  // "Configuración" queda corta y hojeable, como el resto de las hojas
+  // de la app, sin perder ni un ajuste de los que ya había.
+  const [temaOpen, setTemaOpen] = useState(false);
+  const [unidadesOpen, setUnidadesOpen] = useState(false);
+  const [descansoOpen, setDescansoOpen] = useState(false);
+  const [avisoOpen, setAvisoOpen] = useState(false);
+  const avisoActivos = ["sound", "vibrate", "flash"].filter((k) => restAlert[k]).length + (restAlert.notify ? 1 : 0);
   // Face ID: candado extra de ESTE teléfono, aparte de la clave — cada
   // quien lo prende para su propia cuenta (dueño o perfil con acceso).
   const [faceOk, setFaceOk] = useState(false);
@@ -23577,13 +23615,12 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
   // confirmación: nadie sale de la cuenta sin querer.
   const [confirmLogout, setConfirmLogout] = useState(false);
   return (
-    <Sheet open={open} onClose={onClose} title="Más" tall>
-      {/* Cabecera de perfil: es lo primero que se ve al abrir "Más" desde
-          el avatar de la cabecera — pero es solo informativa (quién está
-          usando la app ahora), no un botón. Antes tocarla cerraba la
-          sesión en el acto, sin avisar — "cerrar sesión" ahora vive
-          aparte, como su propio botón con confirmación. */}
-      <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "6px 4px 18px" }}>
+    <Sheet open={open} onClose={onClose} title="Configuración" tall>
+      {/* Cabecera de perfil: es lo primero que se ve al abrir "Configuración"
+          desde el avatar de la cabecera o desde su ficha en "Más" — pero es
+          solo informativa (quién está usando la app ahora), no un botón.
+          "Cerrar sesión" vive aparte, como su propio botón con confirmación. */}
+      <Card style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", marginBottom: 18 }}>
         <div style={{ width: 52, height: 52, borderRadius: 16, background: PLATE_GRAD, color: PLATE_FG,
           display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 19, flexShrink: 0 }}>
           {(studentName || "?").slice(0, 1).toUpperCase()}
@@ -23592,7 +23629,7 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
           <div style={{ fontWeight: 700, fontSize: 17, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{studentName || "—"}</div>
           <div style={{ fontSize: 13, color: P.faint }}>{isDelegate ? "perfil con acceso" : `modo ${mode}`}</div>
         </div>
-      </div>
+      </Card>
       {/* Ficha completa: tarjeta propia y prominente (no una fila más de
           ajustes) — es lo que se pidió que apareciera acá, no solo
           adentro de Coach IA. Solo en modo coach, gestionando a alguien
@@ -23613,11 +23650,45 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
         </button>
       )}
 
+      {/* Interfaz, Entreno, Cuenta: los tres grupos cortos de siempre. Cada
+          fila que hoy junta más de una opción (Tema, Unidades, Descanso por
+          defecto, Avisar al terminar) abre su propia hoja de detalle al
+          tocarla — nada de lo que ya había se perdió, solo quedó un nivel
+          más adentro para que esta pantalla se pueda leer de un vistazo. */}
+      <SettingGroup label="Interfaz">
+        <SettingRow Icon={Layers} label="Modo simple" hint={easy ? "Interfaz simplificada, solo lo esencial" : "Plataforma completa, sin recortes"}
+          right={<Toggle on={easy} onChange={setEasy} label="Modo simple" />} />
+        <SettingRow Icon={theme === "dark" ? Moon : bg ? Palette : Sun} label="Tema"
+          hint={theme === "dark" ? "Oscuro" : bg ? "Personalizado" : "Claro"} onClick={() => setTemaOpen(true)} />
+        <SettingRow Icon={Ruler} label="Unidades" hint={`${weightUnit} · ${measureUnit}`} onClick={() => setUnidadesOpen(true)} />
+        <SettingRow Icon={Zap} label="Botón de IA" hint={aiFab ? "Círculo flotante, siempre a mano" : "Oculto — el asistente sigue disponible desde acá"} last
+          right={<Toggle on={aiFab} onChange={setAiFab} label="Botón de IA" />} />
+      </SettingGroup>
+
+      <SettingGroup label="Entreno">
+        <SettingRow Icon={Timer} label="Descanso por defecto" hint={`${defaultRest} s — se precarga en cada ejercicio nuevo`} onClick={() => setDescansoOpen(true)} />
+        <SettingRow Icon={Bell} label="Avisar al terminar" hint={avisoActivos === 0 ? "Solo el cronómetro en pantalla" : `${avisoActivos} aviso${avisoActivos === 1 ? "" : "s"} activo${avisoActivos === 1 ? "" : "s"}`} onClick={() => setAvisoOpen(true)} />
+        <SettingRow Icon={ClipboardList} label="Editor de rutina" hint={routineView === "compacto" ? "Compacto — una fila por ejercicio" : "Completo — crear días, arrastrar, copiar"} last
+          control={<SectionSwitch items={[{ id: "completo", label: "Completo" }, { id: "compacto", label: "Compacto" }]} value={routineView} onChange={onChangeRoutineView} />} />
+      </SettingGroup>
+
+      <SettingGroup label="Cuenta">
+        {mode === "alumno" && <SettingRow Icon={Watch} label="Dispositivos" hint="Relojes, básculas y apps de salud" onClick={onOpenDevices} />}
+        {!isDelegate && (
+          <SettingRow Icon={mode === "coach" ? ClipboardList : Dumbbell} label="Entrar como" hint={`Ahora estás en modo ${mode}`}
+            control={<SectionSwitch items={[{ id: "alumno", label: "Alumno" }, { id: "coach", label: "Coach" }]} value={mode}
+              onChange={(m) => { if (m !== mode) onSwitchMode(m); }} />} />
+        )}
+        {!isDelegate && onSwitchAccount && (
+          <SettingRow Icon={Users} label="Cambiar de cuenta" hint="Entrar con otro usuario en este teléfono, sin cerrar esta sesión del todo" onClick={onSwitchAccount} />
+        )}
+        <SettingRow Icon={LogOut} label="Cerrar sesión" last onClick={() => setConfirmLogout(true)} />
+      </SettingGroup>
+
       <SettingGroup label="Herramientas">
         <SettingRow Icon={Timer} label="Temporizador" hint="Intervalos, cuenta regresiva y cronómetro" onClick={() => onOpenUtility("timer")} />
-        <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} last={mode === "coach"} />
-        {mode === "alumno" && <SettingRow Icon={Calendar} label="Agenda" hint="Tu semana y tus turnos reservados" onClick={() => onOpenUtility("agenda")} />}
-        {mode === "alumno" && <SettingRow Icon={Watch} label="Dispositivos" hint="Relojes, básculas y apps de salud" onClick={onOpenDevices} last />}
+        <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} last={mode !== "alumno"} />
+        {mode === "alumno" && <SettingRow Icon={Calendar} label="Agenda" hint="Tu semana y tus turnos reservados" onClick={() => onOpenUtility("agenda")} last />}
       </SettingGroup>
 
       {mode === "coach" && !isDelegate && (
@@ -23637,99 +23708,110 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
         </SettingGroup>
       )}
 
-      <SettingGroup label="Ajustes">
-        {/* Apariencia: Claro / Oscuro / Personalizado. "Personalizado" abre una
-            paleta de fondos claros (las familias del acento + otras aptas de
-            fondo, 4 tonos cada una) que tiñen TODA la app y la sesión. */}
-        <SettingRow Icon={theme === "dark" ? Moon : bg ? Palette : Sun} label="Apariencia"
-          hint={theme === "dark" ? "Oscuro — gris oscuro, sin negro puro" : bg ? "Personalizado — fondo a tu gusto" : "Claro"}
-          control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }, { id: "custom", label: "Personalizado" }]}
-            value={theme === "dark" ? "dark" : bg ? "custom" : "light"} onChange={setAppearance} />} />
-        {theme !== "dark" && bg && (
-          <div style={{ padding: "12px 16px", borderTop: `1px solid ${P.line}` }}>
-            <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 12 }}>Color de fondo — elige un tono; se aplica a toda la app y a la sesión.</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {BG_PALETTE.map((fam) => (
-                <div key={fam.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ width: 62, flexShrink: 0, fontSize: 12.5, color: P.faint2 }}>{fam.name}</span>
-                  <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
-                    {fam.tones.map((tone, ti) => {
-                      const on = (bg || "").toLowerCase() === tone.toLowerCase();
-                      return (
-                        <button key={tone} onClick={() => setBg(tone)} title={`${fam.name} ${ti + 1}`} aria-label={`Fondo ${fam.name} tono ${ti + 1}`}
-                          style={{ width: 34, height: 34, borderRadius: 999, flexShrink: 0, background: tone,
-                            border: on ? `2px solid ${P.text}` : `1px solid ${P.line}`,
-                            boxShadow: on ? `0 0 0 2px ${P.s1}` : "none",
-                            display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-                          {on && <Check size={15} color={P.text} strokeWidth={3} />}
-                        </button>
-                      );
-                    })}
+      {/* Con qué fórmula se estima el 1RM en toda la app. */}
+      <FormulaRMGroup />
+
+      {/* La versión vive acá abajo, no en la cabecera: el encabezado es
+          identidad, no diagnóstico. */}
+      <div style={{ textAlign: "center", fontSize: 12, color: P.faint, paddingTop: 4 }}>FORJA · {BUILD}</div>
+      <Confirm open={confirmLogout} title="Cerrar sesión"
+        body={`Vas a salir de este dispositivo. La próxima vez vas a necesitar tu usuario y clave${faceOn ? " (o Face ID)" : ""} para volver a entrar.`}
+        okLabel="Cerrar sesión" danger
+        onOk={() => { setConfirmLogout(false); onSwitchIdentity(); }}
+        onCancel={() => setConfirmLogout(false)} />
+
+      {/* Detalle "Tema": apariencia (claro/oscuro/personalizado + fondo a
+          gusto) y color de acento — antes vivían siempre desplegados acá
+          mismo, ahora quedan atrás de esta hoja. */}
+      <Sheet open={temaOpen} onClose={() => setTemaOpen(false)} title="Tema">
+        <SettingGroup>
+          <SettingRow Icon={theme === "dark" ? Moon : bg ? Palette : Sun} label="Apariencia"
+            hint={theme === "dark" ? "Oscuro — gris oscuro, sin negro puro" : bg ? "Personalizado — fondo a tu gusto" : "Claro"}
+            control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }, { id: "custom", label: "Personalizado" }]}
+              value={theme === "dark" ? "dark" : bg ? "custom" : "light"} onChange={setAppearance} />} />
+          {theme !== "dark" && bg && (
+            <div style={{ padding: "12px 16px", borderTop: `1px solid ${P.line}` }}>
+              <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 12 }}>Color de fondo — elige un tono; se aplica a toda la app y a la sesión.</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {BG_PALETTE.map((fam) => (
+                  <div key={fam.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ width: 62, flexShrink: 0, fontSize: 12.5, color: P.faint2 }}>{fam.name}</span>
+                    <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
+                      {fam.tones.map((tone, ti) => {
+                        const on = (bg || "").toLowerCase() === tone.toLowerCase();
+                        return (
+                          <button key={tone} onClick={() => setBg(tone)} title={`${fam.name} ${ti + 1}`} aria-label={`Fondo ${fam.name} tono ${ti + 1}`}
+                            style={{ width: 34, height: 34, borderRadius: 999, flexShrink: 0, background: tone,
+                              border: on ? `2px solid ${P.text}` : `1px solid ${P.line}`,
+                              boxShadow: on ? `0 0 0 2px ${P.s1}` : "none",
+                              display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                            {on && <Check size={15} color={P.text} strokeWidth={3} />}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
+                ))}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ width: 62, flexShrink: 0, fontSize: 12.5, color: P.faint2 }}>A tu gusto</span>
+                  <button onClick={() => setPickerFondo(true)} aria-label="Elegir un color de fondo cualquiera"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 999,
+                      border: `1px dashed ${P.line}`, color: P.dim, fontSize: 12.5, fontWeight: 600 }}>
+                    <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: 999, flexShrink: 0,
+                      background: "conic-gradient(#FF3B30, #FFCC00, #34C759, #00C7BE, #007AFF, #AF52DE, #FF3B30)" }} />
+                    Cualquier color
+                  </button>
                 </div>
-              ))}
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ width: 62, flexShrink: 0, fontSize: 12.5, color: P.faint2 }}>A tu gusto</span>
-                <button onClick={() => setPickerFondo(true)} aria-label="Elegir un color de fondo cualquiera"
-                  style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 999,
-                    border: `1px dashed ${P.line}`, color: P.dim, fontSize: 12.5, fontWeight: 600 }}>
-                  <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: 999, flexShrink: 0,
-                    background: "conic-gradient(#FF3B30, #FFCC00, #34C759, #00C7BE, #007AFF, #AF52DE, #FF3B30)" }} />
-                  Cualquier color
-                </button>
+              </div>
+              {avisoFondo && (
+                <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: R_ROW, background: P.s3,
+                  fontSize: 12.5, color: P.dim, lineHeight: 1.45 }}>{avisoFondo}</div>
+              )}
+            </div>
+          )}
+          {/* Color de acento — paleta amplia y personalizable. Tiñe los botones
+              primarios, los estados activos y la sesión de Entrenar. */}
+          <div style={{ padding: "12px 16px", borderTop: `1px solid ${P.line}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <span style={{ width: 30, height: 30, borderRadius: 8, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Sparkles size={16} color={P.dim} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text }}>Color de acento</div>
+                <div style={{ fontSize: 12.5, color: P.faint }}>{(acentoResuelto(accent) || ACCENTS[0]).name}{esAcentoCustom(accent) ? ` ${hexDeAcento(accent)}` : ""} — tiñe botones, activos y la sesión</div>
               </div>
             </div>
-            {avisoFondo && (
-              <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: R_ROW, background: P.s3,
-                fontSize: 12.5, color: P.dim, lineHeight: 1.45 }}>{avisoFondo}</div>
-            )}
-          </div>
-        )}
-        {/* Color de acento — paleta amplia y personalizable. Tiñe los botones
-            primarios, los estados activos y la sesión de Entrenar. "Del tema"
-            deja el look de fábrica de cada apariencia. */}
-        <div style={{ padding: "12px 16px", borderTop: `1px solid ${P.line}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-            <span style={{ width: 30, height: 30, borderRadius: 8, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Sparkles size={16} color={P.dim} />
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text }}>Color de acento</div>
-              <div style={{ fontSize: 12.5, color: P.faint }}>{(acentoResuelto(accent) || ACCENTS[0]).name}{esAcentoCustom(accent) ? ` ${hexDeAcento(accent)}` : ""} — tiñe botones, activos y la sesión</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+              {ACCENTS.map((a) => {
+                const on = a.id === accent;
+                const sw = accentSwatch(a);
+                return (
+                  <button key={a.id} onClick={() => setAccent(a.id)} title={a.name} aria-label={`Acento ${a.name}`}
+                    style={{ width: 38, height: 38, borderRadius: 999, flexShrink: 0, position: "relative",
+                      background: sw || `conic-gradient(from 210deg, #0F8A4B, #0E8C9E, #0A6CFF, #4A5568, #6B4A2B, #0F8A4B)`,
+                      border: on ? `2px solid ${P.text}` : `1px solid ${P.line}`,
+                      boxShadow: on ? `0 0 0 2px ${P.bg}` : "none",
+                      display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                    {on && <Check size={17} color="#FFFFFF" strokeWidth={3} />}
+                  </button>
+                );
+              })}
+              <button onClick={() => setPickerAcento(true)}
+                aria-label="Elegir un color de acento cualquiera"
+                title="Color personalizado"
+                style={{ width: 38, height: 38, borderRadius: 999, flexShrink: 0, padding: 0,
+                  background: esAcentoCustom(accent) ? hexDeAcento(accent)
+                    : "conic-gradient(#FF3B30, #FFCC00, #34C759, #00C7BE, #007AFF, #AF52DE, #FF3B30)",
+                  border: esAcentoCustom(accent) ? `2px solid ${P.text}` : `1px dashed ${P.line}`,
+                  boxShadow: esAcentoCustom(accent) ? `0 0 0 2px ${P.bg}` : "none",
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {esAcentoCustom(accent)
+                  ? <Check size={17} color={tintaSobre(hexDeAcento(accent))} strokeWidth={3} />
+                  : <Plus size={17} color={P.text} strokeWidth={3} />}
+              </button>
             </div>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-            {ACCENTS.map((a) => {
-              const on = a.id === accent;
-              const sw = accentSwatch(a);
-              return (
-                <button key={a.id} onClick={() => setAccent(a.id)} title={a.name} aria-label={`Acento ${a.name}`}
-                  style={{ width: 38, height: 38, borderRadius: 999, flexShrink: 0, position: "relative",
-                    background: sw || `conic-gradient(from 210deg, #0F8A4B, #0E8C9E, #0A6CFF, #4A5568, #6B4A2B, #0F8A4B)`,
-                    border: on ? `2px solid ${P.text}` : `1px solid ${P.line}`,
-                    boxShadow: on ? `0 0 0 2px ${P.bg}` : "none",
-                    display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-                  {on && <Check size={17} color="#FFFFFF" strokeWidth={3} />}
-                </button>
-              );
-            })}
-            {/* Cualquier color, con el selector completo. Si ya hay uno
-                elegido, el círculo lo muestra en vez del "+". */}
-            <button onClick={() => setPickerAcento(true)}
-              aria-label="Elegir un color de acento cualquiera"
-              title="Color personalizado"
-              style={{ width: 38, height: 38, borderRadius: 999, flexShrink: 0, padding: 0,
-                background: esAcentoCustom(accent) ? hexDeAcento(accent)
-                  : "conic-gradient(#FF3B30, #FFCC00, #34C759, #00C7BE, #007AFF, #AF52DE, #FF3B30)",
-                border: esAcentoCustom(accent) ? `2px solid ${P.text}` : `1px dashed ${P.line}`,
-                boxShadow: esAcentoCustom(accent) ? `0 0 0 2px ${P.bg}` : "none",
-                display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {esAcentoCustom(accent)
-                ? <Check size={17} color={tintaSobre(hexDeAcento(accent))} strokeWidth={3} />
-                : <Plus size={17} color={P.text} strokeWidth={3} />}
-            </button>
-          </div>
-        </div>
+        </SettingGroup>
         <ColorPickerSheet open={pickerAcento} onClose={() => setPickerAcento(false)}
           title="Color de acento"
           value={esAcentoCustom(accent) ? hexDeAcento(accent) : (accentSwatch(ACCENT_BY_ID[accent] || {}) || "#0A6CFF")}
@@ -23744,52 +23826,35 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
               ? `${hex} dejaba el texto ilegible: se usó ${r.hex}, el tono más cercano de ese mismo color que sí se lee.`
               : "");
           }} />
-        <SettingRow Icon={Ruler} label="Unidad de peso" hint={weightUnit === "kg" ? "Kilogramos" : "Libras"}
-          control={<SectionSwitch items={[{ id: "kg", label: "kg" }, { id: "lb", label: "lb" }]} value={weightUnit} onChange={setWeightUnitPref} />} />
-        <SettingRow Icon={Ruler} label="Unidad de medidas" hint={measureUnit === "cm" ? "Centímetros" : "Pulgadas"}
-          control={<SectionSwitch items={[{ id: "cm", label: "cm" }, { id: "in", label: "in" }]} value={measureUnit} onChange={setMeasureUnitPref} />} />
-        <SettingRow Icon={Zap} label="Botón de IA" hint={aiFab ? "Círculo flotante, siempre a mano" : "Oculto — el asistente sigue disponible desde acá"} last
-          control={<SectionSwitch items={[{ id: "on", label: "Mostrar" }, { id: "off", label: "Ocultar" }]} value={aiFab ? "on" : "off"} onChange={(v) => setAiFab(v === "on")} />} />
-      </SettingGroup>
+      </Sheet>
 
-      {/* Cómo avisa el fin del descanso. Cada canal por separado: el que
-          no quiera ninguno los apaga todos y vuelve al aviso de siempre
-          (mirar el cronómetro). */}
-      <AvisoDescansoGroup />
-
-      {/* Con qué fórmula se estima el 1RM en toda la app. */}
-      <FormulaRMGroup />
-
-      {/* Cambio de modo solo para el dueño: un perfil de acceso (alumno) no
-          puede pasar a coach. */}
-      {!isDelegate && (
-        <SettingGroup label="Modo">
-          <SettingRow Icon={mode === "coach" ? ClipboardList : Dumbbell} label="Entrar como" hint={`Ahora estás en modo ${mode}`} last
-            control={<SectionSwitch items={[{ id: "alumno", label: "Alumno" }, { id: "coach", label: "Coach" }]} value={mode}
-              onChange={(m) => { if (m !== mode) onSwitchMode(m); }} />} />
+      {/* Detalle "Unidades" */}
+      <Sheet open={unidadesOpen} onClose={() => setUnidadesOpen(false)} title="Unidades">
+        <SettingGroup>
+          <SettingRow Icon={Ruler} label="Unidad de peso" hint={weightUnit === "kg" ? "Kilogramos" : "Libras"}
+            control={<SectionSwitch items={[{ id: "kg", label: "kg" }, { id: "lb", label: "lb" }]} value={weightUnit} onChange={setWeightUnitPref} />} />
+          <SettingRow Icon={Ruler} label="Unidad de medidas" hint={measureUnit === "cm" ? "Centímetros" : "Pulgadas"} last
+            control={<SectionSwitch items={[{ id: "cm", label: "cm" }, { id: "in", label: "in" }]} value={measureUnit} onChange={setMeasureUnitPref} />} />
         </SettingGroup>
-      )}
+      </Sheet>
 
-      <SettingGroup>
-        {/* Solo para el dueño: entrar (o sumar) otra cuenta en este mismo
-            teléfono sin perder la que ya está — a diferencia de "Cerrar
-            sesión", esto no olvida nada. Con 2+ cuentas usadas acá, la
-            próxima vez que se abra la app aparece un selector para elegir
-            con cuál entrar, antes de pedir usuario y clave. */}
-        {!isDelegate && onSwitchAccount && (
-          <SettingRow Icon={Users} label="Cambiar de cuenta" hint="Entrar con otro usuario en este teléfono, sin cerrar esta sesión del todo" onClick={onSwitchAccount} />
-        )}
-        <SettingRow Icon={LogOut} label="Cerrar sesión" last onClick={() => setConfirmLogout(true)} />
-      </SettingGroup>
+      {/* Detalle "Descanso por defecto": no cambia el descanso de los
+          ejercicios que ya existen, solo el que traen los nuevos. */}
+      <Sheet open={descansoOpen} onClose={() => setDescansoOpen(false)} title="Descanso por defecto">
+        <Card style={{ padding: "6px 16px" }}>
+          <Stepper label="Descanso" value={defaultRest} onChange={(v) => setDefaultRestPref(Math.min(300, v))}
+            step={15} min={15} decimals={0} unit=" s" />
+        </Card>
+        <div style={{ fontSize: 12.5, color: P.faint, lineHeight: 1.45, padding: "12px 4px 0" }}>
+          Se precarga en cada ejercicio nuevo (libre, del catálogo o del Atlas). Los que ya tenés en tu rutina conservan el suyo — se ajustan como siempre, uno por uno.
+        </div>
+      </Sheet>
 
-      {/* La versión vive acá abajo, no en la cabecera: el encabezado es
-          identidad, no diagnóstico. */}
-      <div style={{ textAlign: "center", fontSize: 12, color: P.faint, paddingTop: 4 }}>FORJA · {BUILD}</div>
-      <Confirm open={confirmLogout} title="Cerrar sesión"
-        body={`Vas a salir de este dispositivo. La próxima vez vas a necesitar tu usuario y clave${faceOn ? " (o Face ID)" : ""} para volver a entrar.`}
-        okLabel="Cerrar sesión" danger
-        onOk={() => { setConfirmLogout(false); onSwitchIdentity(); }}
-        onCancel={() => setConfirmLogout(false)} />
+      {/* Detalle "Avisar al terminar": los mismos canales de siempre, cada
+          uno por separado. */}
+      <Sheet open={avisoOpen} onClose={() => setAvisoOpen(false)} title="Avisar al terminar">
+        <AvisoDescansoGroup />
+      </Sheet>
     </Sheet>
   );
 };
@@ -29179,7 +29244,7 @@ function ejecutarFx(args, ctx) {
     const nSeries = Math.max(1, Math.min(10, fxNum(args.series) || 3));
     snap.exs.push({
       id: uid(), name: nombre, muscle: (args.musculo || "Otro").trim() || "Otro",
-      equipment: "", rest: 90, video: "", superset: "", notes: "", secondary: [],
+      equipment: "", rest: DEFAULT_REST, video: "", superset: "", notes: "", secondary: [],
       sets: Array.from({ length: nSeries }, () => ({ id: uid(), type: "normal", repsT: "8-12", rirT: "",
         weight: "", reps: "", rir: "", done: false, comment: "", drops: [] })),
     });
