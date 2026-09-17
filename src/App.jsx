@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v306";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v307";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2625,14 +2625,15 @@ Puente de glúteo con banda o patada en polea liviana 2 × 15 (apretando 1 s arr
 
 // Series de aproximación = el calentamiento REGISTRABLE de cada ejercicio: se
 // anteponen a las series de trabajo y se anotan igual que ellas (peso / reps /
-// tilde), pero NO cuentan como volumen (type "warmup"). El PRIMER ejercicio
-// simple de la sesión lleva la rampa completa (2 aproximaciones); el resto,
-// una sola. Cada aproximación trae su objetivo (% del peso de trabajo y reps)
-// para saber cómo subir sin llegar al fallo.
+// tilde), pero NO cuentan como volumen (type "warmup"). Rampa de hasta 3
+// escalones (40 % → 60 % → 90 % del peso de trabajo), subiendo SIN fatigarte
+// ni llegar al fallo en ninguno — el objetivo es activar el movimiento y
+// calibrar la carga, no gastar reservas. Cuántos escalones le tocan a cada
+// ejercicio lo decide withApproachSets() según qué tan nuevo/complejo es.
 const APPROACH_STEPS = [
-  { repsT: "8-10", pctT: "~40% del peso de trabajo · sin fallar" },
-  { repsT: "5",    pctT: "~60% del peso de trabajo" },
-  { repsT: "3",    pctT: "~80% (si el peso es alto)" },
+  { repsT: "8-10", pctT: "~40% del peso de trabajo · sin fatigarte" },
+  { repsT: "5",    pctT: "~60% del peso de trabajo · sin fatigarte" },
+  { repsT: "2-3",  pctT: "~90% del peso de trabajo · sin llegar al fallo" },
 ];
 function makeApproachSets(n) {
   return Array.from({ length: Math.max(0, n) }, (_, i) => {
@@ -2641,19 +2642,48 @@ function makeApproachSets(n) {
       weight: "", reps: "", rir: "", done: false, comment: "", drops: [] };
   });
 }
-// Antepone las aproximaciones a cada ejercicio simple con series de trabajo que
-// no traiga ya un calentamiento propio. Se corre sobre los ejercicios ya
-// mapeados a la sesión (con sus objetivos resueltos), así no desalinea los
-// overrides por semana.
-function withApproachSets(exs) {
-  let firstDone = false;
+// Equipo con el que un ejercicio pide más calibración antes de cargarlo en
+// serio (barra libre, mancuernas, Smith, kettlebell: hay que sentir el
+// movimiento, no solo el peso) contra máquina/polea/peso corporal, donde el
+// recorrido ya viene guiado y una rampa corta alcanza.
+const EQUIPO_COMPLEJO = new Set(["Barra", "Barra EZ", "Mancuernas", "Kettlebell", "Smith"]);
+const esEjercicioComplejo = (ex) => EQUIPO_COMPLEJO.has(ex.equipment) || (ex.secondary || []).length >= 2;
+// Antepone las aproximaciones a cada ejercicio simple con series de trabajo
+// que no traiga ya un calentamiento propio. Cuántos escalones le tocan a
+// cada uno:
+//   · Ejercicio que el atleta NUNCA registró (sin entradas en el historial):
+//     rampa completa (3) siempre — el movimiento es nuevo, no el peso.
+//   · Primer ejercicio de ESE grupo muscular en la sesión (no el primero de
+//     toda la sesión — cada músculo arranca "frío" aunque no sea el primero
+//     del día): 3 si es complejo (barra/mancuernas/Smith/kettlebell o con
+//     varios músculos secundarios), 2 si es simple (máquina/polea/peso
+//     corporal, un solo músculo).
+//   · Resto de ejercicios de un grupo ya calentado: 1, para no alargar la
+//     sesión de más — ya viene caliente de ese mismo músculo.
+// Las superseries quedan afuera (isGroup): alternar ejercicios ya hace de
+// rampa, y meter aproximaciones ahí rompería el enlazado. Se corre sobre
+// los ejercicios ya mapeados a la sesión (con sus objetivos resueltos), así
+// no desalinea los overrides por semana.
+function withApproachSets(exs, history) {
+  const byEx = (history && history.byEx) || {};
+  const gruposVistos = new Set();
   return (exs || []).map((ex) => {
     const isGroup = !!ex.group;
     const work = (ex.sets || []).filter((s) => s.type !== "warmup");
     const hasWarm = (ex.sets || []).some((s) => s.type === "warmup");
-    if (isGroup || work.length === 0 || hasWarm) { if (!isGroup && work.length) firstDone = true; return ex; }
-    const n = firstDone ? 1 : 2;
-    firstDone = true;
+    // Se registra el músculo como "ya visto" pase lo que pase (aunque sea
+    // parte de una superserie, o ya traiga su propio calentamiento): lo
+    // que importa es si ESE músculo ya recibió trabajo en la sesión, no
+    // si le tocó una rampa acá.
+    const esPrimeroDeSuGrupo = !!ex.muscle && !gruposVistos.has(ex.muscle);
+    if (ex.muscle) gruposVistos.add(ex.muscle);
+    if (isGroup || work.length === 0 || hasWarm) return ex;
+
+    const esNuevo = !((byEx[ex.id] || []).length);
+    let n;
+    if (esNuevo) n = 3;
+    else if (esPrimeroDeSuGrupo) n = esEjercicioComplejo(ex) ? 3 : 2;
+    else n = 1;
     return { ...ex, sets: [...makeApproachSets(n), ...ex.sets] };
   });
 }
@@ -10602,7 +10632,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
         sets: (ex.sets || []).map((s, si) => {
           const t = setTargets(ex, si, week);
           return { ...s, repsT: t.repsT, rirT: t.rirT, weight: "", reps: "", rir: "", done: false, comment: "", drops: [] };
-        }) }))),
+        }) })), history),
     };
     setActive(snap); saveActive(snap);
     setBrowsing(false);
