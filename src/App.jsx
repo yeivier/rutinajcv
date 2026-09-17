@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v309";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v310";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2674,6 +2674,13 @@ function makeApproachSets(n) {
 // recorrido ya viene guiado y una rampa corta alcanza.
 const EQUIPO_COMPLEJO = new Set(["Barra", "Barra EZ", "Mancuernas", "Kettlebell", "Smith"]);
 const esEjercicioComplejo = (ex) => EQUIPO_COMPLEJO.has(ex.equipment) || (ex.secondary || []).length >= 2;
+// Cardio (y cualquier otro ejercicio medido en tiempo, no en reps — "20 min",
+// "Plancha 60 seg") no lleva rampa de calentamiento: no hay "peso de
+// trabajo" del que sacar el 40/60/90%, así que las Aprox. 1/2/3 no
+// significan nada ahí. Se detecta por el propio texto de reps de la serie
+// de trabajo, no por el nombre del ejercicio — así cubre también el cardio
+// que cada atleta tipee suelto, no solo el de RUTINA FINAL.
+const esEjercicioPorTiempo = (ex) => (ex.sets || []).some((s) => s.type !== "warmup" && /\d+\s*(min|m[ií]n(?:uto)?s?|seg(?:undo)?s?)\b/i.test(s.repsT || ""));
 // Antepone las aproximaciones a cada ejercicio simple con series de trabajo
 // que no traiga ya un calentamiento propio. Cuántos escalones le tocan a
 // cada uno:
@@ -2703,7 +2710,7 @@ function withApproachSets(exs, history) {
     // si le tocó una rampa acá.
     const esPrimeroDeSuGrupo = !!ex.muscle && !gruposVistos.has(ex.muscle);
     if (ex.muscle) gruposVistos.add(ex.muscle);
-    if (isGroup || work.length === 0 || hasWarm) return ex;
+    if (isGroup || work.length === 0 || hasWarm || esEjercicioPorTiempo(ex)) return ex;
 
     const esNuevo = !((byEx[ex.id] || []).length);
     let n;
