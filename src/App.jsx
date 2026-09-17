@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v302";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v303";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3658,6 +3658,11 @@ const ROUTINE_FINAL_INTRO = {
     "ABS: 2 veces por semana (lunes y jueves). Calves: 2 veces por semana (martes y viernes).",
 };
 
+// Cardio de la RUTINA FINAL: 20 min post entreno en caminadora a 5,5 km/h.
+// Va como "ejercicio" de una sola serie (músculo "Otro" para no ensuciar el
+// volumen por grupo) para que sea registrable y aparezca en la agenda.
+const finalCardioEx = () => ({ id: uid(), name: "Cardio · Caminadora 20 min", muscle: "Otro", rest: 0, superset: "", notes: "20 min post entreno en caminadora a 5,5 km/h.", video: "", sets: sets([["normal", "20 min", ""]]) });
+
 /* Rutina + días de la RUTINA FINAL. El «/» en las repeticiones separa el
    tramo de reps de cada serie. Casi todo el plan es a RIR 0. */
 function routineFinalDays() {
@@ -3767,15 +3772,20 @@ function routineFinalDays() {
       ex("Hip thrust en máquina", "Glúteo", 180, "",
         sets([n("12-15", "0"), n("10-12", "0"), n("8-10", "0")])),
     ]),
-    day("LPF-ABS", "ABS", [
+    day("LPF-ABS", "ABS + Cardio", [
       ex("Elevaciones de piernas colgado (Hanging Leg Raise)", "Core", 60, "Puede ser en máquina con apoyo en los antebrazos.",
         sets([n("10-20", "0"), n("10-20", "0"), n("10-20", "0"), n("10-20", "0")])),
       ex("Abs hammer machine", "Core", 60, "",
         sets([n("10-20", "0"), n("10-20", "0"), n("10-20", "0"), n("10-20", "0")])),
+      finalCardioEx(),
     ]),
-    day("LPF-CALVES", "Calves", [
+    day("LPF-CALVES", "Calves + Cardio", [
       ex("Elevación de talones en Smith", "Gemelo", 60, "1 segundo de pausa en el máximo estiramiento.",
         sets([n("10-15", "0"), n("10-15", "0"), n("10-15", "0"), n("10-15", "0"), n("10-15", "0")])),
+      finalCardioEx(),
+    ]),
+    day("LPF-CARDIO", "Cardio", [
+      finalCardioEx(),
     ]),
   ];
   // (ss se deja disponible por si se convierten los dos bloques en superseries;
@@ -27621,10 +27631,17 @@ const App = () => {
         // El cronograma semanal apunta a la RUTINA FINAL (es su plan actual);
         // ABS/Calves/Cardio quedan como días de la rutina para iniciarlos a mano.
         const byKey = (k) => (dias.find((d) => d.seedKey === k) || {}).id || null;
+        // Slot 1: el día de fuerza. Slot 2: el trabajo accesorio + cardio del
+        // día (ABS+Cardio lun/jue, Calves+Cardio mar/vie, Cardio mié/sáb).
         p.schedule = {
           mon: byKey("LPF-A"), tue: byKey("LPF-B"), wed: byKey("LPF-C"),
           thu: byKey("LPF-HBT"), fri: byKey("LPF-D"), sat: byKey("LPF-E"), sun: null,
         };
+        p.schedule2 = {
+          mon: byKey("LPF-ABS"), tue: byKey("LPF-CALVES"), wed: byKey("LPF-CARDIO"),
+          thu: byKey("LPF-ABS"), fri: byKey("LPF-CALVES"), sat: byKey("LPF-CARDIO"), sun: null,
+        };
+        p.seedFinalV2 = true;
       }
       if (!(p.instructions || []).some((i) => i.title === ROUTINE_FINAL_INTRO.title)) {
         p.instructions = [...(p.instructions || []), { id: uid(), ...ROUTINE_FINAL_INTRO }];
@@ -27633,6 +27650,35 @@ const App = () => {
       // vez (la bandera evita volver a hacerlo si él luego la edita).
       p.nutrition = routineFinalNutrition();
       p.seedFinalDone = true;
+      p.updatedAt = todayISO();
+      await sSet(`forja-plan:${id}`, p);
+    }
+    // v303 · Cardio diario + ABS/Calves en su día para planes que ya recibieron
+    // la RUTINA FINAL (v302): renombra los días accesorios, les añade el cardio,
+    // agrega el día "Cardio" y arma el segundo turno del cronograma (schedule2).
+    // Solo Javier, una vez (bandera seedFinalV2).
+    if (/\bjavier\b/i.test(name || "") && !p.seedFinalV2 && (p.days || []).some((d) => d.routine === ROUTINE_FINAL)) {
+      const find = (k) => (p.days || []).find((d) => d.seedKey === k && d.routine === ROUTINE_FINAL);
+      const hasCardio = (d) => d && (d.exs || []).some((e) => /Caminadora/i.test(e.name));
+      const abs = find("LPF-ABS");
+      if (abs) { abs.name = "ABS + Cardio"; if (!hasCardio(abs)) abs.exs = [...(abs.exs || []), finalCardioEx()]; }
+      const calves = find("LPF-CALVES");
+      if (calves) { calves.name = "Calves + Cardio"; if (!hasCardio(calves)) calves.exs = [...(calves.exs || []), finalCardioEx()]; }
+      let cardio = find("LPF-CARDIO");
+      if (!cardio) {
+        cardio = { id: uid(), seedKey: "LPF-CARDIO", name: "Cardio", routine: ROUTINE_FINAL, exs: [finalCardioEx()] };
+        p.days = [...(p.days || []), cardio];
+      }
+      const byKey = (k) => { const d = find(k); return d ? d.id : null; };
+      p.schedule = {
+        mon: byKey("LPF-A"), tue: byKey("LPF-B"), wed: byKey("LPF-C"),
+        thu: byKey("LPF-HBT"), fri: byKey("LPF-D"), sat: byKey("LPF-E"), sun: null,
+      };
+      p.schedule2 = {
+        mon: abs ? abs.id : null, tue: calves ? calves.id : null, wed: cardio.id,
+        thu: abs ? abs.id : null, fri: calves ? calves.id : null, sat: cardio.id, sun: null,
+      };
+      p.seedFinalV2 = true;
       p.updatedAt = todayISO();
       await sSet(`forja-plan:${id}`, p);
     }
