@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v307";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v308";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10605,6 +10605,26 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
   }, [activeRoutine]);
 
   const startSession = (day, gym, fecha) => {
+    // Si `day` es el turno PRINCIPAL de hoy (schedule) y hoy también tiene un
+    // segundo turno programado (schedule2: ABS/Calves/Cardio, ver el
+    // cronograma) que todavía no se hizo, se fusionan sus ejercicios acá: el
+    // atleta entrena todo de un tirón, sin tener que salir a buscar y
+    // arrancar una segunda sesión aparte para que aparezca el cardio. Nunca
+    // pasa en una sesión retroactiva (`fecha` puesto): ahí `day` es de un
+    // día PASADO, no necesariamente hoy, y fusionar el cardio de HOY no
+    // tendría sentido.
+    if (!fecha && !day.free) {
+      const hoy = new Date();
+      const principalHoy = scheduledDayFor(plan, hoy);
+      if (principalHoy && principalHoy.id === day.id) {
+        const secundarioHoy = scheduledDayFor2(plan, hoy);
+        const yaHecho = secundarioHoy && (history.sessions || []).some((s) =>
+          isoDate(new Date(s.date)) === isoDate(hoy) && s.dayId === secundarioHoy.id);
+        if (secundarioHoy && secundarioHoy.id !== day.id && !yaHecho) {
+          day = { ...day, name: `${day.name} + ${secundarioHoy.name}`, exs: [...(day.exs || []), ...(secundarioHoy.exs || [])] };
+        }
+      }
+    }
     // Las reps y el RIR salen de la semana en curso del mesociclo; si esa
     // semana no fija nada para el ejercicio, se usan los del propio ejercicio.
     // `week` es null cuando el coach eligió «Sin mesociclo»: entonces la sesión
@@ -12192,14 +12212,20 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   };
 
   // Una sola decisión por pantalla: qué entrenar hoy. Si hay sesión en
-  // curso, esa manda; si no, la sugerida.
+  // curso, esa manda; si no, la sugerida — y si hoy también tiene un
+  // segundo turno programado (ABS/Calves/Cardio, ver schedule2) que todavía
+  // no se hizo, se suma acá al conteo: startSession() lo fusiona de verdad
+  // al arrancar, así lo que se anuncia en esta ficha es lo que realmente
+  // vas a entrenar, sin sorpresas.
+  const hayEntrenoSecundario = d.suggested2 && !d.suggested2Done && d.suggested2.id !== (d.suggested && d.suggested.id);
+  const exsCombinados = d.suggested ? [...d.suggested.exs, ...(hayEntrenoSecundario ? d.suggested2.exs : [])] : null;
   const workout = active
     ? { eyebrow: "Sesión en curso", title: active.dayName, sub: "Guardada donde la dejaste, aunque cierres la app", exs: null, sets: null, cta: "Continuar sesión" }
     : d.suggested
       ? { eyebrow: `Entreno de hoy · ${routineLabel(routineOf(d.suggested), plan.routineNames)}`,
-          title: d.suggested.name,
-          sub: [...new Set(d.suggested.exs.map((e) => e.muscle).filter(Boolean))].slice(0, 3).join(", "),
-          exs: d.suggested.exs, sets: d.setsOf(d.suggested), cta: "Entrenar ahora" }
+          title: hayEntrenoSecundario ? `${d.suggested.name} + ${d.suggested2.name}` : d.suggested.name,
+          sub: [...new Set(exsCombinados.map((e) => e.muscle).filter(Boolean))].slice(0, 3).join(", "),
+          exs: exsCombinados, sets: exsCombinados.reduce((a, e) => a + e.sets.length, 0), cta: "Entrenar ahora" }
       : null;
 
 
