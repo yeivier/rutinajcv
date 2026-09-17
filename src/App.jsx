@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v304";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v305";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6897,7 +6897,7 @@ const ChatPlusButton = ({ onAttached }) => {
    vista desde el repositorio de origen a través de jsDelivr, apuntando a
    un commit fijo para que no cambien bajo los pies.
    ============================================================ */
-const CAT_URL = "/catalogo-ejercicios.json?v=2";
+const CAT_URL = "/catalogo-ejercicios.json?v=3";
 // Commit fijo del dataset: sin él, un cambio allá movería las imágenes de
 // todos los ejercicios sin que nos enteremos.
 const CAT_REF = "f6d16e977fbee3c04295311c44cb8374ca8ff182";
@@ -6927,8 +6927,35 @@ const catMedia = (e, carpeta, ext, host = 0) =>
   (e && e.i && e.m && CAT_HOSTS[host] ? `${CAT_HOSTS[host]}/${carpeta}/${e.i}-${e.m}.${ext}` : "");
 const catGif = (e, host = 0) =>
   (e && e.g && CAT_HOSTS[host] ? `${CAT_HOSTS[host]}/${e.g}.gif` : catMedia(e, "videos", "gif", host));
-const catImg = (e, host = 0) =>
+const catImgClasico = (e, host = 0) =>
   (e && e.g && CAT_HOSTS[host] ? `${CAT_HOSTS[host]}/${e.g}.thumb.webp` : catMedia(e, "images", "jpg", host));
+
+// ---- free-exercise-db (876 ejercicios, `src:"fedb"`) ----
+// Segundo dataset, con fotos FIJAS (1-2 por ejercicio: posición inicial y
+// final) en vez de GIF animado. Mismo esquema de dos orígenes que arriba
+// (jsDelivr primero, raw.githubusercontent de respaldo), apuntando a un
+// commit fijo del repo de origen. Comparte `_catHost`/`catHostFalla` con
+// el catálogo clásico: si una red bloquea jsDelivr, lo bloquea para los
+// dos por igual, así que un solo aprendizaje vale para ambos.
+const FEDB_REF = "a859101d633a01c4a1a920d6a8ce41dabba0705f";
+const FEDB_HOSTS = [
+  `https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@${FEDB_REF}`,
+  `https://raw.githubusercontent.com/yuhonas/free-exercise-db/${FEDB_REF}`,
+];
+const FEDB_CREDITO = "Fotos: free-exercise-db (dominio público)";
+const catHostMax = (e) => ((e && e.src === "fedb") ? FEDB_HOSTS.length : CAT_HOSTS.length);
+// Las 1-2 fotos de un ejercicio de free-exercise-db, en orden (inicio,
+// fin). `imgN` es 0, 1 o 2 — un puñado de ejercicios del dataset original
+// no traía ninguna foto.
+const fedbFrames = (e, host = 0) => {
+  if (!e || e.src !== "fedb" || !e.fd || !e.imgN || !FEDB_HOSTS[host]) return [];
+  const base = `${FEDB_HOSTS[host]}/exercises/${e.fd}`;
+  return Array.from({ length: e.imgN }, (_, i) => `${base}/${i}.jpg`);
+};
+// Miniatura genérica: la primera foto del dataset que corresponda (gif
+// clásico o la foto 0 de free-exercise-db).
+const catImg = (e, host = 0) =>
+  (e && e.src === "fedb") ? (fedbFrames(e, host)[0] || "") : catImgClasico(e, host);
 
 let _catDatos = null;
 let _catPromesa = null;
@@ -7030,12 +7057,12 @@ const CatThumb = ({ ex, size = 34, radius = 10, style }) => {
   // conexión colgada, y sin este plazo la miniatura se queda en blanco para
   // siempre en vez de pasar al segundo origen.
   useEffect(() => {
-    if (lista || host >= CAT_HOSTS.length) return;
+    if (lista || host >= catHostMax(ex)) return;
     const t = setTimeout(() => setHost((h) => { catHostFalla(h); return h + 1; }), CAT_ESPERA);
     return () => clearTimeout(t);
   }, [host, lista, ex && ex.i]);
   const src = catImg(ex, host);
-  const falla = host >= CAT_HOSTS.length;
+  const falla = host >= catHostMax(ex);
   if (!src || falla) {
     return (
       <span style={{ width: size, height: size, borderRadius: radius, background: P.s3, display: "flex",
@@ -7049,6 +7076,42 @@ const CatThumb = ({ ex, size = 34, radius = 10, style }) => {
       onError={() => setHost((h) => { catHostFalla(h); return h + 1; })}
       style={{ width: size, height: size, borderRadius: radius, objectFit: "cover", flexShrink: 0,
         background: P.s3, border: `1px solid ${P.line}`, ...style }} />
+  );
+};
+
+// "Reducir movimiento" del sistema — a diferencia de GlobalStyle (que corta
+// animaciones CSS con !important), esto es para un setInterval en JS, que
+// esa regla no toca. Se consulta una sola vez por sesión y sigue cambios en
+// vivo (alguien que activa la preferencia sin recargar).
+const useReducedMotion = () => {
+  const [r, setR] = useState(() => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } });
+  useEffect(() => {
+    let mq; try { mq = window.matchMedia("(prefers-reduced-motion: reduce)"); } catch { return; }
+    const f = () => setR(mq.matches);
+    if (mq.addEventListener) mq.addEventListener("change", f); else mq.addListener(f);
+    return () => { if (mq.removeEventListener) mq.removeEventListener("change", f); else mq.removeListener(f); };
+  }, []);
+  return r;
+};
+
+/* Alterna automáticamente entre las fotos de `frames` cada ~800ms — el
+   efecto "stop motion" pedido para los ejercicios de free-exercise-db, que
+   traen 1-2 fotos fijas (inicio/fin) en vez de un GIF animado. Con una sola
+   foto (o ninguna) no hay nada que alternar y queda quieta. Respeta
+   "reducir movimiento": con esa preferencia activa se queda en la primera. */
+const StopMotionImg = ({ frames, alt, onLoad, onError, style }) => {
+  const [i, setI] = useState(0);
+  const reducido = useReducedMotion();
+  useEffect(() => { setI(0); }, [frames && frames[0]]);
+  useEffect(() => {
+    if (reducido || !frames || frames.length < 2) return;
+    const t = setInterval(() => setI((x) => (x + 1) % frames.length), 800);
+    return () => clearInterval(t);
+  }, [frames, reducido]);
+  if (!frames || !frames.length) return null;
+  return (
+    <img src={frames[i]} alt={alt || ""} onLoad={onLoad} onError={onError}
+      style={{ width: "100%", height: "100%", objectFit: "cover", ...style }} />
   );
 };
 
@@ -24256,33 +24319,43 @@ const CompetitionPrepSheet = ({ open, onClose, plan }) => {
    ============================================================ */
 
 /* Ficha de un ejercicio del catálogo: la animación, para qué músculos es,
-   con qué equipo y los pasos de ejecución. La animación (GIF) pesa bastante
-   más que la miniatura, así que arranca en la foto fija y se pide recién
-   cuando alguien toca «Ver en movimiento». */
+   con qué equipo y los pasos de ejecución.
+   Dos fuentes, dos formas de "ver la ejecución":
+   - Catálogo clásico (Biblioteca-ejercicios-1): GIF animado, que pesa
+     bastante más que la miniatura, así que arranca en la foto fija y se
+     pide recién cuando alguien toca «Ver en movimiento».
+   - free-exercise-db (`ex.src === "fedb"`): 1-2 fotos fijas (inicio/fin),
+     sin GIF. Se alternan solas cada ~800ms (StopMotionImg) apenas se abre
+     la ficha, para dar una idea de la ejecución sin depender de video. */
 const CatalogExerciseSheet = ({ ex, open, onClose, onElegir, etiquetaElegir }) => {
   const [animado, setAnimado] = useState(false);
   const [host, setHost] = useState(catHostInicial);
   useEffect(() => { setAnimado(false); setHost(catHostInicial()); }, [ex && ex.i]);
   if (!ex) return null;
-  const falla = host >= CAT_HOSTS.length;
-  const src = animado ? catGif(ex, host) : catImg(ex, host);
+  const esFedb = ex.src === "fedb";
+  const falla = host >= catHostMax(ex);
+  const frames = esFedb ? fedbFrames(ex, host) : null;
+  const src = esFedb ? null : (animado ? catGif(ex, host) : catImg(ex, host));
+  const sinFoto = esFedb ? !frames.length : !src;
   return (
     <Sheet open={open} onClose={onClose} title={ex.n} tall>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
           <div style={{ width: 180, height: 180, borderRadius: R_CARD, overflow: "hidden", background: P.s3,
             border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {falla
+            {falla || sinFoto
               ? <Dumbbell size={44} color={P.faint2} />
-              : <img src={src} alt={ex.n} onError={() => setHost((h) => { catHostFalla(h); return h + 1; })} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+              : esFedb
+                ? <StopMotionImg frames={frames} alt={ex.n} onError={() => setHost((h) => { catHostFalla(h); return h + 1; })} />
+                : <img src={src} alt={ex.n} onError={() => setHost((h) => { catHostFalla(h); return h + 1; })} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
           </div>
-          {!falla && !animado && (
+          {!esFedb && !falla && !animado && (
             <button onClick={() => { setAnimado(true); setHost(catHostInicial()); }} style={{ fontSize: 13.5, fontWeight: 600, color: P.text,
               background: P.s3, borderRadius: R_ROW, padding: "7px 13px", display: "inline-flex", alignItems: "center", gap: 6 }}>
               <Play size={14} /> Ver en movimiento
             </button>
           )}
-          <div style={{ fontSize: 10.5, color: P.faint }}>{CAT_CREDITO}</div>
+          <div style={{ fontSize: 10.5, color: P.faint }}>{esFedb ? FEDB_CREDITO : CAT_CREDITO}</div>
         </div>
 
         {ex.e && norma(ex.e) !== norma(ex.n) && (
@@ -24299,6 +24372,20 @@ const CatalogExerciseSheet = ({ ex, open, onClose, onElegir, etiquetaElegir }) =
           {ex.eq && ex.eq !== "Otro" && (
             <span style={{ fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "4px 10px", color: P.dim, background: P.s3 }}>{ex.eq}</span>
           )}
+          {/* Nivel, mecánica, tipo de fuerza y categoría — solo vienen en
+              free-exercise-db, el catálogo clásico no trae esta taxonomía. */}
+          {ex.lvl && (
+            <span style={{ fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "4px 10px", color: P.dim, background: P.s3 }}>{ex.lvl}</span>
+          )}
+          {ex.mech && (
+            <span style={{ fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "4px 10px", color: P.dim, background: P.s3 }}>{ex.mech}</span>
+          )}
+          {ex.frc && (
+            <span style={{ fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "4px 10px", color: P.dim, background: P.s3 }}>{ex.frc}</span>
+          )}
+          {ex.cat && ex.cat !== "Fuerza" && (
+            <span style={{ fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "4px 10px", color: P.dim, background: P.s3 }}>{ex.cat}</span>
+          )}
         </div>
 
         {onElegir && (
@@ -24307,7 +24394,9 @@ const CatalogExerciseSheet = ({ ex, open, onClose, onElegir, etiquetaElegir }) =
 
         {(ex.p || []).length > 0 && (
           <div>
-            <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>Ejecución</div>
+            <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>
+              Ejecución{esFedb ? " (en inglés — traducción en camino)" : ""}
+            </div>
             <Card style={{ overflow: "hidden" }}>
               {ex.p.map((paso, i) => (
                 <div key={i} style={{ display: "flex", gap: 11, padding: "11px 13px", borderBottom: i === ex.p.length - 1 ? "none" : `1px solid ${P.line}` }}>
@@ -24776,9 +24865,11 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
         </Card>
 
         <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.5, padding: "0 2px 4px" }}>
-          Catálogo de 1.323 ejercicios de{" "}
-          <a href="https://github.com/yeivier/Biblioteca-ejercicios-1" target="_blank" rel="noreferrer" style={{ color: P.dim, textDecoration: "underline" }}>Biblioteca-ejercicios-1</a>.
-          Imágenes y animaciones {CAT_CREDITO}, mostradas desde el repositorio de origen.
+          Catálogo de {(2199).toLocaleString("es-CL")} ejercicios: 1.323 de{" "}
+          <a href="https://github.com/yeivier/Biblioteca-ejercicios-1" target="_blank" rel="noreferrer" style={{ color: P.dim, textDecoration: "underline" }}>Biblioteca-ejercicios-1</a>
+          {" "}(imágenes y animaciones {CAT_CREDITO}) y 876 de{" "}
+          <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer" style={{ color: P.dim, textDecoration: "underline" }}>free-exercise-db</a>
+          {" "}({FEDB_CREDITO}, licencia Unlicense). Mostradas desde el repositorio de origen de cada uno.
         </div>
       </div>
 
