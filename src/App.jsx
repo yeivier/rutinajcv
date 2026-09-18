@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v313";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v314";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -23696,6 +23696,73 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
 /* Hoja "Más": lo que salió de la barra de pestañas. Herramientas de
    referencia, gestión (alumnos/equipo) y los ajustes de apariencia —
    agrupados en filas de sistema, como los Ajustes de iOS. */
+/* Buscador universal (Cmd-K de la app). Recibe un índice ya armado por el
+   componente raíz —cada resultado sabe llevar a su destino— y solo se
+   encarga de filtrar por lo que se escribe y de mostrarlo agrupado y
+   ordenado, sin solapes ni ruido. La query vive acá adentro, así teclear
+   no re-renderiza toda la app. */
+const GlobalSearchSheet = ({ open, onClose, items }) => {
+  const [q, setQ] = useState("");
+  const inputRef = useRef(null);
+  useEffect(() => {
+    if (open) { setQ(""); const t = setTimeout(() => { try { inputRef.current && inputRef.current.focus(); } catch {} }, 80); return () => clearTimeout(t); }
+  }, [open]);
+  const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const query = norm(q.trim());
+  const GRUPOS = ["Ir a", "Herramientas", "Atletas", "Ejercicios"];
+  // Sin texto: la app entera como directorio, pero sin volcar cientos de
+  // ejercicios (esos aparecen al escribir). Con texto: filtra todo.
+  const filtrado = query
+    ? items.filter((it) => norm(`${it.label} ${it.sub || ""} ${it.kw || ""}`).includes(query))
+    : items.filter((it) => it.group !== "Ejercicios");
+  const porGrupo = GRUPOS.map((g) => [g, filtrado.filter((it) => it.group === g)]).filter(([, arr]) => arr.length);
+  if (!open) return null;
+  return (
+    <Sheet open={open} onClose={onClose} title="Buscar" tall>
+      <div style={{ position: "sticky", top: 0, zIndex: 2, background: P.bg, paddingBottom: 10, marginTop: -2 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, background: P.s3, border: `1px solid ${P.line}`, borderRadius: 12, padding: "0 12px", height: 48 }}>
+          <Search size={18} color={P.faint} style={{ flexShrink: 0 }} />
+          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} inputMode="search"
+            placeholder="Pantallas, herramientas, ejercicios…" aria-label="Buscar en toda la app"
+            style={{ flex: 1, minWidth: 0, border: "none", background: "transparent", outline: "none", fontSize: 16, color: P.text, fontFamily: "inherit" }} />
+          {q && (
+            <button onClick={() => setQ("")} aria-label="Limpiar búsqueda" style={{ flexShrink: 0, display: "flex", padding: 4, color: P.faint }}>
+              <X size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+      {porGrupo.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "44px 16px", color: P.faint }}>
+          <Search size={26} color={P.faint} style={{ marginBottom: 10 }} />
+          <div style={{ fontSize: 14.5, fontWeight: 600, color: P.dim }}>Sin resultados{q ? ` para «${q.trim()}»` : ""}</div>
+          <div style={{ fontSize: 13, marginTop: 3, lineHeight: 1.5 }}>Probá con otro nombre — una pantalla, una herramienta o un ejercicio.</div>
+        </div>
+      ) : porGrupo.map(([g, arr]) => (
+        <div key={g} style={{ marginBottom: 16 }}>
+          <div className="mono" style={{ margin: "4px 4px 8px" }}>{g}</div>
+          <Card style={{ overflow: "hidden" }}>
+            {arr.slice(0, query ? 14 : 60).map((it, i, a) => (
+              <button key={it.id} onClick={it.run}
+                style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+                  borderBottom: i === a.length - 1 ? "none" : `1px solid ${P.line}`, background: "transparent" }}>
+                <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, background: P.s3, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <it.Icon size={16} strokeWidth={2.2} />
+                </span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 15, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</span>
+                  {it.sub && <span style={{ display: "block", fontSize: 12.5, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.sub}</span>}
+                </span>
+                <ChevronRight size={16} color={P.faint} style={{ flexShrink: 0 }} />
+              </button>
+            ))}
+          </Card>
+        </div>
+      ))}
+    </Sheet>
+  );
+};
+
 const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha }) => {
   const [theme, setTheme] = useTheme();
   const [accent, setAccent] = useAccent();
@@ -25054,8 +25121,17 @@ const CatalogBulkSheet = ({ open, onClose, plan, onAplicar, toast }) => {
   );
 };
 
-const ExerciseAtlasSheet = ({ open, onClose, library, plan }) => {
+const ExerciseAtlasSheet = ({ open, onClose, library, plan, initialQuery }) => {
   const [q, setQ] = useState("");
+  // Cuando el Atlas se abre desde el buscador universal apuntando a un
+  // ejercicio, llega ya filtrado por su nombre. Se aplica solo en la
+  // transición cerrado→abierto, así el usuario después puede borrar o
+  // cambiar la búsqueda sin que se le vuelva a imponer.
+  const prevOpenRef = useRef(false);
+  useEffect(() => {
+    if (open && !prevOpenRef.current) setQ(initialQuery || "");
+    prevOpenRef.current = open;
+  }, [open, initialQuery]);
   // Los filtros son de selección múltiple: un coach busca "pecho o
   // hombro" con "mancuernas o polea", no un solo grupo a la vez. Lista
   // vacía = sin filtrar.
@@ -28014,6 +28090,14 @@ const App = () => {
   const [section, setSection] = useState({});
   const [moreOpen, setMoreOpen] = useState(false);
   const [controlCenterOpen, setControlCenterOpen] = useState(false);
+  // Buscador universal: un solo campo que alcanza TODO —pantallas,
+  // herramientas, ajustes, atletas (coach) y ejercicios— y salta directo
+  // al destino. Es el atajo que un culturista pro espera: escribir el
+  // nombre de lo que quiere y llegar, sin recorrer pestañas.
+  const [searchOpen, setSearchOpen] = useState(false);
+  // Cuando el buscador manda a un ejercicio, el Atlas se abre ya filtrado
+  // por su nombre (en vez de dejar al usuario re-tipearlo).
+  const [atlasInitialQuery, setAtlasInitialQuery] = useState("");
   const [accessOpen, setAccessOpen] = useState(false);
   const [fichaOpen, setFichaOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
@@ -28886,6 +28970,75 @@ const App = () => {
       onAdd={() => addStudent(false)} />;
   }
 
+  // Índice del buscador universal. Cada resultado sabe llevar a su destino
+  // (`run`) — pantalla, herramienta, atleta o ejercicio. Se arma en cada
+  // render (barato: son arrays); la query vive dentro del propio sheet, así
+  // que teclear no re-renderiza esto.
+  const searchItems = (() => {
+    const out = [];
+    const done = (fn) => () => { setSearchOpen(false); fn(); };
+    const goTab = (t, sec) => done(() => { setUtility(null); setTab(t); if (sec) setSection((o) => ({ ...o, [t]: sec })); });
+    // Destinos: las pestañas visibles (respeta rol y Easy Mode). En coach,
+    // las pestañas con varias secciones se abren una por sección.
+    tabs.forEach((t) => {
+      const secs = mode === "coach" ? allowedSections(t) : null;
+      if (secs && secs.length > 1) {
+        secs.forEach((s) => out.push({ id: `nav-${t.id}-${s}`, group: "Ir a", Icon: t.Icon,
+          label: SECTION_LABELS[s] || s, sub: t.label, kw: `${t.label} ${SECTION_LABELS[s] || s}`, run: goTab(t.id, s) }));
+      } else {
+        out.push({ id: `nav-${t.id}`, group: "Ir a", Icon: t.Icon, label: t.label, sub: "Pantalla", kw: t.label, run: goTab(t.id) });
+      }
+    });
+    if (mode === "alumno") {
+      [["fuerza", "Fuerza"], ["cuerpo", "Cuerpo"], ["volumen", "Volumen"], ["logros", "Logros"], ["historial", "Historial"]].forEach(([id, lb]) =>
+        out.push({ id: `prog-${id}`, group: "Ir a", Icon: BarChart3, label: lb, sub: "Progreso", kw: `progreso ${lb}`,
+          run: done(() => { setUtility(null); setProgressJumpSub(id); setTab("progreso"); }) }));
+    }
+    const tool = (label, Icon, fn, kw) => out.push({ id: `tool-${label}`, group: "Herramientas", Icon, label, sub: "Herramienta", kw: kw || label, run: done(fn) });
+    tool("Temporizador", Timer, () => setUtility("timer"), "temporizador cronometro descanso");
+    tool("Guía de términos", BookOpen, () => setUtility("guia"), "guia glosario terminos rir top drop");
+    tool("Teclado de discos", Layers, () => setUtility("discos"), "discos calculadora peso barra");
+    tool("Atlas de ejercicios", Library, () => { setAtlasInitialQuery(""); setAtlasOpen(true); }, "atlas catalogo ejercicios biblioteca");
+    tool("Competition Prep", Trophy, () => setCompPrepOpen(true), "competencia tarima peak week posing categorias");
+    tool("Centro de control", LayoutGrid, () => setControlCenterOpen(true), "centro control accesos rapidos");
+    tool("Configuración", Sun, () => setMoreOpen(true), "ajustes configuracion tema unidades cuenta interfaz");
+    if (mode === "alumno") {
+      tool("Nutrición", Utensils, () => setTab("nutricion"), "nutricion comidas macros calorias");
+      tool("Agenda", Calendar, () => setUtility("agenda"), "agenda turnos calendario reservas");
+      tool("Atajos de iPhone", Smartphone, () => setUtility("atajos"), "atajos iphone shortcuts");
+      tool("Suplementos", Pill, () => setSupplementsOpen(true), "suplementos");
+      tool("Laboratorio", HeartPulse, () => setLabsOpen(true), "laboratorio analitica examenes de sangre marcadores");
+      tool("Exámenes", FileText, () => setExamsOpen(true), "examenes documentos estudios");
+      tool("Fotos de progreso", Camera, () => setPhotosOpen(true), "fotos progreso comparar cuerpo");
+      tool("Dispositivos", Watch, () => setDevicesOpen(true), "dispositivos reloj bascula whoop garmin salud");
+      tool("Check-in", ClipboardList, () => { setTab("hoy"); setAutoOpenCheckin(true); }, "checkin peso sueno animo pasos");
+      tool("Coach IA", Sparkles, () => setAiChatOpenSignal((n) => n + 1), "ia inteligencia artificial asistente coach");
+    } else {
+      tool("Agenda", Calendar, () => setUtility("agenda"), "agenda turnos disponibilidad reservas");
+      tool("Comparar rutinas", Columns2, () => setCompareOpen(true), "comparar rutinas diferencias");
+      tool("Ficha del alumno", ClipboardList, () => setFichaOpen(true), "ficha historial checkin datos atleta");
+      if (myRoleMeta.manageTeam) tool("Equipo", Award, () => setEquipoOpen(true), "equipo coaches nutricionistas permisos");
+      tool("Coach IA", Sparkles, () => { setUtility(null); setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }, "ia inteligencia artificial asistente");
+    }
+    if (mode === "coach" && !delegate) {
+      roster.students.forEach((s) => out.push({ id: `al-${s.id}`, group: "Atletas", Icon: Users, label: s.name,
+        sub: "Entrar como coach de este atleta", kw: s.name, run: done(() => openIdentity("coach", s.id, roster, myTeamId)) }));
+    }
+    // Ejercicios: los del plan actual + la biblioteca del coach, sin repetir.
+    // Un resultado abre el Atlas ya filtrado por ese nombre.
+    const exMap = new Map();
+    (plan.days || []).forEach((d) => (d.exs || []).forEach((e) => {
+      const n = (e.name || "").trim(); if (n) exMap.set(n.toLowerCase(), { name: n, muscle: e.muscle });
+    }));
+    (library || []).forEach((e) => {
+      const n = (e.name || "").trim(); if (n && !exMap.has(n.toLowerCase())) exMap.set(n.toLowerCase(), { name: n, muscle: e.muscle });
+    });
+    [...exMap.values()].forEach((e) => out.push({ id: `ex-${e.name}`, group: "Ejercicios", Icon: Dumbbell,
+      label: e.name, sub: e.muscle || "Ejercicio", kw: `${e.name} ${e.muscle || ""}`,
+      run: done(() => { setAtlasInitialQuery(e.name); setAtlasOpen(true); }) }));
+    return out;
+  })();
+
   return (
     <div className={easyMode ? "fj fj-easy" : "fj"} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
@@ -28904,6 +29057,12 @@ const App = () => {
               <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>{delegate ? "perfil con acceso" : `modo ${mode}`}</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              <button onClick={() => setSearchOpen(true)} aria-label="Buscar en toda la app"
+                title="Buscar"
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
+                  background: P.s3, border: `1px solid ${P.line}`, color: P.dim, flexShrink: 0 }}>
+                <Search size={17} />
+              </button>
               <button onClick={() => setControlCenterOpen(true)} aria-label="Centro de control"
                 title="Centro de control"
                 style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
@@ -29004,13 +29163,13 @@ const App = () => {
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             onOpenPosing={() => { setTab("hoy"); setAutoOpenPosing(true); }}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
-            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)}
+            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => { setAtlasInitialQuery(""); setAtlasOpen(true); }}
             onOpenSupplements={() => setSupplementsOpen(true)} onOpenLabs={() => setLabsOpen(true)}
             onOpenNutrition={() => setTab("nutricion")} onOpenExams={() => setExamsOpen(true)}
             onOpenPhotos={() => setPhotosOpen(true)} />
         )}
         <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} />
-        <ExerciseAtlasSheet open={atlasOpen} onClose={() => setAtlasOpen(false)} library={library} plan={plan} />
+        <ExerciseAtlasSheet open={atlasOpen} onClose={() => setAtlasOpen(false)} library={library} plan={plan} initialQuery={atlasInitialQuery} />
         {/* Suplementación abre la analítica sin cerrarse: el seguimiento
             médico es justamente el puente entre las dos. */}
         <SupplementsSheet open={supplementsOpen} onClose={() => setSupplementsOpen(false)} plan={plan} history={history}
@@ -29125,7 +29284,7 @@ const App = () => {
             onGoSection={(t, sec) => { setTab(t); setSection((o) => ({ ...o, [t]: sec })); }}
             onOpenUtility={setUtility} onOpenTeam={() => setEquipoOpen(true)}
             onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
-            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => setAtlasOpen(true)}
+            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => { setAtlasInitialQuery(""); setAtlasOpen(true); }}
             onOpenCompare={() => setCompareOpen(true)} />
         )}
         </div>
@@ -29133,6 +29292,7 @@ const App = () => {
 
       {compareOpen && <RoutineCompareScreen onClose={() => setCompareOpen(false)} plan={plan} />}
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
+      <GlobalSearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} items={searchItems} />
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)}
         onEnterAs={(prof) => { setAccessOpen(false); enterDelegate(prof); }} />
       <FaceIdOfferSheet offer={faceOffer} onClose={() => setFaceOffer(null)} />
