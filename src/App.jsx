@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v314";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v315";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -13819,10 +13819,112 @@ const HealthDashboardSheet = ({ open, onClose, history }) => {
   );
 };
 
+// Las cinco zonas de frecuencia cardíaca del reloj, con el nombre que les
+// da WHOOP/Garmin — el porcentaje que trae cada actividad (z1..z5) es la
+// FRACCIÓN del tiempo de la sesión pasada en esa zona.
+const HR_ZONAS = [
+  { n: 1, label: "Zona 1 · Muy ligero" },
+  { n: 2, label: "Zona 2 · Ligero" },
+  { n: 3, label: "Zona 3 · Moderado" },
+  { n: 4, label: "Zona 4 · Intenso" },
+  { n: 5, label: "Zona 5 · Máximo" },
+];
+// Ritmo (min/km) a partir de duración y distancia, con el formato m:ss que
+// se lee en cualquier reloj — solo tiene sentido para actividades con
+// distancia (correr, andar en bici), no para las de sala.
+const fmtRitmo = (min, km) => {
+  if (!(min > 0) || !(km > 0)) return null;
+  const secPorKm = (min * 60) / km;
+  const m = Math.floor(secPorKm / 60), s = Math.round(secPorKm % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
+// Detalle de UNA actividad importada del reloj: todos los datos que trae
+// el archivo (duración, distancia, energía, ritmo, FC media/máx, esfuerzo
+// y el reparto por zonas de FC minuto a minuto). Se abre al tocar la
+// tarjeta en el dashboard. `act` null = cerrada; se conserva la última
+// mientras dura la animación de cierre para que no se vacíe a mitad.
+const ActivityDetailSheet = ({ act, onClose }) => {
+  const [shown, setShown] = useState(act);
+  useEffect(() => { if (act) setShown(act); }, [act]);
+  const a = shown;
+  const zonas = a ? [a.z1, a.z2, a.z3, a.z4, a.z5] : [];
+  const hayZonas = zonas.some((z) => z != null);
+  const dur = a && a.durationMin != null ? Math.round(a.durationMin) : null;
+  const ritmo = a ? fmtRitmo(a.durationMin, a.distanceKm) : null;
+  // Stats grandes de la cabecera — solo las que el archivo trae de verdad.
+  const stats = a ? [
+    dur != null && { label: "Duración", value: dur >= 60 ? `${Math.floor(dur / 60)}h ${dur % 60}` : String(dur), unit: dur >= 60 ? "min" : "min" },
+    a.distanceKm != null && { label: "Distancia", value: fmtUnit(a.distanceKm), unit: "km" },
+    a.kcal != null && { label: "Energía", value: Math.round(a.kcal).toLocaleString("es-CL"), unit: "kcal" },
+    ritmo && { label: "Ritmo", value: ritmo, unit: "min/km" },
+    a.strain != null && { label: "Esfuerzo", value: fmtUnit(a.strain), unit: "" },
+  ].filter(Boolean) : [];
+  return (
+    <Sheet open={!!act} onClose={onClose} title={a ? a.name : "Actividad"} tall>
+      {a && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ ...TYPE.footnote, color: P.faint2, margin: "-2px 2px 0" }}>
+            {fmtDateFull(a.date)}
+            {" · "}
+            {new Date(a.date).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}
+            {a.source ? ` · ${a.source === "whoop" ? "WHOOP" : a.source}` : ""}
+          </div>
+
+          {stats.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
+              {stats.map((s, i) => <DashStat key={i} label={s.label} value={s.value} unit={s.unit} />)}
+            </div>
+          )}
+
+          {(a.avgHr != null || a.maxHr != null) && (
+            <RowGroup label="Frecuencia cardíaca" rows={[
+              a.avgHr != null && { label: "FC media", value: `${Math.round(a.avgHr)} lpm` },
+              a.maxHr != null && { label: "FC máxima", value: `${Math.round(a.maxHr)} lpm` },
+            ]} />
+          )}
+
+          {hayZonas && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Tiempo por zona de FC</div>
+              <div style={{ display: "flex", gap: 2, height: 12, borderRadius: 999, overflow: "hidden" }}>
+                {zonas.map((z, zi) => (
+                  <span key={zi} style={{ flex: Math.max(0.001, +z || 0), background: hexRgba(P.ember, 0.25 + zi * 0.18) }} />
+                ))}
+              </div>
+              <Card style={{ overflow: "hidden" }}>
+                {HR_ZONAS.map((zn, zi) => {
+                  const pct = +zonas[zi] || 0;
+                  const mins = dur != null ? Math.round((pct / 100) * dur) : null;
+                  return (
+                    <div key={zn.n} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+                      borderBottom: zi < HR_ZONAS.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0, background: hexRgba(P.ember, 0.25 + zi * 0.18) }} />
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 15, color: P.text }}>{zn.label}</span>
+                      <span style={{ fontSize: 15, color: P.faint2, flexShrink: 0 }}>
+                        {mins != null && pct > 0 ? `${mins} min · ` : ""}{fmtUnit(pct)}%
+                      </span>
+                    </div>
+                  );
+                })}
+              </Card>
+            </div>
+          )}
+
+          <div style={{ ...TYPE.caption, color: P.faint, margin: "0 4px", lineHeight: 1.5 }}>
+            Actividad de cardio importada del reloj. No cuenta para el tonelaje ni los récords de fuerza.
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+};
+
 // Las actividades importadas del reloj, de la más reciente para atrás.
 const ActividadesImportadas = ({ history }) => {
   const acts = (history.activities || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
   const [todas, setTodas] = useState(false);
+  const [sel, setSel] = useState(null);   // actividad cuyo detalle se ve
   if (!acts.length) return null;
   const ver = todas ? acts : acts.slice(0, 8);
   const totalMin = acts.reduce((t, a) => t + (+a.durationMin || 0), 0);
@@ -13831,20 +13933,24 @@ const ActividadesImportadas = ({ history }) => {
       <div className="mono" style={{ margin: "0 4px 8px" }}>Actividades del reloj</div>
       <div style={{ ...TYPE.footnote, color: P.faint, margin: "0 4px 10px", lineHeight: 1.45 }}>
         {acts.length} {acts.length === 1 ? "actividad importada" : "actividades importadas"} · {Math.round(totalMin / 60)} h en total.
-        No cuentan para el tonelaje ni los récords de fuerza.
+        Tocá una para ver su detalle. No cuentan para el tonelaje ni los récords de fuerza.
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
         {ver.map((a, i) => {
           const zonas = [a.z1, a.z2, a.z3, a.z4, a.z5];
           const hayZonas = zonas.some((z) => z != null);
           return (
-            <Card key={`${a.date}-${i}`} style={{ padding: SP.lg }}>
+            <Card key={`${a.date}-${i}`} onClick={() => setSel(a)} role="button" tabIndex={0}
+              aria-label={`Ver detalle de ${a.name}`}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSel(a); } }}
+              style={{ padding: SP.lg, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
               <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
                 <span style={{ ...TYPE.headline, color: P.text, flex: 1, minWidth: 0,
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
                 {a.strain != null && (
                   <span style={{ ...TYPE.caption, color: P.ember2, flexShrink: 0 }}>Esfuerzo {fmtUnit(a.strain)}</span>
                 )}
+                <ChevronRight size={17} color={P.chevron} style={{ flexShrink: 0 }} />
               </div>
               <div style={{ ...TYPE.footnote, color: P.faint, marginTop: 3 }}>
                 {fmtDate(a.date)}
@@ -13877,6 +13983,7 @@ const ActividadesImportadas = ({ history }) => {
           {todas ? "Ver menos" : `Ver las ${acts.length}`}
         </button>
       )}
+      <ActivityDetailSheet act={sel} onClose={() => setSel(null)} />
     </div>
   );
 };
