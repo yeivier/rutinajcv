@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v324";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v325";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -14689,8 +14689,18 @@ const DiarioImportado = ({ history }) => {
   );
 };
 
+// Las 6 secciones de Progreso — antes vivían en un SectionSwitch de una
+// sola fila, que con 6 ítems quedaba apretado y truncaba "Resumen" a
+// "Resum…". Ahora es un desplegable: un botón con la sección actual +
+// chevron que abre una lista para elegir, igual que cualquier selector
+// del sistema (ColorPickerSheet, el selector de Ejercicio de acá abajo).
+const PROGRESO_SUB_ITEMS = [
+  { id: "resumen", label: "Resumen" }, { id: "fuerza", label: "Fuerza" }, { id: "cuerpo", label: "Cuerpo" },
+  { id: "volumen", label: "Volumen" }, { id: "logros", label: "Logros" }, { id: "historial", label: "Historial" },
+];
 const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, onOpenCheckin }) => {
   const [sub, setSub] = useState("fuerza");
+  const [subPickerOpen, setSubPickerOpen] = useState(false);
   const [exId, setExId] = useState("");
   const [measureOpen, setMeasureOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -14753,8 +14763,27 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
       <ScreenTitle title="Progreso" />
 
-      <SectionSwitch value={sub} onChange={setSub}
-        items={[{ id: "resumen", label: "Resumen" }, { id: "fuerza", label: "Fuerza" }, { id: "cuerpo", label: "Cuerpo" }, { id: "volumen", label: "Volumen" }, { id: "logros", label: "Logros" }, { id: "historial", label: "Historial" }]} />
+      <button onClick={() => setSubPickerOpen(true)} aria-label="Elegir qué sección de Progreso ver"
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+          borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, padding: "0 14px", minHeight: HIT }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: P.text }}>{(PROGRESO_SUB_ITEMS.find((i) => i.id === sub) || {}).label}</span>
+        <ChevronDown size={17} color={P.chevron} strokeWidth={2.4} />
+      </button>
+      <Sheet open={subPickerOpen} onClose={() => setSubPickerOpen(false)} title="Ver">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {PROGRESO_SUB_ITEMS.map((it) => {
+            const on = sub === it.id;
+            return (
+              <button key={it.id} onClick={() => { setSub(it.id); setSubPickerOpen(false); }}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                  padding: "14px 16px", borderRadius: R_TILE, background: on ? P.s3 : P.s1, border: `1px solid ${P.line}` }}>
+                <span style={{ fontSize: 16, fontWeight: on ? 700 : 500, color: P.text }}>{it.label}</span>
+                {on && <Check size={18} color={SES.acc} strokeWidth={3} />}
+              </button>
+            );
+          })}
+        </div>
+      </Sheet>
 
       {sub === "resumen" && <ProgressSummaryPanel history={history} />}
 
