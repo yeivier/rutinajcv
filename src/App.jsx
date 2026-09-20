@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v321";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v322";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5440,18 +5440,29 @@ const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals 
 /* Celda numérica de la tabla de series. Guarda su propio texto mientras
    tiene el foco: si se leyera siempre del dato, escribir "12," se
    convertiría en "12" a mitad de tecleo y la coma se perdería. */
-const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 48 }) => {
+const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 48, onTap }) => {
   const [txt, setTxt] = useState(valor);
   const foco = useRef(false);
   useEffect(() => { if (!foco.current) setTxt(valor); }, [valor]);
+  const estilo = { width: ancho, padding: "11px 4px", textAlign: "center", fontSize: 15, fontWeight: 700,
+    color: txt ? SES.ink : SES.faint, background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: 999,
+    fontFamily: "inherit", outline: "none", boxSizing: "border-box", minWidth: 0 };
+  // Con onTap la celda es un botón, no un campo de texto: abre la rueda
+  // directo al tocarla — es la forma predeterminada de cargar el dato,
+  // no una alternativa escondida detrás de otro botón.
+  if (onTap) {
+    return (
+      <button type="button" onClick={onTap} aria-label={aria} style={estilo}>
+        {txt || placeholder}
+      </button>
+    );
+  }
   return (
     <input type="text" inputMode="decimal" value={txt} placeholder={placeholder} aria-label={aria}
       onFocus={() => { foco.current = true; }}
       onBlur={() => { foco.current = false; setTxt(valor); }}
       onChange={(e) => { setTxt(e.target.value); onCommit(e.target.value.replace(",", ".")); }}
-      style={{ width: ancho, padding: "11px 4px", textAlign: "center", fontSize: 15, fontWeight: 700,
-        color: SES.ink, background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: 999,
-        fontFamily: "inherit", outline: "none", boxSizing: "border-box", minWidth: 0 }} />
+      style={{ ...estilo, color: SES.ink }} />
   );
 };
 
@@ -9392,7 +9403,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // Qué serie tiene abierta la rueda de peso (clave "ei-si"), o null —
   // mismo patrón que discosEn: una alternativa rápida a escribir con el
   // teclado, para cuando el peso ya cae en un múltiplo de 0,5 kg.
-  const [wheelEn, setWheelEn] = useState(null);
+  const [wheelEn, setWheelEn] = useState(null); // { key: restKey, field: "weight"|"reps"|"rir" } | null
   const [tipoEn, setTipoEn] = useState(null); // {ei, si} de la serie cuyo tipo se está eligiendo
   // Focus Mode: modo aparte que se activa rápido (segmentado "Lista / Focus")
   // y se recuerda. En Focus se ve UN ejercicio a la vez —la misma tabla de
@@ -9973,15 +9984,20 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                   <RetoSerie actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitDeSerie(st, r.ei)} />
                 )}
               </div>
+              {/* Las tres celdas abren la rueda al tocarlas — es la forma
+                  predeterminada de cargar el dato, sin un botón aparte. */}
               <NumCell aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)}
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitDeSerie(st, r.ei))).replace(".", ",")}
-                onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitDeSerie(st, r.ei)))))} />
+                onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitDeSerie(st, r.ei)))))}
+                onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "weight" })} />
               <NumCell aria={`Repeticiones de la ${dónde}`} placeholder="reps"
                 valor={st.reps == null ? "" : String(st.reps)}
-                onCommit={(v) => setVal(r.ei, r.si, "reps", v)} />
+                onCommit={(v) => setVal(r.ei, r.si, "reps", v)}
+                onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "reps" })} />
               <NumCell aria={`RIR de la ${dónde}`} placeholder="RIR"
                 valor={st.rir == null ? "" : String(st.rir)}
-                onCommit={(v) => setVal(r.ei, r.si, "rir", v)} />
+                onCommit={(v) => setVal(r.ei, r.si, "rir", v)}
+                onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "rir" })} />
               <button onClick={() => onToggleDone(r.ei, r.si)}
                 aria-label={st.done ? `Desmarcar la ${dónde}` : `Marcar la ${dónde} como hecha`}
                 aria-pressed={st.done}
@@ -10006,14 +10022,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     hecha con los dedos en vez de con la cabeza. */}
                 <BotonDiscos exId={exs[r.ei].id} pal={SES}
                   onClick={() => setDiscosEn(restKey(r.ei, r.si))} />
-                {/* Rueda: alternativa a escribir con el teclado — registra
-                    peso, reps y RIR de la serie entera con tres ruedas,
-                    sin dejar de poder tipear el campo de arriba. */}
-                <button onClick={() => setWheelEn(restKey(r.ei, r.si))}
-                  aria-label={`Elegir el peso, las repeticiones y el RIR de la ${dónde} en una rueda`}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
-                  <Scale size={12} /> Rueda
-                </button>
                 {/* Conversor kg⇄lb de ESTA serie: convierte el peso ya
                     escrito a la otra unidad, sin tocar las demás series ni
                     el ejercicio. */}
@@ -10033,9 +10041,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             <DiscosSheet open={discosEn === restKey(r.ei, r.si)} onClose={() => setDiscosEn(null)}
               exId={exs[r.ei].id} exName={exs[r.ei].name} valueKg={st.weight}
               onPick={(v) => setVal(r.ei, r.si, "weight", v)} />
-            <SetWheelSheet open={wheelEn === restKey(r.ei, r.si)} onClose={() => setWheelEn(null)}
-              valueKg={st.weight} valueReps={st.reps} valueRir={st.rir}
-              onPick={(vals) => patchSet(r.ei, r.si, vals)} />
+            <NumberWheelSheet open={!!wheelEn && wheelEn.key === restKey(r.ei, r.si)}
+              field={wheelEn && wheelEn.key === restKey(r.ei, r.si) ? wheelEn.field : "weight"}
+              value={wheelEn && wheelEn.field === "reps" ? st.reps : wheelEn && wheelEn.field === "rir" ? st.rir : st.weight}
+              onClose={() => setWheelEn(null)}
+              onPick={(v) => setVal(r.ei, r.si, wheelEn ? wheelEn.field : "weight", v)} />
             {renderCommentBlock(r.ei, r.si)}
             </div>
             </React.Fragment>
@@ -12036,12 +12046,10 @@ const ColumnaDisco = ({ kg, n, maxPares, onMas, onMenos }) => {
 };
 
 /* ============================================================
-   Rueda de peso — alternativa a escribir con el teclado, para cuando el
-   peso ya cae en un múltiplo de 0,5 kg (que es la mayoría de las veces:
-   discos y máquinas vienen en esos pasos). El campo de texto de siempre
-   sigue disponible al lado, para cualquier valor que no caiga en la
-   grilla — esto SUMA una forma de cargar el dato, no reemplaza la que
-   ya había, que además es más rápida para quien prefiere tipear.
+   Ruedas de peso/reps/RIR — la forma predeterminada de cargar cada
+   serie en la sesión: las tres celdas (peso, reps, RIR) son botones que
+   abren su rueda al tocarlas, no campos de texto. La calculadora de
+   discos sigue disponible aparte para armar el peso disco por disco.
    ============================================================ */
 const WHEEL_ROW_H = 44;
 // Columna scrolleable con "scroll snap", como un picker nativo de iOS:
@@ -12102,44 +12110,29 @@ const nearestWheelReps = (v) => { const n = Math.round(+v || 0); return Math.max
 // sesión, sugerencias de IA, etc.).
 const RIR_WHEEL_OPTIONS = Array.from({ length: 11 }, (_, i) => ({ value: i, label: String(i) }));
 const nearestWheelRir = (v) => { const n = Math.round(+v || 0); return Math.max(0, Math.min(10, n)); };
-// Hoja combinada: peso, reps y RIR con tres ruedas lado a lado, para
-// registrar la serie entera sin tocar el teclado. Un único botón
-// confirma los tres valores juntos — evita tener que abrir tres hojas
-// separadas para una sola serie.
-const SetWheelSheet = ({ open, onClose, valueKg, valueReps, valueRir, onPick }) => {
-  const [peso, setPeso] = useState(() => nearestWheelWeight(valueKg));
-  const [reps, setReps] = useState(() => nearestWheelReps(valueReps));
-  const [rir, setRir] = useState(() => nearestWheelRir(valueRir));
-  useEffect(() => {
-    if (open) { setPeso(nearestWheelWeight(valueKg)); setReps(nearestWheelReps(valueReps)); setRir(nearestWheelRir(valueRir)); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-  const colLabel = { textAlign: "center", fontSize: 11, fontWeight: 600, color: P.faint, textTransform: "uppercase", letterSpacing: ".02em" };
+// Una rueda por campo (peso, reps o RIR) — no un teclado ni un botón
+// aparte: tocar la celda abre directo esta hoja, que es la forma
+// predeterminada de cargar el dato en cada serie.
+const WHEEL_FIELD_CONF = {
+  weight: { title: "Peso", options: WEIGHT_WHEEL_OPTIONS, unit: "kg", nearest: nearestWheelWeight, etiqueta: (v) => `${kg(v)} kg` },
+  reps: { title: "Reps", options: REPS_WHEEL_OPTIONS, unit: null, nearest: nearestWheelReps, etiqueta: (v) => `${v} reps` },
+  rir: { title: "RIR", options: RIR_WHEEL_OPTIONS, unit: null, nearest: nearestWheelRir, etiqueta: (v) => `RIR ${v}` },
+};
+const NumberWheelSheet = ({ open, field, value, onClose, onPick }) => {
+  const conf = WHEEL_FIELD_CONF[field] || WHEEL_FIELD_CONF.weight;
+  const [sel, setSel] = useState(() => conf.nearest(value));
+  useEffect(() => { if (open) setSel(conf.nearest(value)); }, [open, field]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <Sheet open={open} onClose={onClose} title="Serie">
-      <div style={{ display: "flex", marginBottom: 4 }}>
-        <div style={{ flex: "1.3 1 0", ...colLabel }}>Peso</div>
-        <div style={{ flex: "1 1 0", ...colLabel }}>Reps</div>
-        <div style={{ flex: "1 1 0", ...colLabel }}>RIR</div>
-      </div>
-      <div style={{ position: "relative", display: "flex" }}>
+    <Sheet open={open} onClose={onClose} title={conf.title}>
+      <div style={{ position: "relative" }}>
         {/* Banda fija en el centro — marca dónde "cae" la opción elegida,
             igual que la caja gris del picker nativo de fecha/peso. */}
         <div aria-hidden style={{ position: "absolute", top: "50%", left: 0, right: 0, height: WHEEL_ROW_H,
           transform: "translateY(-50%)", background: P.s3, borderRadius: 12, pointerEvents: "none" }} />
-        <div style={{ flex: "1.3 1 0", minWidth: 0 }}>
-          <WheelColumn options={WEIGHT_WHEEL_OPTIONS} value={peso} onChange={setPeso} unit="kg" />
-        </div>
-        <div style={{ flex: "1 1 0", minWidth: 0 }}>
-          <WheelColumn options={REPS_WHEEL_OPTIONS} value={reps} onChange={setReps} />
-        </div>
-        <div style={{ flex: "1 1 0", minWidth: 0 }}>
-          <WheelColumn options={RIR_WHEEL_OPTIONS} value={rir} onChange={setRir} />
-        </div>
+        <WheelColumn options={conf.options} value={sel} onChange={setSel} unit={conf.unit} />
       </div>
-      <Btn kind="ember" style={{ width: "100%", marginTop: 14 }}
-        onClick={() => { onPick({ weight: peso, reps, rir }); onClose(); }}>
-        Usar {kg(peso)} kg × {reps} · RIR {rir}
+      <Btn kind="ember" style={{ width: "100%", marginTop: 14 }} onClick={() => { onPick(sel); onClose(); }}>
+        Usar {conf.etiqueta(sel)}
       </Btn>
     </Sheet>
   );
