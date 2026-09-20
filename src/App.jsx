@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v318";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v319";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5450,7 +5450,7 @@ const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 48 }) => {
       onBlur={() => { foco.current = false; setTxt(valor); }}
       onChange={(e) => { setTxt(e.target.value); onCommit(e.target.value.replace(",", ".")); }}
       style={{ width: ancho, padding: "11px 4px", textAlign: "center", fontSize: 15, fontWeight: 700,
-        color: SES.ink, background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: 10,
+        color: SES.ink, background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: 999,
         fontFamily: "inherit", outline: "none", boxSizing: "border-box", minWidth: 0 }} />
   );
 };
@@ -5567,13 +5567,19 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
   <button onClick={onClick} disabled={disabled} style={{ position: "relative", width: "100%", height: "100%",
     boxSizing: "border-box", textAlign: "left",
     background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_TILE, padding: "14px 12px",
-    display: "flex", flexDirection: "column", gap: 8, opacity: disabled ? .5 : 1,
+    display: "flex", flexDirection: "column", gap: 10, opacity: disabled ? .5 : 1,
     transition: `opacity ${DUR_ROW}ms ease` }}>
     {badge != null && (
       <span style={{ position: "absolute", top: 10, right: 10, minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9,
         background: PLATE_GRAD, color: PLATE_FG, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{badge}</span>
     )}
-    <Icon size={19} color={P.text} strokeWidth={2} />
+    {/* El ícono va en un chip con fondo, igual que en SettingRow y el
+        resto de las filas de la app — antes flotaba solo sobre el fondo
+        blanco de la ficha, que es lo que la hacía ver menos terminada. */}
+    <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, background: P.s3,
+      display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <Icon size={17} color={P.text} strokeWidth={2} />
+    </span>
     {/* minWidth:0 + hyphens:auto: una palabra larga sin espacios como
         "Suplementación"/"Temporizador" no entra en la columna (3 fichas de
         ancho). Con hyphens:auto (el <html> ya declara lang="es") corta por
@@ -5581,7 +5587,7 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
         tajo feo a mitad de letra; overflowWrap queda de respaldo por si el
         navegador no tiene diccionario de guionado. */}
     <div style={{ minWidth: 0, marginTop: "auto" }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "break-word", hyphens: "auto", WebkitHyphens: "auto" }}>{label}</div>
+      <div style={{ fontSize: 14.5, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "break-word", hyphens: "auto", WebkitHyphens: "auto" }}>{label}</div>
       {value != null && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 1, overflowWrap: "break-word" }}>{value}</div>}
     </div>
   </button>
@@ -9383,6 +9389,10 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [cmtKey, setCmtKey] = useState(null);
   // Qué serie tiene abierto el teclado de discos (clave "ei-si"), o null.
   const [discosEn, setDiscosEn] = useState(null);
+  // Qué serie tiene abierta la rueda de peso (clave "ei-si"), o null —
+  // mismo patrón que discosEn: una alternativa rápida a escribir con el
+  // teclado, para cuando el peso ya cae en un múltiplo de 0,5 kg.
+  const [wheelEn, setWheelEn] = useState(null);
   const [tipoEn, setTipoEn] = useState(null); // {ei, si} de la serie cuyo tipo se está eligiendo
   // Focus Mode: modo aparte que se activa rápido (segmentado "Lista / Focus")
   // y se recuerda. En Focus se ve UN ejercicio a la vez —la misma tabla de
@@ -9975,7 +9985,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               <button onClick={() => onToggleDone(r.ei, r.si)}
                 aria-label={st.done ? `Desmarcar la ${dónde}` : `Marcar la ${dónde} como hecha`}
                 aria-pressed={st.done}
-                style={{ width: 34, height: 38, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                style={{ width: 34, height: 38, borderRadius: 999, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                   background: st.done ? SES.acc : SES.campo, color: st.done ? SES.accInk : SES.faint, border: "none",
                   transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
                 <Check size={16} strokeWidth={3} />
@@ -9996,6 +10006,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     hecha con los dedos en vez de con la cabeza. */}
                 <BotonDiscos exId={exs[r.ei].id} pal={SES}
                   onClick={() => setDiscosEn(restKey(r.ei, r.si))} />
+                {/* Rueda de peso: alternativa a escribir con el teclado
+                    cuando el peso ya cae en un múltiplo de 0,5 kg — el
+                    campo de arriba sigue aceptando cualquier valor tipeado. */}
+                <button onClick={() => setWheelEn(restKey(r.ei, r.si))}
+                  aria-label={`Elegir el peso de la ${dónde} en una rueda`}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
+                  <Scale size={12} /> Rueda
+                </button>
                 {/* Conversor kg⇄lb de ESTA serie: convierte el peso ya
                     escrito a la otra unidad, sin tocar las demás series ni
                     el ejercicio. */}
@@ -10015,6 +10033,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             <DiscosSheet open={discosEn === restKey(r.ei, r.si)} onClose={() => setDiscosEn(null)}
               exId={exs[r.ei].id} exName={exs[r.ei].name} valueKg={st.weight}
               onPick={(v) => setVal(r.ei, r.si, "weight", v)} />
+            <WeightWheelSheet open={wheelEn === restKey(r.ei, r.si)} onClose={() => setWheelEn(null)}
+              valueKg={st.weight} onPick={(v) => setVal(r.ei, r.si, "weight", v)} />
             {renderCommentBlock(r.ei, r.si)}
             </div>
             </React.Fragment>
@@ -12014,6 +12034,84 @@ const ColumnaDisco = ({ kg, n, maxPares, onMas, onMenos }) => {
   );
 };
 
+/* ============================================================
+   Rueda de peso — alternativa a escribir con el teclado, para cuando el
+   peso ya cae en un múltiplo de 0,5 kg (que es la mayoría de las veces:
+   discos y máquinas vienen en esos pasos). El campo de texto de siempre
+   sigue disponible al lado, para cualquier valor que no caiga en la
+   grilla — esto SUMA una forma de cargar el dato, no reemplaza la que
+   ya había, que además es más rápida para quien prefiere tipear.
+   ============================================================ */
+const WHEEL_ROW_H = 44;
+// Columna scrolleable con "scroll snap", como un picker nativo de iOS:
+// cada opción encaja al centro; el padding vertical (2 filas) es lo que
+// permite que la primera y la última opción también lleguen al medio.
+// Genérica a propósito — value/label como par, no atada a kilos —
+// para poder reusarla en cualquier otro selector numérico futuro.
+const WheelColumn = ({ options, value, onChange, unit }) => {
+  const ref = useRef(null);
+  const raf = useRef(null);
+  useEffect(() => {
+    const i = Math.max(0, options.findIndex((o) => o.value === value));
+    if (ref.current) ref.current.scrollTop = i * WHEEL_ROW_H;
+    // Solo al montar: una vez que el usuario empieza a scrollear, es ESE
+    // gesto el que manda la posición, no el valor que va cambiando.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const leer = () => {
+    if (!ref.current) return;
+    const i = Math.max(0, Math.min(options.length - 1, Math.round(ref.current.scrollTop / WHEEL_ROW_H)));
+    const opt = options[i];
+    if (opt && opt.value !== value) onChange(opt.value);
+  };
+  // onScroll dispara docenas de veces por segundo durante el gesto — se
+  // agrupa por frame en vez de recalcular en cada evento.
+  const onScroll = () => { if (raf.current) return; raf.current = requestAnimationFrame(() => { raf.current = null; leer(); }); };
+  return (
+    <div ref={ref} onScroll={onScroll}
+      style={{ height: WHEEL_ROW_H * 5, overflowY: "auto", scrollSnapType: "y mandatory",
+        WebkitOverflowScrolling: "touch", padding: `${WHEEL_ROW_H * 2}px 0` }}>
+      {options.map((o) => {
+        const sel = o.value === value;
+        return (
+          <div key={o.value} style={{ height: WHEEL_ROW_H, scrollSnapAlign: "center", boxSizing: "border-box",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+            fontSize: sel ? 26 : 18, fontWeight: sel ? 700 : 500, letterSpacing: "-.01em",
+            color: sel ? P.text : P.faint, transition: `color ${DUR_MICRO}ms ${EASE_STD}, font-size ${DUR_MICRO}ms ${EASE_STD}` }}>
+            <span className="num">{o.label}</span>
+            {sel && unit && <span style={{ fontSize: 15, fontWeight: 600, color: P.faint2 }}>{unit}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+// 0 a 300 kg en pasos de 0,5 — cubre desde mancuernas chicas hasta una
+// prensa cargada, sin una lista tan larga que scrollearla entera moleste.
+const WEIGHT_WHEEL_OPTIONS = Array.from({ length: 601 }, (_, i) => {
+  const v = i / 2;
+  return { value: v, label: v % 1 === 0 ? String(v) : v.toFixed(1).replace(".", ",") };
+});
+const nearestWheelWeight = (v) => { const n = +v || 0; return Math.max(0, Math.min(300, Math.round(n * 2) / 2)); };
+const WeightWheelSheet = ({ open, onClose, valueKg, onPick }) => {
+  const [sel, setSel] = useState(() => nearestWheelWeight(valueKg));
+  useEffect(() => { if (open) setSel(nearestWheelWeight(valueKg)); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Sheet open={open} onClose={onClose} title="Peso">
+      <div style={{ position: "relative" }}>
+        {/* Banda fija en el centro — marca dónde "cae" la opción elegida,
+            igual que la caja gris del picker nativo de fecha/peso. */}
+        <div aria-hidden style={{ position: "absolute", top: "50%", left: 0, right: 0, height: WHEEL_ROW_H,
+          transform: "translateY(-50%)", background: P.s3, borderRadius: 12, pointerEvents: "none" }} />
+        <WheelColumn options={WEIGHT_WHEEL_OPTIONS} value={sel} onChange={setSel} unit="kg" />
+      </div>
+      <Btn kind="ember" style={{ width: "100%", marginTop: 14 }} onClick={() => { onPick(sel); onClose(); }}>
+        Usar {kg(sel)} kg
+      </Btn>
+    </Sheet>
+  );
+};
+
 // El teclado completo, con su cuenta. Se abre desde el campo de peso de
 // una serie; al confirmar escribe el total en ese campo. Si el campo ya
 // traía un peso, arranca con los discos que lo arman — así corregir "de
@@ -12850,17 +12948,21 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             <OrderableGrid clave={claveHome} items={panels} cols={2} gap={10}
               modoOrden={modoOrden} setModoOrden={setModoOrden}
               render={(it) => it.node} />
-            <div style={{ textAlign: "center", marginTop: 14 }}>
-              {modoOrden === claveHome ? (
-                <button data-order-done onClick={() => setModoOrden(null)}
-                  style={{ background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 15, padding: "10px 30px", borderRadius: 999 }}>Listo</button>
-              ) : (
-                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionada una ficha para reordenar</div>
-              )}
-            </div>
+            {/* Antes el "Listo" era un botón suelto DEBAJO de la grilla: con
+                muchas fichas quedaba fuera de pantalla y reordenar se sentía
+                trabado (se entra en modo edición pero no hay forma visible
+                de salir sin hacer scroll). OrderDoneBar es fijo — siempre
+                a la vista, como en Más, donde este mismo patrón ya funciona
+                bien. */}
+            {modoOrden !== claveHome && (
+              <div style={{ textAlign: "center", marginTop: 14, fontSize: 12.5, color: P.faint }}>
+                Mantén presionada una ficha para reordenar
+              </div>
+            )}
           </div>
         );
       })()}
+      <OrderDoneBar show={modoOrden === claveHome} onDone={() => setModoOrden(null)} />
       {instrSheet}
 
       {/* Detalle de un día de la franja semanal: qué toca, si ya se
@@ -19257,17 +19359,18 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
             <OrderableGrid clave="home-coach" items={panels} cols={2} gap={10}
               modoOrden={modoOrden} setModoOrden={setModoOrden}
               render={(it) => it.node} />
-            <div style={{ textAlign: "center", marginTop: 16 }}>
-              {modoOrden === "home-coach" ? (
-                <button data-order-done onClick={() => setModoOrden(null)}
-                  style={{ background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 15, padding: "10px 30px", borderRadius: 999 }}>Listo</button>
-              ) : (
-                <div style={{ fontSize: 12.5, color: P.faint }}>Mantén presionada una ficha para reordenar</div>
-              )}
-            </div>
+            {/* Mismo arreglo que el Inicio del alumno: el "Listo" fijo
+                (OrderDoneBar) reemplaza al botón suelto debajo de la
+                grilla, que con varias fichas quedaba fuera de pantalla. */}
+            {modoOrden !== "home-coach" && (
+              <div style={{ textAlign: "center", marginTop: 16, fontSize: 12.5, color: P.faint }}>
+                Mantén presionada una ficha para reordenar
+              </div>
+            )}
           </div>
         );
       })()}
+      <OrderDoneBar show={modoOrden === "home-coach"} onDone={() => setModoOrden(null)} />
 
       <Sheet open={staleOpen} onClose={() => setStaleOpen(false)} title="Sin entrenar" tall>
         {stale.map((s) => (
