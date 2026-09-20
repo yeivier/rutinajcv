@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v316";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v317";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5137,6 +5137,21 @@ const GlobalStyle = () => {
     .fj .sheetIn { animation: fjSheetUp ${DUR_SHEET}ms ${EASE_STD}; will-change: transform; }
     @keyframes fjScrimIn { from { opacity: 0; } to { opacity: 1; } }
     .fj .scrimIn { animation: fjScrimIn ${DUR_SHEET}ms ${EASE_STD}; }
+    /* Al cerrar, la hoja antes desaparecía de golpe (un solo frame) —
+       solo la entrada estaba animada. Una hoja de sistema de verdad baja
+       deslizándose igual que subió; EASE_OUT ("algo que se va") en vez de
+       EASE_STD porque acá el movimiento es de salida, no de navegación. */
+    @keyframes fjSheetDown { from { transform: translateY(0); } to { transform: translateY(100%); } }
+    .fj .sheetOut { animation: fjSheetDown ${DUR_SHEET}ms ${EASE_OUT} forwards; will-change: transform; pointer-events: none; }
+    @keyframes fjScrimOut { from { opacity: 1; } to { opacity: 0; } }
+    .fj .scrimOut { animation: fjScrimOut ${DUR_SHEET}ms ${EASE_OUT} forwards; pointer-events: none; }
+    /* Mismo gap en los diálogos chicos (Confirm): entraban y salían de
+       golpe. Entrada con una leve escala (como un modal real, no una
+       hoja) y salida simétrica. */
+    @keyframes fjModalIn { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @keyframes fjModalOut { from { transform: scale(1); opacity: 1; } to { transform: scale(.96); opacity: 0; } }
+    .fj .modalIn { animation: fjModalIn ${DUR_ROW}ms ${EASE_IN}; }
+    .fj .modalOut { animation: fjModalOut ${DUR_ROW}ms ${EASE_OUT} forwards; pointer-events: none; }
     /* Pantalla dentro de una hoja (las fichas del check-in): entra desde
        la derecha, como un push, y vuelve igual. */
     @keyframes fjPaneIn { from { transform: translateX(12px); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -6110,12 +6125,34 @@ function useSwipeBack(onBack) {
   return { onTouchStart, onTouchEnd, onTouchCancel };
 }
 
+// Sostiene el montaje de una hoja/modal un instante MÁS ALLÁ de que
+// `open` pase a false, el tiempo justo para que termine su animación de
+// SALIDA antes de desaparecer del DOM — sin esto, cerrar era un cambio
+// de un solo frame (la entrada sí estaba animada, la salida nunca).
+// `closing` distingue las dos fases para que el llamador cambie de clase
+// CSS (entrada vs. salida) sin duplicar el timer en cada sitio que
+// necesite este mismo comportamiento.
+function useMountedWhileOpen(open, durMs) {
+  const [rendered, setRendered] = useState(open);
+  const [closing, setClosing] = useState(false);
+  const timer = useRef(null);
+  useEffect(() => {
+    clearTimeout(timer.current);
+    if (open) { setClosing(false); setRendered(true); }
+    else if (rendered) { setClosing(true); timer.current = setTimeout(() => { setRendered(false); setClosing(false); }, durMs); }
+    return () => clearTimeout(timer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  return { rendered, closing };
+}
+
 const Sheet = ({ open, onClose, title, children, tall }) => {
-  if (!open) return null;
+  const { rendered, closing } = useMountedWhileOpen(open, DUR_SHEET);
   const swipe = useSwipeBack(onClose);
+  if (!rendered) return null;
   return (
-    <div className="scrimIn" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
-      <div className="sheetIn" onClick={(e) => e.stopPropagation()} {...swipe}
+    <div className={closing ? "scrimOut" : "scrimIn"} onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
+      <div className={closing ? "sheetOut" : "sheetIn"} onClick={(e) => e.stopPropagation()} {...swipe}
         style={{ background: P.bg, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: "var(--fj-w)",
           maxHeight: tall ? "calc(100dvh - env(safe-area-inset-top) - 8px)" : "82dvh", minHeight: "60dvh",
           display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -6137,10 +6174,11 @@ const Sheet = ({ open, onClose, title, children, tall }) => {
 };
 
 const Confirm = ({ open, title, body, okLabel, danger, onOk, onCancel }) => {
-  if (!open) return null;
+  const { rendered, closing } = useMountedWhileOpen(open, DUR_ROW);
+  if (!rendered) return null;
   return (
-    <div className="scrimIn" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.65)", zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <Card style={{ padding: 20, maxWidth: 360, width: "100%", background: P.s2 }}>
+    <div className={closing ? "scrimOut" : "scrimIn"} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.65)", zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <Card className={closing ? "modalOut" : "modalIn"} style={{ padding: 20, maxWidth: 360, width: "100%", background: P.s2 }}>
         <div className="disp" style={{ fontSize: 19, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>{title}</div>
         <div style={{ color: P.dim, fontSize: 15, lineHeight: 1.5, marginBottom: 18 }}>{body}</div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
@@ -7311,10 +7349,52 @@ const EX_METRICS = [
   { id: "e1rm", label: "e1RM", unit: "kg", calc: (x) => x.e1rm },
   { id: "reps", label: "Reps", unit: "", calc: (x) => x.totalReps },
 ];
+
+/* El veredicto que se repite en toda la pantalla de Progreso —serie a
+   serie, resumen del rango de un ejercicio, desglose por ejercicio del
+   Resumen semanal/mensual—: nunca solo un color, siempre la palabra
+   exacta (Progresó/Se mantuvo/Retrocedió) MÁS el % y los kg de verdad.
+   Menos de 0,5% se lee como "igual" — con más decimales el redondeo a
+   veces marcaba +0,0 kg como "Progresó" por puro resto de coma flotante. */
+function progresoEntre(antes, despues) {
+  if (antes == null || despues == null || !isFinite(antes) || !isFinite(despues)) return null;
+  const diff = despues - antes;
+  const pct = antes !== 0 ? (diff / antes) * 100 : (diff > 0 ? 100 : 0);
+  const status = Math.abs(pct) < 0.5 ? "flat" : diff > 0 ? "up" : "down";
+  return {
+    diff, pct, status,
+    label: status === "up" ? "Progresó" : status === "down" ? "Retrocedió" : "Se mantuvo",
+    color: status === "up" ? SES.acc : status === "down" ? P.red : P.faint2,
+    Icon: status === "up" ? ArrowUp : status === "down" ? ArrowDown : Minus,
+  };
+}
+// `p` = lo que devuelve progresoEntre(). `unit` decide cómo se formatea
+// el número absoluto entre paréntesis ("kg" redondea a 1 decimal con
+// coma; "" lo trata como cuenta entera — reps, series). `compact` saca
+// la palabra y deja solo el ícono + %, para tablas angostas.
+const ProgressBadge = ({ p, unit = "kg", compact }) => {
+  if (!p) return <span style={{ color: P.faint }}>—</span>;
+  const { Icon, color, label, diff, pct } = p;
+  const fmtAbs = unit === "kg" ? `${kg(Math.abs(diff))} kg` : Math.round(Math.abs(diff)).toLocaleString("es-CL") + (unit ? ` ${unit}` : "");
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color, fontWeight: 700, fontSize: compact ? 13 : 14, flexWrap: "wrap" }}>
+      <Icon size={compact ? 12 : 13} strokeWidth={2.6} style={{ flexShrink: 0 }} />
+      {!compact && <span>{label}</span>}
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>{pct >= 0 ? "+" : "−"}{Math.abs(pct).toFixed(1).replace(".", ",")}%</span>
+      <span style={{ color: P.faint2, fontWeight: 600 }}>({diff >= 0 ? "+" : "−"}{fmtAbs})</span>
+    </span>
+  );
+};
+
 const ExerciseProgress = ({ entries, sessions }) => {
   const [range, setRange] = useState("3m");
   const [metric, setMetric] = useState("peso");
   const [gymFiltro, setGymFiltro] = useState("todos");
+  // Rango libre (día → años): dos fechas propias, en vez de solo los
+  // cajones fijos de PROGRESS_RANGES. Vive acá y no en PROGRESS_RANGES
+  // porque necesita dos valores (desde/hasta), no uno solo.
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const all = entries || [];
 
   // A qué gimnasio pertenece cada sesión (por sessionId) — el peso/e1RM no
@@ -7355,8 +7435,15 @@ const ExerciseProgress = ({ entries, sessions }) => {
   }).filter((x) => x.best != null), [porGym]);
 
   const rangeDef = PROGRESS_RANGES.find((r) => r.id === range) || PROGRESS_RANGES[2];
-  const cutoff = rangeDef.days ? Date.now() - rangeDef.days * 86400000 : null;
-  const filtered = cutoff ? withBest.filter((x) => new Date(x.en.date).getTime() >= cutoff) : withBest;
+  const cutoff = range === "custom" ? null : (rangeDef.days ? Date.now() - rangeDef.days * 86400000 : null);
+  const customFromMs = range === "custom" && customFrom ? new Date(customFrom + "T00:00:00").getTime() : null;
+  const customToMs = range === "custom" && customTo ? new Date(customTo + "T23:59:59").getTime() : null;
+  const filtered = range === "custom"
+    ? withBest.filter((x) => {
+        const t = new Date(x.en.date).getTime();
+        return (customFromMs == null || t >= customFromMs) && (customToMs == null || t <= customToMs);
+      })
+    : (cutoff ? withBest.filter((x) => new Date(x.en.date).getTime() >= cutoff) : withBest);
 
   const metricDef = EX_METRICS.find((m) => m.id === metric) || EX_METRICS[0];
   const chartData = filtered.map((x) => ({ d: fmtDate(x.en.date), v: metricDef.calc(x) || 0 }));
@@ -7374,9 +7461,11 @@ const ExerciseProgress = ({ entries, sessions }) => {
     return recent[recent.length - 1].best - refBase;
   }, [withBest]);
 
-  // El delta del rango sigue la métrica elegida, no siempre el peso.
-  const rangeDelta = filtered.length >= 2
-    ? (metricDef.calc(filtered[filtered.length - 1]) || 0) - (metricDef.calc(filtered[0]) || 0) : null;
+  // El veredicto del rango sigue la métrica elegida, no siempre el peso:
+  // compara el primer y el último registro DENTRO del rango elegido
+  // (fijo o personalizado) — % y kg, con la palabra exacta.
+  const rangeProgress = filtered.length >= 2
+    ? progresoEntre(metricDef.calc(filtered[0]) || 0, metricDef.calc(filtered[filtered.length - 1]) || 0) : null;
 
   // Chips de gimnasio: solo si el ejercicio se registró en más de uno —
   // con un solo gimnasio (o ninguno asignado) filtrar no aporta nada.
@@ -7421,7 +7510,23 @@ const ExerciseProgress = ({ entries, sessions }) => {
             {r.label}
           </button>
         ))}
+        {/* Rango libre: desde un día puntual hasta años — las seis
+            fichas de arriba son atajos, esta es "elegí vos las fechas". */}
+        <button onClick={() => setRange("custom")} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
+          display: "inline-flex", alignItems: "center", gap: 5,
+          background: range === "custom" ? P.s3 : "transparent", color: range === "custom" ? P.text : P.faint, border: `1px solid ${range === "custom" ? P.line : "transparent"}` }}>
+          <Calendar size={12} /> Personalizado
+        </button>
       </div>
+      {range === "custom" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+            aria-label="Desde" style={{ flex: 1, minWidth: 0, padding: "9px 10px", fontSize: 14 }} />
+          <span style={{ color: P.faint, fontSize: 13 }}>a</span>
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+            aria-label="Hasta" style={{ flex: 1, minWidth: 0, padding: "9px 10px", fontSize: 14 }} />
+        </div>
+      )}
 
       {/* Qué se grafica. Antes la gráfica era solo el peso máximo, que
           esconde la mitad de lo que pasa: se puede estar subiendo el
@@ -7442,13 +7547,15 @@ const ExerciseProgress = ({ entries, sessions }) => {
                   return metricDef.unit === "kg" ? kg(v) : Math.round(v).toLocaleString("es-CL"); })()}
               </span>
               {metricDef.unit && <span style={{ fontSize: 15, color: P.faint2 }}>{metricDef.unit}</span>}
-              <span style={{ flex: 1 }} />
-              {rangeDelta != null && (
-                <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2 }}>
-                  {rangeDelta >= 0 ? "+" : "−"}{metricDef.unit === "kg" ? `${kg(Math.abs(rangeDelta))} kg` : Math.round(Math.abs(rangeDelta)).toLocaleString("es-CL")}
-                </span>
-              )}
             </div>
+            {/* El veredicto del rango elegido, siempre con % Y kg — no
+                solo un delta suelto que había que interpretar. */}
+            {rangeProgress && (
+              <div style={{ marginTop: 4 }}>
+                <ProgressBadge p={rangeProgress} unit={metricDef.unit} />
+                <span style={{ color: P.faint2, fontSize: 12.5, marginLeft: 5 }}>en el rango elegido</span>
+              </div>
+            )}
           </div>
           <ChartBox data={chartData} unit={metricDef.unit} />
         </Card>
@@ -7490,7 +7597,10 @@ const ExerciseProgress = ({ entries, sessions }) => {
           <tbody>
             {[...withBest].reverse().map((x, i, arr) => {
               const prev = arr[i + 1];
-              const diff = prev ? x.best - prev.best : null;
+              // % y kg contra la sesión anterior de este ejercicio — el
+              // pedido explícito era que el aumento (o retroceso) de peso
+              // quedara especificado en las dos unidades, no solo una.
+              const prog = prev ? progresoEntre(prev.best, x.best) : null;
               const isBest = x.best === allTimeBest;
               return (
                 <tr key={x.en.sessionId} style={{ borderTop: `1px solid ${P.line}`, background: isBest ? `${P.s3}` : "transparent" }}>
@@ -7500,8 +7610,8 @@ const ExerciseProgress = ({ entries, sessions }) => {
                   <td style={{ padding: "6px 6px", fontWeight: 700, whiteSpace: "nowrap" }}>
                     {kg(x.best)} kg {isBest && <Award size={11} color={P.ember2} style={{ verticalAlign: -1, marginLeft: 2 }} />}
                   </td>
-                  <td style={{ padding: "6px 6px", color: diff == null ? P.faint : diff > 0 ? P.ember2 : diff < 0 ? P.red : P.faint }}>
-                    {diff == null ? "—" : diff === 0 ? "=" : `${diff > 0 ? "+" : ""}${kg(diff)}`}
+                  <td style={{ padding: "6px 6px", whiteSpace: "nowrap" }}>
+                    <ProgressBadge p={prog} unit="kg" compact />
                   </td>
                 </tr>
               );
@@ -7509,6 +7619,206 @@ const ExerciseProgress = ({ entries, sessions }) => {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+};
+
+/* ============================================================
+   Resumen de progresión — semanal, mensual, o un rango elegido a mano
+   (día a años). Antes "progreso" vivía solo ejercicio por ejercicio,
+   uno a la vez (ExerciseProgress): acá se ve TODO junto — cuánto
+   volumen se movió en el período elegido (contra el mismo período
+   anterior), y qué hizo CADA ejercicio dentro de ese rango, con el
+   mismo veredicto (% + kg + Progresó/Se mantuvo/Retrocedió). Un solo
+   componente para los dos modos: se monta en el Progreso del alumno y
+   en la Actividad que ve el coach de cada atleta — ninguno de los dos
+   tenía este cruce hasta ahora.
+   ============================================================ */
+const SUMMARY_RANGES = [
+  { id: "w", label: "Esta semana", days: 7 },
+  { id: "m", label: "Este mes", days: 30 },
+  { id: "3m", label: "3 meses", days: 90 },
+  { id: "y", label: "1 año", days: 365 },
+  { id: "all", label: "Todo", days: null },
+];
+// Un punto por semana si el período cabe en ~4 meses (se lee mejor
+// semana a semana); más largo que eso, un punto por mes — con un año o
+// más de por medio, una barra por semana serían decenas de barras
+// ilegibles.
+function agruparVolumenPorPeriodo(sessions, fromMs, toMs) {
+  const span = fromMs != null ? (toMs - fromMs) : (sessions.length ? toMs - new Date(sessions[0].date).getTime() : 0);
+  const porSemana = span <= 120 * 86400000;
+  const buckets = new Map();
+  sessions.forEach((s) => {
+    const t = new Date(s.date).getTime();
+    if (fromMs != null && t < fromMs) return;
+    if (t > toMs) return;
+    const key = porSemana ? weekKey(s.date) : monthKeyOf(s.date);
+    buckets.set(key, (buckets.get(key) || 0) + (+s.volume || 0));
+  });
+  const mm = (d) => ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][d.getMonth()];
+  return [...buckets.entries()]
+    .sort((a, b) => (porSemana ? a[0] - b[0] : a[0].localeCompare(b[0])))
+    .map(([k, v]) => ({
+      d: porSemana ? (() => { const d0 = new Date(k); return `${d0.getDate()} ${mm(d0)}`; })()
+                   : (() => { const [y, m] = k.split("-"); return `${mm(new Date(+y, +m - 1, 1))} '${y.slice(2)}`; })(),
+      v: Math.round(v),
+    }));
+}
+
+const ProgressSummaryPanel = ({ history }) => {
+  const [range, setRange] = useState("m");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const sessions = history.sessions || [];
+
+  const rangeDef = SUMMARY_RANGES.find((r) => r.id === range) || SUMMARY_RANGES[1];
+  const toMs = range === "custom" && customTo ? new Date(customTo + "T23:59:59").getTime() : Date.now();
+  const fromMs = range === "custom"
+    ? (customFrom ? new Date(customFrom + "T00:00:00").getTime() : null)
+    : (rangeDef.days ? toMs - rangeDef.days * 86400000 : null);
+
+  const enPeriodo = useMemo(() => sessions.filter((s) => {
+    const t = new Date(s.date).getTime();
+    return (fromMs == null || t >= fromMs) && t <= toMs;
+  }), [sessions, fromMs, toMs]);
+
+  const volPeriodo = enPeriodo.reduce((a, s) => a + (+s.volume || 0), 0);
+  const setsPeriodo = enPeriodo.reduce((a, s) => a + (+s.setsDone || 0), 0);
+
+  // Contra el mismo tramo de tiempo, inmediatamente anterior — solo
+  // tiene sentido cuando el rango tiene un "desde" real (no en "Todo" ni
+  // en un Personalizado sin fecha de inicio: ahí no hay con qué comparar).
+  const volProgress = useMemo(() => {
+    if (fromMs == null) return null;
+    const span = toMs - fromMs;
+    const prevFrom = fromMs - span, prevTo = fromMs;
+    const antes = sessions.filter((s) => { const t = new Date(s.date).getTime(); return t >= prevFrom && t < prevTo; })
+      .reduce((a, s) => a + (+s.volume || 0), 0);
+    if (!antes && !volPeriodo) return null;
+    return progresoEntre(antes, volPeriodo);
+  }, [sessions, fromMs, toMs, volPeriodo]);
+
+  const chartData = useMemo(() => agruparVolumenPorPeriodo(sessions, fromMs, toMs), [sessions, fromMs, toMs]);
+
+  // Cada ejercicio con al menos un registro en el período: primer vs.
+  // último peso máximo DENTRO del rango, con el mismo veredicto de
+  // siempre. Es el detalle por ejercicio que antes no existía en ningún
+  // resumen — solo se veía entrando uno por uno.
+  const porEjercicio = useMemo(() => {
+    const out = [];
+    Object.keys(history.byEx || {}).forEach((exId) => {
+      const entries = history.byEx[exId] || [];
+      if (!entries.length) return;
+      const name = entries[entries.length - 1].exName || "Ejercicio";
+      const conPeso = entries.map((en) => {
+        const done = (en.sets || []).filter((s) => s.done && s.weight !== "" && s.type !== "warmup");
+        const best = done.length ? Math.max(...done.map((s) => +s.weight)) : null;
+        return { date: en.date, best };
+      }).filter((x) => x.best != null);
+      const enRango = conPeso.filter((x) => { const t = new Date(x.date).getTime(); return (fromMs == null || t >= fromMs) && t <= toMs; });
+      if (!enRango.length) return;
+      const prog = enRango.length >= 2 ? progresoEntre(enRango[0].best, enRango[enRango.length - 1].best) : null;
+      out.push({ exId, name, n: enRango.length, ultimo: enRango[enRango.length - 1].best, prog });
+    });
+    // Primero lo accionable (subió o bajó), después lo que se mantuvo,
+    // al final lo que solo tiene un registro (sin punto de comparación).
+    return out.sort((a, b) => {
+      const ord = (x) => (x.prog ? (x.prog.status === "flat" ? 1 : 0) : 2);
+      const oa = ord(a), ob = ord(b);
+      if (oa !== ob) return oa - ob;
+      if (a.prog && b.prog) return Math.abs(b.prog.pct) - Math.abs(a.prog.pct);
+      return a.name.localeCompare(b.name, "es");
+    });
+  }, [history.byEx, fromMs, toMs]);
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 10, overflowX: "auto" }}>
+        {SUMMARY_RANGES.map((r) => (
+          <button key={r.id} onClick={() => setRange(r.id)} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
+            background: range === r.id ? P.s3 : "transparent", color: range === r.id ? P.text : P.faint, border: `1px solid ${range === r.id ? P.line : "transparent"}` }}>
+            {r.label}
+          </button>
+        ))}
+        {/* Rango libre: desde un día puntual hasta años. */}
+        <button onClick={() => setRange("custom")} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
+          display: "inline-flex", alignItems: "center", gap: 5,
+          background: range === "custom" ? P.s3 : "transparent", color: range === "custom" ? P.text : P.faint, border: `1px solid ${range === "custom" ? P.line : "transparent"}` }}>
+          <Calendar size={12} /> Personalizado
+        </button>
+      </div>
+      {range === "custom" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} aria-label="Desde" style={{ flex: 1, minWidth: 0, padding: "9px 10px", fontSize: 14 }} />
+          <span style={{ color: P.faint, fontSize: 13 }}>a</span>
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} aria-label="Hasta" style={{ flex: 1, minWidth: 0, padding: "9px 10px", fontSize: 14 }} />
+        </div>
+      )}
+
+      {enPeriodo.length === 0 ? (
+        <Card style={{ padding: 20 }}>
+          <Empty icon={BarChart3} title="Sin sesiones en este rango" body="Elegí otro período, o entrená y volvé a mirar acá." />
+        </Card>
+      ) : (
+        <>
+          <Card style={{ padding: "14px 8px 6px", marginBottom: 12 }}>
+            <div style={{ padding: "0 10px 6px" }}>
+              <div style={{ fontSize: 13, color: P.faint2 }}>Volumen total</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>
+                  {Math.round(volPeriodo).toLocaleString("es-CL")}
+                </span>
+                <span style={{ fontSize: 15, color: P.faint2 }}>kg</span>
+              </div>
+              {volProgress ? (
+                <div style={{ marginTop: 4 }}>
+                  <ProgressBadge p={volProgress} unit="kg" />
+                  <span style={{ color: P.faint2, fontSize: 12.5, marginLeft: 5 }}>vs. el período anterior</span>
+                </div>
+              ) : (
+                <div style={{ marginTop: 4, fontSize: 12.5, color: P.faint2 }}>
+                  {enPeriodo.length} {enPeriodo.length === 1 ? "sesión" : "sesiones"} · {setsPeriodo} series
+                </div>
+              )}
+            </div>
+            {chartData.length > 1 && <BarChartBox data={chartData} unit="kg" color={P.text} height={150} />}
+          </Card>
+
+          {volProgress && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+              <Card style={{ padding: "10px 6px", textAlign: "center" }}>
+                <div className="disp" style={{ fontSize: 18, fontWeight: 700 }}>{enPeriodo.length}</div>
+                <div style={{ fontSize: 11, color: P.dim, marginTop: 2 }}>Sesiones</div>
+              </Card>
+              <Card style={{ padding: "10px 6px", textAlign: "center" }}>
+                <div className="disp" style={{ fontSize: 18, fontWeight: 700 }}>{setsPeriodo}</div>
+                <div style={{ fontSize: 11, color: P.dim, marginTop: 2 }}>Series</div>
+              </Card>
+            </div>
+          )}
+
+          <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>
+            Por ejercicio en este rango
+          </div>
+          {porEjercicio.length === 0 ? (
+            <div style={{ fontSize: 14, color: P.faint, padding: "4px 2px" }}>Sin ejercicios con peso registrado en este rango.</div>
+          ) : (
+            <Card style={{ overflow: "hidden" }}>
+              {porEjercicio.map((x, i) => (
+                <div key={x.exId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px",
+                  borderBottom: i < porEjercicio.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.name}</div>
+                    <div style={{ fontSize: 12, color: P.faint2, marginTop: 1 }}>{kg(x.ultimo)} kg · {x.n} {x.n === 1 ? "registro" : "registros"}</div>
+                  </div>
+                  {x.prog ? <ProgressBadge p={x.prog} unit="kg" compact /> : <span style={{ fontSize: 12.5, color: P.faint, flexShrink: 0 }}>Un solo registro</span>}
+                </div>
+              ))}
+            </Card>
+          )}
+        </>
+      )}
     </div>
   );
 };
@@ -14193,7 +14503,9 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
       <ScreenTitle title="Progreso" />
 
       <SectionSwitch value={sub} onChange={setSub}
-        items={[{ id: "fuerza", label: "Fuerza" }, { id: "cuerpo", label: "Cuerpo" }, { id: "volumen", label: "Volumen" }, { id: "logros", label: "Logros" }, { id: "historial", label: "Historial" }]} />
+        items={[{ id: "resumen", label: "Resumen" }, { id: "fuerza", label: "Fuerza" }, { id: "cuerpo", label: "Cuerpo" }, { id: "volumen", label: "Volumen" }, { id: "logros", label: "Logros" }, { id: "historial", label: "Historial" }]} />
+
+      {sub === "resumen" && <ProgressSummaryPanel history={history} />}
 
       {sub === "fuerza" && (
         <>
@@ -17852,11 +18164,12 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
       <ScreenTitle title="Actividad" sub={`${history.sessions.length} sesiones registradas${commented ? ` · ${commented} con comentarios` : ""}`} />
       <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
-        {[["ses", "Por sesión"], ["ex", "Por ejercicio"], ["log", "Registro"]].map(([id, l]) => (
+        {[["resumen", "Resumen"], ["ses", "Por sesión"], ["ex", "Por ejercicio"], ["log", "Registro"]].map(([id, l]) => (
           <button key={id} onClick={() => setSub(id)} style={{ flex: 1, padding: "9px 4px", borderRadius: 10, fontSize: 14.5, fontWeight: 600,
             background: sub === id ? P.s3 : "transparent", color: sub === id ? P.text : P.faint, border: `1px solid ${sub === id ? P.line : "transparent"}` }}>{l}</button>
         ))}
       </div>
+      {sub === "resumen" && <ProgressSummaryPanel history={history} />}
       {sub === "ses" && (history.sessions.length === 0 ? (
         <Empty icon={Users} title="Aún no hay sesiones" body="Cuando el alumno termine su primera sesión, acá verás todo el detalle: series, comentarios y adjuntos." />
       ) : (<>
