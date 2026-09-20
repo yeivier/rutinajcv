@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v319";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v320";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10006,11 +10006,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     hecha con los dedos en vez de con la cabeza. */}
                 <BotonDiscos exId={exs[r.ei].id} pal={SES}
                   onClick={() => setDiscosEn(restKey(r.ei, r.si))} />
-                {/* Rueda de peso: alternativa a escribir con el teclado
-                    cuando el peso ya cae en un múltiplo de 0,5 kg — el
-                    campo de arriba sigue aceptando cualquier valor tipeado. */}
+                {/* Rueda: alternativa a escribir con el teclado — registra
+                    peso, reps y RIR de la serie entera con tres ruedas,
+                    sin dejar de poder tipear el campo de arriba. */}
                 <button onClick={() => setWheelEn(restKey(r.ei, r.si))}
-                  aria-label={`Elegir el peso de la ${dónde} en una rueda`}
+                  aria-label={`Elegir el peso, las repeticiones y el RIR de la ${dónde} en una rueda`}
                   style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
                   <Scale size={12} /> Rueda
                 </button>
@@ -10033,8 +10033,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
             <DiscosSheet open={discosEn === restKey(r.ei, r.si)} onClose={() => setDiscosEn(null)}
               exId={exs[r.ei].id} exName={exs[r.ei].name} valueKg={st.weight}
               onPick={(v) => setVal(r.ei, r.si, "weight", v)} />
-            <WeightWheelSheet open={wheelEn === restKey(r.ei, r.si)} onClose={() => setWheelEn(null)}
-              valueKg={st.weight} onPick={(v) => setVal(r.ei, r.si, "weight", v)} />
+            <SetWheelSheet open={wheelEn === restKey(r.ei, r.si)} onClose={() => setWheelEn(null)}
+              valueKg={st.weight} valueReps={st.reps} valueRir={st.rir}
+              onPick={(vals) => patchSet(r.ei, r.si, vals)} />
             {renderCommentBlock(r.ei, r.si)}
             </div>
             </React.Fragment>
@@ -12068,7 +12069,7 @@ const WheelColumn = ({ options, value, onChange, unit }) => {
   // agrupa por frame en vez de recalcular en cada evento.
   const onScroll = () => { if (raf.current) return; raf.current = requestAnimationFrame(() => { raf.current = null; leer(); }); };
   return (
-    <div ref={ref} onScroll={onScroll}
+    <div ref={ref} onScroll={onScroll} data-wheel-col
       style={{ height: WHEEL_ROW_H * 5, overflowY: "auto", scrollSnapType: "y mandatory",
         WebkitOverflowScrolling: "touch", padding: `${WHEEL_ROW_H * 2}px 0` }}>
       {options.map((o) => {
@@ -12093,20 +12094,52 @@ const WEIGHT_WHEEL_OPTIONS = Array.from({ length: 601 }, (_, i) => {
   return { value: v, label: v % 1 === 0 ? String(v) : v.toFixed(1).replace(".", ",") };
 });
 const nearestWheelWeight = (v) => { const n = +v || 0; return Math.max(0, Math.min(300, Math.round(n * 2) / 2)); };
-const WeightWheelSheet = ({ open, onClose, valueKg, onPick }) => {
-  const [sel, setSel] = useState(() => nearestWheelWeight(valueKg));
-  useEffect(() => { if (open) setSel(nearestWheelWeight(valueKg)); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+// 0 a 60 repeticiones — de sobra para cualquier serie, de un fallo bajo
+// a un AMRAP largo.
+const REPS_WHEEL_OPTIONS = Array.from({ length: 61 }, (_, i) => ({ value: i, label: String(i) }));
+const nearestWheelReps = (v) => { const n = Math.round(+v || 0); return Math.max(0, Math.min(60, n)); };
+// 0 a 10 — mismo rango de RIR que ya usa el resto de la app (edición de
+// sesión, sugerencias de IA, etc.).
+const RIR_WHEEL_OPTIONS = Array.from({ length: 11 }, (_, i) => ({ value: i, label: String(i) }));
+const nearestWheelRir = (v) => { const n = Math.round(+v || 0); return Math.max(0, Math.min(10, n)); };
+// Hoja combinada: peso, reps y RIR con tres ruedas lado a lado, para
+// registrar la serie entera sin tocar el teclado. Un único botón
+// confirma los tres valores juntos — evita tener que abrir tres hojas
+// separadas para una sola serie.
+const SetWheelSheet = ({ open, onClose, valueKg, valueReps, valueRir, onPick }) => {
+  const [peso, setPeso] = useState(() => nearestWheelWeight(valueKg));
+  const [reps, setReps] = useState(() => nearestWheelReps(valueReps));
+  const [rir, setRir] = useState(() => nearestWheelRir(valueRir));
+  useEffect(() => {
+    if (open) { setPeso(nearestWheelWeight(valueKg)); setReps(nearestWheelReps(valueReps)); setRir(nearestWheelRir(valueRir)); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const colLabel = { textAlign: "center", fontSize: 11, fontWeight: 600, color: P.faint, textTransform: "uppercase", letterSpacing: ".02em" };
   return (
-    <Sheet open={open} onClose={onClose} title="Peso">
-      <div style={{ position: "relative" }}>
+    <Sheet open={open} onClose={onClose} title="Serie">
+      <div style={{ display: "flex", marginBottom: 4 }}>
+        <div style={{ flex: "1.3 1 0", ...colLabel }}>Peso</div>
+        <div style={{ flex: "1 1 0", ...colLabel }}>Reps</div>
+        <div style={{ flex: "1 1 0", ...colLabel }}>RIR</div>
+      </div>
+      <div style={{ position: "relative", display: "flex" }}>
         {/* Banda fija en el centro — marca dónde "cae" la opción elegida,
             igual que la caja gris del picker nativo de fecha/peso. */}
         <div aria-hidden style={{ position: "absolute", top: "50%", left: 0, right: 0, height: WHEEL_ROW_H,
           transform: "translateY(-50%)", background: P.s3, borderRadius: 12, pointerEvents: "none" }} />
-        <WheelColumn options={WEIGHT_WHEEL_OPTIONS} value={sel} onChange={setSel} unit="kg" />
+        <div style={{ flex: "1.3 1 0", minWidth: 0 }}>
+          <WheelColumn options={WEIGHT_WHEEL_OPTIONS} value={peso} onChange={setPeso} unit="kg" />
+        </div>
+        <div style={{ flex: "1 1 0", minWidth: 0 }}>
+          <WheelColumn options={REPS_WHEEL_OPTIONS} value={reps} onChange={setReps} />
+        </div>
+        <div style={{ flex: "1 1 0", minWidth: 0 }}>
+          <WheelColumn options={RIR_WHEEL_OPTIONS} value={rir} onChange={setRir} />
+        </div>
       </div>
-      <Btn kind="ember" style={{ width: "100%", marginTop: 14 }} onClick={() => { onPick(sel); onClose(); }}>
-        Usar {kg(sel)} kg
+      <Btn kind="ember" style={{ width: "100%", marginTop: 14 }}
+        onClick={() => { onPick({ weight: peso, reps, rir }); onClose(); }}>
+        Usar {kg(peso)} kg × {reps} · RIR {rir}
       </Btn>
     </Sheet>
   );
