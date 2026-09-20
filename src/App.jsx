@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v317";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v318";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -13256,68 +13256,144 @@ const PieChartBox = ({ data, unit, colors, height = 180 }) => {
   );
 };
 
-const SessionDetailSheet = ({ session, onClose, history, onOpenImg, onCambiarGym }) => (
-  <Sheet open={!!session} onClose={onClose} title={session ? session.dayName : ""} tall>
-    {session && (
-      <div>
-        <div style={{ fontSize: 14, color: P.dim, marginBottom: 12 }}>
-          {fmtDateFull(session.date)} · {session.durationMin} min · {Math.round(session.volume).toLocaleString("es-CL")} kg totales
-        </div>
-        {/* Dónde se hizo — y el arreglo a mano cuando quedó mal o vacío.
-            Sin `onCambiarGym` (vista de sólo lectura) se muestra igual,
-            pero sin el botón. */}
-        {(!!(session.gym || "").trim() || !!onCambiarGym) && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: R_ROW,
-            background: P.s3, border: `1px solid ${P.line}`, marginBottom: 14 }}>
-            <Home size={15} color={P.faint2} style={{ flexShrink: 0 }} />
-            <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: (session.gym || "").trim() ? P.text : P.faint2,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {(session.gym || "").trim() || "Sin gimnasio registrado"}
-            </span>
-            {!!onCambiarGym && (
-              <button onClick={() => onCambiarGym(session)}
-                aria-label="Cambiar el gimnasio de esta sesión"
-                style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 600, color: P.ember2 }}>
-                <PencilLine size={13} /> {(session.gym || "").trim() ? "Cambiar" : "Asignar"}
-              </button>
-            )}
+// `onSaveSets(sessionId, draftByExId)` y `onDelete(sessionId)` son
+// opcionales (mismo patrón que `onCambiarGym`): sin ellos —una vista de
+// sólo lectura— la sesión se ve igual pero sin los botones de Editar/
+// Eliminar. Editar reescribe peso/reps/RIR/comentario de las series YA
+// registradas (no agrega ni saca series: eso es un cambio de plan, no
+// una corrección de un dato mal tipeado, que es lo que se pidió).
+const SessionDetailSheet = ({ session, onClose, history, onOpenImg, onCambiarGym, onSaveSets, onDelete }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(null); // { [exId]: sets[] } — copia editable, se descarta si no se guarda
+  const [confirmDel, setConfirmDel] = useState(false);
+  // Al cambiar de sesión (o cerrar la hoja) se sale del modo edición: no
+  // tiene sentido arrastrar un borrador de una sesión a otra.
+  useEffect(() => { setEditing(false); setDraft(null); setConfirmDel(false); }, [session && session.id]);
+
+  const startEdit = () => {
+    if (!session) return;
+    const d = {};
+    session.exs.forEach((e) => {
+      const entry = (history.byEx[e.exId] || []).find((en) => en.sessionId === session.id);
+      if (entry) d[e.exId] = structuredClone(entry.sets);
+    });
+    setDraft(d);
+    setEditing(true);
+  };
+  const setField = (exId, si, field, val) => {
+    setDraft((d) => ({ ...d, [exId]: d[exId].map((s, i) => (i === si ? { ...s, [field]: val } : s)) }));
+  };
+  const guardar = () => {
+    if (!draft || !onSaveSets || !session) return;
+    onSaveSets(session.id, draft);
+    setEditing(false); setDraft(null);
+  };
+
+  return (
+    <Sheet open={!!session} onClose={onClose} title={session ? session.dayName : ""} tall>
+      {session && (
+        <div>
+          <div style={{ fontSize: 14, color: P.dim, marginBottom: 12 }}>
+            {fmtDateFull(session.date)} · {session.durationMin} min · {Math.round(session.volume).toLocaleString("es-CL")} kg totales
           </div>
-        )}
-        {(session.attachIds || []).length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Video y fotos de la sesión</div>
-            <div style={{ display: "flex", gap: 7, overflowX: "auto" }}>
-              {(session.attachIds || []).map((aid) => <AttachThumb key={aid} id={aid} size={62} onOpen={onOpenImg} />)}
-            </div>
-          </div>
-        )}
-        {session.exs.map((e) => {
-          const entry = (history.byEx[e.exId] || []).find((en) => en.sessionId === session.id);
-          if (!entry) return null;
-          return (
-            <div key={e.exId} style={{ marginBottom: 14 }}>
-              <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 5 }}>{e.name}</div>
-              {entry.sets.filter((s) => s.done).map((s, j) => (
-                <div key={j} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 14.5, padding: "2px 0" }}>
-                  <TypeBadge type={s.type} />
-                  <span style={{ fontWeight: 600 }}>{setSummary(s, "kg")}</span>
-                  {s.rir !== "" && <span style={{ color: P.dim, fontSize: 13 }}>RIR {s.rir}</span>}
-                  {s.comment && <span style={{ color: P.ember2, fontSize: 13 }}>“{s.comment}”</span>}
-                </div>
-              ))}
-              {entry.comment && <div style={{ fontSize: 14, color: P.ember2, marginTop: 4 }}>💬 {entry.comment}</div>}
-              {entry.attachIds && entry.attachIds.length > 0 && (
-                <div style={{ display: "flex", gap: 8, marginTop: 6, overflowX: "auto" }}>
-                  {entry.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={52} />)}
-                </div>
+
+          {(!!onSaveSets || !!onDelete) && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+              {!!onSaveSets && !editing && (
+                <Btn kind="line" small onClick={startEdit}><PencilLine size={13} /> Editar</Btn>
+              )}
+              {!!onSaveSets && editing && (
+                <>
+                  <Btn kind="ember" small onClick={guardar}><Check size={13} /> Guardar cambios</Btn>
+                  <Btn kind="line" small onClick={() => { setEditing(false); setDraft(null); }}>Cancelar</Btn>
+                </>
+              )}
+              {!!onDelete && !editing && (
+                <Btn kind="red" small onClick={() => setConfirmDel(true)}><Trash2 size={13} /> Eliminar sesión</Btn>
               )}
             </div>
-          );
-        })}
-      </div>
-    )}
-  </Sheet>
-);
+          )}
+
+          {/* Dónde se hizo — y el arreglo a mano cuando quedó mal o vacío.
+              Sin `onCambiarGym` (vista de sólo lectura) se muestra igual,
+              pero sin el botón. */}
+          {(!!(session.gym || "").trim() || !!onCambiarGym) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: R_ROW,
+              background: P.s3, border: `1px solid ${P.line}`, marginBottom: 14 }}>
+              <Home size={15} color={P.faint2} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 600, color: (session.gym || "").trim() ? P.text : P.faint2,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {(session.gym || "").trim() || "Sin gimnasio registrado"}
+              </span>
+              {!!onCambiarGym && (
+                <button onClick={() => onCambiarGym(session)}
+                  aria-label="Cambiar el gimnasio de esta sesión"
+                  style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 600, color: P.ember2 }}>
+                  <PencilLine size={13} /> {(session.gym || "").trim() ? "Cambiar" : "Asignar"}
+                </button>
+              )}
+            </div>
+          )}
+          {(session.attachIds || []).length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Video y fotos de la sesión</div>
+              <div style={{ display: "flex", gap: 7, overflowX: "auto" }}>
+                {(session.attachIds || []).map((aid) => <AttachThumb key={aid} id={aid} size={62} onOpen={onOpenImg} />)}
+              </div>
+            </div>
+          )}
+          {session.exs.map((e) => {
+            const entry = (history.byEx[e.exId] || []).find((en) => en.sessionId === session.id);
+            if (!entry) return null;
+            const sets = editing && draft && draft[e.exId] ? draft[e.exId] : entry.sets;
+            return (
+              <div key={e.exId} style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 5 }}>{e.name}</div>
+                {sets.map((s, si) => {
+                  if (!s.done) return null;
+                  if (!editing) return (
+                    <div key={si} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 14.5, padding: "2px 0" }}>
+                      <TypeBadge type={s.type} />
+                      <span style={{ fontWeight: 600 }}>{setSummary(s, "kg")}</span>
+                      {s.rir !== "" && <span style={{ color: P.dim, fontSize: 13 }}>RIR {s.rir}</span>}
+                      {s.comment && <span style={{ color: P.ember2, fontSize: 13 }}>“{s.comment}”</span>}
+                    </div>
+                  );
+                  // Fila editable: peso, reps y RIR — los tres datos que de
+                  // verdad se mecanografían mal en el momento. Las series
+                  // no se pueden agregar ni sacar acá (eso es tocar el
+                  // plan de la sesión, no corregir lo que quedó anotado).
+                  return (
+                    <div key={si} style={{ display: "flex", gap: 6, alignItems: "center", padding: "5px 0", flexWrap: "wrap" }}>
+                      <TypeBadge type={s.type} />
+                      <NumInput value={s.weight} onChange={(ev) => setField(e.exId, si, "weight", ev.target.value)}
+                        aria-label={`Peso, serie ${si + 1}`} style={{ width: 64, padding: "6px 8px", fontSize: 14, textAlign: "center" }} />
+                      <span style={{ color: P.faint, fontSize: 12.5 }}>kg ×</span>
+                      <NumInput decimals={false} value={s.reps} onChange={(ev) => setField(e.exId, si, "reps", ev.target.value)}
+                        aria-label={`Repeticiones, serie ${si + 1}`} style={{ width: 52, padding: "6px 8px", fontSize: 14, textAlign: "center" }} />
+                      <span style={{ color: P.faint, fontSize: 12.5 }}>reps · RIR</span>
+                      <NumInput decimals={false} value={s.rir} onChange={(ev) => setField(e.exId, si, "rir", ev.target.value)}
+                        aria-label={`RIR, serie ${si + 1}`} style={{ width: 44, padding: "6px 8px", fontSize: 14, textAlign: "center" }} />
+                    </div>
+                  );
+                })}
+                {entry.comment && !editing && <div style={{ fontSize: 14, color: P.ember2, marginTop: 4 }}>💬 {entry.comment}</div>}
+                {entry.attachIds && entry.attachIds.length > 0 && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 6, overflowX: "auto" }}>
+                    {entry.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={52} />)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <Confirm open={confirmDel} title="Eliminar esta sesión" danger okLabel="Eliminar"
+        body="Se borran sus series, comentarios y adjuntos de tu historial. No se puede deshacer."
+        onOk={() => { onDelete(session.id); setConfirmDel(false); onClose(); }} onCancel={() => setConfirmDel(false)} />
+    </Sheet>
+  );
+};
 
 // Grilla de medallas: agrupadas por categoría, con barra de progreso para
 // las que faltan por desbloquear. Se usa tanto en "Mis logros" del alumno
@@ -18137,6 +18213,50 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
     // la sede vieja hasta cerrarla y volver a abrirla.
     setOpenSession((os) => (os && ids.includes(os.id) ? { ...os, gym: nombre } : os));
   };
+
+  // Escribe los sets editados en el historial y recalcula volumen/series
+  // hechas de la sesión con la MISMA fórmula que finishSession (peso ×
+  // reps de cada serie hecha, drops incluidos, sin descontar
+  // calentamiento) — si no, el total cacheado de la sesión quedaría
+  // desalineado con lo que de verdad dicen las series, y ese total
+  // alimenta el Resumen semanal/mensual y los rankings.
+  const guardarSets = (sessionId, draftByExId) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    const ses = (h.sessions || []).find((s) => s.id === sessionId);
+    if (!ses) return;
+    let volume = 0, setsDone = 0;
+    ses.exs.forEach((e) => {
+      const arr = h.byEx[e.exId];
+      if (!arr) return;
+      const i = arr.findIndex((en) => en.sessionId === sessionId);
+      if (i < 0) return;
+      if (draftByExId[e.exId]) arr[i] = { ...arr[i], sets: draftByExId[e.exId] };
+      (arr[i].sets || []).filter((s) => s.done).forEach((s) => {
+        setsDone += 1;
+        volume += num(s.weight) * num(s.reps);
+        (s.drops || []).forEach((d) => { volume += num(d.weight) * num(d.reps); });
+      });
+    });
+    ses.volume = volume; ses.setsDone = setsDone;
+    saveHistory(h);
+    setOpenSession((os) => (os && os.id === sessionId ? { ...os, volume, setsDone } : os));
+  };
+
+  // Borra la sesión y todas sus filas en byEx (cada ejercicio guarda su
+  // propia entrada por sesión, vía sessionId) — sin esto quedarían
+  // registros huérfanos que igual aparecerían en el progreso por
+  // ejercicio aunque la sesión ya no exista.
+  const eliminarSesion = (sessionId) => {
+    if (!saveHistory) return;
+    const h = structuredClone(history);
+    h.sessions = (h.sessions || []).filter((s) => s.id !== sessionId);
+    Object.keys(h.byEx).forEach((exId) => {
+      h.byEx[exId] = (h.byEx[exId] || []).filter((en) => en.sessionId !== sessionId);
+    });
+    saveHistory(h);
+  };
+
   const allEx = useMemo(() => {
     const m = new Map();
     plan.days.forEach((d) => d.exs.forEach((e) => m.set(e.id, e.name)));
@@ -18285,7 +18405,9 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
         )
       )}
       <SessionDetailSheet session={openSession} onClose={() => setOpenSession(null)} history={history} onOpenImg={setViewImg}
-        onCambiarGym={puedeEditarGym ? (s) => setAsignar({ sesiones: [s], gym: (s.gym || "").trim() }) : null} />
+        onCambiarGym={puedeEditarGym ? (s) => setAsignar({ sesiones: [s], gym: (s.gym || "").trim() }) : null}
+        onSaveSets={saveHistory ? guardarSets : null}
+        onDelete={saveHistory ? eliminarSesion : null} />
       <AsignarGimnasioSheet open={!!asignar} onClose={() => setAsignar(null)}
         sesiones={asignar ? asignar.sesiones : []} gymActual={asignar ? asignar.gym : ""} onAsignar={guardarGym} />
       <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
