@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v323";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v324";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -252,6 +252,13 @@ const BG_PALETTE = [
   { name: "Lila",     tones: ["#F0EFFC", "#E3E0F8", "#D2CDF3", "#BFB8EE"] },
   { name: "Gris",     tones: ["#F1F2F4", "#E5E7EB", "#D6DAE0", "#C6CBD4"] },
   { name: "Café",     tones: ["#F5F1EB", "#ECE2D5", "#E0D2BD", "#D4C0A4"] },
+  // Sumadas a pedido: mismos 4 tonos claros por familia (texto negro
+  // legible en todos), pero con matices más oscuros/apagados — navy,
+  // carbón, bosque, vino — para quien busca algo menos pastel.
+  { name: "Marino",   tones: ["#EEF1F6", "#DCE3EF", "#C5D0E3", "#A9BAD3"] },
+  { name: "Grafito",  tones: ["#EEEFF2", "#DCDEE5", "#C5C9D3", "#A8AEBC"] },
+  { name: "Bosque",   tones: ["#EEF2ED", "#DCE6DB", "#C4D6C0", "#A8C5A0"] },
+  { name: "Vino",     tones: ["#F6EEEE", "#EEDCDC", "#E1C4C4", "#D2A8A8"] },
 ];
 const BG_ALL = BG_PALETTE.flatMap((g) => g.tones);
 const DEFAULT_BG = "#FBD5EA"; // rosa: tono por defecto al entrar en "Personalizado"
@@ -12123,25 +12130,56 @@ const nearestWheelRir = (v) => { const n = Math.round(+v || 0); return Math.max(
 // aparte: tocar la celda abre directo esta hoja, que es la forma
 // predeterminada de cargar el dato en cada serie.
 const WHEEL_FIELD_CONF = {
-  weight: { title: "Peso", options: WEIGHT_WHEEL_OPTIONS, unit: "kg", nearest: nearestWheelWeight, etiqueta: (v) => `${kg(v)} kg` },
-  reps: { title: "Reps", options: REPS_WHEEL_OPTIONS, unit: null, nearest: nearestWheelReps, etiqueta: (v) => `${v} reps` },
-  rir: { title: "RIR", options: RIR_WHEEL_OPTIONS, unit: null, nearest: nearestWheelRir, etiqueta: (v) => `RIR ${v}` },
+  weight: { title: "Peso", options: WEIGHT_WHEEL_OPTIONS, unit: "kg", nearest: nearestWheelWeight, etiqueta: (v) => `${kg(v)} kg`,
+    // A mano no se redondea a los pasos de 0,5 — para eso está la rueda.
+    parseManual: (t) => { const n = +String(t).replace(",", "."); return isNaN(n) ? null : Math.max(0, n); } },
+  reps: { title: "Reps", options: REPS_WHEEL_OPTIONS, unit: null, nearest: nearestWheelReps, etiqueta: (v) => `${v} reps`,
+    parseManual: (t) => { const n = Math.round(+String(t).replace(",", ".")); return isNaN(n) ? null : Math.max(0, n); } },
+  rir: { title: "RIR", options: RIR_WHEEL_OPTIONS, unit: null, nearest: nearestWheelRir, etiqueta: (v) => `RIR ${v}`,
+    parseManual: (t) => { const n = Math.round(+String(t).replace(",", ".")); return isNaN(n) ? null : Math.max(0, n); } },
 };
 const NumberWheelSheet = ({ open, field, value, onClose, onPick }) => {
   const conf = WHEEL_FIELD_CONF[field] || WHEEL_FIELD_CONF.weight;
   const [sel, setSel] = useState(() => conf.nearest(value));
-  useEffect(() => { if (open) setSel(conf.nearest(value)); }, [open, field]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [manual, setManual] = useState(false);
+  const [txt, setTxt] = useState("");
+  useEffect(() => {
+    if (open) { setSel(conf.nearest(value)); setManual(false); setTxt(""); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, field]);
+  const manualN = manual ? conf.parseManual(txt) : null;
+  const confirmar = () => {
+    if (manual) { if (manualN == null) return; onPick(manualN); onClose(); return; }
+    onPick(sel); onClose();
+  };
   return (
     <Sheet open={open} onClose={onClose} title={conf.title}>
-      <div style={{ position: "relative" }}>
-        {/* Banda fija en el centro — marca dónde "cae" la opción elegida,
-            igual que la caja gris del picker nativo de fecha/peso. */}
-        <div aria-hidden style={{ position: "absolute", top: "50%", left: 0, right: 0, height: WHEEL_ROW_H,
-          transform: "translateY(-50%)", background: P.s3, borderRadius: 12, pointerEvents: "none" }} />
-        <WheelColumn options={conf.options} value={sel} onChange={setSel} unit={conf.unit} />
-      </div>
-      <Btn kind="ember" style={{ width: "100%", marginTop: 14 }} onClick={() => { onPick(sel); onClose(); }}>
-        Usar {conf.etiqueta(sel)}
+      {manual ? (
+        <input type="text" inputMode="decimal" autoFocus value={txt} placeholder={conf.title}
+          aria-label={`${conf.title} a mano`}
+          onChange={(e) => setTxt(e.target.value)}
+          style={{ width: "100%", padding: "18px 0", textAlign: "center", fontSize: 34, fontWeight: 800,
+            color: P.text, background: P.s3, border: "none", borderRadius: 12, fontFamily: "inherit",
+            outline: "none", boxSizing: "border-box" }} />
+      ) : (
+        <div style={{ position: "relative" }}>
+          {/* Banda fija en el centro — marca dónde "cae" la opción elegida,
+              igual que la caja gris del picker nativo de fecha/peso. */}
+          <div aria-hidden style={{ position: "absolute", top: "50%", left: 0, right: 0, height: WHEEL_ROW_H,
+            transform: "translateY(-50%)", background: P.s3, borderRadius: 12, pointerEvents: "none" }} />
+          <WheelColumn options={conf.options} value={sel} onChange={setSel} unit={conf.unit} />
+        </div>
+      )}
+      {/* Debajo de la rueda: escapar a tipear con el teclado, para
+          cualquier valor que no caiga en la grilla o para quien
+          simplemente prefiere tipear. */}
+      <button onClick={() => { setManual(!manual); setTxt(""); }}
+        style={{ display: "block", width: "100%", textAlign: "center", marginTop: 10, padding: "6px 0",
+          fontSize: 13.5, fontWeight: 600, color: P.faint2, background: "none", border: "none" }}>
+        {manual ? "Volver a la rueda" : "Ingresar manualmente"}
+      </button>
+      <Btn kind="ember" style={{ width: "100%", marginTop: 8 }} onClick={confirmar} disabled={manual && manualN == null}>
+        {manual ? "Usar" : `Usar ${conf.etiqueta(sel)}`}
       </Btn>
     </Sheet>
   );
