@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v322";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v323";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10467,10 +10467,14 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 const pv = pt[workN - 1];
                 if (pv && pv.weight !== "" && pv.weight != null) ult = `Última vez: ${kg(pesoMostrado(pv.weight, u))} ${u} × ${pv.reps ?? "—"}`;
               }
-              const campo = (lab, val, onCommit, ph) => (
+              // Igual que en Lista: la celda ES la rueda por defecto, no un
+              // campo de texto — tocarla abre el picker en el menor número
+              // de toques posible (el objetivo explícito de Focus).
+              const campo = (lab, val, onCommit, ph, field) => (
                 <div style={{ flex: 1, minWidth: 0, textAlign: "center" }}>
                   <div className="mono" style={{ fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", color: SES.faint, marginBottom: 6 }}>{lab}</div>
-                  <NumCell aria={`${lab} de la ${label}`} placeholder={ph} valor={val} onCommit={onCommit} ancho={72} />
+                  <NumCell aria={`${lab} de la ${label}`} placeholder={ph} valor={val} onCommit={onCommit} ancho={72}
+                    onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field })} />
                 </div>
               );
               return (
@@ -10483,9 +10487,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                   {/* Los tres campos, grandes y centrados: peso, reps y RIR. */}
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 10, margin: "16px 0 4px" }}>
                     {campo(`Peso ${u}`, st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, u)).replace(".", ","),
-                      (v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, u)))), u)}
-                    {campo("Reps", st.reps == null ? "" : String(st.reps), (v) => setVal(r.ei, r.si, "reps", v), "reps")}
-                    {campo("RIR", st.rir == null ? "" : String(st.rir), (v) => setVal(r.ei, r.si, "rir", v), "RIR")}
+                      (v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, u)))), u, "weight")}
+                    {campo("Reps", st.reps == null ? "" : String(st.reps), (v) => setVal(r.ei, r.si, "reps", v), "reps", "reps")}
+                    {campo("RIR", st.rir == null ? "" : String(st.rir), (v) => setVal(r.ei, r.si, "rir", v), "RIR", "rir")}
                   </div>
                   {/* Tres accesos chicos: historial del ejercicio, cambiar la
                       unidad de esta serie y comentarla. El historial faltaba
@@ -10508,6 +10512,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     </button>
                   </div>
                   {renderCommentBlock(r.ei, r.si)}
+                  <NumberWheelSheet open={!!wheelEn && wheelEn.key === restKey(r.ei, r.si)}
+                    field={wheelEn && wheelEn.key === restKey(r.ei, r.si) ? wheelEn.field : "weight"}
+                    value={wheelEn && wheelEn.field === "reps" ? st.reps : wheelEn && wheelEn.field === "rir" ? st.rir : st.weight}
+                    onClose={() => setWheelEn(null)}
+                    onPick={(v) => setVal(r.ei, r.si, wheelEn ? wheelEn.field : "weight", v)} />
                 </div>
               );
             })()}
