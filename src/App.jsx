@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v315";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v316";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2211,11 +2211,14 @@ async function sGetKnown(key) {
 }
 
 // Igual que sGet, pero SIEMPRE pega a la red — sGet corta apenas
-// encuentra la clave en remoteCache, que es justo lo que no queremos acá:
-// el Chat (coach↔alumno) necesita notar mensajes nuevos que puso el OTRO
-// lado desde otro dispositivo, no solo lo que ya se cacheó en esta sesión.
-// Uso exclusivo del sondeo del chat — el resto de la app (plan/historial/
-// roster) sigue con sGet normal, sin tocar su comportamiento.
+// encuentra la clave en remoteCache, que es justo lo que no queremos acá.
+// Dos usos: el Chat (coach↔alumno) necesita notar mensajes nuevos que
+// puso el OTRO lado desde otro dispositivo, no solo lo que ya se cacheó
+// en esta sesión; y cualquier reescritura completa del roster (agregar/
+// renombrar/quitar/restaurar alumno, ver `freshRoster` más abajo), donde
+// partir de una copia cacheada puede pisar alumnos que otro dispositivo
+// agregó mientras tanto. El resto de la app (plan/historial) sigue con
+// sGet normal, sin tocar su comportamiento.
 async function sGetFresh(key) {
   try {
     const r = await fetchWithTimeout(`${SB_URL}?key=eq.${encodeURIComponent(key)}&select=value`, { headers: SB_H });
@@ -28942,6 +28945,22 @@ const App = () => {
     sDel(`forja-active:${sidRef.current}`);
   }, []);
 
+  // Cualquier cambio que reescriba la lista COMPLETA de alumnos (agregar,
+  // renombrar, quitar, restaurar) debe partir del roster que hay AHORA
+  // MISMO en el servidor, no del `roster` que la app tiene en memoria —
+  // ese puede ir un paso atrás justo después de abrir la app (la lectura
+  // inicial todavía en vuelo), con dos pestañas, o entre dos dispositivos.
+  // `sGetFresh` (antes de uso exclusivo del chat) pega siempre a la red,
+  // sin cortar en la caché como sGet. Pasó de verdad: un roster armado
+  // sobre una copia vieja y escrito encima del real le borró a un coach
+  // toda su lista de alumnos menos el que estaba creando en ese momento
+  // (los datos de los demás seguían intactos en la base, solo el índice
+  // los perdió) — no puede volver a pasar.
+  const freshRoster = async () => {
+    const r = await sGetFresh("forja-roster");
+    return (r && r.v === ROSTER_VERSION && Array.isArray(r.students)) ? r : roster;
+  };
+
   // Crea un alumno con un nombre ya definido (sin prompt()) — usado tanto
   // por "Agregar alumno" como por el embudo de Adquisición al pasar un lead
   // a "rutina de prueba" o "convertido". Devuelve el id y el roster ya
@@ -28951,7 +28970,8 @@ const App = () => {
     const trimmed = (name || "").trim();
     if (!trimmed) return null;
     const id = uid();
-    const r = { ...roster, students: [...roster.students, { id, name: trimmed, createdAt: todayISO() }] };
+    const base = await freshRoster();
+    const r = { ...base, students: [...base.students, { id, name: trimmed, createdAt: todayISO() }] };
     await sSet(`forja-plan:${id}`, emptyPlan());
     await sSet(`forja-history:${id}`, emptyHistory());
     await sSet("forja-roster", r);
@@ -28972,7 +28992,8 @@ const App = () => {
 
   // Actualiza campos sueltos del alumno (hoy: qué rutinas puede ver).
   const updateStudent = async (studentId, patch) => {
-    const r = { ...roster, students: roster.students.map((x) => (x.id === studentId ? { ...x, ...patch } : x)) };
+    const base = await freshRoster();
+    const r = { ...base, students: base.students.map((x) => (x.id === studentId ? { ...x, ...patch } : x)) };
     await sSet("forja-roster", r); setRoster(r);
   };
 
@@ -28980,13 +29001,15 @@ const App = () => {
     const name = (window.prompt ? window.prompt("Nuevo nombre:", s.name) : s.name) || "";
     const trimmed = name.trim();
     if (!trimmed) return;
-    const r = { ...roster, students: roster.students.map((x) => (x.id === s.id ? { ...x, name: trimmed } : x)) };
+    const base = await freshRoster();
+    const r = { ...base, students: base.students.map((x) => (x.id === s.id ? { ...x, name: trimmed } : x)) };
     await sSet("forja-roster", r); setRoster(r); force((x) => x + 1);
   };
 
   const removeStudent = async (s) => {
-    if (roster.students.length <= 1) { setConfirmDel(null); toast("Debe quedar al menos un alumno. Agrega otro antes de eliminar este."); return; }
-    const r = { ...roster, students: roster.students.filter((x) => x.id !== s.id) };
+    const base = await freshRoster();
+    if (base.students.length <= 1) { setConfirmDel(null); toast("Debe quedar al menos un alumno. Agrega otro antes de eliminar este."); return; }
+    const r = { ...base, students: base.students.filter((x) => x.id !== s.id) };
     await sDel(`forja-plan:${s.id}`); await sDel(`forja-history:${s.id}`); await sDel(`forja-active:${s.id}`);
     await sSet("forja-roster", r); setRoster(r); setConfirmDel(null);
     if (s.id === sidRef.current) {
@@ -28999,7 +29022,8 @@ const App = () => {
   // — su plan y su historial YA existen en la base (esto solo re-agrega la
   // entrada al índice), así que no se toca `forja-plan:<id>`/`forja-history:<id>`.
   const restoreStudent = async (id, name) => {
-    const r = { ...roster, students: [...roster.students, { id, name, createdAt: todayISO() }] };
+    const base = await freshRoster();
+    const r = { ...base, students: [...base.students, { id, name, createdAt: todayISO() }] };
     await sSet("forja-roster", r); setRoster(r);
   };
 
