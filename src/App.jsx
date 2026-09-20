@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v325";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v326";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1194,8 +1194,45 @@ function progresionDeAtleta(history) {
     dias: Math.max(recs.length, hrs.length),
   };
 
+  // ── Fuerza por ejercicio: esta semana contra la anterior ─────────────
+  // La señal 1 de arriba compara "la última vez contra la anterior" (que
+  // puede ser hace semanas si el alumno no repite el ejercicio seguido) y
+  // suma volumen, no fuerza — un coach leyendo "552 → 270 kg" no puede
+  // saber si eso es bueno o malo sin hacer la cuenta él mismo. Esto es lo
+  // que el coach realmente quiere ver: el MEJOR peso levantado en cada
+  // ejercicio esta semana calendario contra la semana calendario previa,
+  // con el mismo veredicto (Progresó/Se mantuvo/Retrocedió + %) que ya
+  // usa el propio alumno en su Progreso.
+  const wkAhora = weekKey(todayISO());
+  const wkPrev = wkAhora - 7 * 86400000;
+  const mejorPesoEnSemana = (entries, wk) => {
+    let best = null;
+    entries.forEach((en) => {
+      if (weekKey(en.date) !== wk) return;
+      (en.sets || []).forEach((s) => {
+        if (s.done && s.weight !== "" && s.weight != null && s.type !== "warmup") {
+          const w = +s.weight;
+          if (isFinite(w) && (best == null || w > best)) best = w;
+        }
+      });
+    });
+    return best;
+  };
+  const fuerzaSemana = [];
+  Object.keys(byEx).forEach((exId) => {
+    const ens = byEx[exId] || [];
+    if (!ens.length) return;
+    const bestHoy = mejorPesoEnSemana(ens, wkAhora);
+    const bestPrev = mejorPesoEnSemana(ens, wkPrev);
+    if (bestHoy == null || bestPrev == null) return;
+    const p = progresoEntre(bestPrev, bestHoy);
+    if (!p) return;
+    fuerzaSemana.push({ exId, nombre: ens[ens.length - 1].exName || "Ejercicio", bestHoy, bestPrev, p });
+  });
+  fuerzaSemana.sort((a, b) => a.p.pct - b.p.pct);   // lo peor primero, igual que arriba
+
   return { estado, nota, ejercicios, suben, bajan, iguales, pctVol, vol4, vol4prev,
-    diasSinEntrenar, totalSesiones: sesiones.length, recuperacion };
+    diasSinEntrenar, totalSesiones: sesiones.length, recuperacion, fuerzaSemana };
 }
 
 // Orden en que el coach necesita verlos: primero lo que requiere acción.
@@ -18755,43 +18792,26 @@ const ProgresionTab = ({ roster, toast, onManage }) => {
 
               {open && (
                 <div style={{ padding: "0 15px 14px", borderTop: `1px solid ${P.line}` }}>
-                  {/* Volumen del mes contra el mes previo. */}
-                  {r.prog.pctVol != null && (
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "11px 0 9px", ...TYPE.footnote, color: P.faint }}>
-                      <span>Volumen últimas 4 semanas</span>
-                      <span style={{ color: P.text, fontWeight: 600 }}>
-                        {Math.round(r.prog.vol4).toLocaleString("es-CL")} kg
-                        <span style={{ color: P.faint, fontWeight: 400 }}> · antes {Math.round(r.prog.vol4prev).toLocaleString("es-CL")}</span>
-                      </span>
-                    </div>
-                  )}
-                  {/* Ejercicio por ejercicio, lo peor primero. */}
-                  {r.prog.ejercicios.length === 0 ? (
+                  {/* Fuerza por ejercicio: mejor peso de esta semana contra
+                      la semana anterior — lo pedido explícito del coach en
+                      vez del volumen sumado en kg, que no dice si el
+                      alumno progresó, mantuvo o retrocedió en fuerza. */}
+                  {r.prog.fuerzaSemana.length === 0 ? (
                     <div style={{ ...TYPE.footnote, color: P.faint, padding: "10px 0", lineHeight: 1.5 }}>
-                      Todavía no hay dos vueltas del mismo ejercicio para comparar.
+                      Todavía no hay registros de esta semana y la anterior para comparar la fuerza por ejercicio.
                     </div>
                   ) : (
                     <>
-                      <div className="mono" style={{ letterSpacing: ".07em", margin: "4px 0 6px" }}>Ejercicio por ejercicio</div>
-                      {r.prog.ejercicios.slice(0, 8).map((e) => {
-                        const c = e.estado === "sube" ? P.ember2 : e.estado === "baja" ? P.red : P.faint2;
-                        return (
-                          <div key={e.exId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }}>
-                            <span style={{ flex: 1, minWidth: 0, ...TYPE.footnote, color: P.text,
-                              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.nombre}</span>
-                            <span style={{ ...TYPE.caption, color: P.faint, flexShrink: 0 }}>
-                              {Math.round(e.volPrev).toLocaleString("es-CL")} → {Math.round(e.volHoy).toLocaleString("es-CL")} kg
-                            </span>
-                            <span style={{ fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
-                              fontSize: 11.5, fontWeight: 700, color: c, minWidth: 44, textAlign: "right", flexShrink: 0 }}>
-                              {e.pct >= 0 ? "+" : "−"}{Math.abs(Math.round(e.pct))}%
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {r.prog.ejercicios.length > 8 && (
+                      <div className="mono" style={{ letterSpacing: ".07em", margin: "11px 0 6px" }}>Fuerza — esta semana vs. la anterior</div>
+                      {r.prog.fuerzaSemana.slice(0, 8).map((e) => (
+                        <div key={e.exId} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "7px 0" }}>
+                          <span style={{ ...TYPE.footnote, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.nombre}</span>
+                          <ProgressBadge p={e.p} unit="kg" />
+                        </div>
+                      ))}
+                      {r.prog.fuerzaSemana.length > 8 && (
                         <div style={{ ...TYPE.caption, color: P.faint, marginTop: 5 }}>
-                          y {r.prog.ejercicios.length - 8} más.
+                          y {r.prog.fuerzaSemana.length - 8} más.
                         </div>
                       )}
                     </>
