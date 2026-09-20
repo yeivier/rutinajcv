@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v320";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v321";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -9995,7 +9995,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 el «···»): un toque abre la caja debajo de la fila. Si la
                 serie ya tiene datos, aparece también «Borrar». */}
             {cmtKey !== restKey(r.ei, r.si) && (
-              <div style={{ display: "flex", gap: 14, marginTop: 6, paddingLeft: 1 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", columnGap: 12, rowGap: 6, marginTop: 6, paddingLeft: 1 }}>
                 {!st.comment && (
                   <button onClick={() => openCmt(restKey(r.ei, r.si))}
                     style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
