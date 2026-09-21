@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v333";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v334";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -18365,7 +18365,11 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
     const m = new Map();
     plan.days.forEach((d) => d.exs.forEach((e) => m.set(e.id, e.name)));
     Object.keys(history.byEx).forEach((id) => { if (!m.has(id) && history.byEx[id].length) m.set(id, history.byEx[id][history.byEx[id].length - 1].exName || "Ejercicio"); });
-    return [...m.entries()];
+    // Ordenados por CANTIDAD DE REGISTROS (del ejercicio con más sesiones
+    // anotadas al que tiene menos) — mismo criterio que en Progreso →
+    // Fuerza, no "el último tocado".
+    const registros = (id) => (history.byEx[id] || []).length;
+    return [...m.entries()].sort((a, b) => registros(b[0]) - registros(a[0]));
   }, [plan, history]);
   useEffect(() => { if (!exId && allEx.length) setExId(allEx[0][0]); }, [allEx, exId]);
   const commented = history.sessions.filter((s) => s.hasComments).length;
