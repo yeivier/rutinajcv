@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v336";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v337";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -186,20 +186,20 @@ let PLATE_BORDER = LIGHT_THEME.plateBorder;
 // sorpresas, así que la sesión ya NO tiene un look propio fijo (antes era
 // siempre oscura, a propósito, "para que se vea igual siempre"). Sigue el
 // mismo claro/oscuro que el resto de FORJA — un alumno entrenando de
-// noche quiere lo oscuro, no una pantalla que decide por él — con UN solo
-// acento real (verde) en vez del monocromo del resto de la app: es la
-// única pantalla donde "tocado/hecho" necesita distinguirse de un vistazo,
-// sin leer.
+// noche quiere lo oscuro, no una pantalla que decide por él. El acento por
+// defecto es el mismo monocromo (tinta) del resto de la app — no verde,
+// aunque quien elija un acento de color desde Configuración sigue
+// viéndolo acá también (applyAccent lo pisa encima cuando hay override).
 const teColors = (isLight) => (isLight ? {
   bg: "#FAFAF8", card: "#FFFFFF", campo: "#F4F4F2", line: "#E4E2DC",
   ink: "#111214", dim: "#5C6067", faint: "#8B8F96",
-  acc: "#0F8A4B", accInk: "#FFFFFF",
-  accLine: "rgba(15,138,75,.30)", accSoft: "#E8F5EC",
+  acc: "#101012", accInk: "#FFFFFF",
+  accLine: "rgba(16,16,18,.30)", accSoft: "#ECECEE",
 } : {
   bg: "#0F1012", card: "#191B1E", campo: "#1E2023", line: "#2B2E33",
   ink: "#F2F2F0", dim: "#AFB4BB", faint: "#7A7F86",
-  acc: "#2FCB78", accInk: "#062114",
-  accLine: "rgba(47,203,120,.34)", accSoft: "rgba(47,203,120,.12)",
+  acc: "#FFFFFF", accInk: "#101012",
+  accLine: "rgba(255,255,255,.34)", accSoft: "rgba(255,255,255,.12)",
 });
 // Objeto MUTABLE, mismo patrón que `P`: `applyTheme()` le pisa las
 // propiedades en cada cambio de tema, y todo lo que lee `SES.xxx` en cada
@@ -10693,28 +10693,34 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     {campo("Reps", st.reps == null ? "" : String(st.reps), (v) => setVal(r.ei, r.si, "reps", v), "reps", "reps")}
                     {campo("RIR", st.rir == null ? "" : String(st.rir), (v) => setVal(r.ei, r.si, "rir", v), "RIR", "rir")}
                   </div>
-                  {/* Tres accesos chicos: historial del ejercicio, cambiar la
-                      unidad de esta serie y comentarla. El historial faltaba
-                      acá — en Focus no había forma de abrirlo, a diferencia
-                      de Lista, que sí lo tiene entre sus acciones. */}
-                  <div style={{ display: "flex", gap: 18, marginTop: 10 }}>
+                  {/* Cuatro accesos chicos: historial del ejercicio, cambiar
+                      la unidad de esta serie, comentarla y adjuntarle algo —
+                      solo ícono (con las cuatro etiquetas de texto, "Adjuntar"
+                      se salía de la tarjeta en pantallas angostas). */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
                     <button onClick={() => setHistEx(b.group ? b.members[0] : r.ei)}
                       aria-label={`Historial de ${exs[r.ei].name}`}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: SES.faint, background: "none", border: "none" }}>
-                      <History size={13} /> Historial
+                      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: 30, height: 30, color: SES.faint, background: "none", border: "none" }}>
+                      <History size={15} />
                     </button>
                     <button onClick={() => setVal(r.ei, r.si, "unit", u === "lb" ? "kg" : "lb")}
                       aria-label={`Anotar esta serie en ${u === "lb" ? "kilos" : "libras"} (ahora ${u})`}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: SES.faint, background: "none", border: "none" }}>
+                      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3,
+                        fontSize: 12, fontWeight: 700, color: SES.faint, background: "none", border: "none" }}>
                       <ArrowUpDown size={13} /> {u}
                     </button>
                     <button onClick={() => openCmt(restKey(r.ei, r.si))}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: st.comment ? SES.acc : SES.faint, background: "none", border: "none" }}>
-                      <MessageSquare size={13} /> {st.comment ? "Editar comentario" : "Comentar"}
+                      aria-label={`${st.comment ? "Editar comentario de" : "Comentar"} la serie`}
+                      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: 30, height: 30, color: st.comment ? SES.acc : SES.faint, background: "none", border: "none" }}>
+                      <MessageSquare size={15} />
                     </button>
                     <button onClick={() => setAttachKey(restKey(r.ei, r.si))}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: (st.attachIds || []).length ? SES.acc : SES.faint, background: "none", border: "none" }}>
-                      <Paperclip size={13} /> {(st.attachIds || []).length ? `${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"}` : "Adjuntar"}
+                      aria-label={`Adjuntar foto, video o archivo a la serie${(st.attachIds || []).length ? ` (${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"})` : ""}`}
+                      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: 30, height: 30, color: (st.attachIds || []).length ? SES.acc : SES.faint, background: "none", border: "none" }}>
+                      <Paperclip size={15} />
                     </button>
                   </div>
                   {renderCommentBlock(r.ei, r.si)}
@@ -28770,7 +28776,7 @@ const App = () => {
   }, [loading, splashMinDone, splashGone]);
   const [ready, setReady] = useState(false);
   const [roster, setRoster] = useState({ v: ROSTER_VERSION, students: [] });
-  const [mode, setMode] = useState("coach");
+  const [mode, setMode] = useState("alumno");
   const [sid, setSid] = useState(null);
   // Perfil con acceso activo (null = el dueño, entrada normal). Cuando hay
   // uno, la app corre en un espacio aislado: roster de una sola persona
@@ -29169,7 +29175,10 @@ const App = () => {
   };
   // Entrar como DUEÑO: la app completa con el roster y los datos reales
   // (no un espacio aislado). Se recuerda en el dispositivo para no volver a
-  // pedir la clave hasta cerrar sesión.
+  // pedir la clave hasta cerrar sesión. Por defecto entra en modo ALUMNO
+  // (no coach) — a pedido: el dueño es también su propio alumno, y eso es
+  // lo primero que quiere ver al abrir la app. Cambiar a coach sigue
+  // siendo un toque, como siempre.
   const enterOwner = async (rosterArg) => {
     const rr = rosterArg || roster;
     setDelegate(null);
@@ -29180,7 +29189,7 @@ const App = () => {
     lsDelRaw("forja-team-device");
     lsSetRaw("forja-owner-device", "1");
     rememberDeviceIdentity("owner");
-    await openIdentity("coach", rr.students[0]?.id, rr, null);
+    await openIdentity("alumno", rr.students[0]?.id, rr, null);
   };
   // Entrar como miembro del EQUIPO: igual que el dueño, la app completa
   // con el roster real (no un espacio aislado como un perfil con
