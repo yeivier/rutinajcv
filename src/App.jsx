@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v331";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v332";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5921,7 +5921,7 @@ const OrderableGrid = ({ clave, items, cols = 3, gap = 9, orderable = true, modo
           style={it.span === "full" ? { gridColumn: "1 / -1" } : it.span ? { gridColumn: `span ${it.span}` } : undefined}
           {...(orderable ? arrastrable(clave, idsPresentes, i, guardarNuevoOrden,
             { delay: editando ? 130 : 430, editando, onActivar: () => setModoOrden(clave) }) : {})}>
-          {render(it, editando)}
+          {render(it, editando, i, ordered.length)}
         </div>
       ))}
     </div>
@@ -26760,9 +26760,13 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
       {filtered.map((g) => (
         <div key={g.label} className="ord-group" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
-          <OrderableGrid clave={"mas-coach-" + g.label} items={g.rows} orderable={orderable}
-            modoOrden={modoOrden} setModoOrden={setModoOrden}
-            render={(r, ed) => <Tile Icon={r.Icon} label={r.label} onClick={ed ? undefined : r.onClick} />} />
+          <Card style={{ overflow: "hidden" }}>
+            <OrderableGrid clave={"mas-coach-" + g.label} items={g.rows} cols={1} gap={0} orderable={orderable}
+              modoOrden={modoOrden} setModoOrden={setModoOrden}
+              render={(r, ed, i, total) => (
+                <SettingRow Icon={r.Icon} label={r.label} onClick={ed ? undefined : r.onClick} last={i === total - 1} />
+              )} />
+          </Card>
         </div>
       ))}
       <OrderDoneBar show={orderable && !!modoOrden} onDone={() => setModoOrden(null)} />
@@ -26837,9 +26841,20 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
       {filtered.map((g) => (
         <div key={g.label} className="ord-group" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
-          <OrderableGrid clave={"mas-alumno-" + g.label} items={g.rows} orderable={orderable}
-            modoOrden={modoOrden} setModoOrden={setModoOrden}
-            render={(r, ed) => <Tile Icon={r.Icon} label={r.label} onClick={ed ? undefined : r.onClick} badge={r.badge} />} />
+          <Card style={{ overflow: "hidden" }}>
+            <OrderableGrid clave={"mas-alumno-" + g.label} items={g.rows} cols={1} gap={0} orderable={orderable}
+              modoOrden={modoOrden} setModoOrden={setModoOrden}
+              render={(r, ed, i, total) => (
+                <SettingRow Icon={r.Icon} label={r.label} onClick={ed ? undefined : r.onClick} last={i === total - 1}
+                  right={r.badge != null ? (
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9, background: PLATE_GRAD, color: PLATE_FG,
+                        fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{r.badge}</span>
+                      {!ed && r.onClick && <ChevronRight size={17} color={P.faint} strokeWidth={2.4} />}
+                    </span>
+                  ) : undefined} />
+              )} />
+          </Card>
         </div>
       ))}
       <OrderDoneBar show={orderable && !!modoOrden} onDone={() => setModoOrden(null)} />
