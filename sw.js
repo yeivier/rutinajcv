@@ -18,7 +18,12 @@
 // que directamente desregistra cualquier service worker viejo y borra
 // toda la Cache Storage sin esperar el ciclo propio de actualización, un
 // dispositivo que abría la versión vieja pasa a la nueva sin intervención.
-const CACHE_NAME = "forja-shell-v5";
+// v6: se agregan los handlers de "push"/"notificationclick" (recordatorios
+// reales de comida/suplemento/química, con el teléfono guardado). Subir el
+// número no borra nada nuevo — el cache-busting de arriba es por el shell,
+// no por el código del propio worker — pero sirve para que quede registrado
+// cuándo se agregó esta capacidad.
+const CACHE_NAME = "forja-shell-v6";
 const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -111,6 +116,37 @@ self.addEventListener("fetch", (event) => {
         }
         throw e;
       }
+    })
+  );
+});
+
+/* Notificaciones push de verdad: lo que hace que un recordatorio de
+   comida/suplemento/química avise aunque la app esté cerrada y el
+   teléfono guardado. El Edge Function del lado del servidor manda un
+   payload JSON ({title, body, tag}); acá solo se muestra — toda la
+   lógica de "a quién y cuándo" ya se resolvió del otro lado. */
+self.addEventListener("push", (event) => {
+  let data = { title: "FORJA", body: "Tenés algo pendiente." };
+  try { if (event.data) data = { ...data, ...event.data.json() }; } catch {}
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      tag: data.tag || "forja-push",
+      renotify: true,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+    })
+  );
+});
+
+// Tocar la notificación enfoca (o abre) la app, en vez de dejarla
+// abierta como una pestaña muerta aparte.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) { if ("focus" in c) return c.focus(); }
+      if (self.clients.openWindow) return self.clients.openWindow("/");
     })
   );
 });

@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v335";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v336";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6498,6 +6498,57 @@ function readFileDataUrl(file) {
     r.onerror = () => rej(new Error("No se pudo leer el archivo"));
     r.readAsDataURL(file);
   });
+}
+
+/* ============================================================
+   Notificaciones push (de verdad — con el teléfono guardado)
+   ------------------------------------------------------------
+   El aviso local (ReminderScheduler) solo funciona con la app abierta.
+   Esto es lo que hace falta para avisar con el celular guardado: el
+   navegador guarda una suscripción push (endpoint + claves) contra
+   este service worker, se la mandamos a Supabase (forja_push_subs), y
+   un Edge Function programado (forja-push-sender, disparado por
+   pg_cron) revisa cada 5 minutos qué comida/suplemento le toca a cada
+   suscripción según su hora local, y le manda el push. La clave
+   pública VAPID es justamente pública (identifica a esta app ante el
+   navegador); la privada vive solo en el Edge Function, nunca acá. */
+const VAPID_PUBLIC_KEY = "BEdNwzEt9K-Fbec8ZktxkUuaDbAweYo3qrtxEVtjNXAZx-yLWs1EApSg1eDEQc9Kve4wrlpk4QFYdph6U4uVGEI";
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+// Da de alta (o refresca) la suscripción push de este aparato para este
+// alumno. Idempotente: llamarla de nuevo con la misma suscripción solo
+// actualiza tz_offset_minutes (por si viajó de huso horario).
+async function subscribeToPush(studentId) {
+  if (!studentId || !("serviceWorker" in navigator) || !("PushManager" in window)) return false;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+    }
+    const j = sub.toJSON();
+    const r = await fetch(`${SB_PROJECT}/rest/v1/forja_push_subs`, {
+      method: "POST",
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify({ student_id: studentId, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, tz_offset_minutes: new Date().getTimezoneOffset() }),
+    });
+    return r.ok;
+  } catch { return false; }
+}
+async function unsubscribeFromPush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    await fetch(`${SB_PROJECT}/rest/v1/forja_push_subs?endpoint=eq.${encodeURIComponent(sub.endpoint)}`, {
+      method: "DELETE", headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+    }).catch(() => {});
+    await sub.unsubscribe();
+  } catch {}
 }
 
 // Captura un fotograma del video para usarlo como miniatura
@@ -15004,14 +15055,25 @@ const MyFitnessPalSheet = ({ open, onClose, plan, savePlan, toast }) => {
 // química, cada uno a su hora — ver ReminderScheduler). Mismo permiso de
 // notificaciones del navegador que el aviso de fin de descanso; si ya
 // está concedido, activar acá no vuelve a pedirlo.
-const NutriReminderBanner = () => {
+const NutriReminderBanner = ({ sid }) => {
   const [pref, setPref] = useNutriReminder();
   const [permiso, setPermiso] = useState(notifyState());
+  const [suscribiendo, setSuscribiendo] = useState(false);
   const activar = async () => {
-    if (pref.enabled) { setPref({ enabled: false }); return; }
+    if (pref.enabled) {
+      setPref({ enabled: false });
+      unsubscribeFromPush();
+      return;
+    }
     const r = await pedirPermisoNotificaciones();
     setPermiso(r);
-    setPref({ enabled: r === "granted" });
+    const concedido = r === "granted";
+    setPref({ enabled: concedido });
+    if (concedido && sid) {
+      setSuscribiendo(true);
+      await subscribeToPush(sid);
+      setSuscribiendo(false);
+    }
   };
   if (permiso === "unsupported") return null;
   return (
@@ -15021,16 +15083,17 @@ const NutriReminderBanner = () => {
         <div style={{ fontSize: 14, fontWeight: 600, color: P.text }}>Recordatorios</div>
         <div style={{ fontSize: 12, color: P.faint2, marginTop: 1 }}>
           {permiso === "denied" ? "Bloqueadas — habilítalas en los ajustes del navegador"
-            : pref.enabled ? "Te avisa a la hora de cada comida y suplemento con hora cargada"
+            : suscribiendo ? "Activando…"
+            : pref.enabled ? "Te avisa a la hora de cada comida y suplemento, aunque tengas el teléfono guardado"
             : "Activa el aviso a la hora de cada comida y suplemento"}
         </div>
       </div>
-      <Toggle on={!!pref.enabled} disabled={permiso === "denied"} onChange={activar} label="Recordatorios de comidas y suplementos" />
+      <Toggle on={!!pref.enabled} disabled={permiso === "denied" || suscribiendo} onChange={activar} label="Recordatorios de comidas y suplementos" />
     </Card>
   );
 };
 
-const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenSupplements }) => {
+const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenSupplements, sid }) => {
   // Ciclado de carbohidratos (opcional, ver NutritionEditor): si está
   // activado, se muestran los macros de "hoy" según si hay rutina
   // programada (scheduledDayIdFor ya resuelve semana concreta/tipo y el
@@ -15111,7 +15174,7 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
       <ScreenTitle title="Nutrición" />
-      <NutriReminderBanner />
+      <NutriReminderBanner sid={sid} />
       {cyc && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: P.text,
           background: P.s1, border: `1px solid ${P.line}`, borderRadius: 20, padding: "6px 12px", alignSelf: "flex-start" }}>
@@ -29896,7 +29959,7 @@ const App = () => {
         )}
         {mode === "alumno" && tab === "nutricion" && (
           <NutritionView plan={plan} n={plan.nutrition} history={history} saveHistory={saveHistory}
-            savePlan={savePlan} toast={toast}
+            savePlan={savePlan} toast={toast} sid={sid}
             onOpenSupplements={() => setSupplementsOpen(true)} />
         )}
         {mode === "alumno" && tab === "mas" && (
