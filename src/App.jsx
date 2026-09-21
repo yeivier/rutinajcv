@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v334";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v335";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -708,6 +708,32 @@ function useRestAlert() {
     return () => restAlertListeners.delete(fn);
   }, []);
   return [REST_ALERT, setRestAlertPref];
+}
+
+// Recordatorios de comidas/suplementos/química: mismo patrón que el
+// aviso de fin de descanso (preferencia local, un solo interruptor),
+// pero independiente — apagar uno no apaga el otro, aunque los dos
+// dependan del mismo permiso de notificaciones del navegador.
+const NUTRI_REMINDER_DEFAULT = { enabled: false };
+let NUTRI_REMINDER = { ...NUTRI_REMINDER_DEFAULT };
+try {
+  const raw = window.localStorage.getItem("forja-nutri-reminder");
+  if (raw) NUTRI_REMINDER = { ...NUTRI_REMINDER_DEFAULT, ...JSON.parse(raw) };
+} catch {}
+const nutriReminderListeners = new Set();
+function setNutriReminderPref(patch) {
+  NUTRI_REMINDER = { ...NUTRI_REMINDER, ...patch };
+  try { window.localStorage.setItem("forja-nutri-reminder", JSON.stringify(NUTRI_REMINDER)); } catch {}
+  nutriReminderListeners.forEach((fn) => fn(NUTRI_REMINDER));
+}
+function useNutriReminder() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    nutriReminderListeners.add(fn);
+    return () => nutriReminderListeners.delete(fn);
+  }, []);
+  return [NUTRI_REMINDER, setNutriReminderPref];
 }
 
 // Descanso por defecto: cuánto precargar en el campo "rest" de cada
@@ -14974,6 +15000,36 @@ const MyFitnessPalSheet = ({ open, onClose, plan, savePlan, toast }) => {
   );
 };
 
+// Banner chico con el interruptor de recordatorios (comidas/suplementos/
+// química, cada uno a su hora — ver ReminderScheduler). Mismo permiso de
+// notificaciones del navegador que el aviso de fin de descanso; si ya
+// está concedido, activar acá no vuelve a pedirlo.
+const NutriReminderBanner = () => {
+  const [pref, setPref] = useNutriReminder();
+  const [permiso, setPermiso] = useState(notifyState());
+  const activar = async () => {
+    if (pref.enabled) { setPref({ enabled: false }); return; }
+    const r = await pedirPermisoNotificaciones();
+    setPermiso(r);
+    setPref({ enabled: r === "granted" });
+  };
+  if (permiso === "unsupported") return null;
+  return (
+    <Card style={{ padding: "11px 13px", display: "flex", alignItems: "center", gap: 10 }}>
+      <Bell size={16} color={pref.enabled ? P.text : P.faint} style={{ flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: P.text }}>Recordatorios</div>
+        <div style={{ fontSize: 12, color: P.faint2, marginTop: 1 }}>
+          {permiso === "denied" ? "Bloqueadas — habilítalas en los ajustes del navegador"
+            : pref.enabled ? "Te avisa a la hora de cada comida y suplemento con hora cargada"
+            : "Activa el aviso a la hora de cada comida y suplemento"}
+        </div>
+      </div>
+      <Toggle on={!!pref.enabled} disabled={permiso === "denied"} onChange={activar} label="Recordatorios de comidas y suplementos" />
+    </Card>
+  );
+};
+
 const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenSupplements }) => {
   // Ciclado de carbohidratos (opcional, ver NutritionEditor): si está
   // activado, se muestran los macros de "hoy" según si hay rutina
@@ -15055,6 +15111,7 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
       <ScreenTitle title="Nutrición" />
+      <NutriReminderBanner />
       {cyc && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: P.text,
           background: P.s1, border: `1px solid ${P.line}`, borderRadius: 20, padding: "6px 12px", alignSelf: "flex-start" }}>
@@ -18040,7 +18097,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
         <Card key={m.id} style={{ padding: 13, marginBottom: 10 }}>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <Inp value={m.name} placeholder="Nombre de la comida" onChange={(e) => mut((x) => (x.meals[mi].name = e.target.value))} />
-            <Inp value={m.time} placeholder="Hora" onChange={(e) => mut((x) => (x.meals[mi].time = e.target.value))} style={{ width: 78 }} />
+            <Inp type="time" value={m.time} onChange={(e) => mut((x) => (x.meals[mi].time = e.target.value))} style={{ width: 110 }} />
             <button onClick={() => mut((x) => x.meals.splice(mi, 1))} aria-label="Quitar comida" style={{ color: P.faint }}><Trash2 size={16} /></button>
           </div>
           {/* Calorías de la comida. Es opcional: sin esto el alumno ve la
@@ -18086,7 +18143,36 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
               <Inp value={sp.dose || ""} placeholder="Dosis (5 g)" onChange={(e) => mut((x) => (x.supplements[si].dose = e.target.value))} />
               <Inp value={sp.when || ""} placeholder="Momento (pre entreno)" onChange={(e) => mut((x) => (x.supplements[si].when = e.target.value))} />
             </div>
-            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            {/* Hora exacta (opcional): sin esto no hay de qué recordatorio
+                mandar — "cada día" no dice A QUÉ HORA. Vacía, el ítem sigue
+                andando igual (se ve en Suplementación y en el calendario),
+                solo que sin recordatorio. */}
+            <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+              <Inp type="time" value={sp.notifyTime || ""} onChange={(e) => mut((x) => (x.supplements[si].notifyTime = e.target.value))} style={{ width: 110 }} />
+              <span style={{ fontSize: 12.5, color: P.faint }}>hora del recordatorio (opcional)</span>
+            </div>
+            {/* Qué días de la semana toca: vacío = todos los días. Es lo
+                que hace falta para protocolos de 2-3 veces por semana
+                (ej. una inyección lunes y jueves), no solo "diario". */}
+            <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+              {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((k) => {
+                const days = sp.days || [];
+                const on = days.includes(k);
+                return (
+                  <button key={k} onClick={() => mut((x) => {
+                    const cur = x.supplements[si].days || [];
+                    x.supplements[si].days = cur.includes(k) ? cur.filter((d) => d !== k) : [...cur, k];
+                  })}
+                    aria-label={`${DOW_LETTERS[k]} ${on ? "activado" : "desactivado"}`}
+                    style={{ flex: 1, padding: "7px 0", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+                      background: on ? P.text : P.s3, color: on ? P.s1 : P.faint, border: "none" }}>{DOW_LETTERS[k]}</button>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11.5, color: P.faint2, marginTop: 4 }}>
+              {(sp.days || []).length === 0 ? "Todos los días" : "Solo los días marcados"}
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
               {SUPP_GROUPS.map(([gid, glabel]) => {
                 const on = (sp.group || "diario") === gid;
                 return (
@@ -18100,7 +18186,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
           </Card>
         ))}
         <Btn kind="line" style={{ width: "100%" }}
-          onClick={() => mut((x) => { x.supplements = [...(x.supplements || []), { id: uid(), name: "", dose: "", when: "", group: "diario" }]; })}>
+          onClick={() => mut((x) => { x.supplements = [...(x.supplements || []), { id: uid(), name: "", dose: "", when: "", group: "diario", days: [], notifyTime: "" }]; })}>
           <Plus size={16} /> Añadir suplemento
         </Btn>
       </div>
@@ -22642,6 +22728,75 @@ const CalendarGrid = ({ plan, cursor, setCursor, view, setView, selected, setSel
   );
 };
 
+// Un ítem de suplemento/química aplica un día si no tiene días marcados
+// (todos los días) o si ese día de la semana está entre los marcados.
+const suppAplicaEnDia = (sp, d) => {
+  const days = sp.days || [];
+  return days.length === 0 || days.includes(DOW_KEYS[d.getDay()]);
+};
+// Macros "activos" de un día concreto: si hay ciclado, según si ese día
+// tiene rutina programada (mismo criterio que ya usa NutritionView para
+// "hoy"); si no, los macros generales del plan.
+const macrosDelDia = (plan, d) => {
+  const n = plan.nutrition || {};
+  const cyc = !!(n.cycling && (n.train || n.rest));
+  const activo = cyc ? (scheduledDayIdFor(plan, d) ? (n.train || {}) : (n.rest || {})) : n;
+  return macroSolve(activo, activo.solve || "kcal");
+};
+
+/* ============================================================
+   Recordatorios de comidas y suplementos/química
+   ------------------------------------------------------------
+   Componente sin UI propia (solo efecto): revisa cada 20 s si a
+   alguna comida o suplemento/química le toca su hora, y si es así
+   dispara una notificación del navegador — mismo mecanismo que ya
+   usa el aviso de fin de descanso. Funciona mientras la app está
+   abierta (esta pestaña/PWA activa); para que avise con el teléfono
+   guardado hace falta push real desde el servidor, que es un paso
+   aparte. Se deduplica por día+ítem en localStorage, así no repite
+   el aviso cada 20 s mientras el reloj sigue marcando esa hora.
+   ============================================================ */
+const ReminderScheduler = ({ plan }) => {
+  const [pref] = useNutriReminder();
+  useEffect(() => {
+    if (!pref.enabled || !plan || !plan.nutrition) return;
+    const yaAvisado = (todayKey, id) => { try { return lsGetRaw(`forja-avisado:${todayKey}:${id}`) === "1"; } catch { return false; } };
+    const marcarAvisado = (todayKey, id) => { try { lsSetRaw(`forja-avisado:${todayKey}:${id}`, "1"); } catch {} };
+    const avisar = (titulo, cuerpo, tag) => {
+      try {
+        const n = new Notification(titulo, { body: cuerpo, tag, renotify: true });
+        n.onclick = () => { try { window.focus(); n.close(); } catch {} };
+      } catch {}
+    };
+    const tick = () => {
+      if (notifyState() !== "granted") return;
+      const now = new Date();
+      const hhmm = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+      const todayKey = isoDate(now);
+      const n = plan.nutrition;
+      (n.meals || []).forEach((m) => {
+        if (!m.name || !m.time || m.time !== hhmm) return;
+        const id = `m-${m.id}`;
+        if (yaAvisado(todayKey, id)) return;
+        marcarAvisado(todayKey, id);
+        avisar(`Hora de comer: ${m.name}`, "Toca para verla en Nutrición.", `forja-comida-${m.id}`);
+      });
+      (n.supplements || []).forEach((sp) => {
+        if (!sp.name || !sp.notifyTime || sp.notifyTime !== hhmm) return;
+        if (!suppAplicaEnDia(sp, now)) return;
+        const id = `s-${sp.id}`;
+        if (yaAvisado(todayKey, id)) return;
+        marcarAvisado(todayKey, id);
+        avisar(`Hora de: ${sp.name}`, sp.dose || "Marca que lo hiciste en Suplementación.", `forja-supp-${sp.id}`);
+      });
+    };
+    tick();
+    const id = setInterval(tick, 20000);
+    return () => clearInterval(id);
+  }, [plan, pref.enabled]);
+  return null;
+};
+
 const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking }) => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const [view, setView] = useState("month"); // week | month
@@ -22664,6 +22819,33 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
   const selSessions = sessionsOnDate(selected);
   const selBookings = myBookingsFor(selected);
   const isToday = selected === isoDate(today);
+
+  // Comidas y suplementos/química del día elegido — mismo dato que ya
+  // vive en Nutrición, ordenado por hora para que se lea como agenda.
+  const n = plan.nutrition || {};
+  const selMeals = [...(n.meals || [])].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+  const selSupps = (n.supplements || []).filter((sp) => sp.name && suppAplicaEnDia(sp, selDate))
+    .sort((a, b) => (a.notifyTime || "99:99").localeCompare(b.notifyTime || "99:99"));
+  const selMealChecks = (history.mealChecks && history.mealChecks[selected]) || {};
+  const selSuppChecks = (history.supplementChecks && history.supplementChecks[selected]) || {};
+
+  // Resumen semanal: macros totales de la semana (respeta el ciclado
+  // entreno/descanso día por día) y, por cada suplemento/química, en
+  // qué días de ESTA semana toca y cuántos de esos ya se marcaron.
+  const weekResumen = useMemo(() => {
+    const dias = weekDaysOf(selDate);
+    let kcal = 0, p = 0, c = 0, f = 0;
+    dias.forEach((d) => { const m = macrosDelDia(plan, d); kcal += m.kcal; p += m.p; c += m.c; f += m.f; });
+    const supps = (n.supplements || []).filter((sp) => sp.name).map((sp) => {
+      const diasAplica = dias.filter((d) => suppAplicaEnDia(sp, d));
+      const hechas = diasAplica.filter((d) => {
+        const chk = history.supplementChecks && history.supplementChecks[isoDate(d)];
+        return chk && chk[sp.id];
+      }).length;
+      return { sp, diasAplica, hechas };
+    }).filter((r) => r.diasAplica.length > 0);
+    return { dias, kcal, p, c, f, supps };
+  }, [plan, history, selected]);
 
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
@@ -22813,7 +22995,72 @@ const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking 
             ))}
           </div>
         )}
+
+        {/* Comidas y suplementos/química del día: mismo dato que ya vive en
+            Nutrición → Suplementación, acá como agenda del día — a qué hora
+            toca cada cosa. Solo lectura (marcar "hecho" se sigue haciendo
+            desde Nutrición); esto es para ver de un vistazo qué toca hoy. */}
+        {(selMeals.length > 0 || selSupps.length > 0) && (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
+            <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Comidas y suplementos</div>
+            {selMeals.map((m) => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 0" }}>
+                <Utensils size={13} color={P.faint} style={{ flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                {m.time && <span style={{ fontSize: 12.5, color: P.faint2, flexShrink: 0 }}>{m.time}</span>}
+                {selMealChecks[m.id] && <Check size={13} color={P.green} style={{ flexShrink: 0 }} />}
+              </div>
+            ))}
+            {selSupps.map((sp) => (
+              <div key={sp.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 0" }}>
+                <Droplet size={13} color={P.faint} style={{ flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {sp.name}{sp.dose ? ` · ${sp.dose}` : ""}
+                </span>
+                {sp.notifyTime && <span style={{ fontSize: 12.5, color: P.faint2, flexShrink: 0 }}>{sp.notifyTime}</span>}
+                {selSuppChecks[sp.id] && <Check size={13} color={P.green} style={{ flexShrink: 0 }} />}
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
+
+      {/* Resumen semanal: macros totales de la semana (respeta el ciclado
+          entreno/descanso) y, por cada suplemento/química, en qué días de
+          esta semana toca y cuántos ya se marcaron como hechos. */}
+      {(weekResumen.kcal > 0 || weekResumen.supps.length > 0) && (
+        <Card style={{ padding: "13px 15px", marginTop: 12 }}>
+          <Collapsible title={`Resumen semanal · ${fmtWeekRange(selDate)}`} summary={weekResumen.kcal > 0 ? `${Math.round(weekResumen.kcal).toLocaleString("es-CL")} kcal` : `${weekResumen.supps.length} ítems`}>
+            {weekResumen.kcal > 0 && (
+              <div style={{ display: "flex", gap: 14, flexWrap: "wrap", padding: "4px 0 10px" }}>
+                {[["Kcal", Math.round(weekResumen.kcal)], ["Proteína", `${Math.round(weekResumen.p)} g`], ["Carbos", `${Math.round(weekResumen.c)} g`], ["Grasa", `${Math.round(weekResumen.f)} g`]].map(([lbl, val]) => (
+                  <div key={lbl}>
+                    <div style={{ fontSize: 11, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>{lbl}</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: P.text }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {weekResumen.supps.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: weekResumen.kcal > 0 ? 10 : 0, borderTop: weekResumen.kcal > 0 ? `1px solid ${P.line}` : "none" }}>
+                {weekResumen.supps.map(({ sp, diasAplica, hechas }) => (
+                  <div key={sp.id} style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: P.text }}>{sp.name}{sp.dose ? ` · ${sp.dose}` : ""}</div>
+                      <div style={{ fontSize: 12, color: P.faint2, marginTop: 1 }}>
+                        {diasAplica.length === 7 ? "Todos los días" : diasAplica.map((d) => DAY_LABELS_LONG[d.getDay()].slice(0, 3)).join(", ")}
+                      </div>
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: hechas === diasAplica.length ? P.green : P.faint2, flexShrink: 0 }}>
+                      {hechas}/{diasAplica.length}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Collapsible>
+        </Card>
+      )}
     </div>
   );
 };
@@ -26286,15 +26533,19 @@ const LabsSheet = ({ open, onClose, history, saveHistory, athlete }) => {
    (plan.nutrition.supplements) y el alumno marca acá lo que va
    tomando. Cada ítem puede llevar dosis y momento ("5 g", "pre
    entreno"); los que ya existían sin esos campos siguen andando y
-   caen en el bloque "Diario".
+   caen en el bloque "Diario". "Química" (compuestos, péptidos, lo
+   que el coach quiera protocolar) es una tercera categoría con
+   exactamente el mismo modelo — no un sistema aparte.
 
-   El "protocolo médico" del prototipo no se registra acá a
-   propósito: FORJA no lleva sustancias ni dosis médicas. Lo que sí
-   lleva es el seguimiento — quién es el médico tratante y cuándo
-   fue y toca el próximo control de laboratorio — y enlaza a la
-   analítica, que es donde ese seguimiento vive de verdad.
+   FORJA no genera, sugiere ni valida ninguna dosis o sustancia: solo
+   guarda el texto libre que carga el coach (nombre/dosis/momento,
+   sea "5 g de creatina" o el nombre de un compuesto) y si el alumno
+   marcó que lo hizo. Lo que sí lleva con seguimiento propio es la
+   parte médica de verdad — quién es el médico tratante y cuándo toca
+   el próximo control de laboratorio — y enlaza a la analítica, que es
+   donde ese seguimiento vive.
    ============================================================ */
-const SUPP_GROUPS = [["diario", "Diario"], ["entreno", "Entreno"]];
+const SUPP_GROUPS = [["diario", "Diario"], ["entreno", "Entreno"], ["quimica", "Química"]];
 
 const SupplementsSheet = ({ open, onClose, plan, history, saveHistory, onOpenLabs }) => {
   const supplements = ((plan.nutrition || {}).supplements) || [];
@@ -29782,6 +30033,7 @@ const App = () => {
       </div>
 
       {compareOpen && <RoutineCompareScreen onClose={() => setCompareOpen(false)} plan={plan} />}
+      {mode === "alumno" && plan && <ReminderScheduler plan={plan} />}
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <GlobalSearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} items={searchItems} />
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)}
