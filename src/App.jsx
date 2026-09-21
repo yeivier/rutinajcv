@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v332";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v333";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -9448,6 +9448,8 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [ficha, setFicha] = useState(null);
   const [viewImg, setViewImg] = useState(null);
   const [cmtKey, setCmtKey] = useState(null);
+  // Qué serie tiene abierto el panel de "adjuntar foto/video/archivo".
+  const [attachKey, setAttachKey] = useState(null);
   // Qué serie tiene abierta la rueda de peso/reps/RIR (clave "ei-si"), o null.
   const [wheelEn, setWheelEn] = useState(null); // { key: restKey, field: "weight"|"reps"|"rir" } | null
   // Qué tarjetas (por índice de bloque) tienen el detalle desplegado —
@@ -9796,6 +9798,45 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     );
   };
 
+  // Adjuntos de una serie (foto, video o archivo): evidencia de la
+  // ejecución (técnica, marcador de una máquina, una lesión que avisar)
+  // — reusa el mismo sistema de adjuntos del chat (AttachButton/Thumb),
+  // solo que acá cuelgan de la serie (`st.attachIds`) en vez de un mensaje.
+  const renderAttachBlock = (ei, si) => {
+    const exx = exs[ei];
+    const st = exx.sets[si];
+    if (!st) return null;
+    const ck = restKey(ei, si);
+    const abierto = attachKey === ck;
+    const ids = st.attachIds || [];
+    const quitar = (id) => setVal(ei, si, "attachIds", ids.filter((x) => x !== id));
+    return (
+      <div data-cmt style={{ maxHeight: abierto ? 220 : 0, opacity: abierto ? 1 : 0, overflow: "hidden",
+        transition: `max-height ${DUR_ROW}ms ${EASE_STD}, opacity .16s ease` }}>
+        <div style={{ marginTop: 14, padding: "12px 13px 13px", borderRadius: R_TILE,
+          background: P.s3, border: `1px solid ${P.line}`,
+          visibility: abierto ? "visible" : "hidden", pointerEvents: abierto ? "auto" : "none" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 9 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: P.faint2 }}>Adjuntar a esta serie</span>
+            <button data-keep onClick={() => setAttachKey(null)}
+              style={{ fontSize: 14, fontWeight: 700, color: P.text, padding: "2px 2px", flexShrink: 0 }}>Listo</button>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            {ids.map((id) => (
+              <AttachThumb key={id} id={id} size={56} onOpen={setViewImg} onRemove={() => quitar(id)} />
+            ))}
+            <AttachButton mode="both" label="Foto/video"
+              onAttached={(id) => setVal(ei, si, "attachIds", [...ids, id])}
+              onError={(m) => onError && onError(m)} />
+            <AttachButton mode="file" label="Archivo"
+              onAttached={(id) => setVal(ei, si, "attachIds", [...ids, id])}
+              onError={(m) => onError && onError(m)} />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Pantalla de Descanso (A4): reemplaza toda la pantalla mientras
   // `timer` (el mismo cronómetro que usa la vista clásica, compartido
   // vía props) está corriendo. `timer.exIdx`/`timer.setIdx` identifican
@@ -10092,6 +10133,18 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     <MessageSquare size={15} />
                   </button>
                 )}
+                {/* Adjuntar foto, video o archivo a ESTA serie — evidencia de
+                    cómo salió (técnica, marcador de la máquina, una
+                    molestia que avisar). El ícono se resalta si ya tiene
+                    algo adjunto. */}
+                {attachKey !== restKey(r.ei, r.si) && (
+                  <button onClick={() => setAttachKey(restKey(r.ei, r.si))}
+                    aria-label={`Adjuntar foto, video o archivo a la ${dónde}${(st.attachIds || []).length ? ` (${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"})` : ""}`}
+                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      width: 26, height: 26, color: (st.attachIds || []).length ? SES.acc : SES.faint, background: "none", border: "none" }}>
+                    <Paperclip size={15} />
+                  </button>
+                )}
                 {/* Conversor kg⇄lb de ESTA serie: convierte el peso ya
                     escrito a la otra unidad, sin tocar las demás series ni
                     el ejercicio. */}
@@ -10114,6 +10167,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               onClose={() => setWheelEn(null)}
               onPick={(v) => setVal(r.ei, r.si, wheelEn ? wheelEn.field : "weight", v)} />
             {renderCommentBlock(r.ei, r.si)}
+            {renderAttachBlock(r.ei, r.si)}
             </div>
             </React.Fragment>
           );
@@ -10581,8 +10635,13 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                       style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: st.comment ? SES.acc : SES.faint, background: "none", border: "none" }}>
                       <MessageSquare size={13} /> {st.comment ? "Editar comentario" : "Comentar"}
                     </button>
+                    <button onClick={() => setAttachKey(restKey(r.ei, r.si))}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: (st.attachIds || []).length ? SES.acc : SES.faint, background: "none", border: "none" }}>
+                      <Paperclip size={13} /> {(st.attachIds || []).length ? `${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"}` : "Adjuntar"}
+                    </button>
                   </div>
                   {renderCommentBlock(r.ei, r.si)}
+                  {renderAttachBlock(r.ei, r.si)}
                   <NumberWheelSheet open={!!wheelEn && wheelEn.key === restKey(r.ei, r.si)}
                     field={wheelEn && wheelEn.key === restKey(r.ei, r.si) ? wheelEn.field : "weight"}
                     value={wheelEn && wheelEn.field === "reps" ? st.reps : wheelEn && wheelEn.field === "rir" ? st.rir : st.weight}
