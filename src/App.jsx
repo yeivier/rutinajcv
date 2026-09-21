@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v337";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v338";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -26596,23 +26596,26 @@ const LabsSheet = ({ open, onClose, history, saveHistory, athlete }) => {
 };
 
 /* ============================================================
-   Suplementación
+   Suplementación, sustancias y dosis
    ------------------------------------------------------------
    El coach carga la lista en el editor de nutrición
-   (plan.nutrition.supplements) y el alumno marca acá lo que va
-   tomando. Cada ítem puede llevar dosis y momento ("5 g", "pre
-   entreno"); los que ya existían sin esos campos siguen andando y
-   caen en el bloque "Diario". "Química" (compuestos, péptidos, lo
-   que el coach quiera protocolar) es una tercera categoría con
-   exactamente el mismo modelo — no un sistema aparte.
+   (plan.nutrition.supplements) — nombre, dosis y momento ("5 g",
+   "pre entreno") — y el alumno marca acá lo que va tomando o
+   aplicando, día por día. "Química" (compuestos, péptidos, cualquier
+   sustancia que el coach quiera protocolar) es una categoría más
+   dentro de este mismo sistema: FORJA SÍ lleva sustancias y dosis,
+   con el mismo detalle que cualquier otro suplemento — nombre, dosis,
+   momento, qué días de la semana toca y el recordatorio a su hora
+   (ver ReminderScheduler/forja-push-sender). Es el registro real de
+   qué se cargó y qué se cumplió, no una lista genérica.
 
-   FORJA no genera, sugiere ni valida ninguna dosis o sustancia: solo
-   guarda el texto libre que carga el coach (nombre/dosis/momento,
-   sea "5 g de creatina" o el nombre de un compuesto) y si el alumno
-   marcó que lo hizo. Lo que sí lleva con seguimiento propio es la
-   parte médica de verdad — quién es el médico tratante y cuándo toca
-   el próximo control de laboratorio — y enlaza a la analítica, que es
-   donde ese seguimiento vive.
+   Lo que FORJA no hace es INVENTAR una dosis por su cuenta ni darla
+   como sugerencia médica generada por IA: cada sustancia y cada dosis
+   es la que el coach decide y carga — FORJA la registra y hace el
+   seguimiento de adherencia, no la prescribe. Aparte, y sin
+   reemplazarlo, sigue el seguimiento médico propiamente dicho —quién
+   es el médico tratante y cuándo toca el próximo control de
+   laboratorio— enlazado a la analítica.
    ============================================================ */
 const SUPP_GROUPS = [["diario", "Diario"], ["entreno", "Entreno"], ["quimica", "Química"]];
 
@@ -26711,8 +26714,10 @@ const SupplementsSheet = ({ open, onClose, plan, history, saveHistory, onOpenLab
           ]} />
 
           <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.5, padding: "0 4px" }}>
-            FORJA registra la adherencia a lo que cargó tu coach. No indica
-            sustancias, dosis ni protocolos médicos: eso lo lleva tu médico.
+            FORJA lleva el registro de sustancias y dosis que carga tu coach
+            —nombre, dosis, momento y adherencia día a día— tal cual él las
+            protocola. No las inventa ni las sugiere: el criterio y el
+            seguimiento médico siguen siendo de tu médico.
           </div>
         </div>
       )}
