@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v326";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v327";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10473,7 +10473,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
           if (last) setSalida(true); else irA(idx + 1);
         };
         return (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          // flex:1 + justifyContent:center — la tarjeta usa toda la altura
+          // que sobra bajo la cabecera y queda centrada ahí, en vez de
+          // quedar pegada arriba con un vacío grande abajo (pantallas con
+          // pocas series o nombres cortos lo dejaban muy descompensado).
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, justifyContent: "center" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <button onClick={() => irA(idx - 1)} disabled={idx === 0} aria-label="Serie anterior"
                 style={{ width: 40, height: 40, borderRadius: 12, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink,
