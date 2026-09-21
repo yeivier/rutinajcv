@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v328";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v329";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -123,12 +123,13 @@ const DARK_THEME = {
   P: {
     bg: "#0F0F11", s1: "#18181B", s2: "#1F1F23", s3: "#27272B", s4: "#33333A",
     line: "#35353C", text: "#FFFFFF", dim: "#E4E4E7", faint: "#A1A1AA", faint2: "#8A8A94",
-    // Acento verde oscuro (antes monocromo blanco, "sin colores") — el
-    // mismo verde ya probado y con buen contraste sobre fondo oscuro en
-    // la pantalla de sesión (`teColors`, más abajo), ahora también como
-    // acento de toda la app en este tema.
-    ember: "#2FCB78", ember2: "#2FCB78", glow: "#2FCB78",
-    green: "#2FCB78", blue: "#A1A1AA", red: "#FF453A",
+    // Acento de vuelta a monocromo (blanco sobre oscuro) — el verde que
+    // había acá antes se sacó a pedido: el color por defecto de la
+    // plataforma es fondo claro y tinta (blanco/negro), no verde. El
+    // verde de la pantalla de sesión (`teColors`, más abajo) es aparte y
+    // no se toca: ahí sigue siendo la única marca de color, a propósito.
+    ember: "#FFFFFF", ember2: "#FFFFFF", glow: "#FFFFFF",
+    green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
     prog: "#FFFFFF",
     frame: "#35353C", bgGrad: "#0F0F11",
     // Mismos 5 tokens nuevos, invertidos para el tema oscuro siguiendo el
@@ -136,10 +137,12 @@ const DARK_THEME = {
     fillTertiary: "#2C2C31", separatorStrong: "#48484F",
     textQuaternary: "#7A7A83", chevron: "#5A5A63", dotInactive: "#3A3A41",
   },
-  plateGrad: "#2FCB78",
-  plateFg: "#062114", // mismo "accInk" oscuro que ya usa la sesión sobre este verde
-  plateDim: "#1E5B3A",
-  plateBorder: "#2FCB78",
+  // Placas monocromas, igual criterio que LIGHT_THEME pero invertido:
+  // tinta blanca (la del tema oscuro) con texto negro encima.
+  plateGrad: "#FFFFFF",
+  plateFg: "#101012",
+  plateDim: "#8A8A94",
+  plateBorder: "#FFFFFF",
 };
 // Tercer tema, a pedido (blanco y rosado): mismas tarjetas blancas que
 // LIGHT_THEME —el contenido sigue leyéndose igual de limpio— pero el
