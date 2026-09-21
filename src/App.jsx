@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v327";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v328";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6947,10 +6947,14 @@ const ChatTab = ({ sid, role, studentName }) => {
           const dayLabel = fmtChatDay(m.ts);
           const showDay = dayLabel !== lastDay;
           lastDay = dayLabel;
-          const bubbleBg = isAlumno ? MONO.ink : MONO.surface;
+          // Colores de burbuja FIJOS, sin seguir MONO/P: "se lee igual
+          // mire quien mire" incluye modo oscuro — antes usaban MONO.ink
+          // (que en oscuro es casi blanco) de fondo con letra clara
+          // encima, letra invisible sobre fondo casi igual de claro.
+          const bubbleBg = isAlumno ? "#101012" : "#FFFFFF";
           const bubbleColor = isAlumno ? "#F0F0F3" : "#2B2B30";
-          const bubbleBorder = isAlumno ? "none" : `1px solid ${MONO.line}`;
-          const timeColor = isAlumno ? "#8C8C96" : MONO.inkTertiary;
+          const bubbleBorder = isAlumno ? "none" : "1px solid #E5E5EA";
+          const timeColor = isAlumno ? "#8C8C96" : "#8E8E93";
           return (
             <React.Fragment key={m.id}>
               {showDay && <div style={{ textAlign: "center", fontSize: 11.5, fontWeight: 600, color: MONO.inkTertiary }}>{dayLabel}</div>}
@@ -6989,7 +6993,7 @@ const ChatTab = ({ sid, role, studentName }) => {
             a 40% con el campo vacío y se leía gris, que es justo lo que no
             debe pasar con el único elemento accionable de la barra. */}
         <button onClick={send} disabled={!text.trim() || sending} aria-label="Enviar"
-          style={{ width: 44, height: 44, borderRadius: 14, background: MONO.ink, border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          style={{ width: 44, height: 44, borderRadius: 14, background: "#101012", border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <ArrowRight size={19} color="#FFFFFF" strokeWidth={2.4} />
         </button>
       </div>
@@ -7012,7 +7016,7 @@ const ChatMedia = ({ id, onOpen }) => {
         display: "flex", alignItems: "center", justifyContent: "center" }}>
       {thumb && <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
       {(isVideo || !thumb) && (
-        <span style={{ position: "absolute", width: 42, height: 42, borderRadius: "50%", background: MONO.ink,
+        <span style={{ position: "absolute", width: 42, height: 42, borderRadius: "50%", background: "#101012",
           display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Play size={16} color="#FFFFFF" fill="#FFFFFF" />
         </span>
