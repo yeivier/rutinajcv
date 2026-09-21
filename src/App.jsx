@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v329";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v330";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8228,7 +8228,6 @@ const InlineRest = ({ timer, onAdjust, onDismiss }) => {
 const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpenImg, onAttachError, restSec, timer, onStartRest, onAdjustRest, onDismissRest, exId, exName }) => {
   const [showCmt, setShowCmt] = useState(false);
   const [unit] = useWeightUnit();
-  const [discosOpen, setDiscosOpen] = useState(false);
   const done = set.done;
   // minHeight 48: son los inputs que más se tocan durante el entrenamiento
   // (peso/reps/RIR, serie tras serie, a veces con las manos sudadas) — el
@@ -8276,10 +8275,7 @@ const SetRow = ({ set, idx, last, suggest, onPatch, onToggleDone, onInfo, onOpen
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3, paddingLeft: 2 }}>
             <WeightConversionHint valueKg={set.weight} />
-            <BotonDiscos exId={exId} onClick={() => setDiscosOpen(true)} />
           </div>
-          <DiscosSheet open={discosOpen} onClose={() => setDiscosOpen(false)} exId={exId} exName={exName}
-            valueKg={set.weight} onPick={(v) => onPatch({ weight: v })} />
           <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 12.5, color: P.faint, flexWrap: "wrap" }}>
             <span>Meta: {set.repsT || "—"} reps{set.rirT !== "" ? ` @ RIR ${set.rirT}` : ""}</span>
             {last && (
@@ -9449,12 +9445,17 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   const [ficha, setFicha] = useState(null);
   const [viewImg, setViewImg] = useState(null);
   const [cmtKey, setCmtKey] = useState(null);
-  // Qué serie tiene abierto el teclado de discos (clave "ei-si"), o null.
-  const [discosEn, setDiscosEn] = useState(null);
-  // Qué serie tiene abierta la rueda de peso (clave "ei-si"), o null —
-  // mismo patrón que discosEn: una alternativa rápida a escribir con el
-  // teclado, para cuando el peso ya cae en un múltiplo de 0,5 kg.
+  // Qué serie tiene abierta la rueda de peso/reps/RIR (clave "ei-si"), o null.
   const [wheelEn, setWheelEn] = useState(null); // { key: restKey, field: "weight"|"reps"|"rir" } | null
+  // Qué tarjetas (por índice de bloque) tienen el detalle desplegado —
+  // indicaciones, tempo, última vez, el reto y el detalle de cada serie.
+  // Cerradas por defecto: la Lista muestra solo el nombre y la tabla.
+  const [detalleAbierto, setDetalleAbierto] = useState(() => new Set());
+  const toggleDetalle = (bi) => setDetalleAbierto((prev) => {
+    const next = new Set(prev);
+    if (next.has(bi)) next.delete(bi); else next.add(bi);
+    return next;
+  });
   const [tipoEn, setTipoEn] = useState(null); // {ei, si} de la serie cuyo tipo se está eligiendo
   // Focus Mode: modo aparte que se activa rápido (segmentado "Lista / Focus")
   // y se recuerda. En Focus se ve UN ejercicio a la vez —la misma tabla de
@@ -9861,6 +9862,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     const firstWarmIdx = rowMeta.findIndex((m) => m.warm);
     const firstWorkIdx = rowMeta.findIndex((m) => !m.warm);
     const hasWarmRows = firstWarmIdx !== -1;
+    // Detalle desplegado: indicaciones, tempo, última vez, el reto y el
+    // detalle de cada serie, todo detrás de un mismo chevron por tarjeta.
+    const abierta = detalleAbierto.has(bi);
 
     return (
       <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: 12, padding: "13px 13px 4px" }}>
@@ -9908,19 +9912,33 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               color: SES.dim, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Play size={11} fill="currentColor" />
           </button>
+          {/* El detalle (indicaciones, tempo, última vez, el reto — y el
+              detalle de cada serie más abajo) queda desplegable: por
+              defecto la tarjeta muestra solo el nombre y la tabla. */}
+          <button onClick={() => toggleDetalle(bi)}
+            aria-label={`${abierta ? "Ocultar" : "Mostrar"} el detalle de ${titulo}`}
+            aria-expanded={abierta}
+            style={{ width: 26, height: 26, borderRadius: 13, flexShrink: 0, background: SES.campo, border: "none",
+              color: SES.dim, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <ChevronDown size={13} style={{ transform: abierta ? "rotate(180deg)" : "none", transition: `transform ${DUR_MICRO}ms ${EASE_STD}` }} />
+          </button>
         </div>
 
-        {indicaciones && (
-          <div style={{ fontSize: 12.5, color: SES.dim, lineHeight: 1.45, marginTop: 9, padding: "8px 10px",
-            background: SES.campo, borderRadius: 8, whiteSpace: "pre-wrap" }}>{indicaciones}</div>
-        )}
-        {tempo && <div style={{ marginTop: 9 }}><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
-        {ultimaVez && <div style={{ fontSize: 12, color: SES.faint, marginTop: 9 }}>{ultimaVez}</div>}
-        {/* Reto del ejercicio completo: cómo va el volumen de hoy contra el
-            de la última vez. Solo aparece cuando ya anotaste alguna serie,
-            para que no muestre "−100 %" antes de empezar. */}
-        {retoEx && retoEx.anotadas > 0 && (
-          <RetoEjercicio reto={retoEx} />
+        {abierta && (indicaciones || tempo || ultimaVez || (retoEx && retoEx.anotadas > 0)) && (
+          <>
+            {indicaciones && (
+              <div style={{ fontSize: 12.5, color: SES.dim, lineHeight: 1.45, marginTop: 9, padding: "8px 10px",
+                background: SES.campo, borderRadius: 8, whiteSpace: "pre-wrap" }}>{indicaciones}</div>
+            )}
+            {tempo && <div style={{ marginTop: 9 }}><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
+            {ultimaVez && <div style={{ fontSize: 12, color: SES.faint, marginTop: 9 }}>{ultimaVez}</div>}
+            {/* Reto del ejercicio completo: cómo va el volumen de hoy contra el
+                de la última vez. Solo aparece cuando ya anotaste alguna serie,
+                para que no muestre "−100 %" antes de empezar. */}
+            {retoEx && retoEx.anotadas > 0 && (
+              <RetoEjercicio reto={retoEx} />
+            )}
+          </>
         )}
 
         {/* Cabecera de columnas: sin ella, tres casillas iguales no dicen
@@ -10025,13 +10043,13 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                   )}
                 </div>
                 {block.group && <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2 }}>{exx.name}</div>}
-                <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{detalle}</div>
+                {abierta && <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{detalle}</div>}
                 {/* EL RETO, serie por serie: qué hiciste la vez pasada en
                     esta misma serie y si hoy vas por encima. Se recalcula
                     solo con cada tecla, porque sale del propio dato de la
                     sesión. No aplica al calentamiento (no es carga de
                     trabajo) ni a las superseries (rondas, no series). */}
-                {!isWarm && !block.group && (
+                {abierta && !isWarm && !block.group && (
                   <RetoSerie actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitDeSerie(st, r.ei)} />
                 )}
               </div>
@@ -10065,14 +10083,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               <div style={{ display: "flex", flexWrap: "wrap", columnGap: 12, rowGap: 6, marginTop: 6, paddingLeft: 1 }}>
                 {!st.comment && (
                   <button onClick={() => openCmt(restKey(r.ei, r.si))}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
-                    <MessageSquare size={12} /> Comentar
+                    aria-label={`Comentar la ${dónde}`}
+                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      width: 26, height: 26, color: SES.faint, background: "none", border: "none" }}>
+                    <MessageSquare size={15} />
                   </button>
                 )}
-                {/* Teclado de discos: la cuenta "barra + discos por lado"
-                    hecha con los dedos en vez de con la cabeza. */}
-                <BotonDiscos exId={exs[r.ei].id} pal={SES}
-                  onClick={() => setDiscosEn(restKey(r.ei, r.si))} />
                 {/* Conversor kg⇄lb de ESTA serie: convierte el peso ya
                     escrito a la otra unidad, sin tocar las demás series ni
                     el ejercicio. */}
@@ -10089,9 +10105,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 ) : null}
               </div>
             )}
-            <DiscosSheet open={discosEn === restKey(r.ei, r.si)} onClose={() => setDiscosEn(null)}
-              exId={exs[r.ei].id} exName={exs[r.ei].name} valueKg={st.weight}
-              onPick={(v) => setVal(r.ei, r.si, "weight", v)} />
             <NumberWheelSheet open={!!wheelEn && wheelEn.key === restKey(r.ei, r.si)}
               field={wheelEn && wheelEn.key === restKey(r.ei, r.si) ? wheelEn.field : "weight"}
               value={wheelEn && wheelEn.field === "reps" ? st.reps : wheelEn && wheelEn.field === "rir" ? st.rir : st.weight}
@@ -10987,9 +11000,6 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                   {calcField("RIR", c2rir, setC2rir)}
                 </div>
                 {calcResult("Peso sugerido", targetW != null ? `${kg(targetW)} kg` : null)}
-                {/* Saber que son 87,5 kg no dice qué poner en la barra. El
-                    número sin los discos deja la mitad del trabajo. */}
-                <DiscosDeTotal totalKg={targetW} />
               </Card>
 
               <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -12080,35 +12090,6 @@ const PosingCategoryBlock = () => {
   );
 };
 
-// Una columna del teclado: "+" arriba (o el contador cuando ya hay
-// discos puestos), el valor del disco en el medio y "−" abajo. Tal cual
-// se ve parado frente a la barra: se tocan los discos que se pusieron.
-const ColumnaDisco = ({ kg, n, maxPares, onMas, onMenos }) => {
-  const lleno = n > 0;
-  const tope = n >= maxPares;
-  return (
-    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center",
-      gap: 4, padding: "8px 2px 6px", background: P.s3, border: `1px solid ${lleno ? PLATE_BORDER : P.frame}`,
-      borderRadius: R_TILE, boxSizing: "border-box" }}>
-      <button onClick={onMas} disabled={tope}
-        aria-label={`Agregar un disco de ${kg} kg por lado`}
-        style={{ width: 28, height: 28, borderRadius: 999, flexShrink: 0, display: "flex",
-          alignItems: "center", justifyContent: "center",
-          background: lleno ? PLATE_GRAD : "transparent", color: lleno ? PLATE_FG : (tope ? P.faint2 : P.dim),
-          fontSize: lleno ? 13 : 17, fontWeight: 700, opacity: tope && !lleno ? 0.4 : 1 }}>
-        {lleno ? n : "+"}
-      </button>
-      <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-.02em", color: P.text, lineHeight: 1 }}>
-        {kg % 1 === 0 ? kg : String(kg).replace(".", ",")}
-      </span>
-      <button onClick={onMenos} disabled={!lleno}
-        aria-label={`Quitar un disco de ${kg} kg por lado`}
-        style={{ width: 28, height: 22, flexShrink: 0, color: lleno ? P.dim : P.faint2,
-          fontSize: 15, fontWeight: 700, opacity: lleno ? 1 : 0.45 }}>−</button>
-    </div>
-  );
-};
-
 /* ============================================================
    Ruedas de peso/reps/RIR — la forma predeterminada de cargar cada
    serie en la sesión: las tres celdas (peso, reps, RIR) son botones que
@@ -12121,9 +12102,10 @@ const WHEEL_ROW_H = 44;
 // permite que la primera y la última opción también lleguen al medio.
 // Genérica a propósito — value/label como par, no atada a kilos —
 // para poder reusarla en cualquier otro selector numérico futuro.
-const WheelColumn = ({ options, value, onChange, unit }) => {
+const WheelColumn = ({ options, value, onChange, unit, onTap }) => {
   const ref = useRef(null);
   const raf = useRef(null);
+  const dragged = useRef(false);
   useEffect(() => {
     const i = Math.max(0, options.findIndex((o) => o.value === value));
     if (ref.current) ref.current.scrollTop = i * WHEEL_ROW_H;
@@ -12133,6 +12115,7 @@ const WheelColumn = ({ options, value, onChange, unit }) => {
   }, []);
   const leer = () => {
     if (!ref.current) return;
+    dragged.current = true;
     const i = Math.max(0, Math.min(options.length - 1, Math.round(ref.current.scrollTop / WHEEL_ROW_H)));
     const opt = options[i];
     if (opt && opt.value !== value) onChange(opt.value);
@@ -12140,8 +12123,12 @@ const WheelColumn = ({ options, value, onChange, unit }) => {
   // onScroll dispara docenas de veces por segundo durante el gesto — se
   // agrupa por frame en vez de recalcular en cada evento.
   const onScroll = () => { if (raf.current) return; raf.current = requestAnimationFrame(() => { raf.current = null; leer(); }); };
+  // Un toque simple (sin arrastrar la rueda) es la forma de pasar a
+  // tipear con el teclado — el navegador ya distingue solo un tap de un
+  // gesto de scroll, así que no hace falta ningún botón ni texto aparte.
+  const onClick = () => { if (!dragged.current && onTap) onTap(); dragged.current = false; };
   return (
-    <div ref={ref} onScroll={onScroll} data-wheel-col
+    <div ref={ref} onScroll={onScroll} onClick={onClick} data-wheel-col
       style={{ height: WHEEL_ROW_H * 5, overflowY: "auto", scrollSnapType: "y mandatory",
         WebkitOverflowScrolling: "touch", padding: `${WHEEL_ROW_H * 2}px 0` }}>
       {options.map((o) => {
@@ -12200,6 +12187,14 @@ const NumberWheelSheet = ({ open, field, value, onClose, onPick }) => {
     if (manual) { if (manualN == null) return; onPick(manualN); onClose(); return; }
     onPick(sel); onClose();
   };
+  // Al pasar a mano se arranca del valor que ya estaba elegido en la
+  // rueda (como en la referencia: "5" ya escrito, listo para corregir),
+  // no de un campo vacío.
+  const entrarManual = () => {
+    const opt = conf.options.find((o) => o.value === sel);
+    setTxt(opt ? opt.label.replace(",", ".") : String(sel));
+    setManual(true);
+  };
   return (
     <Sheet open={open} onClose={onClose} title={conf.title}>
       {manual ? (
@@ -12212,221 +12207,18 @@ const NumberWheelSheet = ({ open, field, value, onClose, onPick }) => {
       ) : (
         <div style={{ position: "relative" }}>
           {/* Banda fija en el centro — marca dónde "cae" la opción elegida,
-              igual que la caja gris del picker nativo de fecha/peso. */}
+              igual que la caja gris del picker nativo de fecha/peso. Un
+              toque ahí (sin arrastrar) pasa directo a tipear con el
+              teclado — la salida a mano, sin botón ni texto aparte. */}
           <div aria-hidden style={{ position: "absolute", top: "50%", left: 0, right: 0, height: WHEEL_ROW_H,
             transform: "translateY(-50%)", background: P.s3, borderRadius: 12, pointerEvents: "none" }} />
-          <WheelColumn options={conf.options} value={sel} onChange={setSel} unit={conf.unit} />
+          <WheelColumn options={conf.options} value={sel} onChange={setSel} unit={conf.unit} onTap={entrarManual} />
         </div>
       )}
-      {/* Debajo de la rueda: escapar a tipear con el teclado, para
-          cualquier valor que no caiga en la grilla o para quien
-          simplemente prefiere tipear. */}
-      <button onClick={() => { setManual(!manual); setTxt(""); }}
-        style={{ display: "block", width: "100%", textAlign: "center", marginTop: 10, padding: "6px 0",
-          fontSize: 13.5, fontWeight: 600, color: P.faint2, background: "none", border: "none" }}>
-        {manual ? "Volver a la rueda" : "Ingresar manualmente"}
-      </button>
-      <Btn kind="ember" style={{ width: "100%", marginTop: 8 }} onClick={confirmar} disabled={manual && manualN == null}>
+      <Btn kind="ember" style={{ width: "100%", marginTop: 14 }} onClick={confirmar} disabled={manual && manualN == null}>
         {manual ? "Usar" : `Usar ${conf.etiqueta(sel)}`}
       </Btn>
     </Sheet>
-  );
-};
-
-// El teclado completo, con su cuenta. Se abre desde el campo de peso de
-// una serie; al confirmar escribe el total en ese campo. Si el campo ya
-// traía un peso, arranca con los discos que lo arman — así corregir "de
-// 90 a 95" es un toque, no volver a armar todo de cero.
-const DiscosSheet = ({ open, onClose, exId, exName, valueKg, onPick }) => {
-  const [discos, setDiscos] = useDiscos();
-  const [unit] = useWeightUnit();
-  const [porLado, setPorLado] = useState([]);
-  const cfg = configDeDiscos(exId);
-  const bar = barraActiva();
-  const barKg = bar ? +bar.kg || 0 : 0;
-  const elegido = exId != null ? discos.porEjercicio[exId] : undefined;
-  // Libertad en la sesión: no siempre es una barra. La "base" puede ser una
-  // barra, cero (sin barra: solo discos, p. ej. una mancuerna con discos o
-  // apilar discos sueltos) o un peso propio (la placa base de una máquina,
-  // un Smith, lo que sea). Y los discos pueden contar POR LADO (×2, como una
-  // barra) o como PESO TOTAL (×1, una máquina cargada por un solo punto).
-  const [baseKg, setBaseKg] = useState(barKg);
-  const [modo, setModo] = useState(bar ? "porLado" : "total");   // porLado ×2 | total ×1
-  const [baseTxt, setBaseTxt] = useState("");
-  const factor = modo === "porLado" ? 2 : 1;
-
-  // Al abrir con un peso ya escrito, arrancar con los discos que lo arman:
-  // corregir "de 90 a 95" es entonces un toque, no rearmar la barra entera.
-  useEffect(() => {
-    if (!open) return;
-    const plates = cfg ? cfg.plates : [];
-    const n = +valueKg;
-    setBaseKg(barKg); setModo(bar ? "porLado" : "total"); setBaseTxt("");
-    if (valueKg !== "" && valueKg != null && !isNaN(n) && n > barKg) {
-      setPorLado(discosParaPeso(n, barKg, plates).porLado);
-    } else setPorLado([]);
-  }, [open]);
-
-  const marcar = (id) => {
-    const pe = { ...(discos.porEjercicio || {}) };
-    if (exId == null) return;
-    if (id === "ninguno") pe[exId] = "ninguno"; else { pe[exId] = id; setPorLado([]); }
-    setDiscos({ porEjercicio: pe });
-  };
-
-  const cuentaDe = (k) => (porLado.find((d) => d.kg === k) || { n: 0 }).n;
-  const mover = (k, delta) => setPorLado((prev) => {
-    const hay = prev.find((d) => d.kg === k);
-    const n = (hay ? hay.n : 0) + delta;
-    const resto = prev.filter((d) => d.kg !== k);
-    return n > 0 ? [...resto, { kg: k, n }].sort((a, b) => b.kg - a.kg) : resto;
-  });
-  const sumaLado = (porLado || []).reduce((t, d) => t + (+d.kg || 0) * (+d.n || 0), 0);
-  const total = Math.round((baseKg + sumaLado * factor) * 100) / 100;
-  const hayDiscos = porLado.length > 0;
-  const detalle = [...porLado].sort((a, b) => b.kg - a.kg)
-    .map((d) => `${d.n}×${d.kg % 1 === 0 ? d.kg : String(d.kg).replace(".", ",")}`).join(" + ");
-  const baseBar = baseTxt === "" ? (discos.bars || []).find((b) => Math.abs((+b.kg || 0) - baseKg) < 0.01) : null;
-  const baseNombre = baseBar ? baseBar.name : (baseKg > 0 ? "Base" : "Sin barra");
-
-  return (
-    <Sheet open={open} onClose={onClose} title="Teclado de discos" tall>
-      {exName && <div style={{ ...TYPE.footnote, color: P.faint, marginTop: -6, marginBottom: SP.md }}>{exName}</div>}
-
-      {cfg && (
-        <>
-          <div style={{ textAlign: "center", padding: `${SP.sm}px 0` }}>
-            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.03em", color: P.text, lineHeight: 1.05 }}>
-              {unit === "kg" ? kg(total) : fmtUnit(kgToLb(total))}
-              <span style={{ fontSize: 17, fontWeight: 600, color: P.faint, marginLeft: 4 }}>{unit}</span>
-            </div>
-            <div style={{ ...TYPE.footnote, color: P.faint, marginTop: 4 }}>
-              {hayDiscos
-                ? `${baseNombre}${baseKg > 0 ? ` ${kg(baseKg)} +` : " ·"} ${detalle} ${modo === "porLado" ? "por lado" : "en total"}`
-                : (baseBar ? `${baseBar.name} sola · ${kg(baseKg)} kg` : (baseKg > 0 ? `Base ${kg(baseKg)} kg, sin discos` : "Sin barra ni discos"))}
-            </div>
-          </div>
-
-          {/* Base: barra, sin barra o un peso propio (máquina/Smith). */}
-          <div style={{ display: "flex", gap: SP.xs, flexWrap: "wrap", marginBottom: SP.sm }}>
-            {(discos.bars || []).map((b2) => (
-              <button key={b2.id} onClick={() => setBaseKg(+b2.kg || 0)}
-                style={{ padding: "7px 11px", borderRadius: R_TILE, ...TYPE.footnote, fontWeight: 600,
-                  border: `1px solid ${Math.abs(baseKg - (+b2.kg || 0)) < 0.01 && baseTxt === "" ? P.text : P.line}`,
-                  background: Math.abs(baseKg - (+b2.kg || 0)) < 0.01 && baseTxt === "" ? P.s3 : P.s2, color: P.text }}>
-                {b2.name} · {kg(+b2.kg || 0)}
-              </button>
-            ))}
-            <button onClick={() => { setBaseKg(0); setBaseTxt(""); }}
-              style={{ padding: "7px 11px", borderRadius: R_TILE, ...TYPE.footnote, fontWeight: 600,
-                border: `1px solid ${baseKg === 0 && baseTxt === "" ? P.text : P.line}`,
-                background: baseKg === 0 && baseTxt === "" ? P.s3 : P.s2, color: P.text }}>
-              Sin barra
-            </button>
-            <input type="number" inputMode="decimal" value={baseTxt} placeholder="Base…"
-              onChange={(e) => { setBaseTxt(e.target.value); const v = +e.target.value; if (isFinite(v) && v >= 0) setBaseKg(Math.round(v * 100) / 100); }}
-              aria-label="Peso base personalizado"
-              style={{ width: 78, padding: "7px 8px", ...TYPE.footnote, textAlign: "center" }} />
-          </div>
-
-          {/* Cómo cuentan los discos: por lado (×2) o peso total (×1). */}
-          <div style={{ marginBottom: SP.sm }}>
-            <SectionSwitch value={modo} onChange={setModo}
-              items={[{ id: "porLado", label: "Por lado (×2)" }, { id: "total", label: "Peso total (×1)" }]} />
-          </div>
-
-          <div style={{ display: "flex", gap: SP.xs, marginBottom: SP.sm }}>
-            {cfg.plates.map((pl) => (
-              <ColumnaDisco key={pl.kg} kg={pl.kg} n={cuentaDe(pl.kg)} maxPares={Math.floor((+pl.n || 0) / 2)}
-                onMas={() => mover(pl.kg, 1)} onMenos={() => mover(pl.kg, -1)} />
-            ))}
-          </div>
-          <div style={{ ...TYPE.caption, color: P.faint2, textAlign: "center", marginBottom: SP.md }}>
-            {modo === "porLado" ? "Cada toque suma un disco POR LADO" : "Cada toque suma un disco al total"}
-          </div>
-
-          <ActionRow>
-            <Btn kind="ghost" onClick={() => setPorLado([])} disabled={!hayDiscos}>Vaciar discos</Btn>
-            <Btn kind="ember" onClick={() => { onPick(String(total)); onClose(); }}>
-              Usar {unit === "kg" ? kg(total) : fmtUnit(kgToLb(total))} {unit}
-            </Btn>
-          </ActionRow>
-        </>
-      )}
-
-      {!cfg && (
-        <Empty icon={Layers} title="Este ejercicio no usa discos"
-          body="Una polea o una máquina de placas se cargan con su propio stack, no con discos en una barra. Elegí una configuración abajo si querés el teclado acá." />
-      )}
-
-      <div className="mono" style={{ margin: `${SP.section}px 4px 8px` }}>Configuraciones de discos</div>
-      <Card style={{ padding: 0, overflow: "hidden" }}>
-        {(discos.sets || []).map((c) => (
-          <SettingRow key={c.id} Icon={Layers} label={c.name}
-            onClick={() => marcar(c.id)}
-            right={(cfg && cfg.id === c.id) ? <Check size={16} color={P.ember2} strokeWidth={3} /> : null} />
-        ))}
-        <SettingRow Icon={X} label="Ninguno" last
-          hint="Este ejercicio no se carga con discos"
-          onClick={() => marcar("ninguno")}
-          right={elegido === "ninguno" ? <Check size={16} color={P.ember2} strokeWidth={3} /> : null} />
-      </Card>
-      <div style={{ ...TYPE.footnote, color: P.faint, marginTop: SP.sm, lineHeight: 1.45 }}>
-        Las configuraciones se arman en Más → Teclado de discos, con los discos que hay de verdad en tu sala.
-      </div>
-    </Sheet>
-  );
-};
-
-// Traduce un peso a los discos que van por lado, con la configuración del
-// gimnasio activo. "87,5 kg" no le dice a nadie qué poner en la barra; el
-// número sin los discos deja la mitad del trabajo sin hacer.
-const DiscosDeTotal = ({ totalKg }) => {
-  useDiscos();
-  const cfg = configDeDiscos(null);
-  const bar = barraActiva();
-  if (totalKg == null || !isFinite(+totalKg) || !cfg || !bar) return null;
-  const barKg = +bar.kg || 0;
-  const r = discosParaPeso(+totalKg, barKg, cfg.plates);
-  if (!r.porLado.length && r.resto <= 0) {
-    return (
-      <div style={{ ...TYPE.caption, color: P.faint2, lineHeight: 1.45 }}>
-        Menos que la barra sola ({kg(barKg)} kg).
-      </div>
-    );
-  }
-  const detalle = r.porLado.map((d) => `${d.n}×${d.kg % 1 === 0 ? d.kg : String(d.kg).replace(".", ",")}`).join(" + ");
-  // Lo que la barra puede armar de verdad con esos discos. Si no da justo,
-  // se dice: redondear en silencio haría cargar otra cosa sin avisar.
-  const real = pesoDeDiscos(r.porLado, barKg);
-  return (
-    <div style={{ ...TYPE.caption, color: P.faint, lineHeight: 1.5 }}>
-      En la barra: <b style={{ color: P.dim }}>{bar.name} {kg(barKg)}</b>
-      {detalle ? <> + <b style={{ color: P.dim }}>{detalle}</b> por lado</> : " sola"}
-      {r.resto > 0.01 && (
-        <> · con los discos de {cfg.name} lo más cerca es <b style={{ color: P.dim }}>{kg(real)} kg</b>.</>
-      )}
-    </div>
-  );
-};
-
-// Botón chico que abre el teclado desde la fila de una serie. Se muestra
-// siempre: también para un ejercicio marcado "sin discos", que si no
-// quedaría sin forma de volver atrás.
-const BotonDiscos = ({ onClick, exId, pal }) => {
-  useDiscos();
-  const cfg = configDeDiscos(exId);
-  // Dentro de la sesión la paleta es SES (fondo oscuro propio); fuera, P.
-  const col = pal ? (cfg ? pal.dim : pal.faint) : (cfg ? P.dim : P.faint2);
-  return (
-    <button onClick={onClick} aria-label="Abrir el teclado de discos"
-      title="Teclado de discos"
-      style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12,
-        fontWeight: 600, color: col, background: "none",
-        border: pal ? "none" : `1px solid ${P.frame}`,
-        padding: pal ? 0 : "4px 8px", borderRadius: 8, flexShrink: 0 }}>
-      <Layers size={12} /> Discos
-    </button>
   );
 };
 
@@ -25250,186 +25042,7 @@ const ColorPickerSheet = ({ open, onClose, value, onChange, title }) => {
   );
 };
 
-/* Pantalla de ajustes del teclado: qué discos hay en el gimnasio y con
-   qué barra se arranca. Es la que hace que la cuenta sea de TU sala y no
-   de una genérica: un gimnasio con dos discos de 25 y uno con diez no
-   cargan la barra igual. */
-const DiscosTab = ({ toast }) => {
-  const [discos, setDiscos] = useDiscos();
-  const [editando, setEditando] = useState(null);   // id de config, o "nueva"
-  const [nombre, setNombre] = useState("");
-  const [filas, setFilas] = useState([]);
-  const [barNombre, setBarNombre] = useState("");
-  const [barKg, setBarKg] = useState("");
-  const [barEdit, setBarEdit] = useState(null);     // id de barra, o "nueva"
-
-  const abrirConfig = (cfg) => {
-    setEditando(cfg ? cfg.id : "nueva");
-    setNombre(cfg ? cfg.name : "");
-    setFilas(cfg ? cfg.plates.map((d) => ({ kg: String(d.kg), n: String(d.n) }))
-                 : DISCOS_GYM_DEFAULT.map((d) => ({ kg: String(d.kg), n: String(d.n) })));
-  };
-  const guardarConfig = () => {
-    const plates = filas
-      .map((f) => ({ kg: parseFloat(String(f.kg).replace(",", ".")), n: parseInt(f.n, 10) || 0 }))
-      .filter((d) => isFinite(d.kg) && d.kg > 0 && d.n > 0)
-      .sort((a, b) => a.kg - b.kg);
-    if (!plates.length) { toast("Agrega al menos un disco con unidades."); return; }
-    const nom = nombre.trim() || "Mi gimnasio";
-    const sets = [...(discos.sets || [])];
-    if (editando === "nueva") {
-      const id = "c" + Date.now().toString(36);
-      sets.push({ id, name: nom, plates });
-      setDiscos({ sets, activeSet: id });
-    } else {
-      const i = sets.findIndex((c) => c.id === editando);
-      if (i >= 0) sets[i] = { ...sets[i], name: nom, plates };
-      setDiscos({ sets });
-    }
-    setEditando(null);
-    toast("Configuración guardada.");
-  };
-  const borrarConfig = (id) => {
-    const sets = (discos.sets || []).filter((c) => c.id !== id);
-    if (!sets.length) { toast("Tiene que quedar al menos una configuración."); return; }
-    setDiscos({ sets, activeSet: discos.activeSet === id ? sets[0].id : discos.activeSet });
-    toast("Configuración eliminada.");
-  };
-  const guardarBarra = () => {
-    const n = parseFloat(String(barKg).replace(",", "."));
-    if (!isFinite(n) || n <= 0) { toast("Escribe el peso de la barra."); return; }
-    const bars = [...(discos.bars || [])];
-    const nom = barNombre.trim() || "Barra";
-    if (barEdit === "nueva") {
-      const id = "b" + Date.now().toString(36);
-      bars.push({ id, name: nom, kg: n });
-      setDiscos({ bars, activeBar: id });
-    } else {
-      const i = bars.findIndex((b) => b.id === barEdit);
-      if (i >= 0) bars[i] = { ...bars[i], name: nom, kg: n };
-      setDiscos({ bars });
-    }
-    setBarEdit(null);
-    toast("Barra guardada.");
-  };
-
-  return (
-    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: SP.section }}>
-      <ScreenTitle title="Teclado de discos"
-        sub="Si un ejercicio usa discos, el teclado te deja poner el peso total más rápido." />
-
-      <div>
-        <div className="mono" style={{ margin: "0 4px 8px" }}>Configuraciones de discos</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: SP.stack }}>
-          {(discos.sets || []).map((cfg) => {
-            const activa = cfg.id === discos.activeSet;
-            return (
-              <Card key={cfg.id} style={{ padding: SP.lg }}>
-                <div style={{ display: "flex", alignItems: "center", gap: SP.sm, marginBottom: SP.md }}>
-                  <button onClick={() => setDiscos({ activeSet: cfg.id })}
-                    aria-label={`Usar la configuración ${cfg.name}`} aria-pressed={activa}
-                    style={{ width: 22, height: 22, borderRadius: 999, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                      border: `2px solid ${activa ? PLATE_BORDER : P.line}`, background: activa ? PLATE_GRAD : "transparent", color: PLATE_FG }}>
-                    {activa && <Check size={12} strokeWidth={3} />}
-                  </button>
-                  <span style={{ ...TYPE.headline, color: P.text, flex: 1, minWidth: 0 }}>{cfg.name}</span>
-                  <button onClick={() => abrirConfig(cfg)} style={{ ...TYPE.footnote, color: P.blue, fontWeight: 600 }}>Editar</button>
-                  {(discos.sets || []).length > 1 && (
-                    <button onClick={() => borrarConfig(cfg.id)} aria-label={`Eliminar ${cfg.name}`} style={{ color: P.faint2, padding: 2 }}>
-                      <Trash2 size={15} />
-                    </button>
-                  )}
-                </div>
-                <div style={{ display: "flex", gap: SP.xs }}>
-                  {cfg.plates.map((d) => (
-                    <div key={d.kg} style={{ flex: 1, minWidth: 0, textAlign: "center", padding: "8px 2px",
-                      background: P.s3, border: `1px solid ${P.frame}`, borderRadius: R_ROW, boxSizing: "border-box" }}>
-                      <div style={{ ...TYPE.caption, color: P.faint2 }}>{d.n}</div>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: P.text, marginTop: 2 }}>
-                        {d.kg % 1 === 0 ? d.kg : String(d.kg).replace(".", ",")}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            );
-          })}
-          <Btn kind="ghost" onClick={() => abrirConfig(null)} style={{ width: "100%" }}>Nueva configuración…</Btn>
-        </div>
-        <div style={{ ...TYPE.footnote, color: P.faint, marginTop: SP.sm, lineHeight: 1.45 }}>
-          Al añadir tu propia configuración, el teclado tiene en cuenta las unidades de discos disponibles en tu sala —
-          nunca te va a pedir cuatro discos de 25 si ahí hay dos.
-        </div>
-      </div>
-
-      <div>
-        <div className="mono" style={{ margin: "0 4px 8px" }}>Pesos iniciales</div>
-        <Card style={{ padding: 0, overflow: "hidden" }}>
-          {(discos.bars || []).map((b) => {
-            const activa = b.id === discos.activeBar;
-            return (
-              <SettingRow key={b.id} Icon={Minus} label={b.name}
-                onClick={() => setDiscos({ activeBar: b.id })}
-                right={
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ ...TYPE.body, color: activa ? P.ember2 : P.faint }}>{kg(b.kg)} kg</span>
-                    {activa && <Check size={15} color={P.ember2} strokeWidth={3} />}
-                  </span>
-                } />
-            );
-          })}
-          <SettingRow Icon={Plus} label="Nueva barra…" last onClick={() => { setBarEdit("nueva"); setBarNombre(""); setBarKg(""); }} />
-        </Card>
-        <div style={{ ...TYPE.footnote, color: P.faint, marginTop: SP.sm, lineHeight: 1.45 }}>
-          El peso de la barra vacía. El teclado lo suma siempre: barra + los discos de los dos lados.
-        </div>
-      </div>
-
-      <Sheet open={!!editando} onClose={() => setEditando(null)} title={editando === "nueva" ? "Nueva configuración" : "Editar configuración"} tall>
-        <Field label="Nombre">
-          <Inp value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: Gimnasio del barrio" />
-        </Field>
-        <div style={{ ...TYPE.footnote, color: P.faint, margin: `${SP.md}px 0 ${SP.sm}px` }}>
-          Peso de cada disco y cuántos hay en total en la sala (contando los dos lados).
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
-          {filas.map((f, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
-              <NumInput value={f.kg} placeholder="kg" aria-label={`Peso del disco ${i + 1}`}
-                onChange={(e) => setFilas((o) => o.map((x, j) => j === i ? { ...x, kg: e.target.value } : x))}
-                style={{ flex: 1, minWidth: 0, textAlign: "center" }} />
-              <span style={{ ...TYPE.footnote, color: P.faint2, flexShrink: 0 }}>kg ×</span>
-              <NumInput value={f.n} placeholder="unid." aria-label={`Unidades del disco ${i + 1}`}
-                onChange={(e) => setFilas((o) => o.map((x, j) => j === i ? { ...x, n: e.target.value } : x))}
-                style={{ flex: 1, minWidth: 0, textAlign: "center" }} />
-              <button onClick={() => setFilas((o) => o.filter((_, j) => j !== i))}
-                aria-label={`Quitar el disco ${i + 1}`} style={{ color: P.faint2, padding: 4, flexShrink: 0 }}>
-                <Trash2 size={15} />
-              </button>
-            </div>
-          ))}
-        </div>
-        <Btn kind="ghost" onClick={() => setFilas((o) => [...o, { kg: "", n: "" }])} style={{ width: "100%", marginTop: SP.md }}>
-          Agregar disco
-        </Btn>
-        <Btn kind="ember" onClick={guardarConfig} style={{ width: "100%", marginTop: SP.sm }}>Guardar configuración</Btn>
-      </Sheet>
-
-      <Sheet open={!!barEdit} onClose={() => setBarEdit(null)} title="Barra">
-        <Field label="Nombre">
-          <Inp value={barNombre} onChange={(e) => setBarNombre(e.target.value)} placeholder="Ej: Barra Z, barra corta" />
-        </Field>
-        <Field label="Peso vacía (kg)">
-          <NumInput value={barKg} onChange={(e) => setBarKg(e.target.value)} placeholder="20" />
-        </Field>
-        <Btn kind="ember" onClick={guardarBarra} style={{ width: "100%", marginTop: SP.md }}>Guardar barra</Btn>
-      </Sheet>
-    </div>
-  );
-};
-
 const UTILITY_SCREENS = {
-  discos: { label: "Teclado de discos", Icon: Layers },
   atajos: { label: "Atajos de iPhone", Icon: Smartphone },
   timer: { label: "Temporizador", Icon: Timer },
   guia:  { label: "Guía de términos", Icon: BookOpen },
@@ -27174,7 +26787,6 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
       { key: "examenes", Icon: FileText, label: "Exámenes con IA", kw: "inbody dexa composición corporal pdf informe leer indicadores", onClick: onOpenExams },
     ] },
     { label: "Herramientas", rows: [
-      { key: "discos", Icon: Layers, label: "Teclado de discos", kw: "discos barra peso total calculadora plates smart cargar barra kilos", onClick: () => onOpenUtility("discos") },
       // Entrenadores de carne y hueso, por WhatsApp: para la duda que el
       // Coach IA no resuelve (una molestia rara, una técnica que no sale).
       { key: "wa", Icon: MessageSquare, label: "Hablar con un entrenador", kw: "whatsapp entrenador profesional duda consulta humano soporte",
@@ -29799,7 +29411,6 @@ const App = () => {
     const tool = (label, Icon, fn, kw) => out.push({ id: `tool-${label}`, group: "Herramientas", Icon, label, sub: "Herramienta", kw: kw || label, run: done(fn) });
     tool("Temporizador", Timer, () => setUtility("timer"), "temporizador cronometro descanso");
     tool("Guía de términos", BookOpen, () => setUtility("guia"), "guia glosario terminos rir top drop");
-    tool("Teclado de discos", Layers, () => setUtility("discos"), "discos calculadora peso barra");
     tool("Atlas de ejercicios", Library, () => { setAtlasInitialQuery(""); setAtlasOpen(true); }, "atlas catalogo ejercicios biblioteca");
     tool("Competition Prep", Trophy, () => setCompPrepOpen(true), "competencia tarima peak week posing categorias");
     tool("Centro de control", LayoutGrid, () => setControlCenterOpen(true), "centro control accesos rapidos");
@@ -29890,7 +29501,6 @@ const App = () => {
         {utility && (
           <div className="sheetIn" {...utilitySwipe}>
             <PushHeader title={UTILITY_SCREENS[utility].label} onBack={() => setUtility(null)} />
-            {utility === "discos" && <DiscosTab toast={toast} />}
             {utility === "atajos" && <AtajosTab toast={toast} />}
             {utility === "timer" && <TimerTab />}
             {utility === "guia" && (
