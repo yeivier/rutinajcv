@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v330";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v331";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1202,21 +1202,21 @@ function progresionDeAtleta(history) {
   // puede ser hace semanas si el alumno no repite el ejercicio seguido) y
   // suma volumen, no fuerza — un coach leyendo "552 → 270 kg" no puede
   // saber si eso es bueno o malo sin hacer la cuenta él mismo. Esto es lo
-  // que el coach realmente quiere ver: el MEJOR peso levantado en cada
-  // ejercicio esta semana calendario contra la semana calendario previa,
-  // con el mismo veredicto (Progresó/Se mantuvo/Retrocedió + %) que ya
-  // usa el propio alumno en su Progreso.
+  // que el coach realmente quiere ver: el MEJOR e1RM (peso Y reps juntos,
+  // no el peso solo — 2 kg × 13 reps y 3 kg × 12 reps no son comparables
+  // mirando solo el peso) de cada ejercicio esta semana calendario contra
+  // la semana calendario previa, con el mismo veredicto (Progresó/Se
+  // mantuvo/Retrocedió + %) que ya usa el propio alumno en su Progreso.
   const wkAhora = weekKey(todayISO());
   const wkPrev = wkAhora - 7 * 86400000;
-  const mejorPesoEnSemana = (entries, wk) => {
+  const mejorE1rmEnSemana = (entries, wk) => {
     let best = null;
     entries.forEach((en) => {
       if (weekKey(en.date) !== wk) return;
       (en.sets || []).forEach((s) => {
-        if (s.done && s.weight !== "" && s.weight != null && s.type !== "warmup") {
-          const w = +s.weight;
-          if (isFinite(w) && (best == null || w > best)) best = w;
-        }
+        if (!s.done || s.type === "warmup") return;
+        const e1 = e1rmDe(s.weight, s.reps, s.rir);
+        if (e1 != null && isFinite(e1) && (best == null || e1 > best)) best = e1;
       });
     });
     return best;
@@ -1225,12 +1225,12 @@ function progresionDeAtleta(history) {
   Object.keys(byEx).forEach((exId) => {
     const ens = byEx[exId] || [];
     if (!ens.length) return;
-    const bestHoy = mejorPesoEnSemana(ens, wkAhora);
-    const bestPrev = mejorPesoEnSemana(ens, wkPrev);
+    const bestHoy = mejorE1rmEnSemana(ens, wkAhora);
+    const bestPrev = mejorE1rmEnSemana(ens, wkPrev);
     if (bestHoy == null || bestPrev == null) return;
     const p = progresoEntre(bestPrev, bestHoy);
     if (!p) return;
-    fuerzaSemana.push({ exId, nombre: ens[ens.length - 1].exName || "Ejercicio", bestHoy, bestPrev, p });
+    fuerzaSemana.push({ exId, nombre: ens[ens.length - 1].exName || "Ejercicio", bestHoy: Math.round(bestHoy), bestPrev: Math.round(bestPrev), p });
   });
   fuerzaSemana.sort((a, b) => a.p.pct - b.p.pct);   // lo peor primero, igual que arriba
 
@@ -7456,7 +7456,10 @@ const ProgressBadge = ({ p, unit = "kg", compact }) => {
 
 const ExerciseProgress = ({ entries, sessions }) => {
   const [range, setRange] = useState("3m");
-  const [metric, setMetric] = useState("peso");
+  // e1RM por defecto: pondera peso Y reps juntos, no el peso solo — dos
+  // series con distinto peso y reps (2kg×13 vs 3kg×12) no son comparables
+  // mirando solo cuál pesa más.
+  const [metric, setMetric] = useState("e1rm");
   const [gymFiltro, setGymFiltro] = useState("todos");
   // Rango libre (día → años): dos fechas propias, en vez de solo los
   // cajones fijos de PROGRESS_RANGES. Vive acá y no en PROGRESS_RANGES
@@ -14558,14 +14561,12 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
     Object.keys(history.byEx).forEach((id) => {
       if (!m.has(id) && history.byEx[id].length) m.set(id, history.byEx[id][history.byEx[id].length - 1].exName || "Ejercicio");
     });
-    // Ordenados por lo ENTRENADO más recientemente primero (del más
-    // reciente al menos reciente); los que aún no se entrenaron van al
-    // final. Así al abrir Progreso el primero es lo último que hiciste.
-    const ultimaFecha = (id) => {
-      const en = history.byEx[id];
-      return en && en.length ? new Date(en[en.length - 1].date).getTime() : 0;
-    };
-    return [...m.entries()].sort((a, b) => ultimaFecha(b[0]) - ultimaFecha(a[0]));
+    // Ordenados por CANTIDAD DE REGISTROS (del ejercicio con más sesiones
+    // anotadas al que tiene menos); los que aún no tienen ninguno van al
+    // final. Así al abrir Progreso el primero es el que más se entrenó,
+    // no simplemente el último tocado.
+    const registros = (id) => (history.byEx[id] || []).length;
+    return [...m.entries()].sort((a, b) => registros(b[0]) - registros(a[0]));
   }, [plan, history]);
   useEffect(() => { if (!exId && allEx.length) setExId(allEx[0][0]); }, [allEx, exId]);
 
