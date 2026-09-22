@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v339";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v340";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -993,6 +993,21 @@ const SET_TYPES = {
   fst:      setType("FST-7 (Fascia Stretch)", "FST", "fst"),
 };
 
+// Técnicas que NO son una sola carga: se ejecutan en varias partes seguidas
+// dentro de la MISMA serie (bajando peso, o con pausas cortas que no llegan
+// a ser un descanso completo) — tal como las describe el glosario de cada
+// una. Antes solo había un casillero de peso/reps para toda la serie, sin
+// forma de anotar cada parte por separado; ahora, si el tipo es uno de
+// estos tres, aparecen los campos de cada parte siguiente (la primera ya
+// va en los campos de siempre) más una pista de cómo se ejecuta. El resto
+// de los tipos (top set, back-off, AMRAP, etc.) son una carga única y no
+// suman este bloque.
+const MULTI_LEG_TYPES = {
+  drop:      { leg: "caída",      add: "+ Añadir caída",       hint: "Al fallar, bajá el peso de inmediato y seguí sin descansar." },
+  restpause: { leg: "ráfaga",     add: "+ Añadir ráfaga",      hint: "Mismo peso: 10–20 s de pausa entre ráfagas." },
+  cluster:   { leg: "mini-serie", add: "+ Añadir mini-serie",  hint: "Mismo peso: 10–15 s de pausa entre mini-series, sin soltar del todo." },
+};
+
 const MUSCLES = ["Espalda","Pecho","Hombro","Bíceps","Tríceps","Cuádriceps","Femoral","Glúteo","Gemelo","Core","Antebrazo","Trapecio","Otro"];
 // Equipo usado por un ejercicio de la biblioteca — sirve para filtrar la búsqueda.
 const EQUIPMENT = ["Barra","Barra EZ","Mancuernas","Máquina","Polea","Smith","Peso corporal","Kettlebell","Banda elástica","Otro"];
@@ -1051,9 +1066,19 @@ const repsTargetNum = (t) => {
 const setSummary = (st, unit) => {
   const w = st.weight !== "" && st.weight != null ? `${String(st.weight).replace(".", ",")} ${unit}` : null;
   const r = st.reps !== "" && st.reps != null ? String(st.reps) : null;
-  if (w && r) return `${w} × ${r}`;
-  if (r) return `${r} reps`;
-  return w || "sin registrar";
+  const base = w && r ? `${w} × ${r}` : r ? `${r} reps` : w || "sin registrar";
+  // Drop set / rest-pause / cluster: si quedaron partes extra anotadas
+  // (ver MULTI_LEG_TYPES), se muestran encadenadas — igual que se
+  // cargaron — para que el historial diga "60 kg × 12 → 45 kg × 10", no
+  // solo la primera parte.
+  const legs = (st.drops || []).filter((d) => (d.weight !== "" && d.weight != null) || (d.reps !== "" && d.reps != null));
+  if (!legs.length) return base;
+  const legTxt = legs.map((d) => {
+    const lw = d.weight !== "" && d.weight != null ? `${String(d.weight).replace(".", ",")} ${unit}` : null;
+    const lr = d.reps !== "" && d.reps != null ? String(d.reps) : null;
+    return lw && lr ? `${lw} × ${lr}` : lr ? `${lr} reps` : lw || "?";
+  });
+  return [base, ...legTxt].join(" → ");
 };
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -9841,6 +9866,41 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
 
   const restKey = (ei, si) => `${ei}-${si}`;
   const setVal = (ei, si, field, v) => patchSet(ei, si, { [field]: v });
+  // Las partes siguientes de un drop set / rest-pause / cluster (ver
+  // MULTI_LEG_TYPES): la primera parte ya va en los campos de siempre
+  // (peso/reps/RIR de la serie); esto agrega/edita/quita cada parte
+  // extra. Comparte conversión de unidad con el resto de la fila.
+  const renderLegs = (st, ei, si, dónde) => {
+    const cfg = MULTI_LEG_TYPES[st.type];
+    if (!cfg) return null;
+    const u = unitDeSerie(st, ei);
+    const legs = st.drops || [];
+    return (
+      <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ fontSize: 11.5, color: SES.faint, lineHeight: 1.35 }}>{cfg.hint}</div>
+        {legs.map((d, di) => (
+          <div key={di} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span className="mono" style={{ fontSize: 10.5, fontWeight: 700, color: SES.acc, width: 20, flexShrink: 0, textAlign: "center" }}>{di + 2}ª</span>
+            <NumCell aria={`Peso de la parte ${di + 2} de la ${dónde}`} placeholder={u} ancho={64}
+              valor={d.weight === "" || d.weight == null ? "" : String(pesoMostrado(d.weight, u)).replace(".", ",")}
+              onCommit={(v) => patchSet(ei, si, { drops: legs.map((x, xi) => xi === di ? { ...x, weight: v === "" ? "" : (isNaN(+v) ? x.weight : String(pesoAKg(+v, u))) } : x) })} />
+            <span style={{ color: SES.faint, fontSize: 13 }}>×</span>
+            <NumCell aria={`Repeticiones de la parte ${di + 2} de la ${dónde}`} placeholder="reps" ancho={54}
+              valor={d.reps == null ? "" : String(d.reps)}
+              onCommit={(v) => patchSet(ei, si, { drops: legs.map((x, xi) => xi === di ? { ...x, reps: v } : x) })} />
+            <button onClick={() => patchSet(ei, si, { drops: legs.filter((_, xi) => xi !== di) })}
+              aria-label={`Quitar la parte ${di + 2} de la ${dónde}`} style={{ color: SES.faint, padding: 5 }}>
+              <X size={13} />
+            </button>
+          </div>
+        ))}
+        <button onClick={() => patchSet(ei, si, { drops: [...legs, { weight: "", reps: "" }] })}
+          style={{ alignSelf: "flex-start", color: SES.acc, fontSize: 12.5, fontWeight: 600 }}>
+          {cfg.add}
+        </button>
+      </div>
+    );
+  };
 
   // Caja de comentario de una serie: textarea + burbuja de vista previa
   // — sin cambios de comportamiento, solo se sigue usando para la fila
@@ -10206,6 +10266,11 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                 <Check size={16} strokeWidth={3} />
               </button>
             </div>
+            {/* Drop set / rest-pause / cluster: las partes siguientes de
+                ESTA serie, cada una con su propio peso y reps (ver
+                MULTI_LEG_TYPES). La primera parte ya va en los campos de
+                arriba; esto solo aparece para esos tres tipos. */}
+            {renderLegs(st, r.ei, r.si, dónde)}
             {/* Acceso directo al comentario de ESTA serie (antes vivía tras
                 el «···»): un toque abre la caja debajo de la fila. Si la
                 serie ya tiene datos, aparece también «Borrar». */}
@@ -10711,6 +10776,9 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     {campo("Reps", st.reps == null ? "" : String(st.reps), (v) => setVal(r.ei, r.si, "reps", v), "reps", "reps")}
                     {campo("RIR", st.rir == null ? "" : String(st.rir), (v) => setVal(r.ei, r.si, "rir", v), "RIR", "rir")}
                   </div>
+                  {/* Drop set / rest-pause / cluster: las partes siguientes
+                      de esta serie (ver MULTI_LEG_TYPES). */}
+                  {renderLegs(st, r.ei, r.si, `${label} de ${exs[r.ei].name}`)}
                   {/* Cuatro accesos chicos: historial del ejercicio, cambiar
                       la unidad de esta serie, comentarla y adjuntarle algo —
                       solo ícono (con las cuatro etiquetas de texto, "Adjuntar"
@@ -11045,7 +11113,13 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                       style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", width: "100%", padding: "12px 13px",
                         borderRadius: R_TILE, background: sel ? SES.campo : "transparent", border: `1px solid ${sel ? SES.acc : SES.line}` }}>
                       <span className="mono" style={{ width: 44, flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: sel ? SES.acc : SES.faint, textAlign: "center" }}>{meta.short}</span>
-                      <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: SES.ink }}>{meta.label}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontSize: 15, fontWeight: 600, color: SES.ink }}>{meta.label}</span>
+                        {/* Drop set / rest-pause / cluster: se ejecutan en
+                            varias partes seguidas — lo mismo que después
+                            aparece como casilleros extra en la serie. */}
+                        {MULTI_LEG_TYPES[key] && <span style={{ display: "block", fontSize: 12, color: SES.faint, marginTop: 1, lineHeight: 1.3 }}>{MULTI_LEG_TYPES[key].hint}</span>}
+                      </span>
                       {key === "warmup" && <span style={{ ...TYPE.caption, color: SES.faint }}>no cuenta</span>}
                       {sel && <Check size={16} color={SES.acc} strokeWidth={3} />}
                     </button>
