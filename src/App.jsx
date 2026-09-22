@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v338";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v339";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8180,6 +8180,15 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
             </div>
             {last6.length === 0 ? (
               <div style={{ fontSize: 13.5, color: MONO.inkFaint }}>Sin sesiones registradas todavía.</div>
+            ) : last6.length === 1 ? (
+              /* Con una sola sesión, una barra sola estira a flex:1 y ocupa
+                 TODO el ancho del panel — una mancha lisa sin forma de
+                 gráfico, que se lee como "vacío". Con un solo dato el número
+                 dice más que una barra. */
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: 30, fontWeight: 700, color: MONO.ink, letterSpacing: "-.02em" }}>{last6[0].best}</span>
+                <span style={{ fontSize: 13, color: MONO.inkFaint }}>kg registrados hasta ahora</span>
+              </div>
             ) : (
               <>
                 <div style={{ display: "flex", alignItems: "flex-end", gap: 9, height: 74 }}>
@@ -9629,7 +9638,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // Ejercicio cuyo nombre se está editando en vivo (por id, no índice, que
   // se corre al agregar/quitar). La edición en sesión está disponible siempre.
   const [renameId, setRenameId] = useState(null);
-  const [warmOpen, setWarmOpen] = useState(true);   // calentamiento general, plegable dentro de la sesión
+  const [warmOpen, setWarmOpen] = useState(false);  // calentamiento general: hoja de instrucciones (ícono → clic → se abre)
   const [warmChecks, setWarmChecks] = useState({}); // tildado de cada ítem del calentamiento general (por sesión)
   const puedeEditar = !!onAddExercise; // props de edición presentes
   // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
@@ -10557,8 +10566,12 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       {!focusUno && <RetoSesion exs={exs} history={history} />}
 
       {/* Calentamiento GENERAL de la sesión (cardio · movilidad · activación):
-          arriba de todo, plegable y como CHECKLIST tildable — se "registra"
-          igual que las series. La aproximación de cada ejercicio NO va acá:
+          antes vivía siempre desplegado arriba de todo — con un texto largo
+          (varios párrafos) terminaba tapando la sesión entera. Ahora es un
+          ícono de instrucciones: un renglón angosto que, al tocarlo, abre
+          una hoja aparte con el CHECKLIST tildable de siempre — se "registra"
+          igual que las series, solo que ya no ocupa lugar en la pantalla
+          mientras se entrena. La aproximación de cada ejercicio NO va acá:
           vive dentro de cada ejercicio, como series de calentamiento. Se toma
           de la sesión (guardado al empezar) y, para sesiones ya en curso, cae
           al calentamiento de la rutina del día en el plan. */}
@@ -10567,19 +10580,24 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         const warmText = ((active.warmup || (dayForWarm ? (plan.warmups || {})[routineOf(dayForWarm)] : "")) || "").trim();
         if (!warmText) return null;
         const items = warmText.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
+        const hechos = items.reduce((n, _, ii) => n + (warmChecks[ii] ? 1 : 0), 0);
         return (
-          <div style={{ borderRadius: 16, background: SES.card, border: `1px solid ${SES.line}`, overflow: "hidden" }}>
-            <button onClick={() => setWarmOpen((o) => !o)} aria-expanded={warmOpen}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "13px 15px", textAlign: "left" }}>
-              <Flame size={17} color={SES.acc} style={{ flexShrink: 0, marginTop: 1 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: SES.ink, textTransform: "uppercase", letterSpacing: ".04em" }}>Calentamiento general</div>
-                <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2, lineHeight: 1.35 }}>10–12 min antes de empezar · la aproximación va anotada en cada ejercicio</div>
-              </div>
-              <ChevronDown size={18} color={SES.faint} style={{ flexShrink: 0, transform: warmOpen ? "rotate(180deg)" : "none", transition: "transform .2s cubic-bezier(.32,.72,0,1)" }} />
+          <>
+            <button onClick={() => setWarmOpen(true)}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "11px 14px", borderRadius: 14,
+                background: SES.card, border: `1px solid ${SES.line}`, textAlign: "left" }}>
+              <Info size={17} color={SES.faint} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700, color: SES.ink }}>
+                Calentamiento general
+                {hechos > 0 && <span style={{ fontWeight: 600, color: SES.faint }}> · {hechos}/{items.length}</span>}
+              </span>
+              <ChevronRight size={16} color={SES.faint} style={{ flexShrink: 0 }} />
             </button>
-            {warmOpen && (
-              <div style={{ padding: "2px 12px 12px", display: "flex", flexDirection: "column", gap: 7 }}>
+            <Sheet open={warmOpen} onClose={() => setWarmOpen(false)} title="Calentamiento general" tall>
+              <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 14, lineHeight: 1.4 }}>
+                10–12 min antes de empezar · la aproximación de cada ejercicio va anotada aparte, dentro de cada uno.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {items.map((it, ii) => {
                   const [head, ...rest] = it.split("\n");
                   const detail = rest.join("\n").trim();
@@ -10588,23 +10606,23 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
                     <button key={ii} onClick={() => setWarmChecks((c) => ({ ...c, [ii]: !c[ii] }))}
                       aria-pressed={done}
                       style={{ display: "flex", alignItems: "flex-start", gap: 10, textAlign: "left", width: "100%",
-                        padding: "10px 11px", borderRadius: 12, background: SES.campo,
-                        border: `1px solid ${done ? SES.acc : SES.line}`, transition: `border-color ${DUR_ROW}ms ${EASE_STD}` }}>
+                        padding: "12px 13px", borderRadius: 12, background: P.s3,
+                        border: `1px solid ${done ? P.text : P.line}`, transition: `border-color ${DUR_ROW}ms ${EASE_STD}` }}>
                       <span style={{ width: 24, height: 24, borderRadius: 12, flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                        background: done ? SES.acc : "transparent", border: done ? "none" : `1.5px solid ${SES.faint}`, color: done ? SES.accInk : "transparent",
+                        background: done ? P.text : "transparent", border: done ? "none" : `1.5px solid ${P.faint}`, color: done ? P.bg : "transparent",
                         transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
                         <Check size={14} strokeWidth={3} />
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 700, color: done ? SES.faint : SES.ink, lineHeight: 1.3, textDecoration: done ? "line-through" : "none" }}>{head}</div>
-                        {detail && <div style={{ fontSize: 12.5, color: SES.faint, lineHeight: 1.45, marginTop: 3, whiteSpace: "pre-wrap" }}>{detail}</div>}
+                        <div style={{ fontSize: 14, fontWeight: 700, color: done ? P.faint : P.text, lineHeight: 1.3, textDecoration: done ? "line-through" : "none" }}>{head}</div>
+                        {detail && <div style={{ fontSize: 13, color: P.faint, lineHeight: 1.45, marginTop: 3, whiteSpace: "pre-wrap" }}>{detail}</div>}
                       </div>
                     </button>
                   );
                 })}
               </div>
-            )}
-          </div>
+            </Sheet>
+          </>
         );
       })()}
 
