@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v340";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v341";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1003,7 +1003,15 @@ const SET_TYPES = {
 // de los tipos (top set, back-off, AMRAP, etc.) son una carga única y no
 // suman este bloque.
 const MULTI_LEG_TYPES = {
-  drop:      { leg: "caída",      add: "+ Añadir caída",       hint: "Al fallar, bajá el peso de inmediato y seguí sin descansar." },
+  // El drop set es la única de las tres que BAJA el peso entre partes — por
+  // eso es la única con pctPresets: un % de bajada, tocable, que calcula
+  // solo el peso de la caída a partir del peso anterior (el de la serie
+  // para la 1ª caída, el de la caída previa para las siguientes). Rango y
+  // recomendado tal como los describe el glosario ("20–30 % menos").
+  // Rest-pause y cluster van con el MISMO peso en todas las partes (la
+  // pausa corta es lo que cambia, no la carga), así que no llevan %.
+  drop:      { leg: "caída",      add: "+ Añadir caída",       hint: "Al fallar, bajá el peso de inmediato y seguí sin descansar.",
+               pctPresets: [15, 20, 25, 30], pctRecomendado: 25 },
   restpause: { leg: "ráfaga",     add: "+ Añadir ráfaga",      hint: "Mismo peso: 10–20 s de pausa entre ráfagas." },
   cluster:   { leg: "mini-serie", add: "+ Añadir mini-serie",  hint: "Mismo peso: 10–15 s de pausa entre mini-series, sin soltar del todo." },
 };
@@ -9878,22 +9886,56 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     return (
       <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
         <div style={{ fontSize: 11.5, color: SES.faint, lineHeight: 1.35 }}>{cfg.hint}</div>
-        {legs.map((d, di) => (
-          <div key={di} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span className="mono" style={{ fontSize: 10.5, fontWeight: 700, color: SES.acc, width: 20, flexShrink: 0, textAlign: "center" }}>{di + 2}ª</span>
-            <NumCell aria={`Peso de la parte ${di + 2} de la ${dónde}`} placeholder={u} ancho={64}
-              valor={d.weight === "" || d.weight == null ? "" : String(pesoMostrado(d.weight, u)).replace(".", ",")}
-              onCommit={(v) => patchSet(ei, si, { drops: legs.map((x, xi) => xi === di ? { ...x, weight: v === "" ? "" : (isNaN(+v) ? x.weight : String(pesoAKg(+v, u))) } : x) })} />
-            <span style={{ color: SES.faint, fontSize: 13 }}>×</span>
-            <NumCell aria={`Repeticiones de la parte ${di + 2} de la ${dónde}`} placeholder="reps" ancho={54}
-              valor={d.reps == null ? "" : String(d.reps)}
-              onCommit={(v) => patchSet(ei, si, { drops: legs.map((x, xi) => xi === di ? { ...x, reps: v } : x) })} />
-            <button onClick={() => patchSet(ei, si, { drops: legs.filter((_, xi) => xi !== di) })}
-              aria-label={`Quitar la parte ${di + 2} de la ${dónde}`} style={{ color: SES.faint, padding: 5 }}>
-              <X size={13} />
-            </button>
-          </div>
-        ))}
+        {legs.map((d, di) => {
+          // Peso del que sale el %: el de la serie para la 1ª caída, el de
+          // la caída anterior para las siguientes — así el % se aplica en
+          // cadena, como se hace de verdad (bajar 25 % de lo que acabás de
+          // levantar, no siempre del peso inicial).
+          const refKg = di === 0 ? st.weight : legs[di - 1].weight;
+          const refNum = refKg !== "" && refKg != null ? +refKg : NaN;
+          const puedeSugerir = !!cfg.pctPresets && isFinite(refNum) && refNum > 0;
+          const aplicarPct = (p) => {
+            const nuevoKg = Math.round(refNum * (1 - p / 100) * 2) / 2;
+            patchSet(ei, si, { drops: legs.map((x, xi) => xi === di ? { ...x, pct: p, weight: String(nuevoKg) } : x) });
+          };
+          return (
+            <div key={di} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="mono" style={{ fontSize: 10.5, fontWeight: 700, color: SES.acc, width: 20, flexShrink: 0, textAlign: "center" }}>{di + 2}ª</span>
+                <NumCell aria={`Peso de la parte ${di + 2} de la ${dónde}`} placeholder={u} ancho={64}
+                  valor={d.weight === "" || d.weight == null ? "" : String(pesoMostrado(d.weight, u)).replace(".", ",")}
+                  onCommit={(v) => patchSet(ei, si, { drops: legs.map((x, xi) => xi === di ? { ...x, weight: v === "" ? "" : (isNaN(+v) ? x.weight : String(pesoAKg(+v, u))), pct: undefined } : x) })} />
+                <span style={{ color: SES.faint, fontSize: 13 }}>×</span>
+                <NumCell aria={`Repeticiones de la parte ${di + 2} de la ${dónde}`} placeholder="reps" ancho={54}
+                  valor={d.reps == null ? "" : String(d.reps)}
+                  onCommit={(v) => patchSet(ei, si, { drops: legs.map((x, xi) => xi === di ? { ...x, reps: v } : x) })} />
+                <button onClick={() => patchSet(ei, si, { drops: legs.filter((_, xi) => xi !== di) })}
+                  aria-label={`Quitar la parte ${di + 2} de la ${dónde}`} style={{ color: SES.faint, padding: 5 }}>
+                  <X size={13} />
+                </button>
+              </div>
+              {/* % de bajada: tocarlo calcula solo el peso de esta caída a
+                  partir del peso anterior. Sigue siendo editable a mano
+                  después (el botón no ata el campo, solo lo llena). */}
+              {puedeSugerir && (
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", paddingLeft: 26 }}>
+                  {cfg.pctPresets.map((p) => {
+                    const activo = d.pct === p;
+                    return (
+                      <button key={p} onClick={() => aplicarPct(p)}
+                        aria-label={`Bajar ${p}% para la parte ${di + 2} de la ${dónde}${p === cfg.pctRecomendado ? " (recomendado)" : ""}`}
+                        style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 9px", borderRadius: 999,
+                          background: activo ? SES.acc : SES.campo, color: activo ? SES.accInk : SES.faint,
+                          border: `1px solid ${activo ? SES.acc : SES.line}` }}>
+                        −{p}%{p === cfg.pctRecomendado ? " · recomendado" : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
         <button onClick={() => patchSet(ei, si, { drops: [...legs, { weight: "", reps: "" }] })}
           style={{ alignSelf: "flex-start", color: SES.acc, fontSize: 12.5, fontWeight: 600 }}>
           {cfg.add}
