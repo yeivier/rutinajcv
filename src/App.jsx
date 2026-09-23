@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v341";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v342";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -20999,6 +20999,35 @@ function openPrintable(html) {
   const w = window.open("", "_blank");
   if (!w) return false;
   w.document.open(); w.document.write(html); w.document.close();
+  // Esta pestaña arranca en blanco y se llena solo con el HTML de
+  // impresión —sin ningún link de vuelta a FORJA—, así que en el celular
+  // quedaba sin ninguna forma de salir: "no me deja salir de acá". Se
+  // inyecta acá, aparte del HTML que arma cada exportación (rutinas,
+  // ficha), un botón fijo de cerrar que vale para las dos sin duplicar
+  // nada — no se imprime (display:none en @media print). Si `close()`
+  // no hace nada (algunos navegadores no dejan cerrar así una pestaña
+  // que no reconocen como abierta por script), el botón se convierte en
+  // una instrucción de cómo volver a mano.
+  try {
+    const bar = w.document.createElement("div");
+    bar.innerHTML = `
+      <style>
+        #forja-cerrar{position:fixed;top:12px;right:12px;z-index:999;max-width:calc(100% - 24px);
+          padding:9px 14px;border-radius:999px;background:#101012;color:#fff;
+          font:700 13px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
+          border:none;box-shadow:0 2px 10px rgba(0,0,0,.25);text-align:center;}
+        @media print{ #forja-cerrar{ display:none; } }
+      </style>
+      <button id="forja-cerrar" type="button">✕ Cerrar</button>`;
+    w.document.body.appendChild(bar);
+    const btn = w.document.getElementById("forja-cerrar");
+    btn.onclick = () => {
+      try { w.close(); } catch {}
+      setTimeout(() => {
+        if (!w.closed) btn.textContent = "No se pudo cerrar sola — volvé con el botón de pestañas de Safari o deslizando hacia abajo";
+      }, 250);
+    };
+  } catch {}
   setTimeout(() => { try { w.focus(); w.print(); } catch {} }, 400);
   return true;
 }
