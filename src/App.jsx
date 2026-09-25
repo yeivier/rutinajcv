@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v344";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v345";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3147,6 +3147,26 @@ function weekStreak(sessions) {
   return n;
 }
 
+// Racha de DÍAS consecutivos con el "Registro del día" cerrado (ver
+// TodayTabMono/sendCheckinSummary) — distinta de weekStreak() (semanas
+// con al menos un entreno). `dates` son claves "YYYY-MM-DD" en
+// history.dailyCheckinDates. Mismo criterio de corte que weekStreak: si
+// hoy todavía no se cerró no se corta de inmediato, recién se corta
+// cuando pasa un día entero en blanco.
+function dailyCheckinStreak(dates) {
+  if (!dates || !dates.length) return 0;
+  const set = new Set(dates);
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  let cursorMs = hoy.getTime();
+  const keyOf = (ms) => isoDate(new Date(ms));
+  if (!set.has(keyOf(cursorMs))) cursorMs -= oneDayMs;
+  if (!set.has(keyOf(cursorMs))) return 0;
+  let n = 0;
+  while (set.has(keyOf(cursorMs))) { n++; cursorMs -= oneDayMs; }
+  return n;
+}
+
 /* ============================================================
    LOGROS — medallas por avance del alumno (constancia, sesiones,
    récords personales, tonelaje acumulado y antigüedad entrenando).
@@ -3233,7 +3253,8 @@ const RANGOS_NIVEL = [
 ];
 function computeXp(history) {
   const m = progressMetrics(history);
-  return m.sessions * 50 + m.prs * 150 + Math.round(m.tonnage / 25) + m.streak * 40;
+  const diasRegistrados = ((history && history.dailyCheckinDates) || []).length;
+  return m.sessions * 50 + m.prs * 150 + Math.round(m.tonnage / 25) + m.streak * 40 + diasRegistrados * 5;
 }
 // XP acumulada necesaria para LLEGAR al nivel n (curva raíz-ish: cada
 // nivel pide más que el anterior, pero nunca se estanca del todo).
@@ -8237,6 +8258,92 @@ const CatalogDemo = ({ catId, alto = 150 }) => {
   );
 };
 
+/* ============================================================
+   ACTIVACIÓN MUSCULAR — silueta de cuerpo (frente + espalda), con las
+   zonas que trabaja el ejercicio resaltadas: el músculo principal en
+   tinta plena, los secundarios en el acento. Geometría simplificada a
+   propósito (óvalos/rectángulos, no anatomía realista) para quedar
+   coherente con el resto de la app, que es monocroma en todos lados
+   salvo la sesión — acá el segundo tono (el acento) es la excepción
+   justificada, para distinguir principal de secundario de un vistazo.
+   ============================================================ */
+const BODY_REGIONS_FRONT = [
+  { muscle: "Hombro", tag: "circle", cx: 26, cy: 40, r: 11 },
+  { muscle: "Hombro", tag: "circle", cx: 74, cy: 40, r: 11 },
+  { muscle: "Pecho", tag: "rect", x: 32, y: 32, w: 36, h: 28, rx: 8 },
+  { muscle: "Bíceps", tag: "rect", x: 12, y: 42, w: 13, h: 40, rx: 6 },
+  { muscle: "Bíceps", tag: "rect", x: 75, y: 42, w: 13, h: 40, rx: 6 },
+  { muscle: "Antebrazo", tag: "rect", x: 10, y: 84, w: 13, h: 38, rx: 6 },
+  { muscle: "Antebrazo", tag: "rect", x: 77, y: 84, w: 13, h: 38, rx: 6 },
+  { muscle: "Core", tag: "rect", x: 38, y: 62, w: 24, h: 38, rx: 6 },
+  { muscle: "Cuádriceps", tag: "rect", x: 32, y: 104, w: 16, h: 54, rx: 8 },
+  { muscle: "Cuádriceps", tag: "rect", x: 52, y: 104, w: 16, h: 54, rx: 8 },
+];
+const BODY_NEUTRAL_FRONT = [
+  { tag: "circle", cx: 50, cy: 14, r: 12 }, { tag: "rect", x: 44, y: 24, w: 12, h: 8 },
+  { tag: "rect", x: 33, y: 160, w: 14, h: 50, rx: 6 }, { tag: "rect", x: 53, y: 160, w: 14, h: 50, rx: 6 },
+  { tag: "ellipse", cx: 39, cy: 214, rx: 9, ry: 5 }, { tag: "ellipse", cx: 61, cy: 214, rx: 9, ry: 5 },
+];
+const BODY_REGIONS_BACK = [
+  { muscle: "Trapecio", tag: "rect", x: 36, y: 28, w: 28, h: 18, rx: 8 },
+  { muscle: "Hombro", tag: "circle", cx: 26, cy: 40, r: 11 },
+  { muscle: "Hombro", tag: "circle", cx: 74, cy: 40, r: 11 },
+  { muscle: "Espalda", tag: "rect", x: 32, y: 44, w: 36, h: 40, rx: 8 },
+  { muscle: "Tríceps", tag: "rect", x: 12, y: 42, w: 13, h: 40, rx: 6 },
+  { muscle: "Tríceps", tag: "rect", x: 75, y: 42, w: 13, h: 40, rx: 6 },
+  { muscle: "Antebrazo", tag: "rect", x: 10, y: 84, w: 13, h: 38, rx: 6 },
+  { muscle: "Antebrazo", tag: "rect", x: 77, y: 84, w: 13, h: 38, rx: 6 },
+  { muscle: "Glúteo", tag: "rect", x: 34, y: 100, w: 32, h: 22, rx: 10 },
+  { muscle: "Femoral", tag: "rect", x: 32, y: 122, w: 16, h: 42, rx: 8 },
+  { muscle: "Femoral", tag: "rect", x: 52, y: 122, w: 16, h: 42, rx: 8 },
+  { muscle: "Gemelo", tag: "rect", x: 33, y: 166, w: 14, h: 44, rx: 6 },
+  { muscle: "Gemelo", tag: "rect", x: 53, y: 166, w: 14, h: 44, rx: 6 },
+];
+const BODY_NEUTRAL_BACK = [
+  { tag: "circle", cx: 50, cy: 14, r: 12 }, { tag: "rect", x: 44, y: 24, w: 12, h: 8 },
+  { tag: "ellipse", cx: 39, cy: 214, rx: 9, ry: 5 }, { tag: "ellipse", cx: 61, cy: 214, rx: 9, ry: 5 },
+];
+const BodyShape = ({ s, fill }) => {
+  if (s.tag === "circle") return <circle cx={s.cx} cy={s.cy} r={s.r} fill={fill} />;
+  if (s.tag === "ellipse") return <ellipse cx={s.cx} cy={s.cy} rx={s.rx} ry={s.ry} fill={fill} />;
+  return <rect x={s.x} y={s.y} width={s.w} height={s.h} rx={s.rx} fill={fill} />;
+};
+const MuscleBodyDiagram = ({ primary, secondary = [] }) => {
+  const secSet = new Set(secondary);
+  const fillFor = (muscle) => (muscle === primary ? P.text : secSet.has(muscle) ? P.ember2 : P.s3);
+  const silueta = (regions, neutral) => (
+    <svg viewBox="0 0 100 220" style={{ width: "100%", maxWidth: 108, height: "auto" }}>
+      {neutral.map((s, i) => <BodyShape key={`n${i}`} s={s} fill={P.s3} />)}
+      {regions.map((s, i) => <BodyShape key={i} s={s} fill={fillFor(s.muscle)} />)}
+    </svg>
+  );
+  const trabajados = [primary, ...secondary].filter(Boolean);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 14, justifyContent: "center" }}>
+        <div style={{ textAlign: "center" }}>
+          {silueta(BODY_REGIONS_FRONT, BODY_NEUTRAL_FRONT)}
+          <div style={{ fontSize: 10, color: P.faint, marginTop: 2 }}>Frente</div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          {silueta(BODY_REGIONS_BACK, BODY_NEUTRAL_BACK)}
+          <div style={{ fontSize: 10, color: P.faint, marginTop: 2 }}>Espalda</div>
+        </div>
+      </div>
+      {trabajados.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+          {trabajados.map((m, i) => (
+            <div key={m} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: i === 0 ? P.text : P.ember2 }} />
+              <span style={{ fontSize: 12, color: P.dim }}>{m}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, history }) => {
   if (!ex) return null;
   if (history) {
@@ -8273,6 +8380,11 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
               ))}
             </div>
           </div>
+
+          <MonoCard style={{ padding: "16px 17px", display: "flex", flexDirection: "column", gap: 13 }}>
+            <MonoLabel>Activación muscular</MonoLabel>
+            <MuscleBodyDiagram primary={ex.muscle} secondary={(ex.secondary || []).map((s) => s.muscle)} />
+          </MonoCard>
 
           <MonoCard style={{ padding: "16px 17px", display: "flex", flexDirection: "column", gap: 11 }}>
             <MonoLabel>Ejecución</MonoLabel>
@@ -8340,6 +8452,11 @@ const ExerciseInfoSheet = ({ ex, open, onClose, onPatchEx, onOpenImg, onError, h
             {s.muscle} · {s.pct}%
           </span>
         ))}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 10 }}>Activación muscular</div>
+        <MuscleBodyDiagram primary={ex.muscle} secondary={(ex.secondary || []).map((s) => s.muscle)} />
       </div>
 
       {/* Siempre desplegado (a diferencia de TempoBadge, que es un toggle
@@ -12848,6 +12965,9 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const [checkinOpen, setCheckinOpen] = useState(false);
   // Qué ficha del check-in está abierta (null = la grilla).
   const [ciPane, setCiPane] = useState(null);
+  // Racha de "Registro del día" a festejar (null = sin festejo pendiente)
+  // — ver sendCheckinSummary, más abajo.
+  const [celebra, setCelebra] = useState(null);
   // "Check-in" desde la pestaña "Más": esta pantalla vive adentro de
   // "Hoy" y se desmonta al salir de esa pestaña, así que "Más" primero
   // vuelve a "Hoy" y deja marcado "ábrete al montar" — se consume una
@@ -13029,12 +13149,32 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     setPosingOpen(false);
   };
 
+  // "Registro del día": el cierre del check-in queda BLOQUEADO hasta que
+  // las tareas de hoy (entrenar, comidas, suplementos) estén completas —
+  // cerrar el día con cosas pendientes no tiene sentido. Lo que no
+  // corresponde a hoy no se pide: sin rutina programada, sin plan de
+  // nutrición o sin suplementos con horario para hoy, esa tarea ni
+  // aparece — solo se exige lo que de verdad aplica a esta fecha.
+  const entrenoHechoHoy = (history.sessions || []).some((s) => isoDate(new Date(s.date)) === todayKey);
+  const suppsHoy = (n.supplements || []).filter((sp) => sp.name && suppAplicaEnDia(sp, new Date()));
+  const suppChecksHoy = (history.supplementChecks && history.supplementChecks[todayKey]) || {};
+  const suppsHoyHechos = suppsHoy.every((sp) => suppChecksHoy[sp.id]);
+  const tareasHoy = [
+    d.suggested && { label: "Entrenamiento de hoy", done: entrenoHechoHoy },
+    mealsTotal > 0 && { label: "Comidas de hoy", done: mealsDoneCount >= mealsTotal },
+    suppsHoy.length > 0 && { label: "Suplementos de hoy", done: suppsHoyHechos },
+  ].filter(Boolean);
+  const registroBloqueado = tareasHoy.some((t) => !t.done);
+
   // Botón "Enviar check-in" del final de la hoja: no reemplaza los envíos
   // por sección (cada uno ya avisó a su coach en cuanto se guardó) — es el
   // cierre de la visita, con el comentario final y un repaso de qué quedó
   // hecho hoy, para que el coach no tenga que sumar los mensajes sueltos.
+  // Cerrarlo cuenta además como el "Registro del día" para la racha de
+  // días consecutivos (ver dailyCheckinStreak) — distinta de la racha
+  // semanal de entrenos, y con su propio festejo (estilo "Día X").
   const sendCheckinSummary = async () => {
-    if (ciSending) return;
+    if (ciSending || registroBloqueado) return;
     setCiSending(true);
     const parts = [];
     if (bwToday) parts.push(`Peso ${kg(bwToday.kg)} kg`);
@@ -13045,6 +13185,11 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     if (parts.length) lines.push(parts.join(" · "));
     if (finalComment.trim()) lines.push(finalComment.trim());
     if (parts.length || finalComment.trim()) await sendChatText(lines.join("\n"));
+    if (saveHistory && !(history.dailyCheckinDates || []).includes(todayKey)) {
+      const dates = [...(history.dailyCheckinDates || []), todayKey];
+      saveHistory({ ...history, dailyCheckinDates: dates });
+      setCelebra(dailyCheckinStreak(dates));
+    }
     setFinalComment("");
     setCiSending(false);
     setCheckinOpen(false);
@@ -13457,9 +13602,23 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
                 );
               })}
             </div>
+            {tareasHoy.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 7, padding: "12px 14px", borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}` }}>
+                <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Para cerrar el día</div>
+                {tareasHoy.map((t, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: t.done ? P.faint2 : P.text }}>
+                    <span style={{ width: 18, height: 18, borderRadius: 9, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                      background: t.done ? PLATE_GRAD : "transparent", border: t.done ? "none" : `1.5px solid ${P.faint}` }}>
+                      {t.done && <Check size={11} color={PLATE_FG} strokeWidth={3} />}
+                    </span>
+                    <span style={{ textDecoration: t.done ? "line-through" : "none" }}>{t.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             {ciError && <div style={{ fontSize: 13, color: P.red, lineHeight: 1.4 }}>{ciError}</div>}
-            <Btn kind="ember" onClick={sendCheckinSummary} disabled={ciSending} style={{ width: "100%" }}>
-              {ciSending ? "Enviando…" : "Enviar al coach"}
+            <Btn kind="ember" onClick={sendCheckinSummary} disabled={ciSending || registroBloqueado} style={{ width: "100%" }}>
+              {ciSending ? "Enviando…" : registroBloqueado ? "Completá lo de hoy para cerrar" : "Enviar al coach"}
             </Btn>
           </div>
         )}
@@ -13527,6 +13686,27 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           </Btn>
         </div>
       </Sheet>
+
+      {/* Festejo del "Registro del día": mismo momento en que se cierra el
+          check-in con todo lo de hoy completo (ver sendCheckinSummary).
+          Pantalla completa a propósito — es el instante de "lo logré",
+          no una notificación de paso. */}
+      {celebra != null && (
+        <div className="scrimIn" onClick={() => setCelebra(null)} style={{ position: "fixed", inset: 0, zIndex: 210,
+          background: "#0B0B0D", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div className="modalIn" onClick={(e) => e.stopPropagation()} style={{ textAlign: "center", maxWidth: 320, width: "100%" }}>
+            <div style={{ width: 84, height: 84, borderRadius: "50%", margin: "0 auto 22px", display: "flex", alignItems: "center", justifyContent: "center",
+              background: PLATE_GRAD, boxShadow: "0 0 40px rgba(255,255,255,.18)" }}>
+              <Flame size={40} color={PLATE_FG} />
+            </div>
+            <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", letterSpacing: "-.02em" }}>Día {celebra}</div>
+            <div style={{ fontSize: 15, color: "rgba(255,255,255,.62)", marginTop: 8, lineHeight: 1.4 }}>
+              Registro del día completo — ¡seguí la racha!
+            </div>
+            <Btn kind="ember" onClick={() => setCelebra(null)} style={{ width: "100%", marginTop: 28 }}>¡Dale!</Btn>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -27423,6 +27603,17 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
                 <div className="mono" style={{ fontSize: 11, color: P.faint, paddingTop: 3, flexShrink: 0 }}>VS</div>
                 {cabecera(B, sB)}
               </div>
+              {/* Antes "en rango" no decía contra QUÉ número: acá está el
+                  propio landmark de este músculo, mismo formato compacto
+                  que el glosario (MEV / zona óptima / MRV), y aclarado si
+                  es la tabla natural o asistida — es la MISMA para las dos
+                  rutinas que se comparan, así que va una sola vez. */}
+              {refTable[detalle] && (
+                <div style={{ padding: "0 16px 10px", flexShrink: 0, textAlign: "center", fontSize: 11.5, color: P.faint }}>
+                  MEV {refTable[detalle].mev} · óptimo {refTable[detalle].mav[0]}–{refTable[detalle].mav[1]} · MRV {refTable[detalle].mrv} series/sem
+                  <span style={{ color: P.faint2 }}> ({enhanced ? "asistido" : "natural"})</span>
+                </div>
+              )}
               <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "0 12px", overflow: "hidden" }}>
                 {Array.from({ length: n }).map((_, i) => (
                   <div key={i} style={{ flex: "1 1 0", minHeight: 0, display: "flex", alignItems: "center", gap: 8,
