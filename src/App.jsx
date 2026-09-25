@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v342";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v343";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -12753,7 +12753,7 @@ const BodyMeasureFormSheet = ({ open, onClose, onSave, measurements }) => {
   );
 };
 
-const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat, autoOpenCheckin, onAutoOpenCheckinConsumed, autoOpenPosing, onAutoOpenPosingConsumed, saveHistory, toast }) => {
+const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, bookings, sid, onOpenAgenda, onOpenNutrition, onOpenCoach, onOpenProgress, onOpenTimer, onOpenAIChat, autoOpenCheckin, onAutoOpenCheckinConsumed, autoOpenPosing, onAutoOpenPosingConsumed, saveHistory, savePlan, toast }) => {
   const [showInstr, setShowInstr] = useState(false);
   // Reordenar los paneles del Inicio con mantener-pulsado, igual que el Centro
   // de Control: la clave es por dispositivo (preferencia visual, no dato
@@ -13088,7 +13088,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             <Card style={{ overflow: "hidden" }}>
               <button onClick={() => setStatDetail("racha")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
                 <span style={{ flex: 1, fontSize: 16 }}>Racha</span>
-                <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} día{d.streak !== 1 ? "s" : ""}</span>
+                <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} semana{d.streak !== 1 ? "s" : ""}</span>
                 <ChevronRight size={16} color={P.chevron} />
               </button>
               <button onClick={() => setStatDetail("volumen")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
@@ -13103,6 +13103,8 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
               </button>
             </Card>
           ) },
+
+          { key: "racha-reminder", span: "full", node: <RachaReminderToggle plan={plan} savePlan={savePlan} sid={sid} /> },
 
           hasMacros && { key: "macros", span: "full", node: (
             <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
@@ -15191,18 +15193,67 @@ const MyFitnessPalSheet = ({ open, onClose, plan, savePlan, toast }) => {
   );
 };
 
+// Recordatorio de racha: sin esto, "no cortar la racha" depende solo de
+// que el alumno se acuerde. Activado, manda un push real (mismo mecanismo
+// que Recordatorios de comidas — forja-push-sender, funciona con el
+// teléfono guardado) el fin de semana, con una frase motivacional
+// distinta cada vez, PERO solo si venía de una racha en marcha y todavía
+// no entrenó esta semana — no molesta si ya entrenó ni si nunca tuvo
+// racha que perder (esa lógica vive en el Edge Function, que es quien de
+// verdad sabe la hora local de cada uno). La preferencia (reminders.racha)
+// viaja en el plan, no en localStorage: el Edge Function la necesita para
+// saber a quién avisarle.
+const RachaReminderToggle = ({ plan, savePlan, sid }) => {
+  const on = !!(plan.reminders && plan.reminders.racha);
+  const [permiso, setPermiso] = useState(notifyState());
+  const [busy, setBusy] = useState(false);
+  const patch = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
+  const activar = async () => {
+    if (on) {
+      patch((p) => { p.reminders = { ...(p.reminders || {}), racha: false }; });
+      if (!NUTRI_REMINDER.enabled) unsubscribeFromPush();
+      return;
+    }
+    const r = await pedirPermisoNotificaciones();
+    setPermiso(r);
+    if (r !== "granted") return;
+    patch((p) => { p.reminders = { ...(p.reminders || {}), racha: true }; });
+    if (sid) { setBusy(true); await subscribeToPush(sid); setBusy(false); }
+  };
+  if (permiso === "unsupported") return null;
+  return (
+    <Card style={{ padding: "11px 13px", display: "flex", alignItems: "center", gap: 10 }}>
+      <Flame size={16} color={on ? P.text : P.faint} style={{ flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: P.text }}>Recordatorio de racha</div>
+        <div style={{ fontSize: 12, color: P.faint2, marginTop: 1 }}>
+          {permiso === "denied" ? "Bloqueadas — habilítalas en los ajustes del navegador"
+            : busy ? "Activando…"
+            : on ? "Te avisa el fin de semana si todavía no entrenaste, para no cortar la racha"
+            : "Avisa el fin de semana si tu racha está en riesgo"}
+        </div>
+      </div>
+      <Toggle on={on} disabled={permiso === "denied" || busy} onChange={activar} label="Recordatorio de racha semanal" />
+    </Card>
+  );
+};
+
 // Banner chico con el interruptor de recordatorios (comidas/suplementos/
 // química, cada uno a su hora — ver ReminderScheduler). Mismo permiso de
 // notificaciones del navegador que el aviso de fin de descanso; si ya
 // está concedido, activar acá no vuelve a pedirlo.
-const NutriReminderBanner = ({ sid }) => {
+const NutriReminderBanner = ({ sid, plan }) => {
   const [pref, setPref] = useNutriReminder();
   const [permiso, setPermiso] = useState(notifyState());
   const [suscribiendo, setSuscribiendo] = useState(false);
   const activar = async () => {
     if (pref.enabled) {
       setPref({ enabled: false });
-      unsubscribeFromPush();
+      // No apagar la suscripción push entera si el recordatorio de racha
+      // (Hoy) sigue activo — es la MISMA suscripción para las dos cosas,
+      // apagarla acá cortaría también los avisos de racha sin que el
+      // alumno haya tocado ese interruptor.
+      if (!(plan && plan.reminders && plan.reminders.racha)) unsubscribeFromPush();
       return;
     }
     const r = await pedirPermisoNotificaciones();
@@ -15314,7 +15365,7 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
       <ScreenTitle title="Nutrición" />
-      <NutriReminderBanner sid={sid} />
+      <NutriReminderBanner sid={sid} plan={plan} />
       {cyc && (
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: P.text,
           background: P.s1, border: `1px solid ${P.line}`, borderRadius: 20, padding: "6px 12px", alignSelf: "flex-start" }}>
@@ -23029,6 +23080,57 @@ const ReminderScheduler = ({ plan }) => {
   return null;
 };
 
+// Detecta logros recién desbloqueados (ver ACHIEVEMENTS/computeAchievements
+// más arriba) comparando contra la lista ya avisada —history.earnedAchievementIds,
+// que viaja con el resto del historial, así "ya avisado" sobrevive cambiar
+// de aparato, no solo esta pestaña—. No hay timer: se recalcula cada vez
+// que el historial se guarda (terminar una sesión, un PR nuevo, etc.), que
+// es justo cuando un logro puede pasar de "en camino" a "ganado". Si hay
+// más de uno nuevo a la vez, se festejan de a uno.
+const AchievementUnlockWatcher = ({ history, saveHistory }) => {
+  const [nuevo, setNuevo] = useState(null);
+  const cola = useRef([]);
+  useEffect(() => {
+    if (!history) return;
+    const yaAvisados = new Set(history.earnedAchievementIds || []);
+    const nuevos = computeAchievements(history).filter((a) => a.earned && !yaAvisados.has(a.id));
+    if (!nuevos.length) return;
+    // Se marcan como avisados YA, antes de mostrar el festejo: si el
+    // alumno cierra la app a mitad de la animación, no vuelve a aparecer
+    // duplicado la próxima vez que abra.
+    saveHistory({ ...history, earnedAchievementIds: [...yaAvisados, ...nuevos.map((a) => a.id)] });
+    cola.current.push(...nuevos);
+    setNuevo((cur) => cur || cola.current.shift());
+    if (notifyState() === "granted") {
+      nuevos.forEach((a) => {
+        try {
+          const n = new Notification("¡Nuevo logro desbloqueado! 🏆", { body: a.label, tag: `forja-logro-${a.id}` });
+          n.onclick = () => { try { window.focus(); n.close(); } catch {} };
+        } catch {}
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history]);
+  const cerrar = () => setNuevo(cola.current.shift() || null);
+  if (!nuevo) return null;
+  return (
+    <div onClick={cerrar} className="scrimIn" style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.55)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div onClick={(e) => e.stopPropagation()} className="modalIn" style={{ background: P.s1, borderRadius: 22, padding: "28px 24px",
+        maxWidth: 320, width: "100%", textAlign: "center", boxShadow: CARD_LIFT }}>
+        <div style={{ width: 68, height: 68, borderRadius: 20, margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center",
+          background: PLATE_GRAD, boxShadow: CARD_LIFT }}>
+          <nuevo.Icon size={32} color={PLATE_FG} />
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: P.ember2, marginBottom: 6 }}>¡Nuevo logro!</div>
+        <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 6 }}>{nuevo.label}</div>
+        <div style={{ fontSize: 14, color: P.faint, marginBottom: 20 }}>{nuevo.fmt(nuevo.value)}</div>
+        <Btn kind="ember" onClick={cerrar} style={{ width: "100%" }}>¡Genial!</Btn>
+      </div>
+    </div>
+  );
+};
+
 const CalendarTab = ({ plan, history, onGoTrain, bookings, sid, onCancelBooking }) => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const [view, setView] = useState("month"); // week | month
@@ -30105,7 +30207,7 @@ const App = () => {
 
         <div key={`${tab}-${sub || ""}`} className="tabIn" style={{ display: utility ? "none" : undefined }}>
         {mode === "alumno" && tab === "hoy" && (
-          <TodayTabMono plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory} toast={toast}
+          <TodayTabMono plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory} savePlan={savePlan} toast={toast}
             goTrain={(dayId) => { if (dayId) setAbrirDiaId(dayId); setTab("entrenar"); }}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             bookings={bookings.slots} sid={sid}
@@ -30274,6 +30376,7 @@ const App = () => {
 
       {compareOpen && <RoutineCompareScreen onClose={() => setCompareOpen(false)} plan={plan} />}
       {mode === "alumno" && plan && <ReminderScheduler plan={plan} />}
+      {mode === "alumno" && history && <AchievementUnlockWatcher history={history} saveHistory={saveHistory} />}
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <GlobalSearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} items={searchItems} />
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)}
