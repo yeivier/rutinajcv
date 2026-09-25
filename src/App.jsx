@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v343";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v344";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3208,6 +3208,88 @@ function computeAchievements(history) {
     const value = a.metric(m);
     return { ...a, value, earned: value >= a.need, pct: Math.min(100, Math.round((value / a.need) * 100)) };
   });
+}
+
+/* ============================================================
+   NIVEL Y XP — la capa de "juego" sobre el historial real: no es una
+   cuenta aparte que se pueda desincronizar, es una fórmula fija sobre
+   las mismas métricas de progressMetrics(). Sube con sesiones, PRs,
+   tonelaje y racha — todo lo que YA importa entrenar — nunca baja.
+   ============================================================ */
+// Rangos, de menor a mayor: el "nombre" que acompaña al número de nivel,
+// como en cualquier juego con progresión (la cifra sola no engancha
+// tanto como una cifra CON UN TÍTULO).
+const RANGOS_NIVEL = [
+  { min: 1, name: "Debutante" },
+  { min: 3, name: "Aprendiz de hierro" },
+  { min: 5, name: "Constante" },
+  { min: 8, name: "Disciplinado" },
+  { min: 12, name: "Forjado" },
+  { min: 16, name: "Veterano" },
+  { min: 20, name: "Implacable" },
+  { min: 25, name: "Guerrero de hierro" },
+  { min: 30, name: "Titán" },
+  { min: 40, name: "Leyenda de FORJA" },
+];
+function computeXp(history) {
+  const m = progressMetrics(history);
+  return m.sessions * 50 + m.prs * 150 + Math.round(m.tonnage / 25) + m.streak * 40;
+}
+// XP acumulada necesaria para LLEGAR al nivel n (curva raíz-ish: cada
+// nivel pide más que el anterior, pero nunca se estanca del todo).
+function xpParaNivel(n) { return Math.round(250 * Math.pow(Math.max(0, n - 1), 1.55)); }
+function nivelInfo(xp) {
+  let nivel = 1;
+  while (xpParaNivel(nivel + 1) <= xp) nivel++;
+  const base = xpParaNivel(nivel), siguiente = xpParaNivel(nivel + 1);
+  const rango = [...RANGOS_NIVEL].reverse().find((r) => nivel >= r.min) || RANGOS_NIVEL[0];
+  return { nivel, rango: rango.name, xp, base, siguiente,
+    pct: siguiente > base ? Math.min(100, Math.round(((xp - base) / (siguiente - base)) * 100)) : 100,
+    faltan: Math.max(0, siguiente - xp) };
+}
+
+/* ============================================================
+   RETOS DE LA SEMANA — el mecanismo de "juego" en sí: metas chicas y
+   concretas, visibles de un vistazo, que se resetean solas cada lunes
+   (no hay nada que guardar: se recalculan siempre de las sesiones de
+   ESTA semana, igual que weekStreak()). Tres fijos a propósito — ni tan
+   pocos que se sientan vacíos, ni tantos que abrumen.
+   ============================================================ */
+const RETO_TONELAJE_KG = 3000;
+function weeklyChallenges(history) {
+  const sessions = (history && history.sessions) || [];
+  const curWk = weekKey(todayISO());
+  const estaSemana = sessions.filter((s) => weekKey(s.date) === curWk);
+  const sesiones = estaSemana.length;
+  const prs = estaSemana.reduce((a, s) => a + (s.prs ? s.prs.length : 0), 0);
+  const tonelaje = estaSemana.reduce((a, s) => a + (s.volume || 0), 0);
+  return [
+    { id: "reto-sesiones", label: "Entrená 3 veces esta semana", Icon: Dumbbell, value: sesiones, need: 3,
+      fmt: (v) => `${Math.min(v, 3)}/3 sesiones` },
+    { id: "reto-pr", label: "Conseguí un récord personal", Icon: Award, value: prs, need: 1,
+      fmt: (v) => (v > 0 ? "¡Listo!" : "Todavía no") },
+    { id: "reto-tonelaje", label: `Levantá ${Math.round(RETO_TONELAJE_KG / 1000)} toneladas`, Icon: TrendingUp, value: tonelaje, need: RETO_TONELAJE_KG,
+      fmt: (v) => `${Math.round(v / 1000 * 10) / 10} t de ${Math.round(RETO_TONELAJE_KG / 1000)} t` },
+  ].map((r) => ({ ...r, done: r.value >= r.need, pct: Math.min(100, Math.round((r.value / r.need) * 100)) }));
+}
+
+// Una frase motivacional por día, fija durante todo el día (no se
+// vuelve a sortear en cada render) — el mismo texto que aparece acá se
+// reusa como cuerpo del push de racha (forja-push-sender, del lado del
+// servidor); esta copia es la del lado del cliente, para la pantalla.
+const FRASES_MOTIVACION = [
+  "La constancia le gana al talento cuando el talento no es constante.",
+  "No hace falta motivación todos los días — hace falta un hábito que no la necesite.",
+  "Cada serie que anotás hoy es una prueba de lo que vas a poder levantar mañana.",
+  "El cuerpo que estás construyendo se sostiene con repetición, no con perfección.",
+  "Nadie recuerda las series que costaron — todos ven el resultado que dejaron.",
+  "Progreso no es un día perfecto: es no dejar pasar demasiados días imperfectos seguidos.",
+  "Tu única competencia real es la versión de vos que entrenó la semana pasada.",
+  "Un entreno mediocre hoy sigue sumando más que uno perfecto que nunca pasó.",
+];
+function fraseDelDia() {
+  const dia = Math.floor(Date.now() / 86400000);
+  return FRASES_MOTIVACION[dia % FRASES_MOTIVACION.length];
 }
 
 // Estimación de calorías quemadas — FORJA no mide gasto energético real
@@ -13691,6 +13773,66 @@ const SessionDetailSheet = ({ session, onClose, history, onOpenImg, onCambiarGym
   );
 };
 
+// Tarjeta de nivel: el número grande, el rango (nombre) y la barra de XP
+// hasta el siguiente — el "medidor que siempre sube" que hace que volver
+// a mirar esta pantalla se sienta como progreso, no como una lista
+// estática de medallas. Ver AchievementUnlockWatcher para el festejo al
+// subir de nivel.
+const LevelCard = ({ history }) => {
+  const info = nivelInfo(computeXp(history));
+  return (
+    <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
+      <div style={{ width: 60, height: 60, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+        background: PLATE_GRAD, boxShadow: CARD_LIFT, flexDirection: "column" }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: PLATE_FG, opacity: .75, lineHeight: 1, textTransform: "uppercase", letterSpacing: ".04em" }}>Nivel</span>
+        <span style={{ fontSize: 24, fontWeight: 800, color: PLATE_FG, lineHeight: 1.1 }}>{info.nivel}</span>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: P.text }}>{info.rango}</div>
+        <div style={{ height: 6, borderRadius: 3, background: P.s3, marginTop: 8, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${info.pct}%`, background: P.ember, transition: "width .3s ease" }} />
+        </div>
+        <div style={{ fontSize: 12, color: P.faint, marginTop: 5 }}>
+          {info.faltan > 0 ? `${info.faltan.toLocaleString("es-CL")} XP para el nivel ${info.nivel + 1}` : "Nivel máximo — seguís sumando XP igual"}
+        </div>
+      </div>
+    </Card>
+  );
+};
+
+// Retos de la semana: metas chicas y concretas que se resetean solas
+// cada lunes (se recalculan de las sesiones de ESTA semana, nada que
+// guardar aparte). Es lo más parecido a "un juego" dentro de Logros —
+// una meta visible que se puede completar, no solo una cifra que sube.
+const WeeklyChallengesCard = ({ history }) => {
+  const retos = weeklyChallenges(history);
+  return (
+    <Card style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>
+        Retos de esta semana
+      </div>
+      {retos.map((r, i) => (
+        <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 0",
+          borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+          <div style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            background: r.done ? PLATE_GRAD : P.s2 }}>
+            {r.done ? <Check size={16} color={PLATE_FG} strokeWidth={3} /> : <r.Icon size={16} color={P.faint} />}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: r.done ? P.faint2 : P.text, textDecoration: r.done ? "line-through" : "none" }}>{r.label}</div>
+            {!r.done && (
+              <div style={{ height: 4, borderRadius: 2, background: P.s3, marginTop: 5, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${r.pct}%`, background: P.ember }} />
+              </div>
+            )}
+          </div>
+          <span style={{ fontSize: 12, color: P.faint2, flexShrink: 0 }}>{r.fmt(r.value)}</span>
+        </div>
+      ))}
+    </Card>
+  );
+};
+
 // Grilla de medallas: agrupadas por categoría, con barra de progreso para
 // las que faltan por desbloquear. Se usa tanto en "Mis logros" del alumno
 // como (con el historial de cada uno) en Rankings del coach.
@@ -14993,7 +15135,16 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
         </>
       )}
 
-      {sub === "logros" && <AchievementGrid history={history} />}
+      {sub === "logros" && (
+        <>
+          <LevelCard history={history} />
+          <div style={{ fontSize: 13.5, color: P.faint, fontStyle: "italic", lineHeight: 1.5, padding: "0 2px" }}>
+            "{fraseDelDia()}"
+          </div>
+          <WeeklyChallengesCard history={history} />
+          <AchievementGrid history={history} />
+        </>
+      )}
 
       {/* Mismo visor que usa el coach para revisar la actividad de un
           alumno (sesión por sesión, por ejercicio, y el registro de
@@ -23080,31 +23231,43 @@ const ReminderScheduler = ({ plan }) => {
   return null;
 };
 
-// Detecta logros recién desbloqueados (ver ACHIEVEMENTS/computeAchievements
-// más arriba) comparando contra la lista ya avisada —history.earnedAchievementIds,
-// que viaja con el resto del historial, así "ya avisado" sobrevive cambiar
-// de aparato, no solo esta pestaña—. No hay timer: se recalcula cada vez
-// que el historial se guarda (terminar una sesión, un PR nuevo, etc.), que
-// es justo cuando un logro puede pasar de "en camino" a "ganado". Si hay
-// más de uno nuevo a la vez, se festejan de a uno.
+// Detecta logros y subidas de nivel recién ganados comparando contra lo
+// ya avisado —history.earnedAchievementIds y history.lastCelebratedLevel,
+// que viajan con el resto del historial, así "ya avisado" sobrevive
+// cambiar de aparato, no solo esta pestaña—. No hay timer: se recalcula
+// cada vez que el historial se guarda (terminar una sesión, un PR nuevo,
+// etc.), que es justo cuando algo puede pasar de "en camino" a "ganado".
+// Si hay más de un festejo a la vez (un logro Y un nivel el mismo día),
+// se muestran de a uno, en una cola.
 const AchievementUnlockWatcher = ({ history, saveHistory }) => {
   const [nuevo, setNuevo] = useState(null);
   const cola = useRef([]);
   useEffect(() => {
     if (!history) return;
     const yaAvisados = new Set(history.earnedAchievementIds || []);
-    const nuevos = computeAchievements(history).filter((a) => a.earned && !yaAvisados.has(a.id));
-    if (!nuevos.length) return;
-    // Se marcan como avisados YA, antes de mostrar el festejo: si el
+    const logrosNuevos = computeAchievements(history).filter((a) => a.earned && !yaAvisados.has(a.id));
+    const nivelActual = nivelInfo(computeXp(history)).nivel;
+    const nivelYaAvisado = history.lastCelebratedLevel || 1;
+    const subioDeNivel = nivelActual > nivelYaAvisado;
+
+    const festejos = [
+      ...logrosNuevos.map((a) => ({ kind: "logro", id: a.id, Icon: a.Icon, eyebrow: "¡Nuevo logro!", titulo: a.label, sub: a.fmt(a.value) })),
+      ...(subioDeNivel ? [{ kind: "nivel", id: `nivel-${nivelActual}`, Icon: Flame, eyebrow: "¡Subiste de nivel!",
+        titulo: `Nivel ${nivelActual}`, sub: nivelInfo(computeXp(history)).rango }] : []),
+    ];
+    if (!festejos.length) return;
+    // Se marca como avisado YA, antes de mostrar el festejo: si el
     // alumno cierra la app a mitad de la animación, no vuelve a aparecer
     // duplicado la próxima vez que abra.
-    saveHistory({ ...history, earnedAchievementIds: [...yaAvisados, ...nuevos.map((a) => a.id)] });
-    cola.current.push(...nuevos);
+    saveHistory({ ...history, earnedAchievementIds: [...yaAvisados, ...logrosNuevos.map((a) => a.id)],
+      lastCelebratedLevel: subioDeNivel ? nivelActual : nivelYaAvisado });
+    cola.current.push(...festejos);
     setNuevo((cur) => cur || cola.current.shift());
     if (notifyState() === "granted") {
-      nuevos.forEach((a) => {
+      festejos.forEach((f) => {
         try {
-          const n = new Notification("¡Nuevo logro desbloqueado! 🏆", { body: a.label, tag: `forja-logro-${a.id}` });
+          const n = new Notification(f.kind === "nivel" ? "¡Subiste de nivel! 🔥" : "¡Nuevo logro desbloqueado! 🏆",
+            { body: `${f.titulo} — ${f.sub}`, tag: `forja-festejo-${f.id}` });
           n.onclick = () => { try { window.focus(); n.close(); } catch {} };
         } catch {}
       });
@@ -23122,9 +23285,9 @@ const AchievementUnlockWatcher = ({ history, saveHistory }) => {
           background: PLATE_GRAD, boxShadow: CARD_LIFT }}>
           <nuevo.Icon size={32} color={PLATE_FG} />
         </div>
-        <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: P.ember2, marginBottom: 6 }}>¡Nuevo logro!</div>
-        <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 6 }}>{nuevo.label}</div>
-        <div style={{ fontSize: 14, color: P.faint, marginBottom: 20 }}>{nuevo.fmt(nuevo.value)}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: P.ember2, marginBottom: 6 }}>{nuevo.eyebrow}</div>
+        <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 6 }}>{nuevo.titulo}</div>
+        <div style={{ fontSize: 14, color: P.faint, marginBottom: 20 }}>{nuevo.sub}</div>
         <Btn kind="ember" onClick={cerrar} style={{ width: "100%" }}>¡Genial!</Btn>
       </div>
     </div>
