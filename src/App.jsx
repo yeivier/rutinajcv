@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v345";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v346";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -96,6 +96,12 @@ const LIGHT_THEME = {
     // Color de anillos y barras de progreso (neutro en claro, como hasta
     // ahora; en el tema Rosa es un rosa vivo, no negro).
     prog: "#101012",
+    // Segundo acento — SOLO para cuando un gráfico necesita distinguir dos
+    // series a la vez (p. ej. "Rutina A" vs "Rutina B" en el comparador):
+    // el resto de la interfaz sigue monocromática a propósito, pero un
+    // gráfico con una sola tinta no puede mostrar una diferencia. Mismo
+    // criterio que ya usa la pantalla de sesión con su verde propio.
+    accent2: "#2E6FF2",
     // Borde de tarjeta: hairline, no marco. Las tarjetas se separan del
     // fondo gris por el blanco y la línea de 1px, no por elevación.
     frame: "#E5E5EA",
@@ -131,6 +137,7 @@ const DARK_THEME = {
     ember: "#FFFFFF", ember2: "#FFFFFF", glow: "#FFFFFF",
     green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
     prog: "#FFFFFF",
+    accent2: "#5B9CFF",
     frame: "#35353C", bgGrad: "#0F0F11",
     // Mismos 5 tokens nuevos, invertidos para el tema oscuro siguiendo el
     // mismo criterio que el resto de la paleta (s3/s4/line de arriba).
@@ -161,6 +168,7 @@ const PINK_THEME = {
     ember: "#DB2777", ember2: "#DB2777", glow: "#DB2777",
     green: "#101012", blue: "#5A5A63", red: "#D70015",
     prog: "#DB2777",
+    accent2: "#0EA5A5",
     frame: "#EE9DC8",
     bgGrad: "#FBD5EA",
     fillTertiary: "#F5BBDA", separatorStrong: "#E888BE",
@@ -3681,6 +3689,40 @@ function moveRoutineGroup(p, fromKey, toKey) {
   p.days = rest;
 }
 
+// Duplica TODA una rutina (todos sus días, ejercicios y series) bajo la
+// próxima letra libre — clonar antes de improvisar sobre el original deja
+// una copia de respaldo a la que volver si el experimento no sirve.
+function duplicateRoutineGroup(p, key) {
+  const newKey = nextRoutineKey(p.days);
+  const clones = p.days.filter((d) => routineOf(d) === key).map((d) => ({
+    ...structuredClone(d), id: uid(), routine: newKey,
+    exs: (d.exs || []).map((e) => ({ ...structuredClone(e), id: uid(), sets: (e.sets || []).map((s) => ({ ...s, id: uid() })) })),
+  }));
+  const insertAt = p.days.reduce((last, d, i) => (routineOf(d) === key ? i + 1 : last), p.days.length);
+  p.days.splice(insertAt, 0, ...clones);
+  p.routineNames = { ...(p.routineNames || {}), [newKey]: `${routineLabel(key, p.routineNames)} (copia)` };
+  return newKey;
+}
+
+// Elimina TODA una rutina y limpia lo que quedaba apuntándole: un día del
+// horario semanal que usaba uno de sus días vuelve a "sin rutina" (null)
+// en vez de quedar señalando a un id que ya no existe.
+function deleteRoutineGroup(p, key) {
+  const removedIds = new Set(p.days.filter((d) => routineOf(d) === key).map((d) => d.id));
+  p.days = p.days.filter((d) => routineOf(d) !== key);
+  if (p.routineNames) { const rn = { ...p.routineNames }; delete rn[key]; p.routineNames = rn; }
+  if (p.schedule) {
+    const sch = { ...p.schedule };
+    Object.keys(sch).forEach((k) => { if (sch[k] && removedIds.has(sch[k])) sch[k] = null; });
+    p.schedule = sch;
+  }
+  if (p.schedule2) {
+    const sch2 = { ...p.schedule2 };
+    Object.keys(sch2).forEach((k) => { if (sch2[k] && removedIds.has(sch2[k])) sch2[k] = null; });
+    p.schedule2 = sch2;
+  }
+}
+
 // Reordena la lista de mesociclos del plan (arrastrar y soltar). Muta
 // p.mesoState.mesociclos.
 function moveMesociclo(p, fromId, toId) {
@@ -5372,6 +5414,18 @@ const GlobalStyle = () => {
     @keyframes fjTabFade { from { opacity: 0; } to { opacity: 1; } }
     .fj .tabIn { animation: fjTabFade ${DUR_ROW}ms ${EASE_STD}; }
 
+    /* Creador de rutinas: las tarjetas entran con el mismo fjUp de
+       siempre, pero escalonadas por índice (--i, puesto inline en cada
+       tarjeta) — que aparezcan una tras otra, no todas de golpe, es lo
+       que hace que una grilla se sienta viva en vez de solo "cargada". */
+    .fj .fj-studio-card { animation: fjUp ${DUR_PUSH}ms ${EASE_STD} both;
+      animation-delay: calc(var(--i, 0) * 45ms); }
+    /* Barras de volumen del creador: crecen desde 0 en vez de aparecer ya
+       llenas — el ancho final lo sigue poniendo React (inline style),
+       esto solo anima DESDE cero hasta ese ancho. */
+    @keyframes fjBarGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+    .fj .fj-studio-bar { transform-origin: left; animation: fjBarGrow ${DUR_PUSH + 200}ms ${EASE_STD} both; }
+
     /* Sesión: pasar de serie o de ejercicio tiene que VERSE. Antes el
        contenido se reemplazaba de golpe, con los mismos números
        precargados, y entrenando no había forma de saber si se había
@@ -6179,7 +6233,8 @@ const Ring = ({ pct, size = 104, stroke = 14, label }) => {
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block" }}>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={P.fillTertiary} strokeWidth={stroke} />
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={P.prog} strokeWidth={stroke}
-          strokeLinecap="round" strokeDasharray={dash} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+          strokeLinecap="round" strokeDasharray={dash} transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: "stroke-dasharray .7s cubic-bezier(.22,1,.36,1)" }} />
       </svg>
       {/* El número adentro: el anillo dice cuánto falta, el número dice
           cuánto es. Sin él había que adivinarlo del arco. */}
@@ -13728,7 +13783,13 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
 // queda cacheado (service worker + CDN) para las siguientes.
 let _rechartsProm = null;
 const cargarRecharts = () => _rechartsProm || (_rechartsProm = import("recharts"));
-const ChartBox = ({ data, unit }) => {
+// Tooltip compartido por los tres gráficos: mismo fondo/borde que el resto
+// de la app, pero con una sombra breve y el valor en tipografía "display"
+// grande — antes era una etiqueta chica sin jerarquía, ahora se lee como
+// el número importante que es, no como una nota al pie.
+const chartTooltipStyle = { background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12, fontSize: 13,
+  padding: "8px 12px", boxShadow: "0 6px 20px rgba(0,0,0,.12)" };
+const ChartBox = ({ data, unit, accent }) => {
   const [R, setR] = useState(null);
   useEffect(() => { let on = true; cargarRecharts().then((m) => { if (on) setR(m); }).catch(() => {}); return () => { on = false; }; }, []);
   if (!R) {
@@ -13738,17 +13799,32 @@ const ChartBox = ({ data, unit }) => {
       </div>
     );
   }
+  const c = accent || P.ember;
+  // Id único por instancia: dos ChartBox en la misma pantalla (p. ej. el
+  // dashboard de salud, con siete seguidos) no pueden compartir el mismo
+  // <linearGradient id="…">, o el segundo pisa el relleno del primero.
+  const gid = `fjChartGrad-${Math.random().toString(36).slice(2, 9)}`;
   return (
     <div style={{ width: "100%", height: 210 }}>
       <R.ResponsiveContainer>
-        <R.LineChart data={data} margin={{ top: 8, right: 10, left: -14, bottom: 0 }}>
-          <R.CartesianGrid stroke={P.line} strokeDasharray="3 3" />
+        <R.ComposedChart data={data} margin={{ top: 8, right: 10, left: -14, bottom: 0 }}>
+          <defs>
+            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={c} stopOpacity={0.32} />
+              <stop offset="95%" stopColor={c} stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          <R.CartesianGrid stroke={P.line} strokeDasharray="3 3" vertical={false} />
           <R.XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 12 }} stroke={P.line} />
           <R.YAxis tick={{ fill: P.faint, fontSize: 12 }} stroke={P.line} domain={["auto", "auto"]} />
-          <R.Tooltip contentStyle={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, fontSize: 14 }}
-            labelStyle={{ color: P.dim }} itemStyle={{ color: P.ember2 }} formatter={(v) => [`${v} ${unit}`, ""]} />
-          <R.Line type="monotone" dataKey="v" stroke={P.ember} strokeWidth={2.5} dot={{ r: 3, fill: P.ember2, strokeWidth: 0 }} activeDot={{ r: 5 }} />
-        </R.LineChart>
+          <R.Tooltip contentStyle={chartTooltipStyle}
+            labelStyle={{ color: P.dim, fontWeight: 700, marginBottom: 2 }} itemStyle={{ color: c, fontWeight: 700 }}
+            formatter={(v) => [`${v} ${unit}`, ""]} cursor={{ stroke: P.line, strokeDasharray: "3 3" }} />
+          <R.Area type="monotone" dataKey="v" stroke="none" fill={`url(#${gid})`} isAnimationActive animationDuration={700} animationEasing="ease-out" />
+          <R.Line type="monotone" dataKey="v" stroke={c} strokeWidth={2.75}
+            dot={{ r: 3.5, fill: c, strokeWidth: 0 }} activeDot={{ r: 6, fill: c, stroke: P.bg, strokeWidth: 2 }}
+            isAnimationActive animationDuration={700} animationEasing="ease-out" />
+        </R.ComposedChart>
       </R.ResponsiveContainer>
     </div>
   );
@@ -13768,16 +13844,25 @@ const BarChartBox = ({ data, unit, color, height = 170 }) => {
       </div>
     );
   }
+  const c = color || P.text;
+  const gid = `fjBarGrad-${Math.random().toString(36).slice(2, 9)}`;
   return (
     <div style={{ width: "100%", height }}>
       <R.ResponsiveContainer>
         <R.BarChart data={data} margin={{ top: 8, right: 10, left: -14, bottom: 0 }}>
+          <defs>
+            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={c} stopOpacity={1} />
+              <stop offset="100%" stopColor={c} stopOpacity={0.55} />
+            </linearGradient>
+          </defs>
           <R.CartesianGrid stroke={P.line} strokeDasharray="3 3" vertical={false} />
           <R.XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 11 }} stroke={P.line} interval="preserveStartEnd" />
           <R.YAxis tick={{ fill: P.faint, fontSize: 11 }} stroke={P.line} domain={["auto", "auto"]} />
-          <R.Tooltip contentStyle={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, fontSize: 13 }}
-            labelStyle={{ color: P.dim }} cursor={{ fill: P.s3 }} formatter={(v) => [`${v} ${unit}`, ""]} />
-          <R.Bar dataKey="v" fill={color || P.text} radius={[4, 4, 0, 0]} />
+          <R.Tooltip contentStyle={chartTooltipStyle}
+            labelStyle={{ color: P.dim, fontWeight: 700 }} itemStyle={{ color: c, fontWeight: 700 }}
+            cursor={{ fill: P.s3, radius: 4 }} formatter={(v) => [`${v} ${unit}`, ""]} />
+          <R.Bar dataKey="v" fill={`url(#${gid})`} radius={[5, 5, 2, 2]} isAnimationActive animationDuration={550} animationEasing="ease-out" />
         </R.BarChart>
       </R.ResponsiveContainer>
     </div>
@@ -13789,6 +13874,7 @@ const BarChartBox = ({ data, unit, color, height = 170 }) => {
 // grises + el acento único, coherente con el resto del sistema.
 const PieChartBox = ({ data, unit, colors, height = 180 }) => {
   const [R, setR] = useState(null);
+  const [activeI, setActiveI] = useState(null);
   useEffect(() => { let on = true; cargarRecharts().then((m) => { if (on) setR(m); }).catch(() => {}); return () => { on = false; }; }, []);
   const total = data.reduce((s, d) => s + d.value, 0);
   if (!R) {
@@ -13798,17 +13884,63 @@ const PieChartBox = ({ data, unit, colors, height = 180 }) => {
       </div>
     );
   }
+  // La dona antes quedaba "hueca" de verdad: el agujero del centro no
+  // decía nada. Ahora el total vive ahí — lo que se está repartiendo, sin
+  // tener que sumar las porciones a mano — y la porción tocada crece un
+  // poco (activeIndex) para confirmar qué se está mirando.
+  return (
+    <div style={{ width: "100%", height, position: "relative" }}>
+      <R.ResponsiveContainer>
+        <R.PieChart>
+          <R.Pie data={data} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="82%" paddingAngle={3} stroke="none"
+            activeIndex={activeI} activeShape={(p) => <g><R.Sector {...p} outerRadius={p.outerRadius + 5} /></g>}
+            onMouseEnter={(_, i) => setActiveI(i)} onMouseLeave={() => setActiveI(null)}
+            isAnimationActive animationDuration={650} animationEasing="ease-out">
+            {data.map((d, i) => <R.Cell key={i} fill={colors[i % colors.length]} style={{ transition: "opacity .15s ease" }}
+              opacity={activeI == null || activeI === i ? 1 : 0.45} />)}
+          </R.Pie>
+          <R.Tooltip contentStyle={chartTooltipStyle}
+            labelStyle={{ color: P.dim, fontWeight: 700 }} formatter={(v, n) => [`${v} ${unit || ""} · ${total ? Math.round((v / total) * 100) : 0}%`, n]} />
+          <R.Legend verticalAlign="bottom" height={28} iconType="circle" wrapperStyle={{ fontSize: 12, color: P.faint2 }} />
+        </R.PieChart>
+      </R.ResponsiveContainer>
+      <div style={{ position: "absolute", top: "42%", left: "50%", transform: "translate(-50%,-50%)",
+        textAlign: "center", pointerEvents: "none" }}>
+        <div className="disp" style={{ fontSize: 20, fontWeight: 700, color: P.text, lineHeight: 1 }}>{total}</div>
+        {unit && <div style={{ fontSize: 10, color: P.faint, marginTop: 2 }}>{unit}</div>}
+      </div>
+    </div>
+  );
+};
+// Radar (telaraña): compara dos series contra los mismos ejes a la vez —
+// pensado para "Rutina A vs Rutina B", una serie por color. Cada gráfico
+// de la app hasta ahora mostraba UNA sola cosa; este es a propósito el
+// primero pensado para comparar dos de un vistazo.
+const RadarChartBox = ({ data, labelA, labelB, colorA, colorB, height = 300 }) => {
+  const [R, setR] = useState(null);
+  useEffect(() => { let on = true; cargarRecharts().then((m) => { if (on) setR(m); }).catch(() => {}); return () => { on = false; }; }, []);
+  if (!R) {
+    return (
+      <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Loader2 size={22} color={P.faint} className="fj-spin" />
+      </div>
+    );
+  }
   return (
     <div style={{ width: "100%", height }}>
       <R.ResponsiveContainer>
-        <R.PieChart>
-          <R.Pie data={data} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="82%" paddingAngle={2} stroke="none">
-            {data.map((d, i) => <R.Cell key={i} fill={colors[i % colors.length]} />)}
-          </R.Pie>
-          <R.Tooltip contentStyle={{ background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, fontSize: 13 }}
-            labelStyle={{ color: P.dim }} formatter={(v, n) => [`${v} ${unit || ""} · ${total ? Math.round((v / total) * 100) : 0}%`, n]} />
-          <R.Legend verticalAlign="bottom" height={28} iconType="circle" wrapperStyle={{ fontSize: 12, color: P.faint2 }} />
-        </R.PieChart>
+        <R.RadarChart data={data} margin={{ top: 6, right: 24, bottom: 6, left: 24 }}>
+          <R.PolarGrid stroke={P.line} />
+          <R.PolarAngleAxis dataKey="muscle" tick={{ fill: P.faint2, fontSize: 11 }} />
+          <R.PolarRadiusAxis angle={90} tick={false} axisLine={false} />
+          <R.Radar name={labelA} dataKey="a" stroke={colorA} fill={colorA} fillOpacity={0.28} strokeWidth={2}
+            isAnimationActive animationDuration={750} animationEasing="ease-out" />
+          <R.Radar name={labelB} dataKey="b" stroke={colorB} fill={colorB} fillOpacity={0.22} strokeWidth={2}
+            isAnimationActive animationDuration={750} animationEasing="ease-out" />
+          <R.Legend iconType="circle" wrapperStyle={{ fontSize: 12, color: P.faint2 }} />
+          <R.Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: P.dim, fontWeight: 700 }}
+            formatter={(v) => [`${v}%`, ""]} />
+        </R.RadarChart>
       </R.ResponsiveContainer>
     </div>
   );
@@ -24328,7 +24460,7 @@ const ROLE_META = {
 };
 const ROLE_ORDER = ["head_coach", "coach_asistente", "asistente", "nutricionista", "nutricionista_deportivo", "doctor", "kinesiologo", "quiropractico", "masoterapeuta", "solo_ver"];
 
-const TABS_COACH_IDS = ["dashboard", "rutina", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "progresion", "rankings", "cobros", "leads", "chat", "timer", "guia", "cmas"];
+const TABS_COACH_IDS = ["dashboard", "rutina", "creador", "borradores", "agenda", "nutricion", "ia", "indicaciones", "actividad", "progresion", "rankings", "cobros", "leads", "chat", "timer", "guia", "cmas"];
 // Pestañas de coach visibles + si cada una es editable, según el rol.
 // Sin equipo creado (o si el que entró es Head Coach) es acceso total: así
 // un coach solo, sin staff, no nota ningún cambio de comportamiento.
@@ -25719,7 +25851,7 @@ const TABS = {
   coach: [
     { id: "dashboard", label: "Panel", Icon: LayoutDashboard, sections: ["dashboard"] },
     { id: "atletas", label: "Atletas", Icon: Users, sections: ["actividad", "progresion", "rankings", "cobros", "leads"] },
-    { id: "rutina", label: "Rutinas", Icon: ClipboardList, sections: ["rutina", "borradores", "nutricion", "ia"] },
+    { id: "rutina", label: "Rutinas", Icon: ClipboardList, sections: ["rutina", "creador", "borradores", "nutricion", "ia"] },
     { id: "indicaciones", label: "Mensajes", Icon: MessageSquare, sections: ["chat", "indicaciones"] },
     { id: "cmas", label: "Más", Icon: MoreHorizontal, sections: ["cmas"] },
   ],
@@ -25727,7 +25859,7 @@ const TABS = {
 const SECTION_LABELS = {
   chat: "Chat", indicaciones: "Indicaciones", cmas: "Más",
   actividad: "Actividad", progresion: "Progresión", rankings: "Rankings", cobros: "Cobros", leads: "Leads",
-  rutina: "Rutina", borradores: "Borradores", nutricion: "Nutrición", ia: "IA",
+  rutina: "Rutina", creador: "Creador", borradores: "Borradores", nutricion: "Nutrición", ia: "IA",
 };
 /* Pantalla "Atajos de iPhone". Cumple el mismo papel que la pantalla de
    ayuda de Setgraph: decir qué se puede automatizar y cómo. La diferencia
@@ -27392,6 +27524,251 @@ function compareStatsForDays(days, refTable) {
     porMusculoEx,
   };
 }
+
+const studioChipBtn = { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700,
+  color: P.text, background: P.s3, borderRadius: 20, padding: "6px 11px" };
+
+/* ============================================================
+   Creador de rutinas — sección aparte (propia pestaña, junto a
+   Rutina/Borradores/Nutrición/IA) para ver TODAS las rutinas de un
+   vistazo, compararlas con un radar y saltar a editarlas. No reemplaza
+   "Rutina › Días" —ahí se sigue tocando cada ejercicio y cada serie, con
+   el editor de siempre— esto es la vista de arriba: qué rutinas hay,
+   cuánto volumen mueve cada una por músculo, y en qué se diferencian dos
+   entre sí, pensada para mirar y comparar, no para tipear.
+   ============================================================ */
+const ROUTINE_BADGE_COLORS = [P.ember, P.accent2];
+const RoutineStudioView = ({ plan, savePlan, toast }) => {
+  const enhanced = (plan.athlete || {}).enhanced === "asistido";
+  const refTable = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
+  const groups = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames), [plan.days, plan.routineNames]);
+  const statsByKey = useMemo(() => {
+    const m = {};
+    groups.forEach((g) => { m[g.key] = compareStatsForDays(g.days, refTable); });
+    return m;
+  }, [groups, refTable]);
+
+  const [modo, setModo] = useState("cards"); // 'cards' | 'comparar'
+  const [aKey, setAKey] = useState(groups[0] ? groups[0].key : "");
+  const [bKey, setBKey] = useState(groups[1] ? groups[1].key : (groups[0] ? groups[0].key : ""));
+  const [rename, setRename] = useState(null); // {key, value}
+  const [del, setDel] = useState(null); // {key, label}
+
+  // Si se borra/duplica una rutina, que A/B sigan apuntando a algo que
+  // existe — sin esto, comparar quedaba mudo (select en blanco) hasta
+  // tocarlo a mano.
+  useEffect(() => {
+    if (!groups.length) return;
+    if (!groups.find((g) => g.key === aKey)) setAKey(groups[0].key);
+    if (!groups.find((g) => g.key === bKey)) setBKey(groups[1] ? groups[1].key : groups[0].key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups]);
+
+  const mut = (fn) => { const p = structuredClone(plan); fn(p); p.updatedAt = todayISO(); savePlan(p); };
+
+  const crearRutina = () => {
+    mut((p) => {
+      const key = nextRoutineKey(p.days);
+      p.days = [...p.days, { id: uid(), name: "Día 1", routine: key, exs: [] }];
+    });
+    if (toast) toast("✓ Rutina nueva creada — abrila en «Rutina» para cargarle días y ejercicios.");
+  };
+  const duplicar = (key) => {
+    mut((p) => duplicateRoutineGroup(p, key));
+    if (toast) toast(`✓ ${routineLabel(key, plan.routineNames)} duplicada`);
+  };
+  const confirmarBorrar = () => {
+    if (!del) return;
+    mut((p) => deleteRoutineGroup(p, del.key));
+    if (toast) toast(`✓ ${del.label} eliminada`);
+    setDel(null);
+  };
+  const guardarNombre = () => {
+    if (!rename) return;
+    const value = rename.value.trim();
+    if (value) mut((p) => { p.routineNames = { ...(p.routineNames || {}), [rename.key]: value }; });
+    setRename(null);
+  };
+
+  // "Más volumen": no pretende ser una métrica seria de programación, es
+  // un ranking simple (series efectivas totales) para darle a la grilla
+  // un ganador — el toque de juego que pidió el coach, sin inventar una
+  // fórmula que suene más científica de lo que es.
+  const ranking = useMemo(() => groups.map((g) => ({ key: g.key, total: (statsByKey[g.key] || {}).efectivas || 0 }))
+    .sort((a, b) => b.total - a.total), [groups, statsByKey]);
+  const topKey = ranking[0] ? ranking[0].key : null;
+
+  const A = groups.find((g) => g.key === aKey);
+  const B = groups.find((g) => g.key === bKey);
+  const sA = A ? statsByKey[A.key] : null;
+  const sB = B ? statsByKey[B.key] : null;
+
+  // % del MRV de cada músculo, no series crudas: así una rutina de piernas
+  // pesadas y una de brazos livianos se leen en la MISMA escala del radar
+  // en vez de que el músculo con más series absolutas aplaste al resto.
+  const radarData = useMemo(() => {
+    if (!sA || !sB) return [];
+    return Object.keys(refTable).map((m) => {
+      const ref = refTable[m];
+      const a = sA.porMusculo[m] || 0, b = sB.porMusculo[m] || 0;
+      return { muscle: m, a: Math.round((a / ref.mrv) * 100), b: Math.round((b / ref.mrv) * 100) };
+    });
+  }, [sA, sB, refTable]);
+
+  const filas = useMemo(() => {
+    if (!sA || !sB) return [];
+    const nombres = Array.from(new Set([...Object.keys(sA.porMusculo), ...Object.keys(sB.porMusculo)]));
+    return nombres.map((m) => ({ muscle: m, a: sA.porMusculo[m] || 0, b: sB.porMusculo[m] || 0 }))
+      .sort((x, y) => Math.abs(y.a - y.b) - Math.abs(x.a - x.b));
+  }, [sA, sB]);
+
+  const veredicto = useMemo(() => {
+    if (!filas.length || !A || !B) return null;
+    const top = filas[0];
+    if (Math.abs(top.a - top.b) < 0.5) return "Estas dos rutinas mueven un volumen muy parecido en todos los grupos — la diferencia está más en los ejercicios elegidos que en el volumen.";
+    const gana = top.a > top.b ? A.label : B.label;
+    const delta = fmtSets(Math.abs(top.a - top.b));
+    return `${gana} le mete ${delta} series más de ${top.muscle} que la otra — la diferencia más grande entre las dos.`;
+  }, [filas, A, B]);
+
+  return (
+    <div style={{ padding: `18px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
+      <ScreenTitle title="Creador de rutinas" sub="Todas tus rutinas de un vistazo — comparalas por volumen y saltá a editarlas en «Rutina»."
+        tabs={<SectionSwitch compact value={modo} onChange={setModo}
+          items={[{ id: "cards", label: "Rutinas" }, { id: "comparar", label: "Comparar" }]} />} />
+
+      {modo === "cards" ? (
+        groups.length === 0 ? (
+          <Empty icon={Layers} title="Todavía no hay rutinas" body="Creá la primera y empezá a cargarle días y ejercicios desde «Rutina»." />
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {groups.map((g, idx) => {
+              const s = statsByKey[g.key];
+              const top3 = Object.entries(s.porMusculo).sort((a, b) => b[1] - a[1]).slice(0, 3);
+              const topSet = Math.max(1, ...top3.map((x) => x[1]));
+              return (
+                <div key={g.key} className="fj-studio-card" style={{ "--i": idx, position: "relative", background: P.s1,
+                  border: `1px solid ${P.frame}`, borderRadius: R_CARD, padding: 16,
+                  display: "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
+                  {g.key === topKey && ranking.length > 1 && ranking[0].total > 0 && (
+                    <span style={{ position: "absolute", top: 10, right: 10, display: "flex", alignItems: "center", gap: 3,
+                      fontSize: 10, fontWeight: 700, color: PLATE_FG, background: PLATE_GRAD, padding: "3px 8px", borderRadius: 20 }}>
+                      <Trophy size={11} /> más volumen
+                    </span>
+                  )}
+                  <button onClick={() => setRename({ key: g.key, value: g.label })} style={{ textAlign: "left" }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: P.text, lineHeight: 1.2,
+                      paddingRight: (g.key === topKey && ranking.length > 1) ? 66 : 0 }}>{g.label}</div>
+                    <div style={{ fontSize: 12, color: P.faint, marginTop: 2 }}>
+                      {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {fmtSets(s.efectivas)} series
+                    </div>
+                  </button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {top3.length === 0 ? (
+                      <div style={{ fontSize: 12, color: P.textQuaternary }}>Sin ejercicios todavía</div>
+                    ) : top3.map(([m, v]) => (
+                      <div key={m} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11, color: P.faint2, width: 62, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m}</span>
+                        <div style={{ flex: 1, height: 6, borderRadius: 3, background: P.fillTertiary, overflow: "hidden" }}>
+                          <div className="fj-studio-bar" style={{ height: "100%", width: `${Math.max(6, (v / topSet) * 100)}%`, background: P.prog, borderRadius: 3 }} />
+                        </div>
+                        <span className="mono" style={{ fontSize: 10.5, color: P.faint, width: 22, textAlign: "right", flexShrink: 0 }}>{fmtSets(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, marginTop: "auto", flexWrap: "wrap" }}>
+                    <button onClick={() => duplicar(g.key)} style={studioChipBtn}>
+                      <Copy size={12} /> Duplicar
+                    </button>
+                    <button onClick={() => setDel({ key: g.key, label: g.label })} style={{ ...studioChipBtn, color: P.red }}>
+                      <Trash2 size={12} /> Eliminar
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <button onClick={crearRutina} style={{ minHeight: 150, border: `1.5px dashed ${P.frame}`, borderRadius: R_CARD,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, color: P.faint }}>
+              <Plus size={22} />
+              <span style={{ fontSize: 13, fontWeight: 700 }}>Nueva rutina</span>
+            </button>
+          </div>
+        )
+      ) : (
+        !sA || !sB ? (
+          <Empty icon={Columns2} title="Hace falta al menos una rutina" body="Creá una rutina en «Rutinas» para poder compararla." />
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+              {[{ label: "Rutina A", value: aKey, set: setAKey, color: ROUTINE_BADGE_COLORS[0] },
+                { label: "Rutina B", value: bKey, set: setBKey, color: ROUTINE_BADGE_COLORS[1] }].map((sel) => (
+                <div key={sel.label} style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 4, background: sel.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>{sel.label}</span>
+                  </div>
+                  <select value={sel.value} aria-label={sel.label} onChange={(e) => sel.set(e.target.value)}
+                    style={{ width: "100%", padding: "9px 10px", fontSize: 14, fontWeight: 700, color: P.text,
+                      background: P.s3, border: "none", borderRadius: R_ROW, appearance: "auto" }}>
+                    {groups.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <Card style={{ padding: 14, marginBottom: 14 }}>
+              <RadarChartBox data={radarData} labelA={A.label} labelB={B.label} colorA={ROUTINE_BADGE_COLORS[0]} colorB={ROUTINE_BADGE_COLORS[1]} />
+              <div style={{ fontSize: 11, color: P.faint, textAlign: "center", marginTop: 2 }}>
+                % del MRV ({enhanced ? "asistido" : "natural"}) por músculo — 100% es el techo recuperable de esa rutina en ese grupo.
+              </div>
+            </Card>
+
+            {veredicto && (
+              <Card style={{ padding: "12px 14px", marginBottom: 14, display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <Zap size={17} color={P.ember} style={{ flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontSize: 13.5, color: P.text, lineHeight: 1.45 }}>{veredicto}</div>
+              </Card>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {filas.map((f) => {
+                const max = Math.max(1, f.a, f.b);
+                return (
+                  <div key={f.muscle} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: P.dim, fontWeight: 600 }}>
+                      <span>{f.muscle}</span>
+                      <span style={{ color: P.faint }}>{fmtSets(f.a)} vs {fmtSets(f.b)}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 3, height: 7 }}>
+                      <div style={{ flex: 1, borderRadius: 3, background: P.fillTertiary, overflow: "hidden", display: "flex", justifyContent: "flex-end" }}>
+                        <div className="fj-studio-bar" style={{ width: `${(f.a / max) * 100}%`, background: ROUTINE_BADGE_COLORS[0], borderRadius: 3 }} />
+                      </div>
+                      <div style={{ flex: 1, borderRadius: 3, background: P.fillTertiary, overflow: "hidden" }}>
+                        <div className="fj-studio-bar" style={{ width: `${(f.b / max) * 100}%`, background: ROUTINE_BADGE_COLORS[1], borderRadius: 3 }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )
+      )}
+
+      <Sheet open={!!rename} onClose={() => setRename(null)} title="Nombre de la rutina">
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Inp value={rename ? rename.value : ""} onChange={(e) => setRename((r) => ({ ...r, value: e.target.value }))}
+            placeholder="Nombre de la rutina" autoFocus />
+          <Btn kind="ember" onClick={guardarNombre} style={{ width: "100%" }}>Guardar</Btn>
+        </div>
+      </Sheet>
+
+      <Confirm open={!!del} title="¿Eliminar rutina?" danger
+        body={del ? `Se van a borrar todos los días y ejercicios de "${del.label}". Esto no se puede deshacer.` : ""}
+        okLabel="Eliminar" onOk={confirmarBorrar} onCancel={() => setDel(null)} />
+    </div>
+  );
+};
 
 const RoutineCompareScreen = ({ onClose, plan }) => {
   const enhanced = (plan.athlete || {}).enhanced === "asistido";
@@ -30455,6 +30832,7 @@ const App = () => {
     } else {
       tool("Agenda", Calendar, () => setUtility("agenda"), "agenda turnos disponibilidad reservas");
       tool("Comparar rutinas", Columns2, () => setCompareOpen(true), "comparar rutinas diferencias");
+      tool("Creador de rutinas", Layers, () => { setUtility(null); setTab("rutina"); setSection((o) => ({ ...o, rutina: "creador" })); }, "crear rutina constructor comparar radar duplicar");
       tool("Ficha del alumno", ClipboardList, () => setFichaOpen(true), "ficha historial checkin datos atleta");
       if (myRoleMeta.manageTeam) tool("Equipo", Award, () => setEquipoOpen(true), "equipo coaches nutricionistas permisos");
       tool("Coach IA", Sparkles, () => { setUtility(null); setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }, "ia inteligencia artificial asistente");
@@ -30676,6 +31054,11 @@ const App = () => {
           <ReadOnlyLock active={roleTabAccess.ia === "view"} toast={toast}>
             <AITab plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast}
               jumpSub={aiJumpSub} onJumpConsumed={() => setAiJumpSub(null)} library={library} onSaveLibrary={saveLibrary} />
+          </ReadOnlyLock>
+        )}
+        {mode === "coach" && sub === "creador" && (
+          <ReadOnlyLock active={roleTabAccess.creador === "view"} toast={toast}>
+            <RoutineStudioView plan={plan} savePlan={savePlan} toast={toast} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && sub === "indicaciones" && (
