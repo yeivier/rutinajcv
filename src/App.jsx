@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v346";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v347";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -20317,8 +20317,6 @@ const LEAD_STAGES = [
   { id: "convertido", label: "Convertido", next: null, nextLabel: null },
 ];
 const leadSourceLabel = (id) => (LEAD_SOURCES.find((s) => s.id === id) || LEAD_SOURCES[4]).label;
-// Entrenadores profesionales de FORJA, por WhatsApp.
-const SOPORTE_WA = "https://wa.me/56975549829";
 
 const waLink = (phone) => { const digits = (phone || "").replace(/[^\d]/g, ""); return digits ? `https://wa.me/${digits}` : null; };
 
@@ -28176,10 +28174,6 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
       { key: "examenes", Icon: FileText, label: "Exámenes con IA", kw: "inbody dexa composición corporal pdf informe leer indicadores", onClick: onOpenExams },
     ] },
     { label: "Herramientas", rows: [
-      // Entrenadores de carne y hueso, por WhatsApp: para la duda que el
-      // Coach IA no resuelve (una molestia rara, una técnica que no sale).
-      { key: "wa", Icon: MessageSquare, label: "Hablar con un entrenador", kw: "whatsapp entrenador profesional duda consulta humano soporte",
-        onClick: () => window.open(SOPORTE_WA, "_blank", "noopener") },
       { key: "atajos", Icon: Smartphone, label: "Atajos de iPhone", kw: "siri shortcuts atajo pantalla de inicio registrar rapido widget", onClick: () => onOpenUtility("atajos") },
       { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva cronómetro", onClick: () => onOpenUtility("timer") },
       { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "qué significa etiqueta rutina", onClick: () => onOpenUtility("guia") },
