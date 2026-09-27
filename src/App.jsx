@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v350";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v351";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -19372,7 +19372,7 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
       )}
       {sub === "log" && (
         logGroups.length === 0 ? (
-          <Empty icon={History} title="Sin registro todavía" body="Acá vas a ver cada vez que el alumno entra o sale de la app, y qué carga o cambia: comidas marcadas, opciones elegidas, peso, sueño, pasos y más." />
+          <Empty icon={History} title="Sin registro todavía" body="Acá vas a ver cada vez que el alumno entra o sale de la app, qué carga o cambia (comidas marcadas, opciones elegidas, peso, sueño, pasos y más) y cada notificación que le llega al celular, con lo que decía." />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             {logGroups.map((g) => (
@@ -19380,13 +19380,14 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
                 <div style={{ fontSize: 13, fontWeight: 700, color: P.faint2, marginBottom: 8, paddingLeft: 2 }}>{g.day}</div>
                 <Card style={{ overflow: "hidden" }}>
                   {g.items.map((e, i) => {
-                    const Icon = e.type === "login" ? LogIn : e.type === "logout" ? LogOut : History;
+                    const Icon = e.type === "login" ? LogIn : e.type === "logout" ? LogOut : e.type === "notification" ? Bell : History;
+                    const iconColor = e.type === "login" ? SES.acc : e.type === "logout" ? P.faint2 : e.type === "notification" ? P.blue : P.ember2;
                     return (
                       <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 14px",
                         borderBottom: i < g.items.length - 1 ? `1px solid ${P.line}` : "none" }}>
                         <span style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center",
                           background: P.s3, border: `1px solid ${P.line}` }}>
-                          <Icon size={13} color={e.type === "login" ? SES.acc : e.type === "logout" ? P.faint2 : P.ember2} />
+                          <Icon size={13} color={iconColor} />
                         </span>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, color: P.text, lineHeight: 1.4 }}>{e.label}</span>
                         <span style={{ fontSize: 12.5, color: P.faint2, flexShrink: 0, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{fmtChatTime(e.ts)}</span>
