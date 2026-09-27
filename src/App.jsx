@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v351";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v352";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -25510,7 +25510,7 @@ const GlobalSearchSheet = ({ open, onClose, items }) => {
   );
 };
 
-const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha, sid, plan }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha, sid, plan, savePlan }) => {
   const [theme, setTheme] = useTheme();
   const [accent, setAccent] = useAccent();
   const [bg, setBg] = useBg();
@@ -25613,6 +25613,21 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
         <SettingRow Icon={ClipboardList} label="Editor de rutina" hint={routineView === "compacto" ? "Compacto — una fila por ejercicio" : "Completo — crear días, arrastrar, copiar"} last
           control={<SectionSwitch items={[{ id: "completo", label: "Completo" }, { id: "compacto", label: "Compacto" }]} value={routineView} onChange={onChangeRoutineView} />} />
       </SettingGroup>
+
+      {mode === "alumno" && (
+        <SettingGroup label="Privacidad">
+          <SettingRow Icon={Bell} label="Notificaciones visibles para tu coach" last
+            hint={plan?.notifyLogConsent
+              ? "Tu coach ve, en tu Actividad, qué avisos te llegan al celular y qué decían"
+              : "Desactivado — tu coach no ve el contenido de tus avisos"}
+            right={<Toggle on={!!plan?.notifyLogConsent} onChange={(v) => {
+              if (!savePlan) return;
+              const p = structuredClone(plan);
+              p.notifyLogConsent = v;
+              savePlan(p);
+            }} label="Notificaciones visibles para tu coach" />} />
+        </SettingGroup>
+      )}
 
       <SettingGroup label="Cuenta">
         {mode === "alumno" && <SettingRow Icon={Watch} label="Dispositivos" hint="Relojes, básculas y apps de salud" onClick={onOpenDevices} />}
@@ -31263,7 +31278,7 @@ const App = () => {
         onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }}
         faceIdWho={delegate ? delegate.id : myTeamId ? `team:${myTeamId}` : "owner"}
         onOpenFicha={() => { setMoreOpen(false); setFichaOpen(true); }}
-        sid={sid} plan={plan} />
+        sid={sid} plan={plan} savePlan={savePlan} />
       <FichaSheet open={fichaOpen} onClose={() => setFichaOpen(false)} plan={plan} savePlan={savePlan}
         history={history} currentStudent={currentStudent} toast={toast} />
       <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast}
