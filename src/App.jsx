@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v348";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v349";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2423,66 +2423,75 @@ async function sbListKeysLike(prefix) {
   }
 }
 
-/* ---------------- Claude API (llamada directa desde el navegador) ----------------
-   Usamos streaming (SSE): la respuesta llega por partes, así un análisis largo
-   (por ej. un plan de 12 meses) no se corta por un timeout fijo. El timeout es
-   "por inactividad": solo salta si dejan de llegar datos durante idleMs.
+/* ---------------- IA gratuita (llamada directa desde el navegador) ----------------
+   Hasta v348 esto llamaba a la API de pago de Anthropic con una API key que
+   cada coach tenía que conseguir y cargar de su bolsillo. Ahora llama a
+   Pollinations (text.pollinations.ai), un proxy gratuito y sin registro sobre
+   modelos tipo GPT — nadie paga nada ni configura ninguna key. La firma de
+   la función se mantiene igual a propósito (mismo `apiKey` de entrada, ya sin
+   uso real) para no tocar ninguno de los puntos que la llaman: el chat del
+   Coach IA, la IA Nutricional, el importador de rutinas y el análisis de
+   fotos/exámenes.
 
-   "Load failed" / "Failed to fetch" son errores de red del propio navegador (no
-   llegó a haber respuesta HTTP): caídas de wifi/datos, un bloqueador de anuncios,
-   una VPN o un DNS privado interceptando api.anthropic.com. Reintentamos una vez
-   esos casos y damos un mensaje claro en vez del texto crudo del navegador. */
-async function callClaudeAPI(apiKey, body, { idleMs = 90000, retries = 1 } = {}) {
+   Traduce el formato de mensajes de Anthropic (bloques text/image/document)
+   al formato de OpenAI que espera Pollinations (texto + image_url en base64).
+   Un modelo gratuito de visión no puede leer un PDF crudo como los "document"
+   de Anthropic: en vez de fallar en silencio, se avisa dentro del propio
+   mensaje para que la IA pueda explicárselo a quien lo mandó. */
+const FREE_AI_MODEL = "openai";
+
+function anthropicBlocksToOpenAI(system, messages) {
+  const out = [];
+  if (system) out.push({ role: "system", content: system });
+  for (const m of messages || []) {
+    if (typeof m.content === "string") { out.push({ role: m.role, content: m.content }); continue; }
+    const parts = [];
+    let hadDoc = false;
+    for (const blk of m.content || []) {
+      if (!blk) continue;
+      if (blk.type === "text") parts.push({ type: "text", text: blk.text || "" });
+      else if (blk.type === "image" && blk.source && blk.source.data) {
+        parts.push({ type: "image_url", image_url: { url: `data:${blk.source.media_type || "image/jpeg"};base64,${blk.source.data}` } });
+      } else if (blk.type === "document") {
+        hadDoc = true;
+      }
+    }
+    if (hadDoc) {
+      parts.push({ type: "text", text: "[Se adjuntó un PDF. La IA gratuita no puede leer archivos PDF directamente — si hace falta ese contenido, pide que suban una foto o captura de pantalla de esa página en vez del PDF.]" });
+    }
+    if (!parts.length) continue;
+    out.push({ role: m.role === "assistant" ? "assistant" : "user", content: parts.length === 1 && parts[0].type === "text" ? parts[0].text : parts });
+  }
+  return out;
+}
+
+async function callClaudeAPI(apiKey, body, { idleMs = 120000, retries = 1 } = {}) {
+  const messages = anthropicBlocksToOpenAI(body.system, body.messages);
   for (let attempt = 0; ; attempt++) {
     const ctrl = new AbortController();
-    let timer = setTimeout(() => ctrl.abort(), idleMs);
-    const bump = () => { clearTimeout(timer); timer = setTimeout(() => ctrl.abort(), idleMs); };
+    const timer = setTimeout(() => ctrl.abort(), idleMs);
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
+      const r = await fetch("https://text.pollinations.ai/openai", {
         method: "POST",
         signal: ctrl.signal,
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({ ...body, stream: true }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: FREE_AI_MODEL, messages, max_tokens: Math.min(body.max_tokens || 2000, 8000) }),
       });
       if (!r.ok) {
         clearTimeout(timer);
         const txt = await r.text().catch(() => "");
-        let msg = `Error ${r.status}: ${txt.slice(0, 300)}`;
-        try { const j = JSON.parse(txt); if (j && j.error && j.error.message) msg = j.error.message; } catch {}
-        if (r.status === 401) msg = "La API key de Anthropic es inválida o fue revocada. Revísala en la pestaña IA.";
-        else if (r.status === 429) msg = "Se alcanzó el límite de uso de tu cuenta de Anthropic. Intenta de nuevo en unos minutos.";
-        else if (r.status >= 500 && attempt < retries) continue; // error del servidor: reintenta una vez
+        if (r.status === 429 && attempt < retries) { await new Promise((res) => setTimeout(res, 1500)); continue; }
+        if (r.status >= 500 && attempt < retries) continue; // error del servidor: reintenta una vez
+        let msg = `Error ${r.status}: ${txt.slice(0, 300) || "la IA gratuita no respondió."}`;
+        if (r.status === 429) msg = "La IA gratuita está saturada en este momento (es un servicio gratis y compartido). Intenta de nuevo en un minuto.";
         throw new Error(msg);
       }
-      // Lee el stream SSE y arma el texto de la respuesta a partir de los deltas.
-      const reader = r.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "", text = "", stopReason = null;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        bump();
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop(); // deja la última línea (posiblemente incompleta) en el buffer
-        for (const line of lines) {
-          const l = line.trim();
-          if (!l.startsWith("data:")) continue;
-          const payload = l.slice(5).trim();
-          if (!payload || payload === "[DONE]") continue;
-          let ev;
-          try { ev = JSON.parse(payload); } catch { continue; }
-          if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") text += ev.delta.text;
-          else if (ev.type === "message_delta" && ev.delta && ev.delta.stop_reason) stopReason = ev.delta.stop_reason;
-          else if (ev.type === "error") throw new Error(ev.error && ev.error.message ? ev.error.message : "La IA devolvió un error durante el análisis.");
-        }
-      }
+      const j = await r.json().catch(() => null);
       clearTimeout(timer);
+      const choice = j && j.choices && j.choices[0];
+      const text = (choice && choice.message && choice.message.content) || "";
+      if (!text) throw new Error("La IA gratuita no devolvió una respuesta. Intenta de nuevo.");
+      const stopReason = choice && choice.finish_reason === "length" ? "max_tokens" : "end_turn";
       return { content: [{ type: "text", text }], stop_reason: stopReason };
     } catch (e) {
       clearTimeout(timer);
@@ -2491,7 +2500,7 @@ async function callClaudeAPI(apiKey, body, { idleMs = 90000, retries = 1 } = {})
       const isNetwork = isAbort || e instanceof TypeError; // fetch nunca llegó a tener respuesta
       if (isNetwork && attempt < retries) continue;
       if (isAbort) throw new Error("La IA tardó demasiado en responder. Revisa tu conexión e inténtalo de nuevo (los archivos muy grandes pueden tardar).");
-      if (isNetwork) throw new Error("No se pudo conectar con la IA de Anthropic. Revisa tu conexión a internet; si usas un bloqueador de anuncios, VPN o DNS privado, puede estar bloqueando api.anthropic.com.");
+      if (isNetwork) throw new Error("No se pudo conectar con la IA gratuita. Revisa tu conexión a internet; si usas un bloqueador de anuncios, VPN o DNS privado, puede estar bloqueando text.pollinations.ai.");
       throw e;
     }
   }
@@ -16365,7 +16374,7 @@ const ExerciseEditorSheet = ({ ex, onSave, onClose, onInfo, meso, history }) => 
    Importador de rutina desde archivo (usa Claude API)
    ============================================================ */
 const ImportRoutineSheet = ({ open, onClose, plan, savePlan, toast }) => {
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState("gratis"); // IA gratuita: no hace falta ninguna key para que esto quede "configurado"
   const [step, setStep] = useState("input");
   const [text, setText] = useState("");
   const [file, setFile] = useState(null);
@@ -16626,7 +16635,7 @@ function parseMesoJSON(rawText) {
    de semanas (nombre + descarga + una nota de enfoque) — no toca los
    ejercicios uno por uno. ---- */
 const ImportMesoSheet = ({ open, onClose, toast, onAdd }) => {
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState("gratis"); // IA gratuita: no hace falta ninguna key para que esto quede "configurado"
   const [step, setStep] = useState("input");
   const [text, setText] = useState("");
   const [file, setFile] = useState(null);
@@ -20783,9 +20792,8 @@ const IntervalTimer = () => {
    IA Nutricional (usa la API de Anthropic con la API key del coach)
    ============================================================ */
 const NutriAITab = ({ plan, savePlan, currentStudent }) => {
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState("gratis"); // IA gratuita: no hace falta ninguna key para que esto quede "configurado"
   const [keyLoaded, setKeyLoaded] = useState(false);
-  const [showKeyEdit, setShowKeyEdit] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -20801,11 +20809,6 @@ const NutriAITab = ({ plan, savePlan, currentStudent }) => {
   }, []);
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
-
-  const saveKey = async () => {
-    await sSet("forja-ai-key", apiKey.trim());
-    setShowKeyEdit(false);
-  };
 
   const systemPrompt = `Eres una IA experta en nutrición deportiva y asesoría en fitness, integrada en FORJA, una plataforma de entrenamiento. Estás asesorando al coach sobre el alumno actual.
 
@@ -20881,27 +20884,20 @@ REGLAS:
         Diseña y ajusta la nutrición del alumno. Ya conoce el plan actual.
       </div>
 
-      {!apiKey || showKeyEdit ? (
+      {!apiKey ? (
         <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.dim}` }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-            <AlertTriangle size={16} color={P.ember2} />
-            <div style={{ fontWeight: 700, fontSize: 15 }}>Configura tu API key de Anthropic</div>
+            <Sparkles size={16} color={P.ember2} />
+            <div style={{ fontWeight: 700, fontSize: 15 }}>IA gratuita</div>
           </div>
           <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5, marginBottom: 10 }}>
-            Consigue una API key en <b>console.anthropic.com</b> → Settings → API Keys. Es tuya (gratis para probar, luego con crédito). Se guarda cifrada en tu Supabase, no se envía a nadie más.
-            <br /><br />
-            <b>Aviso técnico:</b> por limitaciones del navegador la key viaja desde tu equipo hacia la API de Anthropic. Úsala solo para este uso y revócala si sospechas filtración.
+            No hace falta configurar nada ni pagar nada — la IA está activa por defecto.
           </div>
-          <Inp type="password" placeholder="sk-ant-…" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            {showKeyEdit && <Btn kind="line" onClick={() => setShowKeyEdit(false)} style={{ flex: 1 }}>Cancelar</Btn>}
-            <Btn kind="ember" disabled={!apiKey.trim()} onClick={saveKey} style={{ flex: 2 }}>Guardar API key</Btn>
-          </div>
+          <Btn kind="ember" onClick={() => setApiKey("gratis")}>Activar</Btn>
         </Card>
       ) : (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, fontSize: 13, color: P.faint }}>
-          <Check size={14} color={P.green} /> API key configurada
-          <button onClick={() => setShowKeyEdit(true)} style={{ color: P.ember, marginLeft: 6, fontSize: 13 }}>cambiar</button>
+          <Check size={14} color={P.green} /> IA gratuita activa
         </div>
       )}
 
@@ -23155,10 +23151,8 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
 /* ---- Pestaña IA: agente de culturismo + nutrición ---- */
 const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJumpConsumed, library, onSaveLibrary }) => {
   const [sub, setSub] = useState("agente");
-  const [apiKey, setApiKey] = useState("");
-  const [draftKey, setDraftKey] = useState("");
+  const [apiKey, setApiKey] = useState("gratis"); // IA gratuita: no hace falta ninguna key para que esto quede "configurado"
   const [keyLoaded, setKeyLoaded] = useState(false);
-  const [showKeyEdit, setShowKeyEdit] = useState(false);
 
   // Permite abrir esta pestaña directo en una sub-sección (p.ej. desde el
   // botón "Habla con el coach IA de nutrición" en la pestaña Nutrición).
@@ -23169,16 +23163,10 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
   useEffect(() => {
     (async () => {
       const k = await sGet("forja-ai-key");
-      if (k) { setApiKey(k); setDraftKey(k); }
+      setApiKey(k || "gratis");
       setKeyLoaded(true);
     })();
   }, []);
-
-  const saveKey = async () => {
-    const k = draftKey.trim();
-    await sSet("forja-ai-key", k);
-    setApiKey(k); setShowKeyEdit(false);
-  };
 
   if (!keyLoaded) return <LoadingBlock />;
   if (sub === "nutricion") {
@@ -23208,34 +23196,26 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
         </div>
       )}
 
-      {(!apiKey || showKeyEdit) && (
+      {!apiKey ? (
         <Card style={{ padding: 14, marginBottom: 14, borderColor: `${P.dim}` }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-            <AlertTriangle size={16} color={P.ember2} />
-            <div style={{ fontWeight: 700, fontSize: 15 }}>Configura tu API key de Anthropic</div>
+            <Sparkles size={16} color={P.ember2} />
+            <div style={{ fontWeight: 700, fontSize: 15 }}>IA gratuita</div>
           </div>
           <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.5, marginBottom: 10 }}>
-            Consigue una API key en <b>console.anthropic.com</b> → Settings → API Keys. Se guarda en tu Supabase y se usa tanto para este agente como para el importador de rutinas y la IA de nutrición.
-            <br /><br />
-            <b>Aviso técnico:</b> por limitaciones del navegador la key viaja desde tu equipo hacia la API de Anthropic. Úsala solo para este uso y revócala si sospechas filtración.
+            No hace falta configurar nada ni pagar nada — la IA está activa por defecto.
           </div>
-          <Inp type="password" placeholder="sk-ant-…" value={draftKey} onChange={(e) => setDraftKey(e.target.value)} />
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            {showKeyEdit && <Btn kind="line" onClick={() => { setDraftKey(apiKey); setShowKeyEdit(false); }} style={{ flex: 1 }}>Cancelar</Btn>}
-            <Btn kind="ember" disabled={!draftKey.trim()} onClick={saveKey} style={{ flex: 2 }}>Guardar API key</Btn>
-          </div>
+          <Btn kind="ember" onClick={() => setApiKey("gratis")}>Activar</Btn>
         </Card>
-      )}
-      {apiKey && !showKeyEdit && (
+      ) : (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, fontSize: 13, color: P.faint }}>
-          <Check size={14} color={P.green} /> API key configurada
-          <button onClick={() => setShowKeyEdit(true)} style={{ color: P.ember, marginLeft: 6, fontSize: 13 }}>cambiar</button>
+          <Check size={14} color={P.green} /> IA gratuita activa
         </div>
       )}
 
       {sub === "agente" && (
         <BodybuildingChat plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent}
-          apiKey={apiKey} onNeedKey={() => setShowKeyEdit(true)} toast={toast} />
+          apiKey={apiKey} toast={toast} />
       )}
       {sub === "ficha" && <FichaCompleta plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast} />}
       {sub === "volumen" && <VolumePanel plan={plan} toast={toast} />}
@@ -29708,7 +29688,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
   const [dragging, setDragging] = useState(false);
   const [holding, setHolding] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState("gratis"); // IA gratuita: no hace falta ninguna key para que esto quede "configurado"
   const dragRef = useRef({ startX: 0, startY: 0, startRight: 0, startBottom: 0, moved: false, hidden: false });
   const holdTimer = useRef(null);
 
@@ -29735,7 +29715,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
   useEffect(() => {
     if (mode !== "alumno") return;
     let alive = true;
-    (async () => { const k = await sGet("forja-ai-key"); if (alive) setApiKey(k || ""); })();
+    (async () => { const k = await sGet("forja-ai-key"); if (alive) setApiKey(k || "gratis"); })();
     return () => { alive = false; };
   }, [mode, chatOpen]);
 
