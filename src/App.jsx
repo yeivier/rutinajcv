@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v349";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v350";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -27606,6 +27606,32 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
   const [bKey, setBKey] = useState(groups[1] ? groups[1].key : (groups[0] ? groups[0].key : ""));
   const [rename, setRename] = useState(null); // {key, value}
   const [del, setDel] = useState(null); // {key, label}
+  const [filtroMusc, setFiltroMusc] = useState(""); // filtra la grilla de tarjetas por músculo dominante
+  const [soloPro, setSoloPro] = useState(false); // filtra a solo las rutinas de atletas pro cargadas (plan.routineMeta)
+
+  const routineMeta = plan.routineMeta || {};
+  const hayPro = useMemo(() => groups.some((g) => routineMeta[g.key]), [groups, routineMeta]);
+  // Músculos que de verdad aparecen en alguna rutina (top 3 de cada una),
+  // ordenados por cuántas rutinas los tienen entre sus protagonistas — así
+  // los chips de filtro son relevantes y no una lista fija que no aplica.
+  const muscleOptions = useMemo(() => {
+    const count = {};
+    groups.forEach((g) => {
+      const s = statsByKey[g.key];
+      if (!s) return;
+      Object.entries(s.porMusculo).sort((a, b) => b[1] - a[1]).slice(0, 3)
+        .forEach(([m]) => { count[m] = (count[m] || 0) + 1; });
+    });
+    return Object.keys(count).sort((a, b) => count[b] - count[a]);
+  }, [groups, statsByKey]);
+  const groupsFiltrados = useMemo(() => groups.filter((g) => {
+    if (soloPro && !routineMeta[g.key]) return false;
+    if (filtroMusc) {
+      const s = statsByKey[g.key];
+      if (!s || !(s.porMusculo[filtroMusc] > 0)) return false;
+    }
+    return true;
+  }), [groups, statsByKey, filtroMusc, soloPro, routineMeta]);
 
   // Si se borra/duplica una rutina, que A/B sigan apuntando a algo que
   // existe — sin esto, comparar quedaba mudo (select en blanco) hasta
@@ -27694,8 +27720,33 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
         groups.length === 0 ? (
           <Empty icon={Layers} title="Todavía no hay rutinas" body="Creá la primera y empezá a cargarle días y ejercicios desde «Rutina»." />
         ) : (
+        <>
+          {(muscleOptions.length > 0 || hayPro) && groups.length > 2 && (
+            <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 10, WebkitOverflowScrolling: "touch" }}>
+              <button onClick={() => { setFiltroMusc(""); setSoloPro(false); }}
+                style={{ ...studioChipBtn, flexShrink: 0, ...(!filtroMusc && !soloPro ? { background: P.text, color: P.bg, borderColor: P.text } : {}) }}>
+                Todas
+              </button>
+              {hayPro && (
+                <button onClick={() => setSoloPro((v) => !v)}
+                  style={{ ...studioChipBtn, flexShrink: 0, ...(soloPro ? { background: P.ember, color: PLATE_FG, borderColor: P.ember } : {}) }}>
+                  <Trophy size={12} /> Atletas pro
+                </button>
+              )}
+              {muscleOptions.map((m) => (
+                <button key={m} onClick={() => setFiltroMusc((v) => (v === m ? "" : m))}
+                  style={{ ...studioChipBtn, flexShrink: 0, ...(filtroMusc === m ? { background: P.text, color: P.bg, borderColor: P.text } : {}) }}>
+                  {m}
+                </button>
+              ))}
+            </div>
+          )}
+          {groupsFiltrados.length === 0 ? (
+            <Empty icon={Layers} title="Ninguna rutina coincide" body="Probá con otro filtro." />
+          ) : (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {groups.map((g, idx) => {
+            {groupsFiltrados.map((g, idx) => {
+              const meta = routineMeta[g.key];
               const s = statsByKey[g.key];
               const top3 = Object.entries(s.porMusculo).sort((a, b) => b[1] - a[1]).slice(0, 3);
               const topSet = Math.max(1, ...top3.map((x) => x[1]));
@@ -27712,6 +27763,11 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
                   <button onClick={() => setRename({ key: g.key, value: g.label })} style={{ textAlign: "left" }}>
                     <div style={{ fontSize: 16, fontWeight: 700, color: P.text, lineHeight: 1.2,
                       paddingRight: (g.key === topKey && ranking.length > 1) ? 66 : 0 }}>{g.label}</div>
+                    {meta && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 11, fontWeight: 700, color: P.ember2 }}>
+                        <Trophy size={10} /> {meta.athlete}{meta.split ? ` · ${meta.split}` : ""}
+                      </div>
+                    )}
                     <div style={{ fontSize: 12, color: P.faint, marginTop: 2 }}>
                       {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {fmtSets(s.efectivas)} series
                     </div>
@@ -27746,6 +27802,8 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
               <span style={{ fontSize: 13, fontWeight: 700 }}>Nueva rutina</span>
             </button>
           </div>
+          )}
+        </>
         )
       ) : (
         !sA || !sB ? (
