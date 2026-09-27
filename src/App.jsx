@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v347";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v348";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6742,6 +6742,43 @@ async function unsubscribeFromPush() {
   } catch {}
 }
 
+/* Aviso de fin de descanso — entrega REAL (forja-rest-push), no el
+   setTimeout del cliente. El setTimeout de más abajo (TrainTab) alcanza
+   con la pestaña abierta y en primer plano; en cuanto la pestaña pasa a
+   segundo plano o el teléfono se bloquea, el navegador lo suspende y
+   nunca llega a dispararse — por eso el aviso solo aparecía al volver a
+   abrir la app. Esto llama al Edge Function apenas arranca el descanso,
+   con cuánto falta: responde al toque y sigue durmiendo el resto del
+   tiempo en el servidor antes de mandar el push de verdad (mismo
+   mecanismo — y misma suscripción — que Recordatorio de racha/comidas).
+   `token` (uid() del lado de quien llama) deja que un ajuste ±15 s o un
+   descanso nuevo invaliden en silencio el aviso anterior. */
+async function scheduleRestPush(studentId, seconds, texto) {
+  if (!studentId || !(seconds > 0)) return;
+  const token = uid();
+  try {
+    await fetch(`${SB_PROJECT}/functions/v1/forja-rest-push`, {
+      method: "POST",
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ studentId, token, seconds: Math.ceil(seconds), title: "Descanso terminado", message: texto || "Volvé a la barra." }),
+    });
+  } catch {}
+  return token;
+}
+// El descanso se cerró en primer plano (terminó solo, o el atleta lo
+// saltó): que no quede un aviso demorado esperando para dispararse solo
+// más tarde, ya sin sentido.
+async function cancelRestPush(studentId) {
+  if (!studentId) return;
+  try {
+    await fetch(`${SB_PROJECT}/functions/v1/forja-rest-push`, {
+      method: "POST",
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ studentId, action: "cancel" }),
+    });
+  } catch {}
+}
+
 // Captura un fotograma del video para usarlo como miniatura
 function videoPoster(dataUrl) {
   return new Promise((res) => {
@@ -11607,7 +11644,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, fxRestSeg, onOpenAIChat, onLeave, onOpenDevices }) => {
+const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, fxRestSeg, onOpenAIChat, onLeave, onOpenDevices, sid }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
   // Marca de tiempo del último fin de descanso: dispara el destello en
@@ -11628,10 +11665,25 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
   }, [fxRestSeg && fxRestSeg.n]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const preavisoRef = useRef(null);
+  // Sigue el `timer` vigente en una ref (no en el cierre del efecto), para
+  // que el cleanup de desmontaje de más abajo cancele el push correcto
+  // aunque se salga de la pestaña a mitad de un descanso.
+  const timerRef = useRef(timer);
+  useEffect(() => { timerRef.current = timer; }, [timer]);
+  // Si hubo un descanso ACTIVO alguna vez en este componente — para no
+  // mandar un cancelRestPush de arranque en cada montaje (nunca hubo nada
+  // que cancelar la primera vez que `timer` vale null).
+  const huboDescansoRef = useRef(false);
   useEffect(() => {
-    if (!timer) return;
+    if (!timer) {
+      // El descanso se cerró (terminó solo, o se saltó) — si había un
+      // push demorado esperando para dispararse solo, que no llegue.
+      if (sid && huboDescansoRef.current) cancelRestPush(sid);
+      huboDescansoRef.current = false;
+      return;
+    }
+    huboDescansoRef.current = true;
     const quedan = timer.endsAt - Date.now();
-    if (quedan <= 0) return;
     const cuál = () => {
       const ex = active && active.exs[timer.exIdx];
       if (!ex) return "";
@@ -11643,6 +11695,16 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
       const nro = sets.slice(0, prox + 1).filter((st) => (st.type === "warmup") === esWarm).length;
       return `Sigue ${esWarm ? `la aproximación ${nro}` : `la serie ${nro}`} de ${nombre}.`;
     };
+    // El descanso ya venció: la pestaña estuvo en segundo plano o el
+    // teléfono bloqueado, el navegador suspendió este efecto, y recién
+    // ahora (al volver a abrir la app) se entera. Antes esto simplemente
+    // no hacía nada — el aviso quedaba perdido para siempre y solo se
+    // veía el cronómetro ya en cero. Ahora avisa YA, apenas la app puede.
+    if (quedan <= 0) {
+      avisarFinDescanso(cuál());
+      setFinDescanso(Date.now());
+      return;
+    }
     const tFin = setTimeout(() => {
       avisarFinDescanso(cuál());
       setFinDescanso(Date.now());   // destello en pantalla (si está activo)
@@ -11657,8 +11719,21 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
       }, quedan - pre * 1000);
     }
     preavisoRef.current = tPre;
+    // Push real, entregado por el servidor: el setTimeout de arriba
+    // alcanza con la pestaña abierta y en primer plano; en cuanto pasa a
+    // segundo plano o el teléfono se bloquea, el navegador lo suspende y
+    // nunca llega a dispararse. Mismo texto, mismo canal que Recordatorio
+    // de racha/comidas (necesita esa suscripción ya activada).
+    if (sid && REST_ALERT.notify && notifyState() === "granted") {
+      scheduleRestPush(sid, quedan / 1000, cuál());
+    }
     return () => { clearTimeout(tFin); if (tPre) clearTimeout(tPre); };
-  }, [timer && timer.endsAt]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [timer && timer.endsAt, sid]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Si se sale de "Entrenar" a mitad de un descanso (o se cierra/recarga
+  // la pestaña), cancela cualquier push que hubiera quedado programado —
+  // sin esto, un aviso demorado podía llegar minutos después de que el
+  // atleta ya se fue del todo.
+  useEffect(() => () => { if (sid && timerRef.current) cancelRestPush(sid); }, [sid]);
   // Ficha del ejercicio abierta desde la vista previa del día.
   const [fichaEx, setFichaEx] = useState(null);
   const [browsing, setBrowsing] = useState(false);   // ver la rutina aunque haya sesión abierta
@@ -15674,7 +15749,7 @@ const RachaReminderToggle = ({ plan, savePlan, sid }) => {
   const activar = async () => {
     if (on) {
       patch((p) => { p.reminders = { ...(p.reminders || {}), racha: false }; });
-      if (!NUTRI_REMINDER.enabled) unsubscribeFromPush();
+      if (!NUTRI_REMINDER.enabled && !REST_ALERT.notify) unsubscribeFromPush();
       return;
     }
     const r = await pedirPermisoNotificaciones();
@@ -15713,10 +15788,10 @@ const NutriReminderBanner = ({ sid, plan }) => {
     if (pref.enabled) {
       setPref({ enabled: false });
       // No apagar la suscripción push entera si el recordatorio de racha
-      // (Hoy) sigue activo — es la MISMA suscripción para las dos cosas,
-      // apagarla acá cortaría también los avisos de racha sin que el
-      // alumno haya tocado ese interruptor.
-      if (!(plan && plan.reminders && plan.reminders.racha)) unsubscribeFromPush();
+      // (Hoy) o el aviso de fin de descanso siguen activos — es la MISMA
+      // suscripción para las tres cosas, apagarla acá cortaría también
+      // esos avisos sin que el alumno haya tocado esos interruptores.
+      if (!(plan && plan.reminders && plan.reminders.racha) && !REST_ALERT.notify) unsubscribeFromPush();
       return;
     }
     const r = await pedirPermisoNotificaciones();
@@ -25454,7 +25529,7 @@ const GlobalSearchSheet = ({ open, onClose, items }) => {
   );
 };
 
-const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha, sid, plan }) => {
   const [theme, setTheme] = useTheme();
   const [accent, setAccent] = useAccent();
   const [bg, setBg] = useBg();
@@ -25739,7 +25814,7 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
       {/* Detalle "Avisar al terminar": los mismos canales de siempre, cada
           uno por separado. */}
       <Sheet open={avisoOpen} onClose={() => setAvisoOpen(false)} title="Avisar al terminar">
-        <AvisoDescansoGroup />
+        <AvisoDescansoGroup sid={sid} plan={plan} />
       </Sheet>
     </Sheet>
   );
@@ -28284,14 +28359,23 @@ const FormulaRMGroup = () => {
   );
 };
 
-const AvisoDescansoGroup = () => {
+const AvisoDescansoGroup = ({ sid, plan }) => {
   const [pref, setPref] = useRestAlert();
   const [permiso, setPermiso] = useState(notifyState());
+  const [busy, setBusy] = useState(false);
   const activarNotificacion = async () => {
-    if (pref.notify) { setPref({ notify: false }); return; }
+    if (pref.notify) {
+      setPref({ notify: false });
+      // Misma suscripción que Recordatorio de racha/comidas — no
+      // apagarla si alguno de esos dos sigue activo.
+      if (!(plan && plan.reminders && plan.reminders.racha) && !NUTRI_REMINDER.enabled) unsubscribeFromPush();
+      return;
+    }
     const r = await pedirPermisoNotificaciones();
     setPermiso(r);
-    setPref({ notify: r === "granted" });
+    const concedido = r === "granted";
+    setPref({ notify: concedido });
+    if (concedido && sid) { setBusy(true); await subscribeToPush(sid); setBusy(false); }
   };
   const canales = [
     { k: "sound", Icon: Volume2, label: "Sonido", hint: "Un pitido corto al llegar a cero" },
@@ -28302,7 +28386,8 @@ const AvisoDescansoGroup = () => {
     ? "Este aparato no admite notificaciones del navegador"
     : permiso === "denied"
       ? "Bloqueadas — habilítalas en los ajustes del navegador"
-      : pref.notify ? "Avisa aunque tengas el teléfono guardado" : "Toca para permitir y activarlas";
+      : busy ? "Activando…"
+      : pref.notify ? "Avisa aunque tengas el teléfono guardado o estés en otra app" : "Toca para permitir y activarlas";
   const activos = canales.filter((c) => pref[c.k]).length + (pref.notify ? 1 : 0);
   return (
     <SettingGroup label={`Aviso de fin de descanso · ${activos === 0 ? "solo el cronómetro" : `${activos} activo${activos === 1 ? "" : "s"}`}`}>
@@ -28311,7 +28396,7 @@ const AvisoDescansoGroup = () => {
           right={<Toggle on={!!pref[k]} onChange={(v) => setPref({ [k]: v })} label={label} />} />
       ))}
       <SettingRow Icon={Bell} label="Notificación al celular" hint={permisoHint}
-        right={<Toggle on={!!pref.notify} disabled={permiso === "denied" || permiso === "unsupported"}
+        right={<Toggle on={!!pref.notify} disabled={permiso === "denied" || permiso === "unsupported" || busy}
           onChange={activarNotificacion} label="Notificación al celular" />} />
       <SettingRow Icon={Timer} label="Preaviso" hint={pref.preaviso ? `${pref.preaviso} s antes de terminar` : "Sin preaviso"} last
         control={<SectionSwitch value={String(pref.preaviso || 0)} onChange={(v) => setPref({ preaviso: +v })}
@@ -30950,7 +31035,7 @@ const App = () => {
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             abrirDiaId={abrirDiaId} onAutoStartConsumed={() => setAbrirDiaId(null)} fxRestSeg={fxRestSeg}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
-            onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} />
+            onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} sid={sid} />
         )}
         {mode === "alumno" && tab === "progreso" && (
           <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
@@ -31138,7 +31223,8 @@ const App = () => {
         onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
         onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }}
         faceIdWho={delegate ? delegate.id : myTeamId ? `team:${myTeamId}` : "owner"}
-        onOpenFicha={() => { setMoreOpen(false); setFichaOpen(true); }} />
+        onOpenFicha={() => { setMoreOpen(false); setFichaOpen(true); }}
+        sid={sid} plan={plan} />
       <FichaSheet open={fichaOpen} onClose={() => setFichaOpen(false)} plan={plan} savePlan={savePlan}
         history={history} currentStudent={currentStudent} toast={toast} />
       <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast}
