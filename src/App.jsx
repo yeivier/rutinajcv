@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v352";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v353";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5370,6 +5370,12 @@ const GlobalStyle = () => {
     .fj input::placeholder, .fj textarea::placeholder { color: ${P.faint}; }
     .fj input.chat-input::placeholder { color: ${P.faint2}; opacity: 1; }
     .fj button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+    /* Feedback táctil global: cualquier botón se achica un toque al
+       tocarlo, como el de iOS — sin tener que agregarlo botón por botón.
+       Un estilo inline (drag, animaciones propias) siempre gana por
+       especificidad, así que esto nunca choca con esos casos. */
+    .fj button:not(:disabled) { transition: transform ${DUR_MICRO}ms ${EASE_STD}; }
+    .fj button:not(:disabled):active { transform: scale(.96); }
     /* Easy Mode: todo un punto más grande y con más aire. Se hace con una
        sola clase en la raíz (no tocando cada componente) para que valga
        en toda la app de una sola vez — texto más grande, casillas más
@@ -9569,7 +9575,7 @@ const ProntitudCard = ({ history, compacta }) => {
     <Card style={{ padding: 0, overflow: "hidden" }}>
       <button onClick={() => setAbierto((v) => !v)} aria-expanded={abierto}
         style={{ width: "100%", textAlign: "left", padding: `${SP.lg}px 15px`, display: "flex", alignItems: "center", gap: SP.md }}>
-        <span style={{ width: 38, height: 38, borderRadius: 12, flexShrink: 0, background: P.s3, color: col,
+        <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: P.s3, color: col,
           display: "flex", alignItems: "center", justifyContent: "center" }}>
           <m.Icon size={19} strokeWidth={2.4} />
         </span>
@@ -11908,14 +11914,14 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
             entrenamiento. Deshabilitado mientras hay una sesión en curso. */}
         {!active && (
           <button onClick={() => setPidiendoGym({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true })}
-            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, marginBottom: 14,
-              padding: "15px 15px", borderRadius: R_CARD, background: PLATE_GRAD, color: PLATE_FG, border: "none" }}>
-            <span style={{ width: 38, height: 38, borderRadius: 12, background: "rgba(255,255,255,.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
+              padding: "12px 14px", borderRadius: R_CARD, background: PLATE_GRAD, color: PLATE_FG, border: "none" }}>
+            <span style={{ width: 34, height: 34, borderRadius: 11, background: "rgba(255,255,255,.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Plus size={20} />
             </span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 16.5 }}>Entrenamiento libre</div>
-              <div style={{ fontSize: 13, opacity: .85, marginTop: 1 }}>Empieza vacío y agrega ejercicios y series sobre la marcha</div>
+              <div style={{ fontWeight: 700, fontSize: 15.5 }}>Entrenamiento libre</div>
+              <div style={{ fontSize: 12.5, opacity: .8, marginTop: 1 }}>Empieza vacío, agregá sobre la marcha</div>
             </div>
             <ChevronRight size={18} />
           </button>
@@ -11927,14 +11933,14 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
             sesión queda archivada en la fecha y la semana que corresponde. */}
         {!active && plan.days.length > 0 && (
           <button onClick={() => setPastOpen(true)}
-            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, marginBottom: 14,
-              padding: "15px 15px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
-            <span style={{ width: 38, height: 38, borderRadius: 12, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
+              padding: "12px 14px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
+            <span style={{ width: 34, height: 34, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <History size={19} />
             </span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 16.5 }}>Registrar sesión pasada</div>
-              <div style={{ fontSize: 13, color: P.faint, marginTop: 1 }}>¿Entrenaste y no lo cargaste? Elige el día y la fecha y regístralo ahora</div>
+              <div style={{ fontWeight: 700, fontSize: 15.5 }}>Registrar sesión pasada</div>
+              <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>¿Entrenaste y no lo cargaste?</div>
             </div>
             <ChevronRight size={18} color={P.faint} />
           </button>
@@ -11946,14 +11952,14 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
             sirva más de una vez. */}
         {!active && (
           <button onClick={() => setProgramasOpen(true)}
-            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, marginBottom: 14,
-              padding: "15px 15px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
-            <span style={{ width: 38, height: 38, borderRadius: 12, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
+              padding: "12px 14px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
+            <span style={{ width: 34, height: 34, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Trophy size={19} />
             </span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 16.5 }}>Empezar con un programa conocido</div>
-              <div style={{ fontSize: 13, color: P.faint, marginTop: 1 }}>StrongLifts 5×5, Push/Pull/Legs, nSuns, GZCL, GVT, RP</div>
+              <div style={{ fontWeight: 700, fontSize: 15.5 }}>Empezar con un programa conocido</div>
+              <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>StrongLifts, PPL, nSuns, GZCL, GVT, RP</div>
             </div>
             <ChevronRight size={18} color={P.faint} />
           </button>
@@ -11972,14 +11978,14 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
               savePlan(np);
               toast && toast(`✓ «${nombre}» creada — entrénala y agrégale ejercicios`);
             }}
-            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, marginBottom: 14,
-              padding: "15px 15px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
-            <span style={{ width: 38, height: 38, borderRadius: 12, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
+              padding: "12px 14px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
+            <span style={{ width: 34, height: 34, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <ClipboardList size={19} />
             </span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 16.5 }}>Crear mi rutina</div>
-              <div style={{ fontSize: 13, color: P.faint, marginTop: 1 }}>Tuya, aparte de las del coach — la armás y la repetís cuando quieras</div>
+              <div style={{ fontWeight: 700, fontSize: 15.5 }}>Crear mi rutina</div>
+              <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>Tuya, aparte de las del coach</div>
             </div>
             <ChevronRight size={18} color={P.faint} />
           </button>
@@ -12000,8 +12006,8 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
           return (
             <Card key={g.key} style={{ marginBottom: 12, overflow: "hidden" }}>
               <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-                style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 38, height: 38, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center",
+                style={{ width: "100%", textAlign: "left", padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
                   background: open ? PLATE_GRAD : P.s3, color: open ? PLATE_FG : P.faint, fontSize: 16, fontWeight: 700, flexShrink: 0 }}>{g.key}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="disp" style={{ fontWeight: 700, fontSize: 18, textTransform: "uppercase" }}>{g.label}</div>
@@ -12022,7 +12028,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
                     const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
                     return (
                       <Card key={d.id} style={{ marginBottom: 10, background: P.s1, border: `1px solid ${P.line}` }}>
-                        <button onClick={() => (active ? setConfirmSwitch(d) : setPreviewDay(d))} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+                        <button onClick={() => (active ? setConfirmSwitch(d) : setPreviewDay(d))} style={{ width: "100%", textAlign: "left", padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
                           <div style={{ width: 36, height: 36, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
                             background: P.accWell, color: P.ember, fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
                           <div style={{ flex: 1 }}>
@@ -17668,7 +17674,7 @@ const DraftsPanel = ({ toast, onInfo, roster }) => {
           {[...drafts].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")).map((d) => (
             <Card key={d.id} style={{ padding: 0, overflow: "hidden" }}>
               <button onClick={() => openDraft(d)} style={{ width: "100%", textAlign: "left", padding: "14px 15px", display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 38, height: 38, borderRadius: 12, background: P.s3, color: P.faint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 11, background: P.s3, color: P.faint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <ClipboardList size={17} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -18071,7 +18077,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       {(easy || view === "dias") && (<>
 
       <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden" }}>
-        <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+        <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
             background: PLATE_GRAD,
             boxShadow: "none" }}>
@@ -18774,7 +18780,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
       <ScreenTitle title="Nutrición" />
       {onOpenNutritionAI && (
         <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden" }}>
-          <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "15px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
               background: PLATE_GRAD,
               boxShadow: "none" }}>
@@ -25361,7 +25367,7 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
             {/* Estado del pulsómetro arriba: es lo único que se conecta en
                 vivo y lo que cambia mientras entrenas. */}
             <Card style={{ padding: "14px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ width: 38, height: 38, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+              <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 background: hr.connected ? PLATE_GRAD : P.s3, color: hr.connected ? PLATE_FG : P.faint2 }}>
                 <HeartPulse size={19} />
               </span>
@@ -28489,7 +28495,7 @@ const SectionSwitch = ({ items, value, onChange, style, compact }) => {
 const PushHeader = ({ title, onBack }) => (
   <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px 12px" }}>
     <button onClick={onBack} aria-label="Volver"
-      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 38, height: 38, borderRadius: 12,
+      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 11,
         background: P.s1, border: `1px solid ${P.line}`, color: P.text, flexShrink: 0 }}>
       <ChevronLeft size={20} strokeWidth={2.4} />
     </button>
