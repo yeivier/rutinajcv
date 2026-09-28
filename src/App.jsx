@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v353";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v354";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -596,32 +596,14 @@ function setEasyMode(v) {
   try { window.localStorage.setItem("forja-easy-mode", v ? "1" : "0"); } catch {}
   easyModeListeners.forEach((fn) => fn(v));
 }
+// El "Modo simple" se eliminó (no cambiaba la interfaz de forma útil): este
+// hook queda como stub que devuelve SIEMPRE false, para que todas las
+// ramas `easy ? … : …` que quedan en el código rendericen la versión
+// completa sin tener que borrar cada condicional una por una. La firma se
+// mantiene para no romper los sitios que aún lo llaman.
 function useEasyMode() {
-  const [, force] = useState(0);
-  useEffect(() => {
-    const fn = () => force((x) => x + 1);
-    easyModeListeners.add(fn);
-    return () => easyModeListeners.delete(fn);
-  }, []);
-  return [EASY_MODE, setEasyMode];
+  return [false, () => {}];
 }
-// Switch de dos posiciones (no un simple toggle on/off): deja los dos
-// nombres a la vista todo el tiempo, "ForjaMode" y "Easy Mode", en vez de
-// un ícono solo que hay que interpretar.
-const EasyModeSwitch = () => {
-  const [easy, setEasy] = useEasyMode();
-  return (
-    <div style={{ display: "flex", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3, gap: 3, flexShrink: 0 }}>
-      {[["forja", "ForjaMode", false], ["easy", "Easy Mode", true]].map(([id, label, val]) => (
-        <button key={id} onClick={() => setEasy(val)} title={val ? "Interfaz simplificada, solo lo esencial" : "Plataforma completa, sin recortes"}
-          style={{ padding: "5px 9px", borderRadius: 8, fontSize: 12, fontWeight: 700,
-            background: easy === val ? P.s3 : "transparent", color: easy === val ? P.text : P.faint,
-            border: `1px solid ${easy === val ? P.line : "transparent"}` }}>{label}</button>
-      ))}
-    </div>
-  );
-};
-
 // Padding-bottom mínimo de CUALQUIER pantalla de pestaña (todo lo que se
 // renderiza directo debajo de <TabBar>): antes cada pantalla tenía "30px"
 // fijo, que no alcanza para despejar la barra inferior fija (ícono +
@@ -22484,7 +22466,11 @@ const VolumePanel = ({ plan, toast }) => {
     ...groups.map((g) => ({ id: "r:" + g.key, label: g.label })),
     ...(multi ? [{ id: "ciclo", label: "Todas" }] : []),
   ];
-  const [scope, setScope] = useState(hasSchedule ? "week" : (groups[0] ? "r:" + groups[0].key : "ciclo"));
+  // Arranca SIEMPRE nombrando una rutina concreta (la primera) cuando hay
+  // rutinas cargadas — así de entrada se ve claro a qué rutina corresponde
+  // el volumen, en vez de abrir en "Semana real" (que mezcla el cronograma
+  // sin nombrar rutina). "Semana real" y "Todas" siguen en el selector.
+  const [scope, setScope] = useState(groups[0] ? "r:" + groups[0].key : (hasSchedule ? "week" : "ciclo"));
   const [scopePickerOpen, setScopePickerOpen] = useState(false);
   const activeScope = scopeOpts.some((o) => o.id === scope) ? scope : (scopeOpts[0] ? scopeOpts[0].id : "ciclo");
   // Cuántas sesiones tiene cada opción del selector — se muestra como texto
@@ -25604,8 +25590,6 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
           tocarla — nada de lo que ya había se perdió, solo quedó un nivel
           más adentro para que esta pantalla se pueda leer de un vistazo. */}
       <SettingGroup label="Interfaz">
-        <SettingRow Icon={Layers} label="Modo simple" hint={easy ? "Interfaz simplificada, solo lo esencial" : "Plataforma completa, sin recortes"}
-          right={<Toggle on={easy} onChange={setEasy} label="Modo simple" />} />
         <SettingRow Icon={theme === "dark" ? Moon : bg ? Palette : Sun} label="Tema"
           hint={theme === "dark" ? "Oscuro" : bg ? "Personalizado" : "Claro"} onClick={() => setTemaOpen(true)} />
         <SettingRow Icon={Ruler} label="Unidades" hint={`${weightUnit} · ${measureUnit}`} onClick={() => setUnidadesOpen(true)} />
@@ -27630,6 +27614,10 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
   const [del, setDel] = useState(null); // {key, label}
   const [filtroMusc, setFiltroMusc] = useState(""); // filtra la grilla de tarjetas por músculo dominante
   const [soloPro, setSoloPro] = useState(false); // filtra a solo las rutinas de atletas pro cargadas (plan.routineMeta)
+  const [detalle, setDetalle] = useState(null); // clave de la rutina abierta a pantalla completa (o null)
+  const [muscOpen, setMuscOpen] = useState(null); // músculo expandido dentro de "Comparar"
+  const [detMusc, setDetMusc] = useState(null); // músculo expandido dentro del detalle de una rutina
+  const [copiar, setCopiar] = useState(null); // { ex, fromDayId, modo:'copiar'|'mover' } — ejercicio en juego
 
   const routineMeta = plan.routineMeta || {};
   const hayPro = useMemo(() => groups.some((g) => routineMeta[g.key]), [groups, routineMeta]);
@@ -27689,6 +27677,26 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
     const value = rename.value.trim();
     if (value) mut((p) => { p.routineNames = { ...(p.routineNames || {}), [rename.key]: value }; });
     setRename(null);
+  };
+
+  // Copiar o mover un ejercicio a un día de OTRA rutina (o del mismo). Al
+  // copiar se clonan los ids y se limpia el registro (peso/reps/hecho), para
+  // que sea una plantilla nueva y no arrastre los datos de la sesión vieja.
+  const aplicarCopia = (targetDayId) => {
+    if (!copiar) return;
+    mut((p) => {
+      const clone = structuredClone(copiar.ex);
+      clone.id = uid();
+      clone.sets = (clone.sets || []).map((s) => ({ ...s, id: uid(), done: false, weight: "", reps: "", rir: "" }));
+      const td = (p.days || []).find((d) => d.id === targetDayId);
+      if (td) td.exs = [...(td.exs || []), clone];
+      if (copiar.modo === "mover") {
+        const sd = (p.days || []).find((d) => d.id === copiar.fromDayId);
+        if (sd) sd.exs = (sd.exs || []).filter((e) => e.id !== copiar.ex.id);
+      }
+    });
+    if (toast) toast(copiar.modo === "mover" ? "✓ Ejercicio movido" : "✓ Ejercicio copiado");
+    setCopiar(null);
   };
 
   // "Más volumen": no pretende ser una métrica seria de programación, es
@@ -27782,31 +27790,37 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
                       <Trophy size={11} /> más volumen
                     </span>
                   )}
-                  <button onClick={() => setRename({ key: g.key, value: g.label })} style={{ textAlign: "left" }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: P.text, lineHeight: 1.2,
-                      paddingRight: (g.key === topKey && ranking.length > 1) ? 66 : 0 }}>{g.label}</div>
-                    {meta && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 11, fontWeight: 700, color: P.ember2 }}>
-                        <Trophy size={10} /> {meta.athlete}{meta.split ? ` · ${meta.split}` : ""}
+                  <button onClick={() => { setDetMusc(null); setDetalle(g.key); }} aria-label={`Abrir ${g.label}`}
+                    style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: P.text, lineHeight: 1.2, flex: 1, minWidth: 0,
+                          paddingRight: (g.key === topKey && ranking.length > 1) ? 66 : 0 }}>{g.label}</div>
+                        <ChevronRight size={16} color={P.faint} style={{ flexShrink: 0 }} />
                       </div>
-                    )}
-                    <div style={{ fontSize: 12, color: P.faint, marginTop: 2 }}>
-                      {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {fmtSets(s.efectivas)} series
+                      {meta && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, fontSize: 11, fontWeight: 700, color: P.ember2 }}>
+                          <Trophy size={10} /> {meta.athlete}{meta.split ? ` · ${meta.split}` : ""}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 12, color: P.faint, marginTop: 2 }}>
+                        {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {fmtSets(s.efectivas)} series
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {top3.length === 0 ? (
+                        <div style={{ fontSize: 12, color: P.textQuaternary }}>Sin ejercicios todavía</div>
+                      ) : top3.map(([m, v]) => (
+                        <div key={m} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 11, color: P.faint2, width: 62, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m}</span>
+                          <div style={{ flex: 1, height: 6, borderRadius: 3, background: P.fillTertiary, overflow: "hidden" }}>
+                            <div className="fj-studio-bar" style={{ height: "100%", width: `${Math.max(6, (v / topSet) * 100)}%`, background: P.prog, borderRadius: 3 }} />
+                          </div>
+                          <span className="mono" style={{ fontSize: 10.5, color: P.faint, width: 22, textAlign: "right", flexShrink: 0 }}>{fmtSets(v)}</span>
+                        </div>
+                      ))}
                     </div>
                   </button>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                    {top3.length === 0 ? (
-                      <div style={{ fontSize: 12, color: P.textQuaternary }}>Sin ejercicios todavía</div>
-                    ) : top3.map(([m, v]) => (
-                      <div key={m} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 11, color: P.faint2, width: 62, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m}</span>
-                        <div style={{ flex: 1, height: 6, borderRadius: 3, background: P.fillTertiary, overflow: "hidden" }}>
-                          <div className="fj-studio-bar" style={{ height: "100%", width: `${Math.max(6, (v / topSet) * 100)}%`, background: P.prog, borderRadius: 3 }} />
-                        </div>
-                        <span className="mono" style={{ fontSize: 10.5, color: P.faint, width: 22, textAlign: "right", flexShrink: 0 }}>{fmtSets(v)}</span>
-                      </div>
-                    ))}
-                  </div>
                   <div style={{ display: "flex", gap: 6, marginTop: "auto", flexWrap: "wrap" }}>
                     <button onClick={() => duplicar(g.key)} style={studioChipBtn}>
                       <Copy size={12} /> Duplicar
@@ -27863,23 +27877,67 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
               </Card>
             )}
 
+            {/* Leyenda fija con el NOMBRE de cada rutina y su color — antes las
+                barras no dejaban saber cuál era cuál al bajar. Cada barra
+                lleva además el nombre de su rutina al lado del número. */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginBottom: 10, padding: "0 2px" }}>
+              {[{ n: A.label, c: ROUTINE_BADGE_COLORS[0] }, { n: B.label, c: ROUTINE_BADGE_COLORS[1] }].map((l, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <span style={{ width: 12, height: 12, borderRadius: 3, background: l.c, flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.n}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11.5, color: P.faint, marginBottom: 6, padding: "0 2px" }}>Toca un grupo para ver qué ejercicios aportan.</div>
+
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {filas.map((f) => {
                 const max = Math.max(1, f.a, f.b);
+                const abierto = muscOpen === f.muscle;
+                const exA = (sA.porMusculoEx && sA.porMusculoEx[f.muscle]) || [];
+                const exB = (sB.porMusculoEx && sB.porMusculoEx[f.muscle]) || [];
                 return (
-                  <div key={f.muscle} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: P.dim, fontWeight: 600 }}>
-                      <span>{f.muscle}</span>
-                      <span style={{ color: P.faint }}>{fmtSets(f.a)} vs {fmtSets(f.b)}</span>
-                    </div>
-                    <div style={{ display: "flex", gap: 3, height: 7 }}>
-                      <div style={{ flex: 1, borderRadius: 3, background: P.fillTertiary, overflow: "hidden", display: "flex", justifyContent: "flex-end" }}>
-                        <div className="fj-studio-bar" style={{ width: `${(f.a / max) * 100}%`, background: ROUTINE_BADGE_COLORS[0], borderRadius: 3 }} />
+                  <div key={f.muscle} style={{ background: abierto ? P.s1 : "transparent", border: `1px solid ${abierto ? P.frame : "transparent"}`, borderRadius: R_TILE, padding: abierto ? "10px 12px" : "0", transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
+                    <button onClick={() => setMuscOpen(abierto ? null : f.muscle)} aria-expanded={abierto}
+                      style={{ width: "100%", textAlign: "left", display: "flex", flexDirection: "column", gap: 3 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5, color: P.dim, fontWeight: 600 }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>{f.muscle}
+                          <ChevronDown size={13} color={P.faint} style={{ transform: abierto ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} /></span>
+                        <span>
+                          <span style={{ color: ROUTINE_BADGE_COLORS[0], fontWeight: 700 }}>{fmtSets(f.a)}</span>
+                          <span style={{ color: P.faint }}> vs </span>
+                          <span style={{ color: ROUTINE_BADGE_COLORS[1], fontWeight: 700 }}>{fmtSets(f.b)}</span>
+                        </span>
                       </div>
-                      <div style={{ flex: 1, borderRadius: 3, background: P.fillTertiary, overflow: "hidden" }}>
-                        <div className="fj-studio-bar" style={{ width: `${(f.b / max) * 100}%`, background: ROUTINE_BADGE_COLORS[1], borderRadius: 3 }} />
+                      <div style={{ display: "flex", gap: 3, height: 7 }}>
+                        <div style={{ flex: 1, borderRadius: 3, background: P.fillTertiary, overflow: "hidden", display: "flex", justifyContent: "flex-end" }}>
+                          <div className="fj-studio-bar" style={{ width: `${(f.a / max) * 100}%`, background: ROUTINE_BADGE_COLORS[0], borderRadius: 3 }} />
+                        </div>
+                        <div style={{ flex: 1, borderRadius: 3, background: P.fillTertiary, overflow: "hidden" }}>
+                          <div className="fj-studio-bar" style={{ width: `${(f.b / max) * 100}%`, background: ROUTINE_BADGE_COLORS[1], borderRadius: 3 }} />
+                        </div>
                       </div>
-                    </div>
+                    </button>
+                    {abierto && (
+                      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                        {[{ ex: exA, c: ROUTINE_BADGE_COLORS[0], n: A.label }, { ex: exB, c: ROUTINE_BADGE_COLORS[1], n: B.label }].map((col, ci) => (
+                          <div key={ci} style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                              <span style={{ width: 9, height: 9, borderRadius: 2, background: col.c, flexShrink: 0 }} />
+                              <span style={{ fontSize: 11.5, fontWeight: 700, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col.n}</span>
+                            </div>
+                            {col.ex.length === 0 ? (
+                              <div style={{ fontSize: 12, color: P.textQuaternary }}>Nada de {f.muscle}</div>
+                            ) : col.ex.map((it, k) => (
+                              <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 6, fontSize: 12, color: P.dim, padding: "3px 0", lineHeight: 1.25 }}>
+                                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}{it.sec ? " ·2°" : ""}</span>
+                                <span className="mono" style={{ color: P.faint, flexShrink: 0 }}>{fmtSets(it.sets)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -27887,6 +27945,143 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
           </>
         )
       )}
+
+      {/* Detalle de una rutina a pantalla completa: TODA la info — volumen por
+          músculo (tocable para ver los ejercicios que aportan) y la lista de
+          días con sus ejercicios. Desde cada ejercicio se copia o mueve a
+          otra rutina. */}
+      {detalle && (() => {
+        const gDet = groups.find((x) => x.key === detalle);
+        if (!gDet) return null;
+        const sDet = statsByKey[detalle];
+        const musculos = Object.entries(sDet.porMusculo).sort((a, b) => b[1] - a[1]);
+        const topM = Math.max(1, ...musculos.map(([, v]) => v));
+        const metaDet = routineMeta[detalle];
+        return (
+          <div className="scrimIn" style={{ position: "fixed", inset: 0, zIndex: 55, background: P.bg,
+            display: "flex", flexDirection: "column", overflow: "hidden",
+            paddingTop: "env(safe-area-inset-top)", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px 10px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
+              <button onClick={() => setDetalle(null)} aria-label="Volver" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 16, background: P.s3, color: P.text, flexShrink: 0 }}>
+                <ChevronLeft size={19} strokeWidth={2.6} />
+              </button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{gDet.label}</h2>
+                <div style={{ fontSize: 12, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {metaDet ? `${metaDet.athlete}${metaDet.split ? " · " + metaDet.split : ""} · ` : ""}{gDet.days.length} día{gDet.days.length !== 1 ? "s" : ""} · {gDet.exCount} ejercicios · {fmtSets(sDet.efectivas)} series
+                </div>
+              </div>
+              <button onClick={() => setRename({ key: detalle, value: gDet.label })} aria-label="Renombrar rutina" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 16, background: P.s3, color: P.faint, flexShrink: 0 }}>
+                <PencilLine size={16} />
+              </button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 16px 40px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: P.faint2, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>Volumen por músculo</div>
+              {musculos.length === 0 ? (
+                <div style={{ fontSize: 13, color: P.textQuaternary, marginBottom: 20 }}>Sin ejercicios cargados todavía.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 22 }}>
+                  {musculos.map(([m, v]) => {
+                    const ab = detMusc === m;
+                    const lista = (sDet.porMusculoEx && sDet.porMusculoEx[m]) || [];
+                    return (
+                      <div key={m} style={{ background: ab ? P.s1 : "transparent", border: `1px solid ${ab ? P.frame : "transparent"}`, borderRadius: R_TILE, padding: ab ? "10px 12px" : "0" }}>
+                        <button onClick={() => setDetMusc(ab ? null : m)} aria-expanded={ab} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, textAlign: "left" }}>
+                          <span style={{ fontSize: 12.5, color: P.dim, fontWeight: 600, width: 74, flexShrink: 0, display: "flex", alignItems: "center", gap: 3 }}>{m}
+                            <ChevronDown size={12} color={P.faint} style={{ transform: ab ? "rotate(180deg)" : "none" }} /></span>
+                          <div style={{ flex: 1, height: 7, borderRadius: 3, background: P.fillTertiary, overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${(v / topM) * 100}%`, background: P.prog, borderRadius: 3 }} />
+                          </div>
+                          <span className="mono" style={{ fontSize: 11, color: P.faint, width: 26, textAlign: "right", flexShrink: 0 }}>{fmtSets(v)}</span>
+                        </button>
+                        {ab && (
+                          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+                            {lista.map((it, k) => (
+                              <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12.5, color: P.dim }}>
+                                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}{it.sec ? " · 2°" : ""} · {it.dia}</span>
+                                <span className="mono" style={{ color: P.faint, flexShrink: 0 }}>{fmtSets(it.sets)} series</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div style={{ fontSize: 12, fontWeight: 700, color: P.faint2, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>Días y ejercicios</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {gDet.days.map((d) => (
+                  <div key={d.id}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: P.text }}>{d.name}</span>
+                      <span style={{ fontSize: 11.5, color: P.faint }}>{(d.exs || []).length} ej · {(d.exs || []).reduce((a, e) => a + (e.sets || []).length, 0)} series</span>
+                    </div>
+                    {(d.exs || []).length === 0 ? (
+                      <div style={{ fontSize: 12.5, color: P.textQuaternary, paddingLeft: 2 }}>Día vacío.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {(d.exs || []).map((ex) => {
+                          const eff = (ex.sets || []).filter((s) => s.type !== "warmup").length;
+                          return (
+                            <div key={ex.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 11px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_ROW }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 14, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.name}</div>
+                                <div style={{ fontSize: 11.5, color: P.faint, marginTop: 1 }}>{ex.muscle || "—"} · {eff} series{ex.equipment ? " · " + ex.equipment : ""}</div>
+                              </div>
+                              <button onClick={() => setCopiar({ ex, fromDayId: d.id, modo: "copiar" })} aria-label={`Copiar o mover ${ex.name}`}
+                                style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, background: P.s3 }}>
+                                <ArrowUpDown size={15} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 22 }}>
+                <button onClick={() => duplicar(detalle)} style={{ ...studioChipBtn, flex: 1, justifyContent: "center", padding: "10px" }}><Copy size={13} /> Duplicar</button>
+                <button onClick={() => { const l = gDet.label; setDetalle(null); setDel({ key: detalle, label: l }); }} style={{ ...studioChipBtn, flex: 1, justifyContent: "center", padding: "10px", color: P.red }}><Trash2 size={13} /> Eliminar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Copiar / mover un ejercicio a un día de otra rutina (o del mismo plan) */}
+      <Sheet open={!!copiar} onClose={() => setCopiar(null)} title={copiar ? copiar.ex.name : ""}>
+        {copiar && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <SectionSwitch value={copiar.modo} onChange={(m) => setCopiar((c) => ({ ...c, modo: m }))}
+              items={[{ id: "copiar", label: "Copiar" }, { id: "mover", label: "Mover" }]} />
+            <div style={{ fontSize: 12.5, color: P.faint, lineHeight: 1.4 }}>
+              {copiar.modo === "mover" ? "Se saca de su día actual y se pega en el día que elijas." : "Se pega una copia en el día que elijas (queda también en el original)."}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: "50vh", overflowY: "auto" }}>
+              {groups.map((g) => (
+                <div key={g.key}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: P.faint2, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>{g.label}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {g.days.map((d) => {
+                      const esOrigen = d.id === copiar.fromDayId;
+                      return (
+                        <button key={d.id} disabled={esOrigen} onClick={() => aplicarCopia(d.id)}
+                          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                            padding: "11px 13px", borderRadius: R_ROW, background: P.s1, border: `1px solid ${P.line}`, opacity: esOrigen ? .45 : 1 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: P.text }}>{d.name}{esOrigen ? " (origen)" : ""}</span>
+                          {!esOrigen && <ArrowRight size={16} color={P.faint} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Sheet>
 
       <Sheet open={!!rename} onClose={() => setRename(null)} title="Nombre de la rutina">
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
