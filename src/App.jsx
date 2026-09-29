@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v368";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v369";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6599,7 +6599,15 @@ function useMountedWhileOpen(open, durMs) {
   return { rendered, closing };
 }
 
-const portalHost = () => (typeof document !== "undefined" && (document.querySelector(".fj") || document.body)) || null;
+// Se monta en <body> (no dentro de la raíz de la app): así ninguna animación,
+// transformación o filtro de un ancestro puede convertirse en el "marco" de
+// un elemento fijo y dejar la hoja fuera de pantalla. El envoltorio .fj le
+// devuelve los estilos de la app.
+const portalHost = () => (typeof document !== "undefined" ? document.body : null);
+const SheetPortal = ({ children }) => createPortal(
+  <div className="fj" style={{ minHeight: 0, padding: 0, background: "none" }}>{children}</div>,
+  portalHost()
+);
 const Sheet = ({ open, onClose, title, children, tall }) => {
   const { rendered, closing } = useMountedWhileOpen(open, DUR_SHEET);
   const swipe = useSwipeBack(onClose);
@@ -6608,7 +6616,8 @@ const Sheet = ({ open, onClose, title, children, tall }) => {
   // de otra hoja (Tema → selector de color) quedaba atrapada en la caja de la
   // hoja padre —su animación crea un contexto de posicionamiento—, con la
   // parte de arriba cortada y sin poder subir a verla.
-  return createPortal(
+  return (
+    <SheetPortal>
     <div className={closing ? "scrimOut" : "scrimIn"} onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
       <div className={closing ? "sheetOut" : "sheetIn"} onClick={(e) => e.stopPropagation()} {...swipe}
         style={{ background: P.bg, borderRadius: "34px 34px 0 0", width: "100%", maxWidth: "var(--fj-w)",
@@ -6627,15 +6636,16 @@ const Sheet = ({ open, onClose, title, children, tall }) => {
         </div>
         <div style={{ overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "8px 22px calc(32px + env(safe-area-inset-bottom))", flex: 1, minHeight: 0 }}>{children}</div>
       </div>
-    </div>,
-    portalHost()
+    </div>
+    </SheetPortal>
   );
 };
 
 const Confirm = ({ open, title, body, okLabel, danger, onOk, onCancel }) => {
   const { rendered, closing } = useMountedWhileOpen(open, DUR_ROW);
   if (!rendered) return null;
-  return createPortal(
+  return (
+    <SheetPortal>
     <div className={closing ? "scrimOut" : "scrimIn"} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.65)", zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <Card className={closing ? "modalOut" : "modalIn"} style={{ padding: 20, maxWidth: 360, width: "100%", background: P.s2 }}>
         <div className="disp" style={{ fontSize: 19, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>{title}</div>
@@ -6645,8 +6655,8 @@ const Confirm = ({ open, title, body, okLabel, danger, onOk, onCancel }) => {
           <Btn kind={danger ? "red" : "ember"} onClick={onOk}>{okLabel}</Btn>
         </div>
       </Card>
-    </div>,
-    portalHost()
+    </div>
+    </SheetPortal>
   );
 };
 
@@ -30497,6 +30507,9 @@ const App = () => {
   const [splashMinDone, setSplashMinDone] = useState(false);
   const [splashExiting, setSplashExiting] = useState(false);
   const [splashGone, setSplashGone] = useState(false);
+  // La animación de entrada se quita al terminar: una animación (aunque acabe
+  // en "none") sobre un ancestro puede descolocar los elementos fijos en iOS.
+  const [appEntrada, setAppEntrada] = useState(true);
   useEffect(() => { const t = setTimeout(() => setSplashMinDone(true), 2300); return () => clearTimeout(t); }, []);
   useEffect(() => {
     if (loading || !splashMinDone || splashGone) return;
@@ -31586,7 +31599,7 @@ const App = () => {
   })();
 
   return (
-    <div className={(easyMode ? "fj fj-easy" : "fj") + " appEnter"} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
+    <div className={(easyMode ? "fj fj-easy" : "fj") + (appEntrada ? " appEnter" : "")} onAnimationEnd={(e) => { if (e.target === e.currentTarget) setAppEntrada(false); }} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
         paddingBottom: enSesion ? 0 : "calc(96px + env(safe-area-inset-bottom))" }}>
