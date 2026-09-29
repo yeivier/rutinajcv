@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v362";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v363";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7964,20 +7964,22 @@ const ExerciseProgress = ({ entries, sessions }) => {
 
   // Chips de gimnasio: solo si el ejercicio se registró en más de uno —
   // con un solo gimnasio (o ninguno asignado) filtrar no aporta nada.
+  // Mismo selector desplegable que el de Ejercicio: rótulo a la izquierda,
+  // valor a la derecha y chevron.
   const gymChips = gimnasios.length > 1 && (
-    <div style={{ display: "flex", gap: 4, marginBottom: 10, overflowX: "auto" }}>
-      <button onClick={() => setGymFiltro("todos")} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
-        display: "inline-flex", alignItems: "center", gap: 5,
-        background: gymFiltro === "todos" ? P.s3 : "transparent", color: gymFiltro === "todos" ? P.text : P.faint, border: `1px solid ${gymFiltro === "todos" ? P.line : "transparent"}` }}>
-        Todos los gimnasios
-      </button>
-      {gimnasios.map((g) => (
-        <button key={g} onClick={() => setGymFiltro(g)} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
-          display: "inline-flex", alignItems: "center", gap: 5,
-          background: gymFiltro === g ? P.s3 : "transparent", color: gymFiltro === g ? P.text : P.faint, border: `1px solid ${gymFiltro === g ? P.line : "transparent"}` }}>
-          <Home size={12} /> {g}
-        </button>
-      ))}
+    <div style={{ position: "relative", display: "flex", alignItems: "center", marginBottom: 10,
+      borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, padding: "0 14px", minHeight: HIT }}>
+      <span className="mono" style={{ letterSpacing: ".08em", flexShrink: 0, marginRight: 10 }}>Gimnasio</span>
+      <select value={gymFiltro} onChange={(e) => setGymFiltro(e.target.value)}
+        aria-label="Elegir el gimnasio del que ver el progreso"
+        style={{ flex: 1, minWidth: 0, appearance: "none", WebkitAppearance: "none",
+          padding: "12px 22px 12px 0", background: "transparent", border: "none",
+          color: P.text, fontSize: 15, fontWeight: 600, textAlign: "right", fontFamily: "inherit" }}>
+        <option value="todos">Todos los gimnasios</option>
+        {gimnasios.map((g) => <option key={g} value={g}>{g}</option>)}
+      </select>
+      <ChevronDown size={16} color={P.chevron} strokeWidth={2.4}
+        style={{ position: "absolute", right: 12, pointerEvents: "none" }} />
     </div>
   );
 
