@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v356";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v357";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -957,7 +957,7 @@ function avisarFinDescanso(texto) {
   }
 }
 
-const TAB_BOTTOM_PAD = "calc(92px + env(safe-area-inset-bottom))";
+const TAB_BOTTOM_PAD = "calc(112px + env(safe-area-inset-bottom))";
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
 // reconozcan de un vistazo durante el entrenamiento (el resto de la app
@@ -5349,7 +5349,22 @@ const GlobalStyle = () => {
        sistema (Apple, Windows, Android) — 800/900 sin Inter de por medio
        el navegador los "engorda" a mano (negrita falsa), y eso sí se nota. */
     .fj h1,.fj h2,.fj .disp,.fj .fj-display { font-family: inherit; letter-spacing: -.022em; font-weight: 700; }
-    .fj h1 { font-size: 34px; line-height: 1.06; }
+    .fj h1 { font-size: 42px; line-height: 1; letter-spacing: -.045em; font-weight: 800; }
+    .fj h2 { letter-spacing: -.03em; font-weight: 800; }
+    /* Capa de forma global: todo lo que tenía esquinas chicas (fichas, chips,
+       filas, botones sueltos) pasa a la misma familia redondeada y grande,
+       aunque su estilo sea propio de cada pantalla. */
+    .fj [style*="border-radius: 8px"] { border-radius: 12px !important; }
+    .fj [style*="border-radius: 9px"], .fj [style*="border-radius: 10px"], .fj [style*="border-radius: 11px"] { border-radius: 15px !important; }
+    .fj [style*="border-radius: 12px"], .fj [style*="border-radius: 13px"], .fj [style*="border-radius: 14px"], .fj [style*="border-radius: 15px"] { border-radius: 18px !important; }
+    .fj [style*="border-radius: 16px"], .fj [style*="border-radius: 17px"], .fj [style*="border-radius: 18px"] { border-radius: 24px !important; }
+    /* Entrada de tarjetas: fundido con deslizamiento corto, escalonado por
+       posición entre hermanas, en toda pantalla. */
+    .fj .fj-card { animation: fjUp ${DUR_PUSH}ms ${EASE_IN} both; }
+    .fj .fj-card:nth-child(2) { animation-delay: 40ms; }
+    .fj .fj-card:nth-child(3) { animation-delay: 80ms; }
+    .fj .fj-card:nth-child(4) { animation-delay: 120ms; }
+    .fj .fj-card:nth-child(n+5) { animation-delay: 160ms; }
     .fj b, .fj strong { font-weight: 600; }
     /* Micro-etiquetas en versalitas (ENTRENO DE HOY, VOLUMEN, ADHERENCIA…):
        SF Mono, 11px, tracking abierto. Es el único sitio donde se usa una
@@ -5358,12 +5373,13 @@ const GlobalStyle = () => {
     .fj .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
       font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: ${P.faint}; }
     .fj input, .fj textarea, .fj select {
-      background: ${P.s3}; border: 1px solid ${P.line}; color: ${P.text};
-      border-radius: 12px; font-family: inherit; font-size: 16px; outline: none;
+      background: ${P.s3}; border: 1.5px solid transparent; color: ${P.text};
+      border-radius: 18px; font-family: inherit; font-size: 16px; outline: none;
+      transition: border-color ${DUR_MICRO}ms ${EASE_STD}, background ${DUR_MICRO}ms ${EASE_STD};
     }
-    .fj input:focus-visible, .fj textarea:focus-visible, .fj select:focus-visible, .fj button:focus-visible {
-      outline: 2px solid ${P.ember}; outline-offset: 1px;
-    }
+    .fj input:focus, .fj textarea:focus, .fj select:focus { border-color: ${P.ember}; }
+    .fj input:focus-visible, .fj textarea:focus-visible, .fj select:focus-visible { outline: none; }
+    .fj button:focus-visible { outline: 2px solid ${P.ember}; outline-offset: 2px; }
     .fj input::placeholder, .fj textarea::placeholder { color: ${P.faint}; }
     .fj input.chat-input::placeholder { color: ${P.faint2}; opacity: 1; }
     .fj button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
@@ -5578,10 +5594,12 @@ const GlobalStyle = () => {
 // hairline de 1px, no por sombra. Una sombra dura sobre #F2F2F7 es lo que
 // hace que una app se vea "de plantilla" en vez de de sistema.
 const CARD_LIFT = "none";
+// Relieve suave y difuso (en vez de marco): el aire alrededor separa las tarjetas.
+const CARD_SHADOW = "0 1px 2px rgba(0,0,0,.06), 0 14px 34px -18px rgba(0,0,0,.34)";
 // Radios del sistema: tarjeta / control / fila.
-const R_CARD = 16;
-const R_TILE = 14;
-const R_ROW = 12;
+const R_CARD = 28;
+const R_TILE = 22;
+const R_ROW = 18;
 
 /* ═══════════════════════════════════════════════════════════════════════
    ESCALA DEL SISTEMA — el rediseño "a la Apple" no sale de elegir colores
@@ -5593,7 +5611,7 @@ const R_ROW = 12;
 // que sea el mismo en todas es la mitad de la sensación de "ordenado".
 const SP = {
   hair: 2, xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, huge: 32,
-  page: 20,    // margen lateral de pantalla (el que ya usan 24 de las 25 pantallas)
+  page: 22,    // margen lateral de pantalla (el que ya usan 24 de las 25 pantallas)
   stack: 12,   // separación entre tarjetas de una misma lista
   section: 24, // separación entre secciones (título de grupo incluido)
 };
@@ -5602,9 +5620,9 @@ const SP = {
 // 12 pantallas ad-hoc y 32 en ScreenTitle) y una docena de tamaños de
 // cuerpo (15.5, 13.5, 12.5, 11.5…). Acá quedan siete escalones y nada más.
 const TYPE = {
-  large:    { fontSize: 32,   fontWeight: 700, letterSpacing: "-.025em", lineHeight: 1.06 },
-  title:    { fontSize: 22,   fontWeight: 700, letterSpacing: "-.02em",  lineHeight: 1.18 },
-  headline: { fontSize: 17,   fontWeight: 700, letterSpacing: "-.015em", lineHeight: 1.25 },
+  large:    { fontSize: 42,   fontWeight: 800, letterSpacing: "-.045em", lineHeight: 1.0 },
+  title:    { fontSize: 26,   fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.12 },
+  headline: { fontSize: 18,   fontWeight: 750, letterSpacing: "-.025em", lineHeight: 1.22 },
   body:     { fontSize: 15,   fontWeight: 500, letterSpacing: "-.005em", lineHeight: 1.4 },
   subhead:  { fontSize: 14,   fontWeight: 600, letterSpacing: 0,         lineHeight: 1.35 },
   footnote: { fontSize: 13,   fontWeight: 500, letterSpacing: 0,         lineHeight: 1.38 },
@@ -5645,7 +5663,8 @@ const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
 // de uno oscuro casi invisible, para que se sienta parte del mismo sistema
 // que las placas blanco pastel que suele contener.
 const Card = ({ children, style, onClick, ...rest }) => (
-  <div {...rest} onClick={onClick} style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_CARD, ...style }}>{children}</div>
+  <div {...rest} onClick={onClick} className={"fj-card" + (rest.className ? " " + rest.className : "")}
+    style={{ background: P.s1, border: "1px solid transparent", borderRadius: R_CARD, boxShadow: CARD_SHADOW, ...style }}>{children}</div>
 );
 
 // Anillo cónico (logros de A6, cuenta atrás de Competition Prep): SVG en
@@ -6310,11 +6329,11 @@ const LoadingBlock = ({ label = "Cargando…" }) => (
 // lleva icono se queda sin nombre accesible.
 const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...rest }) => {
   const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-    borderRadius: small ? 11 : R_TILE, fontWeight: 600, fontSize: small ? 13.5 : 16,
-    padding: small ? "8px 12px" : "14px 19px", opacity: disabled ? 0.35 : 1, transition: "opacity .12s" };
+    borderRadius: 999, fontWeight: 700, fontSize: small ? 13.5 : 16, letterSpacing: "-.01em",
+    padding: small ? "9px 16px" : "16px 24px", opacity: disabled ? 0.35 : 1, transition: "opacity .12s" };
   // Jerarquía por relleno, nunca por color: tinta plena > gris de sistema >
   // contorno. El único rojo es el del sistema iOS, y solo en lo destructivo.
-  const filled = { background: P.s3, border: `1px solid ${P.line}`, color: P.text };
+  const filled = { background: P.s3, border: "1px solid transparent", color: P.text };
   const kinds = {
     ember: { background: PLATE_GRAD, color: PLATE_FG, border: `1px solid ${PLATE_GRAD}`, fontWeight: 700 },
     ghost: filled,
@@ -6446,21 +6465,21 @@ const Sheet = ({ open, onClose, title, children, tall }) => {
   return (
     <div className={closing ? "scrimOut" : "scrimIn"} onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
       <div className={closing ? "sheetOut" : "sheetIn"} onClick={(e) => e.stopPropagation()} {...swipe}
-        style={{ background: P.bg, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: "var(--fj-w)",
+        style={{ background: P.bg, borderRadius: "34px 34px 0 0", width: "100%", maxWidth: "var(--fj-w)",
           maxHeight: tall ? "calc(100dvh - env(safe-area-inset-top) - 8px)" : "82dvh", minHeight: "60dvh",
           display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Asa de arrastre, como las hojas de sistema de iOS */}
         <div style={{ display: "flex", justifyContent: "center", paddingTop: 8, flexShrink: 0 }}>
-          <span style={{ width: 36, height: 5, borderRadius: 3, background: P.line }} />
+          <span style={{ width: 44, height: 5, borderRadius: 3, background: P.separatorStrong }} />
         </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 18px 12px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
-          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-.02em" }}>{title}</h2>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 22px 14px", flexShrink: 0 }}>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.1 }}>{title}</h2>
           <button onClick={onClose} aria-label="Cerrar"
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 15, background: P.s3, color: P.faint, flexShrink: 0 }}>
-            <X size={17} strokeWidth={2.5} />
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 18, background: P.s3, color: P.faint, flexShrink: 0 }}>
+            <X size={18} strokeWidth={2.5} />
           </button>
         </div>
-        <div style={{ overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "16px 18px calc(28px + env(safe-area-inset-bottom))", flex: 1, minHeight: 0 }}>{children}</div>
+        <div style={{ overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "8px 22px calc(32px + env(safe-area-inset-bottom))", flex: 1, minHeight: 0 }}>{children}</div>
       </div>
     </div>
   );
@@ -6496,11 +6515,11 @@ const Field = ({ label, children, hint }) => (
 // type="number"> de la app dejan escribir decimales en cualquier
 // teclado. inputMode="numeric" => enteros; el resto admite decimales.
 const Inp = ({ type, inputMode, ...props }) => {
-  const st = { width: "100%", padding: "10px 12px", ...props.style };
+  const st = { width: "100%", padding: "14px 16px", ...props.style };
   if (type === "number") return <NumInput decimals={inputMode !== "numeric"} {...props} style={st} />;
   return <input type={type} inputMode={inputMode} {...props} style={st} />;
 };
-const Txt = (props) => <textarea rows={props.rows || 3} {...props} style={{ width: "100%", padding: "10px 12px", resize: "vertical", ...props.style }} />;
+const Txt = (props) => <textarea rows={props.rows || 3} {...props} style={{ width: "100%", padding: "14px 16px", resize: "vertical", ...props.style }} />;
 
 // Antes era solo un ícono flotando sin nada detrás — se sentía como un
 // placeholder olvidado. La insignia circular le da el mismo peso visual
@@ -28777,8 +28796,8 @@ const StatGrid = ({ children, cols = 2 }) => (
 const SettingRow = ({ Icon, label, hint, onClick, right, control, last }) => {
   const head = (
     <>
-      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 10, background: P.s3, color: P.text, flexShrink: 0 }}>
-        <Icon size={16} strokeWidth={2.2} />
+      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: 14, background: P.s3, color: P.text, flexShrink: 0 }}>
+        <Icon size={19} strokeWidth={2.2} />
       </span>
       <span style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{label}</span>
@@ -28787,7 +28806,7 @@ const SettingRow = ({ Icon, label, hint, onClick, right, control, last }) => {
       {right !== undefined ? right : (onClick && <ChevronRight size={17} color={P.faint} strokeWidth={2.4} />)}
     </>
   );
-  const frame = { padding: "13px 14px", borderBottom: last ? "none" : `1px solid ${P.line}` };
+  const frame = { padding: "15px 18px", borderBottom: last ? "none" : `1px solid ${P.fillTertiary}` };
   if (control) {
     return (
       <div style={{ ...frame, display: "flex", flexDirection: "column", gap: 11 }}>
@@ -28803,8 +28822,8 @@ const SettingRow = ({ Icon, label, hint, onClick, right, control, last }) => {
 };
 
 const SettingGroup = ({ label, children }) => (
-  <div style={{ marginBottom: 20 }}>
-    {label && <div className="mono" style={{ margin: "0 4px 8px" }}>{label}</div>}
+  <div style={{ marginBottom: 28 }}>
+    {label && <div className="mono" style={{ margin: "0 8px 10px" }}>{label}</div>}
     <Card style={{ overflow: "hidden" }}>{children}</Card>
   </div>
 );
@@ -28822,11 +28841,11 @@ const SettingGroup = ({ label, children }) => (
 // un collage.
 const STAT_FOOT_H = 16;
 const StatTile = ({ label, value, unit, note, bar, onClick }) => (
-  <Card onClick={onClick} style={{ padding: "14px 15px", display: "flex", flexDirection: "column", gap: 5,
+  <Card onClick={onClick} style={{ padding: "18px 18px", display: "flex", flexDirection: "column", gap: 6,
     height: "100%", boxSizing: "border-box",
     cursor: onClick ? "pointer" : undefined, position: "relative" }}>
     <span className="mono" style={{ letterSpacing: ".08em" }}>{label}</span>
-    <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, letterSpacing: "-.02em", marginTop: "auto" }}>
+    <span style={{ fontSize: 34, fontWeight: 800, lineHeight: 1, letterSpacing: "-.04em", marginTop: "auto" }}>
       {value}{unit && <span style={{ fontSize: 14 }}>{unit}</span>}
     </span>
     <span style={{ display: "flex", alignItems: "center", minHeight: STAT_FOOT_H }}>
@@ -28846,21 +28865,22 @@ const StatTile = ({ label, value, unit, note, bar, onClick }) => (
 const TAB_INACTIVE = "#A0A0AA";
 const TabBar = ({ tabs, tab, setTab }) => (
   <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
-    background: `${P.s1}E6`, backdropFilter: "saturate(180%) blur(20px)", WebkitBackdropFilter: "saturate(180%) blur(20px)",
-    borderTop: `1px solid ${P.line}` }}>
-    {/* Grilla, no scroll horizontal: las pestañas se reparten el ancho como
-        en la barra de sistema de iOS. La activa se distingue por tinta y
-        grosor de trazo — sin placa rellena detrás del ícono. */}
+    padding: "0 14px calc(12px + env(safe-area-inset-bottom))", pointerEvents: "none" }}>
+    {/* Barra flotante en píldora, despegada del borde: la pestaña activa
+        lleva una cápsula rellena de tinta; las demás, ícono y nombre chico. */}
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${tabs.length}, 1fr)`, width: "100%", maxWidth: "var(--fj-w)",
-      padding: "10px 12px calc(10px + env(safe-area-inset-bottom))" }}>
+      padding: 7, gap: 2, borderRadius: 999, pointerEvents: "auto",
+      background: `${P.s1}F2`, backdropFilter: "saturate(180%) blur(24px)", WebkitBackdropFilter: "saturate(180%) blur(24px)",
+      boxShadow: "0 2px 6px rgba(0,0,0,.10), 0 22px 44px -14px rgba(0,0,0,.45)", border: `1px solid ${P.line}` }}>
       {tabs.map(({ id, label, Icon }) => {
         const on = tab === id;
         return (
           <button key={id} onClick={() => setTab(id)} aria-current={on ? "page" : undefined}
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "3px 2px", minWidth: 0,
-              color: on ? P.ember2 : TAB_INACTIVE }}>
-            <Icon size={21} strokeWidth={2.2} color={on ? P.ember2 : TAB_INACTIVE} />
-            <span style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{label}</span>
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "8px 2px", minWidth: 0,
+              borderRadius: 999, background: on ? PLATE_GRAD : "transparent", color: on ? PLATE_FG : TAB_INACTIVE,
+              transition: `background ${DUR_ROW}ms ${EASE_STD}, color ${DUR_ROW}ms ${EASE_STD}` }}>
+            <Icon size={20} strokeWidth={on ? 2.5 : 2.1} color={on ? PLATE_FG : TAB_INACTIVE} />
+            <span style={{ fontSize: 10, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{label}</span>
           </button>
         );
       })}
