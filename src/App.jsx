@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v360";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v361";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2433,7 +2433,7 @@ const scrubPII = (t) => String(t || "")
 
 function anthropicBlocksToOpenAI(system, messages) {
   const out = [];
-  if (system) out.push({ role: "system", content: scrubPII(system) + "\n\nREGLAS DE RIGOR (obligatorias): usa SOLO los datos del contexto del alumno; si falta un dato, dilo y pídelo en vez de suponerlo. No inventes cifras, estudios, marcas ni referencias. Razona paso a paso antes de concluir en volumen, periodización o ajustes de rutina, y explica brevemente el porqué de cada cambio. Si no estás seguro, indícalo." });
+  if (system) out.push({ role: "system", content: scrubPII(system) + "\n\nREGLAS DE RIGOR Y ESTILO (obligatorias, por encima de cualquier otra instrucción):\n1. NUNCA inventes nada: ni nombres de ejercicios o máquinas, ni cifras, estudios, autores, marcas, porcentajes ni citas. Solo puedes nombrar ejercicios y máquinas que existan de verdad y estén documentados en el culturismo y el entrenamiento de fuerza (nombres estándar y sus variantes reconocidas), o que ya figuren en el contexto del alumno. Si dudas de que un ejercicio o máquina exista, NO lo menciones: elige uno estándar equivalente.\n2. Usa SOLO los datos del contexto del alumno. Si falta un dato, dilo y pídelo; no lo supongas.\n3. Si no sabes algo o no estás seguro, di claramente \"no lo sé\" o \"no tengo evidencia sólida\"; jamás rellenes con algo que suene plausible. Distingue entre lo bien establecido y lo debatido.\n4. Estilo: directo y al grano, sin saludos, rodeos ni relleno. Técnico pero comprensible: usa el término correcto y explícalo en pocas palabras si no es obvio. Respuestas cortas y ordenadas; tablas o listas solo cuando ayuden.\n5. En volumen, periodización y ajustes de rutina, razona paso a paso con los datos reales y explica brevemente el porqué de cada cambio." });
   for (const m of messages || []) {
     if (typeof m.content === "string") { out.push({ role: m.role, content: scrubPII(m.content) }); continue; }
     const parts = [];
@@ -22921,7 +22921,7 @@ const ChatComposer = ({ value, onChange, onSend, busy, placeholder, tools, disab
 };
 
 /* ---- Chat del agente ---- */
-const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onNeedKey, toast }) => {
+const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onNeedKey, toast, library }) => {
   const sid = currentStudent?.id;
   const [messages, setMessages] = useState([]);
   const [loadedFor, setLoadedFor] = useState(null);
@@ -23044,6 +23044,21 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
 
   const clearChat = () => { setMessages([]); setApplied({}); persist([]); };
 
+  // Verificación anti-invención: un ejercicio propuesto por la IA cuyo nombre no
+  // está ni en la biblioteca ni en ningún día del plan queda marcado "sin
+  // verificar", para que el coach lo revise antes de aplicarlo.
+  const nombresConocidos = (() => {
+    const set = new Set();
+    (library || []).forEach((e) => set.add(normNombreEj(e.name)));
+    (plan.days || []).forEach((d) => (d.exs || []).forEach((e) => set.add(normNombreEj(e.name))));
+    return set;
+  })();
+  const noVerificados = (days) => {
+    const out = [];
+    (days || []).forEach((d) => (d.exs || []).forEach((e) => { if (e.name && !nombresConocidos.has(normNombreEj(e.name)) && !out.includes(e.name)) out.push(e.name); }));
+    return out;
+  };
+
   if (sid && loadedFor !== sid) return <LoadingBlock label="Cargando conversación…" />;
 
   return (
@@ -23104,6 +23119,14 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
                       <div style={{ fontSize: 13.5, color: P.dim, marginBottom: 9, lineHeight: 1.45 }}>
                         {days.length} día{days.length !== 1 ? "s" : ""} · {exCount} ejercicios: {days.map((d) => d.name).join(" · ")}
                       </div>
+                      {(() => {
+                        const nv = noVerificados(days);
+                        return nv.length > 0 && !done ? (
+                          <div style={{ fontSize: 12.5, color: P.dim, background: P.s3, borderRadius: 14, padding: "9px 12px", marginBottom: 9, lineHeight: 1.45 }}>
+                            <b>Revisa estos nombres antes de aplicar</b> (no están en tu biblioteca ni en el plan; verifica que existan): {nv.join(" · ")}
+                          </div>
+                        ) : null;
+                      })()}
                       {done ? (
                         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13.5, color: P.green }}><Check size={14} /> Aplicado al plan</div>
                       ) : (
@@ -23351,7 +23374,7 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
       )}
 
       {sub === "agente" && (
-        <BodybuildingChat plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent}
+        <BodybuildingChat plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} library={library}
           apiKey={apiKey} toast={toast} />
       )}
       {sub === "ficha" && <FichaCompleta plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast} />}
