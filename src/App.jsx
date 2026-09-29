@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v359";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v360";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2422,16 +2422,25 @@ async function sbListKeysLike(prefix) {
    mensaje para que la IA pueda explicárselo a quien lo mandó. */
 const FREE_AI_MODEL = "openai";
 
+/* Privacidad: antes de que un texto salga hacia cualquier proveedor externo se
+   tapan los datos que identifican a una persona (correos, teléfonos, RUT/DNI,
+   @usuarios de redes). El nombre del alumno ya ni siquiera entra al contexto. */
+const scrubPII = (t) => String(t || "")
+  .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[correo]")
+  .replace(/\b\d{1,2}\.?\d{3}\.?\d{3}-?[\dkK]\b/g, "[documento]")
+  .replace(/(?:\+?\d[\s().-]?){9,15}\d/g, "[teléfono]")
+  .replace(/(^|\s)@[A-Za-z0-9_.]{3,}/g, "$1[usuario]");
+
 function anthropicBlocksToOpenAI(system, messages) {
   const out = [];
-  if (system) out.push({ role: "system", content: system + "\n\nREGLAS DE RIGOR (obligatorias): usa SOLO los datos del contexto del alumno; si falta un dato, dilo y pídelo en vez de suponerlo. No inventes cifras, estudios, marcas ni referencias. Razona paso a paso antes de concluir en volumen, periodización o ajustes de rutina, y explica brevemente el porqué de cada cambio. Si no estás seguro, indícalo." });
+  if (system) out.push({ role: "system", content: scrubPII(system) + "\n\nREGLAS DE RIGOR (obligatorias): usa SOLO los datos del contexto del alumno; si falta un dato, dilo y pídelo en vez de suponerlo. No inventes cifras, estudios, marcas ni referencias. Razona paso a paso antes de concluir en volumen, periodización o ajustes de rutina, y explica brevemente el porqué de cada cambio. Si no estás seguro, indícalo." });
   for (const m of messages || []) {
-    if (typeof m.content === "string") { out.push({ role: m.role, content: m.content }); continue; }
+    if (typeof m.content === "string") { out.push({ role: m.role, content: scrubPII(m.content) }); continue; }
     const parts = [];
     let hadDoc = false;
     for (const blk of m.content || []) {
       if (!blk) continue;
-      if (blk.type === "text") parts.push({ type: "text", text: blk.text || "" });
+      if (blk.type === "text") parts.push({ type: "text", text: scrubPII(blk.text) });
       else if (blk.type === "image" && blk.source && blk.source.data) {
         parts.push({ type: "image_url", image_url: { url: `data:${blk.source.media_type || "image/jpeg"};base64,${blk.source.data}` } });
       } else if (blk.type === "document") {
@@ -21138,7 +21147,7 @@ function buildAthleteContext({ plan, history, athlete, student }) {
     : "  (sin indicaciones cargadas)";
 
   return `FICHA DEL ATLETA
-- Nombre: ${student?.name || "sin especificar"}
+- Nombre: (reservado: no se comparte con la IA por privacidad)
 - Sexo: ${a.sex || "no indicado"} · Edad: ${a.age || "?"} · Estatura: ${a.height || "?"} cm · Peso: ${a.weight || "?"} kg · % graso estimado: ${a.bf || "?"}
 - Años entrenando: ${a.years || "?"} · Nivel: ${a.level || "?"}
 - Fase actual: ${phase ? `${phase.label} (${phase.kcal}, ritmo ${phase.rate}, proteína ${phase.prot})` : a.phase || "no definida"}
@@ -21258,7 +21267,7 @@ function buildActiveSessionSummary(active) {
 // pide un cambio real (más peso, otro ejercicio, cambiar un día), lo remite
 // a su coach en vez de simular que lo aplicó.
 function buildStudentSystemPrompt(ctx, studentName, activeSummary) {
-  return `Eres el asistente de IA de FORJA, la plataforma de entrenamiento que usa ${studentName || "este alumno"}. Hablas directamente CON el alumno, de tú (nunca de "vos" ni de "usted"), en un tono cercano, directo y motivador — como un coach que conoce su caso a fondo, no un buscador genérico.
+  return `Eres el asistente de IA de FORJA, la plataforma de entrenamiento que usa este alumno. Hablas directamente CON el alumno, de tú (nunca de "vos" ni de "usted"), en un tono cercano, directo y motivador — como un coach que conoce su caso a fondo, no un buscador genérico.
 
 QUÉ SABES DE ESTE ALUMNO
 Tienes su ficha completa, rutina, volumen por músculo, historial de sesiones, peso corporal y nutrición cargados abajo. Úsalos siempre que la pregunta se relacione con su entrenamiento — cita el dato real (qué le toca hoy, cuántas series lleva, su último PR, etc.) en vez de responder en genérico.
