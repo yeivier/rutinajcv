@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   Flame, Dumbbell, TrendingUp, BarChart3, BookOpen, Utensils, ClipboardList, MessageSquare,
   Camera, Check, Plus, Minus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
@@ -17,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v361";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v362";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -440,6 +441,11 @@ try { THEME_MODE = window.localStorage.getItem("forja-theme") || "light"; } catc
 // Cuando hay uno, la Apariencia es "Personalizado": base clara con ese fondo.
 let BG = "";
 try { BG = window.localStorage.getItem("forja-bg") || ""; } catch {}
+// Colores a elección de las FICHAS (P.s1) y de las SECCIONES / paneles
+// internos (P.s2 y derivados). "" = los del tema. Solo se aplican si el texto
+// del tema se lee encima (contraste ≥ 4,5): si no, se ignoran en silencio.
+let CARDBG = "", SECBG = "";
+try { CARDBG = window.localStorage.getItem("forja-cardbg") || ""; SECBG = window.localStorage.getItem("forja-secbg") || ""; } catch {}
 const themeListeners = new Set();
 const systemPrefersDark = () => { try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { return false; } };
 function resolveTheme(mode) { return mode === "auto" ? (systemPrefersDark() ? "dark" : "light") : mode; }
@@ -472,6 +478,11 @@ function applyTheme(mode) {
   if (BG && !_dk) {
     P.bg = BG; P.bgGrad = BG;
     SES.bg = BG;
+  }
+  // Fichas y secciones a elección.
+  if (CARDBG && contraste(CARDBG, P.text) >= 4.5) { P.s1 = CARDBG; SES.card = CARDBG; }
+  if (SECBG && contraste(SECBG, P.text) >= 4.5) {
+    P.s2 = SECBG; P.s3 = mixHex(SECBG, P.text, 0.07); P.s4 = mixHex(SECBG, P.text, 0.14); P.fillTertiary = P.s3;
   }
   THEME_MODE = mode;
   try { window.localStorage.setItem("forja-theme", mode); } catch {}
@@ -537,6 +548,35 @@ function fondoLegible(hex) {
   return { hex: "#F1F2F4", ajustado: true };
 }
 
+function mixHex(a, b, t) {
+  const x = hexToRgb(a), y = hexToRgb(b);
+  if (!x || !y) return a;
+  return rgbToHex(x.r + (y.r - x.r) * t, x.g + (y.g - x.g) * t, x.b + (y.b - x.b) * t);
+}
+// Lleva un color al tono más cercano (mismo matiz) sobre el que `tinta` se lee.
+function legibleCon(hex, tinta) {
+  if (!esHex(hex) || contraste(hex, tinta) >= BG_CONTRASTE_MIN) return { hex, ajustado: false };
+  const c = hexToRgb(hex);
+  const { h, s: sat } = rgbToHsv(c.r, c.g, c.b);
+  const claroTexto = luminanciaRel(tinta) > 0.5;
+  for (let paso = 1; paso <= 24; paso++) {
+    const v = claroTexto ? Math.max(0, 0.42 - paso * 0.017) : Math.min(1, 0.55 + paso * 0.02);
+    const cand = hsvToHex(h, Math.max(0, sat - paso * 0.03), v);
+    if (contraste(cand, tinta) >= BG_CONTRASTE_MIN) return { hex: cand, ajustado: true };
+  }
+  return { hex: claroTexto ? "#1F1F23" : "#F1F2F4", ajustado: true };
+}
+function applyCardBg(hex) { CARDBG = hex || ""; try { if (CARDBG) window.localStorage.setItem("forja-cardbg", CARDBG); else window.localStorage.removeItem("forja-cardbg"); } catch {} applyTheme(THEME_MODE); }
+function applySecBg(hex) { SECBG = hex || ""; try { if (SECBG) window.localStorage.setItem("forja-secbg", SECBG); else window.localStorage.removeItem("forja-secbg"); } catch {} applyTheme(THEME_MODE); }
+function useSurfaces() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((x) => x + 1);
+    themeListeners.add(fn);
+    return () => themeListeners.delete(fn);
+  }, []);
+  return { cardBg: CARDBG, secBg: SECBG, setCardBg: applyCardBg, setSecBg: applySecBg };
+}
 function _persistBg() { try { if (BG) window.localStorage.setItem("forja-bg", BG); else window.localStorage.removeItem("forja-bg"); } catch {} }
 function applyBgPref(hex) {
   BG = hex || "";
@@ -6499,11 +6539,16 @@ function useMountedWhileOpen(open, durMs) {
   return { rendered, closing };
 }
 
+const portalHost = () => (typeof document !== "undefined" && (document.querySelector(".fj") || document.body)) || null;
 const Sheet = ({ open, onClose, title, children, tall }) => {
   const { rendered, closing } = useMountedWhileOpen(open, DUR_SHEET);
   const swipe = useSwipeBack(onClose);
   if (!rendered) return null;
-  return (
+  // Se monta en la raíz de la app, no dentro de quien la abre: una hoja dentro
+  // de otra hoja (Tema → selector de color) quedaba atrapada en la caja de la
+  // hoja padre —su animación crea un contexto de posicionamiento—, con la
+  // parte de arriba cortada y sin poder subir a verla.
+  return createPortal(
     <div className={closing ? "scrimOut" : "scrimIn"} onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
       <div className={closing ? "sheetOut" : "sheetIn"} onClick={(e) => e.stopPropagation()} {...swipe}
         style={{ background: P.bg, borderRadius: "34px 34px 0 0", width: "100%", maxWidth: "var(--fj-w)",
@@ -6522,14 +6567,15 @@ const Sheet = ({ open, onClose, title, children, tall }) => {
         </div>
         <div style={{ overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "8px 22px calc(32px + env(safe-area-inset-bottom))", flex: 1, minHeight: 0 }}>{children}</div>
       </div>
-    </div>
+    </div>,
+    portalHost()
   );
 };
 
 const Confirm = ({ open, title, body, okLabel, danger, onOk, onCancel }) => {
   const { rendered, closing } = useMountedWhileOpen(open, DUR_ROW);
   if (!rendered) return null;
-  return (
+  return createPortal(
     <div className={closing ? "scrimOut" : "scrimIn"} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.65)", zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <Card className={closing ? "modalOut" : "modalIn"} style={{ padding: 20, maxWidth: 360, width: "100%", background: P.s2 }}>
         <div className="disp" style={{ fontSize: 19, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>{title}</div>
@@ -6539,7 +6585,8 @@ const Confirm = ({ open, title, body, okLabel, danger, onOk, onCancel }) => {
           <Btn kind={danger ? "red" : "ember"} onClick={onOk}>{okLabel}</Btn>
         </div>
       </Card>
-    </div>
+    </div>,
+    portalHost()
   );
 };
 
@@ -25673,6 +25720,10 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
   const [theme, setTheme] = useTheme();
   const [accent, setAccent] = useAccent();
   const [bg, setBg] = useBg();
+  const { cardBg, secBg, setCardBg, setSecBg } = useSurfaces();
+  const [pickerFichas, setPickerFichas] = useState(false);
+  const [pickerSecciones, setPickerSecciones] = useState(false);
+  const [avisoSup, setAvisoSup] = useState("");
   const [pickerAcento, setPickerAcento] = useState(false);
   const [pickerFondo, setPickerFondo] = useState(false);
   // Aviso cuando el fondo elegido hubo que aclararlo para que el texto
@@ -25883,6 +25934,25 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
               )}
             </div>
           )}
+          {/* Superficies a elección: fichas y secciones. */}
+          <div style={{ padding: "12px 16px", borderTop: `1px solid ${P.line}` }}>
+            <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text, marginBottom: 2 }}>Fichas y secciones</div>
+            <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 12 }}>Elige el color de fondo de las fichas (tarjetas) y de las secciones internas (paneles, burbujas, campos). Se ajusta solo si el texto dejara de leerse.</div>
+            {[
+              { id: "fichas", label: "Fichas", cur: cardBg, abrir: () => setPickerFichas(true), reset: () => { setCardBg(""); setAvisoSup(""); } },
+              { id: "secciones", label: "Secciones", cur: secBg, abrir: () => setPickerSecciones(true), reset: () => { setSecBg(""); setAvisoSup(""); } },
+            ].map((r) => (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <span aria-hidden="true" style={{ width: 34, height: 34, borderRadius: 12, flexShrink: 0, background: r.cur || (r.id === "fichas" ? P.s1 : P.s2), border: `1px solid ${P.separatorStrong}` }} />
+                <span style={{ flex: 1, fontSize: 14.5, color: P.text }}>{r.label}{r.cur ? ` ${r.cur}` : " (del tema)"}</span>
+                <button onClick={r.abrir} aria-label={`Elegir color de ${r.label.toLowerCase()}`}
+                  style={{ padding: "8px 14px", borderRadius: 999, background: P.s3, color: P.text, fontSize: 13, fontWeight: 700 }}>Cambiar</button>
+                {r.cur && <button onClick={r.reset} aria-label={`Restablecer ${r.label.toLowerCase()}`}
+                  style={{ padding: "8px 12px", borderRadius: 999, color: P.faint, fontSize: 13, fontWeight: 600 }}>Restablecer</button>}
+              </div>
+            ))}
+            {avisoSup && <div style={{ marginTop: 4, padding: "8px 10px", borderRadius: R_ROW, background: P.s3, fontSize: 12.5, color: P.dim, lineHeight: 1.45 }}>{avisoSup}</div>}
+          </div>
           {/* Color de acento — paleta amplia y personalizable. Tiñe los botones
               primarios, los estados activos y la sesión de Entrenar. */}
           <div style={{ padding: "12px 16px", borderTop: `1px solid ${P.line}` }}>
@@ -25930,6 +26000,12 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
           title="Color de acento"
           value={esAcentoCustom(accent) ? hexDeAcento(accent) : (accentSwatch(ACCENT_BY_ID[accent] || {}) || "#0A6CFF")}
           onChange={(hex) => setAccent(ACCENT_CUSTOM_PREFIX + hex)} />
+        <ColorPickerSheet open={pickerFichas} onClose={() => setPickerFichas(false)}
+          title="Color de fichas" value={cardBg || P.s1}
+          onChange={(hex) => { const r = legibleCon(hex, P.text); setCardBg(r.hex); setAvisoSup(r.ajustado ? `${hex} dejaba el texto ilegible: se usó ${r.hex}, el tono más cercano que sí se lee.` : ""); }} />
+        <ColorPickerSheet open={pickerSecciones} onClose={() => setPickerSecciones(false)}
+          title="Color de secciones" value={secBg || P.s2}
+          onChange={(hex) => { const r = legibleCon(hex, P.text); setSecBg(r.hex); setAvisoSup(r.ajustado ? `${hex} dejaba el texto ilegible: se usó ${r.hex}, el tono más cercano que sí se lee.` : ""); }} />
         <ColorPickerSheet open={pickerFondo} onClose={() => setPickerFondo(false)}
           title="Color de fondo"
           value={bg || DEFAULT_BG}
@@ -26263,8 +26339,19 @@ const ColorSlider = ({ label, value, max, onChange, pista, sufijo }) => (
   </div>
 );
 
+// Paleta pensada para esta app: neutros, acentos sobrios, pasteles suaves y
+// tonos profundos que combinan con el resto de la interfaz. Es lo primero que
+// se ve al elegir un color; la cuadrícula/espectro quedan para quien quiere
+// cualquier otro.
+const PALETA_APP = [
+  { nombre: "Neutros", cols: ["#FFFFFF", "#F7F5F0", "#F1F2F4", "#E5E7EB", "#C6CBD4", "#6B7280", "#2B2B30", "#101012"] },
+  { nombre: "Acentos", cols: ["#0A6CFF", "#2E6FF2", "#0E8C9E", "#0F8A4B", "#B7791F", "#C2410C", "#B4233C", "#6D28D9"] },
+  { nombre: "Suaves", cols: ["#FDF2F8", "#FFF3EE", "#FBF4E4", "#EFF7F1", "#EAF6F8", "#EEF3FE", "#F0EFFC", "#F5F1EB"] },
+  { nombre: "Profundos", cols: ["#1E3A5F", "#14532D", "#4C1D24", "#3B2F63", "#1F2937", "#3F3F46", "#5B3A29", "#0F766E"] },
+];
+
 const ColorPickerSheet = ({ open, onClose, value, onChange, title }) => {
-  const [tab, setTab] = useState("cuadricula");
+  const [tab, setTab] = useState("paleta");
   const [hsv, setHsv] = useState({ h: 0, s: 1, v: 1 });
   const [hexTexto, setHexTexto] = useState("");
   const [recientes, setRecientes] = useState([]);
@@ -26305,9 +26392,32 @@ const ColorPickerSheet = ({ open, onClose, value, onChange, title }) => {
   return (
     <Sheet open={open} onClose={onClose} title={title || "Color personalizado"} tall>
       <SectionSwitch value={tab} onChange={setTab}
-        items={[{ id: "cuadricula", label: "Cuadrícula" }, { id: "espectro", label: "Espectro" }, { id: "reguladores", label: "Reguladores" }]} />
+        items={[{ id: "paleta", label: "Paleta" }, { id: "cuadricula", label: "Cuadrícula" }, { id: "espectro", label: "Espectro" }, { id: "reguladores", label: "Reguladores" }]} />
 
       <div style={{ marginTop: SP.lg }}>
+        {tab === "paleta" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: SP.lg }}>
+            {PALETA_APP.map((g) => (
+              <div key={g.nombre}>
+                <div className="mono" style={{ margin: "0 2px 8px" }}>{g.nombre}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8 }}>
+                  {g.cols.map((c) => {
+                    const on = c.toLowerCase() === hex.toLowerCase();
+                    return (
+                      <button key={c} onClick={() => ponerHex(c)} aria-label={`Color ${c}`} title={c}
+                        style={{ aspectRatio: "1", borderRadius: 999, background: c, padding: 0,
+                          border: on ? `2px solid ${P.text}` : `1px solid ${P.separatorStrong}`,
+                          boxShadow: on ? `0 0 0 2px ${P.bg}` : "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {on && <Check size={14} color={tintaSobre(c)} strokeWidth={3} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {tab === "cuadricula" && (
           <div style={{ borderRadius: R_TILE, overflow: "hidden", border: `1px solid ${P.frame}` }}>
             <div style={{ display: "flex" }}>{GRID_GRISES.map(celda)}</div>
