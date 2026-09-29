@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v367";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v368";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -21229,6 +21229,12 @@ const BB_SPECIALTIES = [
 
 /* Bloques de acción que el agente puede devolver para que el coach los aplique */
 const BB_ACTION_RE = /```forja-(rutina|nutricion|biblioteca)\s*([\s\S]*?)```/g;
+// Un bloque ```forja-…``` que quedó incompleto o mal formado no se puede
+// aplicar: en vez de mostrar el JSON crudo cortado, se avisa qué pasó.
+const AVISO_BLOQUE_ROTO = "⚠ La IA envió un bloque de rutina que quedó incompleto y no se puede aplicar. Pídele que lo reenvíe más corto (por ejemplo, un día por mensaje).";
+function limpiarBloquesRotos(t) {
+  return String(t || "").replace(/```forja-(?:rutina|nutricion|biblioteca)[\s\S]*?(?:```|$)/g, AVISO_BLOQUE_ROTO);
+}
 function parseAIActions(text) {
   const actions = [];
   const clean = text.replace(BB_ACTION_RE, (whole, kind, body) => {
@@ -21237,7 +21243,7 @@ function parseAIActions(text) {
       return "";
     } catch { return whole; }
   });
-  return { clean: clean.replace(/\n{3,}/g, "\n\n").trim(), actions };
+  return { clean: limpiarBloquesRotos(clean).replace(/\n{3,}/g, "\n\n").trim(), actions };
 }
 
 /* Todo lo que el agente sabe del alumno, en texto plano */
@@ -23073,6 +23079,13 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
   const [pendingAttach, setPendingAttach] = useState([]); // ids de fotos/videos aún no enviados
   const [viewImg, setViewImg] = useState(null);
   const scrollRef = useRef(null);
+  const [showUp, setShowUp] = useState(false);
+  useEffect(() => {
+    const fn = () => setShowUp(window.scrollY > 500);
+    fn();
+    window.addEventListener("scroll", fn, { passive: true });
+    return () => window.removeEventListener("scroll", fn);
+  }, []);
 
   useEffect(() => {
     if (!sid) return;
@@ -23331,6 +23344,14 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
           ))}
         </div>
       )}
+      {showUp && (
+        <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Volver arriba"
+          style={{ position: "fixed", right: 16, bottom: "calc(196px + env(safe-area-inset-bottom))", zIndex: 40, width: 46, height: 46, borderRadius: 23,
+            background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 8px 24px -8px rgba(0,0,0,.45)" }}>
+          <ChevronUp size={22} strokeWidth={2.6} />
+        </button>
+      )}
       <div style={{ position: "sticky", bottom: "calc(96px + env(safe-area-inset-bottom))", zIndex: 5, paddingTop: 8, background: `linear-gradient(to top, ${P.bg} 70%, transparent)` }}>
         <ChatComposer value={input} onChange={setInput} onSend={() => send()} busy={busy}
           placeholder={`Pregunta de ${spec.label.toLowerCase()}…`}
@@ -23525,7 +23546,8 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
 };
 
 const SubNav = ({ sub, setSub }) => (
-  <div style={{ display: "flex", gap: 5, overflowX: "auto", marginBottom: 14, WebkitOverflowScrolling: "touch" }}>
+  <div style={{ display: "flex", gap: 5, overflowX: "auto", marginBottom: 6, padding: "8px 0", WebkitOverflowScrolling: "touch",
+    position: "sticky", top: 0, zIndex: 7, background: P.bg }}>
     {[["agente", "Agente"], ["ficha", "Ficha"], ["volumen", "Volumen"], ["saber", "Saber"], ["nutricion", "Nutrición"]].map(([id, label]) => {
       const on = sub === id;
       return (
