@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v371";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v372";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -29248,8 +29248,7 @@ const TabBar = ({ tabs, tab, setTab }) => (
             style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, padding: "13px 4px", minWidth: 0,
               borderRadius: 999, background: on ? PLATE_GRAD : "transparent", color: on ? PLATE_FG : TAB_INACTIVE,
               transition: `background ${DUR_ROW}ms ${EASE_STD}, color ${DUR_ROW}ms ${EASE_STD}` }}>
-            <Icon size={22} strokeWidth={on ? 2.5 : 2} color={on ? PLATE_FG : TAB_INACTIVE} />
-            {on && <span className="tabIn" style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap" }}>{label}</span>}
+            <Icon size={24} strokeWidth={on ? 2.5 : 2} color={on ? PLATE_FG : TAB_INACTIVE} />
           </button>
         );
       })}
