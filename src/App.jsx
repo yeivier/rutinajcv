@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v355";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v356";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -27942,13 +27942,13 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
                           <div key={ci} style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
                               <span style={{ width: 9, height: 9, borderRadius: 2, background: col.c, flexShrink: 0 }} />
-                              <span style={{ fontSize: 11.5, fontWeight: 700, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col.n}</span>
+                              <span style={{ fontSize: 11.5, fontWeight: 700, color: P.text, overflowWrap: "anywhere", lineHeight: 1.25 }}>{col.n}</span>
                             </div>
                             {col.ex.length === 0 ? (
                               <div style={{ fontSize: 12, color: P.textQuaternary }}>Nada de {f.muscle}</div>
                             ) : col.ex.map((it, k) => (
                               <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 6, fontSize: 12, color: P.dim, padding: "3px 0", lineHeight: 1.25 }}>
-                                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}{it.sec ? " ·2°" : ""}</span>
+                                <span style={{ minWidth: 0, overflowWrap: "anywhere", lineHeight: 1.25 }}>{it.name}{it.sec ? " ·2°" : ""}</span>
                                 <span className="mono" style={{ color: P.faint, flexShrink: 0 }}>{fmtSets(it.sets)}</span>
                               </div>
                             ))}
@@ -27984,7 +27984,7 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
                 <ChevronLeft size={19} strokeWidth={2.6} />
               </button>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{gDet.label}</h2>
+                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-.02em", overflowWrap: "anywhere", lineHeight: 1.25 }}>{gDet.label}</h2>
                 <div style={{ fontSize: 12, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {metaDet ? `${metaDet.athlete}${metaDet.split ? " · " + metaDet.split : ""} · ` : ""}{gDet.days.length} día{gDet.days.length !== 1 ? "s" : ""} · {gDet.exCount} ejercicios · {fmtSets(sDet.efectivas)} series
                 </div>
@@ -28016,7 +28016,7 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
                           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
                             {lista.map((it, k) => (
                               <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12.5, color: P.dim }}>
-                                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}{it.sec ? " · 2°" : ""} · {it.dia}</span>
+                                <span style={{ minWidth: 0, lineHeight: 1.3 }}>{it.name}{it.sec ? " · 2°" : ""}<span style={{ display: "block", fontSize: 11, color: P.faint }}>{it.dia}</span></span>
                                 <span className="mono" style={{ color: P.faint, flexShrink: 0 }}>{fmtSets(it.sets)} series</span>
                               </div>
                             ))}
@@ -28031,9 +28031,9 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 {gDet.days.map((d) => (
                   <div key={d.id}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                      <span style={{ fontSize: 15, fontWeight: 700, color: P.text }}>{d.name}</span>
-                      <span style={{ fontSize: 11.5, color: P.faint }}>{(d.exs || []).length} ej · {(d.exs || []).reduce((a, e) => a + (e.sets || []).length, 0)} series</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: P.text, minWidth: 0, lineHeight: 1.3 }}>{d.name}</span>
+                      <span style={{ fontSize: 11.5, color: P.faint, flexShrink: 0, whiteSpace: "nowrap" }}>{(d.exs || []).length} ej · {(d.exs || []).reduce((a, e) => a + (e.sets || []).length, 0)} series</span>
                     </div>
                     {(d.exs || []).length === 0 ? (
                       <div style={{ fontSize: 12.5, color: P.textQuaternary, paddingLeft: 2 }}>Día vacío.</div>
@@ -28044,7 +28044,7 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
                           return (
                             <div key={ex.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 11px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_ROW }}>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 14, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.name}</div>
+                                <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.3, overflowWrap: "anywhere" }}>{ex.name}</div>
                                 <div style={{ fontSize: 11.5, color: P.faint, marginTop: 1 }}>{ex.muscle || "—"} · {eff} series{ex.equipment ? " · " + ex.equipment : ""}</div>
                               </div>
                               <button onClick={() => setCopiar({ ex, fromDayId: d.id, modo: "copiar" })} aria-label={`Copiar o mover ${ex.name}`}
@@ -28289,13 +28289,13 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
           const fMeta = n <= 12 ? 10.5 : 9.5;
           const cabecera = (g, s) => (
             <div style={{ flex: 1, minWidth: 0, textAlign: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: P.text, overflowWrap: "anywhere", lineHeight: 1.25 }}>
                 {g ? g.label : ""}
               </div>
               {/* De qué rutina sale la sesión: dos días pueden llamarse
                   parecido y sin esto no se sabe cuál es cuál. */}
               {g && g.tipo === "sesion" && (
-                <div style={{ fontSize: 10.5, color: P.faint2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.sub}</div>
+                <div style={{ fontSize: 10.5, color: P.faint2, overflowWrap: "anywhere", lineHeight: 1.25 }}>{g.sub}</div>
               )}
               <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>
                 {fmtSets(s.porMusculo[detalle] || 0)} series · {(s.porMusculoEx[detalle] || []).length} ejercicios
