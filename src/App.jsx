@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v366";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v367";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5009,6 +5009,26 @@ const exEntries = (history, ex) => {
   if (all.length === own.length) return own;
   return all.sort((x, y) => (x.date || "") < (y.date || "") ? -1 : 1);
 };
+// Lista de ejercicios para elegir en Progreso/Actividad: uno por movimiento,
+// aunque el plan haya cambiado ids o nombres (cada variante suma a la misma
+// fila). Ordenada por cantidad de registros unidos.
+function ejerciciosAgrupados(plan, history) {
+  const grupos = new Map(); // clave -> { id, name }
+  const poner = (id, name) => {
+    const k = claveEj(name) || "id:" + id;
+    if (!grupos.has(k)) grupos.set(k, { id, name });
+  };
+  ((plan && plan.days) || []).forEach((d) => (d.exs || []).forEach((e) => poner(e.id, e.name)));
+  const byEx = (history && history.byEx) || {};
+  Object.keys(byEx).forEach((id) => {
+    const arr = byEx[id] || [];
+    if (arr.length) poner(id, arr[arr.length - 1].exName || "Ejercicio");
+  });
+  return [...grupos.values()]
+    .map((g) => ({ ...g, n: exEntries(history, g).length }))
+    .sort((a, b) => b.n - a.n)
+    .map((g) => [g.id, g.name]);
+}
 // Ejercicios del historial agrupados por nombre-clave, para ofrecer vincularlos.
 const gruposHistorial = (history, ex) => {
   const byEx = (history && history.byEx) || {};
@@ -15556,22 +15576,10 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
     if (jumpSub) { setSub(jumpSub); onJumpConsumed && onJumpConsumed(); }
   }, [jumpSub]);
 
-  const allEx = useMemo(() => {
-    const m = new Map();
-    plan.days.forEach((d) => d.exs.forEach((e) => m.set(e.id, e.name)));
-    Object.keys(history.byEx).forEach((id) => {
-      if (!m.has(id) && history.byEx[id].length) m.set(id, history.byEx[id][history.byEx[id].length - 1].exName || "Ejercicio");
-    });
-    // Ordenados por CANTIDAD DE REGISTROS (del ejercicio con más sesiones
-    // anotadas al que tiene menos); los que aún no tienen ninguno van al
-    // final. Así al abrir Progreso el primero es el que más se entrenó,
-    // no simplemente el último tocado.
-    const registros = (id) => (history.byEx[id] || []).length;
-    return [...m.entries()].sort((a, b) => registros(b[0]) - registros(a[0]));
-  }, [plan, history]);
+  const allEx = useMemo(() => ejerciciosAgrupados(plan, history), [plan, history]);
   useEffect(() => { if (!exId && allEx.length) setExId(allEx[0][0]); }, [allEx, exId]);
 
-  const entries = history.byEx[exId] || [];
+  const entries = exEntries(history, { id: exId, name: (allEx.find((x) => x[0] === exId) || [])[1] });
 
   // PRs recientes: se guardan como texto libre "Nombre: XX kg" en cada
   // sesión (finishSession) — se parte por ": " para mostrarlos como lista,
@@ -19455,16 +19463,7 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
     saveHistory(h);
   };
 
-  const allEx = useMemo(() => {
-    const m = new Map();
-    plan.days.forEach((d) => d.exs.forEach((e) => m.set(e.id, e.name)));
-    Object.keys(history.byEx).forEach((id) => { if (!m.has(id) && history.byEx[id].length) m.set(id, history.byEx[id][history.byEx[id].length - 1].exName || "Ejercicio"); });
-    // Ordenados por CANTIDAD DE REGISTROS (del ejercicio con más sesiones
-    // anotadas al que tiene menos) — mismo criterio que en Progreso →
-    // Fuerza, no "el último tocado".
-    const registros = (id) => (history.byEx[id] || []).length;
-    return [...m.entries()].sort((a, b) => registros(b[0]) - registros(a[0]));
-  }, [plan, history]);
+  const allEx = useMemo(() => ejerciciosAgrupados(plan, history), [plan, history]);
   useEffect(() => { if (!exId && allEx.length) setExId(allEx[0][0]); }, [allEx, exId]);
   const commented = history.sessions.filter((s) => s.hasComments).length;
   // Registro de actividad de la cuenta (entradas/salidas con hora y
@@ -19567,12 +19566,12 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
           <select value={exId} onChange={(e) => setExId(e.target.value)} style={{ width: "100%", padding: "11px 12px", marginBottom: 12 }}>
             {allEx.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
-          {(history.byEx[exId] || []).length === 0
+          {exEntries(history, { id: exId, name: (allEx.find((x) => x[0] === exId) || [])[1] }).length === 0
             ? <Empty icon={History} title="Sin registros" body="Este ejercicio aún no tiene sesiones registradas." />
             : (
               <>
-                <ExerciseProgress entries={history.byEx[exId]} sessions={history.sessions} />
-                <ExHistorySheetInline entries={history.byEx[exId]} onOpenImg={setViewImg} />
+                <ExerciseProgress entries={exEntries(history, { id: exId, name: (allEx.find((x) => x[0] === exId) || [])[1] })} sessions={history.sessions} />
+                <ExHistorySheetInline entries={exEntries(history, { id: exId, name: (allEx.find((x) => x[0] === exId) || [])[1] })} onOpenImg={setViewImg} />
               </>
             )}
         </div>
