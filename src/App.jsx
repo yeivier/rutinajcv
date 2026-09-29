@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v365";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v366";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5477,8 +5477,9 @@ const GlobalStyle = () => {
        SF Mono, 11px, tracking abierto. Es el único sitio donde se usa una
        segunda familia, y sirve para separar "rótulo" de "contenido" sin
        tener que meter otro color. */
-    .fj .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
-      font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: ${P.faint}; }
+    /* Rótulos de sección: ya no gritan en mayúsculas espaciadas — texto normal,
+       chico y apagado. Menos ruido, misma jerarquía. */
+    .fj .mono { font-family: inherit; font-size: 12.5px; font-weight: 600; letter-spacing: .01em; text-transform: none; color: ${P.faint}; }
     .fj input, .fj textarea, .fj select {
       background: ${P.s3}; border: 1.5px solid transparent; color: ${P.text};
       border-radius: 18px; font-family: inherit; font-size: 16px; outline: none;
@@ -5592,12 +5593,23 @@ const GlobalStyle = () => {
        ahí — nunca antes, para no competir visualmente con la entrada. */
     @keyframes splashFadeIn { from { opacity: 0; } to { opacity: 1; } }
     .fj .splashFadeIn { animation: splashFadeIn .3s ease both; }
-    @keyframes splashIcon { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: scale(1); } }
-    .fj .splashIcon { animation: splashIcon .26s cubic-bezier(.16,1,.3,1) both; }
-    @keyframes splashLetter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-    .fj .splashLetter { display: inline-block; animation: splashLetter .32s cubic-bezier(.16,1,.3,1) both; }
-    @keyframes splashTag { from { opacity: 0; } to { opacity: 1; } }
-    .fj .splashTag { animation: splashTag .3s ease .6s both; }
+    @keyframes splashIcon { 0% { opacity: 0; transform: scale(.4) rotate(-14deg); } 55% { opacity: 1; transform: scale(1.12) rotate(2deg); } 100% { opacity: 1; transform: scale(1) rotate(0); } }
+    .fj .splashIcon { animation: splashIcon .8s cubic-bezier(.16,1,.3,1) both, splashPulse 1.8s ease-out .8s both; }
+    @keyframes splashPulse { 0% { box-shadow: 0 0 0 0 var(--fj-pulse, rgba(255,255,255,.35)); } 100% { box-shadow: 0 0 0 46px rgba(0,0,0,0); } }
+    @keyframes splashLetter { from { opacity: 0; transform: translateY(26px) scale(.86); filter: blur(10px); } to { opacity: 1; transform: none; filter: blur(0); } }
+    .fj .splashLetter { display: inline-block; animation: splashLetter .7s cubic-bezier(.16,1,.3,1) both; }
+    @keyframes splashTag { from { opacity: 0; letter-spacing: .5em; } to { opacity: 1; letter-spacing: .22em; } }
+    .fj .splashTag { animation: splashTag 1s cubic-bezier(.16,1,.3,1) 1.15s both; }
+    @keyframes splashRule { from { width: 0; opacity: 0; } to { width: 132px; opacity: 1; } }
+    .fj .splashRule { animation: splashRule .9s cubic-bezier(.16,1,.3,1) 1s both; }
+    @keyframes splashGlow { from { transform: scale(.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .fj .splashGlow { animation: splashGlow 1.6s cubic-bezier(.16,1,.3,1) both; }
+    @keyframes splashSweep { from { left: -45%; } to { left: 115%; } }
+    .fj .splashSweep { animation: splashSweep 1.3s cubic-bezier(.4,0,.2,1) .3s both; }
+    /* Entrada de la app: al terminar el splash, todo el contenido sube y se
+       enfoca (desde un leve zoom y desenfoque). */
+    @keyframes appEnter { from { opacity: 0; transform: scale(.965) translateY(14px); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
+    .fj.appEnter, .fj .appEnter { animation: appEnter .8s cubic-bezier(.16,1,.3,1) both; }
     @keyframes splashBarIn { from { opacity: 0; } to { opacity: 1; } }
     .fj .splashBar { animation: splashBarIn .3s ease 1.2s both; }
     /* Reordenar fichas del grid al estilo iOS (mantener pulsado → todo
@@ -5704,7 +5716,7 @@ const GlobalStyle = () => {
 // hace que una app se vea "de plantilla" en vez de de sistema.
 const CARD_LIFT = "none";
 // Relieve suave y difuso (en vez de marco): el aire alrededor separa las tarjetas.
-const CARD_SHADOW = "0 1px 2px rgba(0,0,0,.06), 0 14px 34px -18px rgba(0,0,0,.34)";
+const CARD_SHADOW = "none";
 // Radios del sistema: tarjeta / control / fila.
 const R_CARD = 28;
 const R_TILE = 22;
@@ -6690,15 +6702,23 @@ const Logo = ({ size = 26 }) => (
 // competir con la animación de entrada. Respeta prefers-reduced-motion
 // (la regla global en GlobalStyle corta toda animación a solo opacidad).
 const SplashScreen = ({ exiting }) => (
-  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bg,
+  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bg, position: "relative", overflow: "hidden",
     display: "flex", alignItems: "center", justifyContent: "center",
-    opacity: exiting ? 0 : 1, transform: exiting ? "scale(1.02)" : "scale(1)",
-    transition: `opacity ${DUR_ROW * 2.5}ms ${EASE_STD}, transform ${DUR_ROW * 2.5}ms ${EASE_STD}` }}>
+    opacity: exiting ? 0 : 1, transform: exiting ? "scale(1.12)" : "scale(1)", filter: exiting ? "blur(6px)" : "none",
+    transition: `opacity ${DUR_ROW * 2.5}ms ${EASE_STD}, transform ${DUR_ROW * 2.5}ms ${EASE_STD}, filter ${DUR_ROW * 2.5}ms ${EASE_STD}` }}>
     <GlobalStyle />
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
-      <div className="splashIcon" style={{ width: 78, height: 78, borderRadius: 20,
-        display: "flex", alignItems: "center", justifyContent: "center", background: PLATE_GRAD }}>
-        <svg viewBox="0 0 24 24" width={42} height={42} aria-hidden="true" fill={PLATE_FG}>
+    {/* Escenario: un resplandor del color de acento que se expande desde el
+        centro, y dos destellos de luz que barren la pantalla — la "forja". */}
+    <div aria-hidden="true" className="splashGlow" style={{ position: "absolute", left: "50%", top: "46%", width: "140vmax", height: "140vmax",
+      marginLeft: "-70vmax", marginTop: "-70vmax", borderRadius: "50%",
+      background: `radial-gradient(closest-side, ${hexRgba(P.ember, 0.22)}, ${hexRgba(P.ember, 0.08)} 38%, transparent 70%)` }} />
+    <div aria-hidden="true" className="splashSweep" style={{ position: "absolute", top: 0, bottom: 0, width: "38%",
+      background: `linear-gradient(100deg, transparent, ${hexRgba(P.ember, 0.16)}, transparent)` }} />
+    <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 26 }}>
+      <div className="splashIcon" style={{ width: 96, height: 96, borderRadius: 30,
+        display: "flex", alignItems: "center", justifyContent: "center", background: PLATE_GRAD,
+        boxShadow: `0 0 0 0 ${hexRgba(P.ember, 0.5)}` }}>
+        <svg viewBox="0 0 24 24" width={54} height={54} aria-hidden="true" fill={PLATE_FG}>
           <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
           <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
           <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
@@ -6706,17 +6726,17 @@ const SplashScreen = ({ exiting }) => (
           <rect x="19.5" y="8.2" width="2" height="7.6" rx="0.7" />
         </svg>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-        <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: ".18em", color: P.text, paddingLeft: ".18em" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+        <div style={{ fontSize: 52, fontWeight: 800, letterSpacing: ".16em", color: P.text, paddingLeft: ".16em", lineHeight: 1 }}>
           {BRAND.name.split("").map((ch, i) => (
-            <span key={i} className="splashLetter" style={{ animationDelay: `${.26 + i * .04}s` }}>{ch}</span>
+            <span key={i} className="splashLetter" style={{ animationDelay: `${.45 + i * .09}s` }}>{ch}</span>
           ))}
         </div>
-        <div className="splashTag" style={{ fontSize: 12, color: P.faint, fontWeight: 600,
+        <div className="splashRule" style={{ height: 2, borderRadius: 2, background: P.ember }} />
+        <div className="splashTag" style={{ fontSize: 12.5, color: P.faint, fontWeight: 600,
           fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
-          textTransform: "uppercase", letterSpacing: ".12em" }}>{BRAND.tagline}</div>
+          textTransform: "uppercase", letterSpacing: ".22em" }}>{BRAND.tagline}</div>
       </div>
-      <Loader2 size={18} color={P.faint} className="fj-spin splashBar" style={{ marginTop: 4 }} />
     </div>
   </div>
 );
@@ -8367,38 +8387,7 @@ const ExHistorySheet = ({ open, onClose, exName, entries, sessions, onOpenImg })
     ) : (
       <>
       <ExerciseProgress entries={entries} sessions={sessions} />
-      {[...entries].reverse().map((en, i) => (
-        <div key={i} style={{ padding: "13px 0", borderBottom: `1px solid ${P.line}` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>{fmtDateFull(en.date)}</div>
-            <div style={{ fontSize: 13, color: P.faint }}>{en.dayName}</div>
-          </div>
-          {en.sets.filter((s) => s.done).map((s, j) => (
-            <div key={j} style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 15, padding: "3px 0" }}>
-              <TypeBadge type={s.type} />
-              <span style={{ fontWeight: 600 }}>{setSummary(s, "kg")}</span>
-              {s.rir !== "" && <span style={{ color: P.dim, fontSize: 13.5 }}>RIR {s.rir}</span>}
-              {s.drops && s.drops.length > 0 && (
-                <span style={{ color: SET_TYPES.drop.color, fontSize: 13.5 }}>
-                  {s.drops.map((d) => `→ ${d.weight || "?"}×${d.reps || "?"}`).join(" ")}
-                </span>
-              )}
-              {s.comment && <span style={{ color: P.ember2, fontSize: 13.5 }}>“{s.comment}”</span>}
-            </div>
-          ))}
-          {en.comment && (
-            <div style={{ marginTop: 7, fontSize: 14.5, color: P.ember2, background: "rgba(255,255,255,.07)",
-              border: `1px solid rgba(255,255,255,.2)`, borderRadius: 10, padding: "8px 11px", lineHeight: 1.45 }}>
-              <MessageSquare size={12} style={{ marginRight: 5, verticalAlign: -1 }} />{en.comment}
-            </div>
-          )}
-          {en.attachIds && en.attachIds.length > 0 && (
-            <div style={{ display: "flex", gap: 8, marginTop: 9, overflowX: "auto" }}>
-              {en.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={58} />)}
-            </div>
-          )}
-        </div>
-      ))}
+      <HistoryRows entries={entries} onOpenImg={onOpenImg} />
       </>
     )}
   </Sheet>
@@ -14086,22 +14075,24 @@ const ChartBox = ({ data, unit, accent }) => {
   return (
     <div style={{ width: "100%", height: 210 }}>
       <R.ResponsiveContainer>
-        <R.ComposedChart data={data} margin={{ top: 8, right: 10, left: -14, bottom: 0 }}>
+        <R.ComposedChart data={data} margin={{ top: 12, right: 12, left: 12, bottom: 0 }}>
           <defs>
             <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor={c} stopOpacity={0.32} />
               <stop offset="95%" stopColor={c} stopOpacity={0.02} />
             </linearGradient>
           </defs>
-          <R.CartesianGrid stroke={P.line} strokeDasharray="3 3" vertical={false} />
-          <R.XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 12 }} stroke={P.line} />
-          <R.YAxis tick={{ fill: P.faint, fontSize: 12 }} stroke={P.line} domain={["auto", "auto"]} />
+          <R.XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 11.5 }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={28} />
+          <R.YAxis hide domain={["dataMin - 5%", "dataMax + 5%"]} />
           <R.Tooltip contentStyle={chartTooltipStyle}
             labelStyle={{ color: P.dim, fontWeight: 700, marginBottom: 2 }} itemStyle={{ color: c, fontWeight: 700 }}
             formatter={(v) => [`${v} ${unit}`, ""]} cursor={{ stroke: P.line, strokeDasharray: "3 3" }} />
           <R.Area type="monotone" dataKey="v" stroke="none" fill={`url(#${gid})`} isAnimationActive animationDuration={700} animationEasing="ease-out" />
-          <R.Line type="monotone" dataKey="v" stroke={c} strokeWidth={2.75}
-            dot={{ r: 3.5, fill: c, strokeWidth: 0 }} activeDot={{ r: 6, fill: c, stroke: P.bg, strokeWidth: 2 }}
+          <R.Line type="monotone" dataKey="v" stroke={c} strokeWidth={3}
+            dot={(p) => (p.index === data.length - 1
+              ? <circle key={p.key || p.index} cx={p.cx} cy={p.cy} r={5.5} fill={c} stroke={P.s1} strokeWidth={2.5} />
+              : <circle key={p.key || p.index} cx={p.cx} cy={p.cy} r={0} />)}
+            activeDot={{ r: 6, fill: c, stroke: P.bg, strokeWidth: 2 }}
             isAnimationActive animationDuration={700} animationEasing="ease-out" />
         </R.ComposedChart>
       </R.ResponsiveContainer>
@@ -14128,20 +14119,19 @@ const BarChartBox = ({ data, unit, color, height = 170 }) => {
   return (
     <div style={{ width: "100%", height }}>
       <R.ResponsiveContainer>
-        <R.BarChart data={data} margin={{ top: 8, right: 10, left: -14, bottom: 0 }}>
+        <R.BarChart data={data} margin={{ top: 10, right: 6, left: 6, bottom: 0 }}>
           <defs>
             <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={c} stopOpacity={1} />
               <stop offset="100%" stopColor={c} stopOpacity={0.55} />
             </linearGradient>
           </defs>
-          <R.CartesianGrid stroke={P.line} strokeDasharray="3 3" vertical={false} />
-          <R.XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 11 }} stroke={P.line} interval="preserveStartEnd" />
-          <R.YAxis tick={{ fill: P.faint, fontSize: 11 }} stroke={P.line} domain={["auto", "auto"]} />
+          <R.XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={24} />
+          <R.YAxis hide domain={[0, "dataMax"]} />
           <R.Tooltip contentStyle={chartTooltipStyle}
             labelStyle={{ color: P.dim, fontWeight: 700 }} itemStyle={{ color: c, fontWeight: 700 }}
             cursor={{ fill: P.s3, radius: 4 }} formatter={(v) => [`${v} ${unit}`, ""]} />
-          <R.Bar dataKey="v" fill={`url(#${gid})`} radius={[5, 5, 2, 2]} isAnimationActive animationDuration={550} animationEasing="ease-out" />
+          <R.Bar dataKey="v" fill={`url(#${gid})`} radius={[8, 8, 3, 3]} maxBarSize={22} isAnimationActive animationDuration={650} animationEasing="ease-out" />
         </R.BarChart>
       </R.ResponsiveContainer>
     </div>
@@ -15750,36 +15740,55 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
 };
 const ProgressTabRouter = (props) => <ProgressTabMono {...props} />;
 
-// Versión inline (no sheet) del historial por ejercicio, reutilizada en Progreso y Actividad
-const ExHistorySheetInline = ({ entries, onOpenImg }) => (
-  <div>
-    {(!entries || entries.length === 0) && (
-      <Empty icon={History} title="Sin registros todavía" body="Cuando completes este ejercicio en una sesión, acá verás tus pesos, repeticiones y RIR anteriores." />
-    )}
-    {[...(entries || [])].reverse().map((en, i) => (
-      <Card key={i} style={{ padding: "11px 13px", marginBottom: 8 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-          <span style={{ fontWeight: 700, fontSize: 14.5 }}>{fmtDateFull(en.date)}</span>
-          <span style={{ fontSize: 12.5, color: P.faint }}>{en.dayName}</span>
-        </div>
-        {en.sets.filter((s) => s.done).map((s, j) => (
-          <div key={j} style={{ display: "flex", gap: 7, alignItems: "baseline", fontSize: 14.5, padding: "2px 0" }}>
-            <TypeBadge type={s.type} />
-            <span style={{ fontWeight: 600 }}>{setSummary(s, "kg")}</span>
-            {s.rir !== "" && <span style={{ color: P.dim, fontSize: 13 }}>RIR {s.rir}</span>}
-            {s.comment && <span style={{ color: P.ember2, fontSize: 13 }}>“{s.comment}”</span>}
+// Historial por ejercicio, en filas ordenadas (sin una tarjeta por registro):
+// fecha y día a la izquierda, la mejor serie a la derecha y debajo las series
+// de trabajo en una sola línea de "kg×reps". El calentamiento se resume.
+const HistoryRows = ({ entries, onOpenImg }) => {
+  if (!entries || entries.length === 0) {
+    return <Empty icon={History} title="Sin registros todavía" body="Cuando completes este ejercicio en una sesión, acá verás tus pesos, repeticiones y RIR anteriores." />;
+  }
+  return (
+    <div>
+      {[...entries].reverse().map((en, i) => {
+        const done = (en.sets || []).filter((x) => x.done);
+        const work = done.filter((x) => x.type !== "warmup");
+        const warm = done.length - work.length;
+        const best = work.reduce((m, x) => Math.max(m, +x.weight || 0), 0);
+        return (
+          <div key={i} style={{ padding: "16px 0", borderTop: i ? `1px solid ${P.fillTertiary}` : "none" }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-.02em" }}>{fmtDateFull(en.date)}</div>
+                {en.dayName && <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2, overflowWrap: "anywhere" }}>{en.dayName}</div>}
+              </div>
+              {best > 0 && <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", flexShrink: 0 }}>{kg(best)}<span style={{ fontSize: 12.5, fontWeight: 600, color: P.faint, marginLeft: 3 }}>kg</span></div>}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+              {work.map((x, j) => (
+                <span key={j} style={{ padding: "6px 11px", borderRadius: 999, background: P.s2, fontSize: 13.5, fontWeight: 600 }}>
+                  {x.weight !== "" && x.weight != null ? `${String(x.weight).replace(".", ",")}×${x.reps || "?"}` : `${x.reps || "?"} reps`}
+                  {x.rir !== "" && x.rir != null && <span style={{ color: P.faint, fontWeight: 500 }}> · RIR {x.rir}</span>}
+                  {x.drops && x.drops.length > 0 && <span style={{ color: P.faint, fontWeight: 500 }}> +{x.drops.length}</span>}
+                </span>
+              ))}
+              {warm > 0 && <span style={{ padding: "6px 4px", fontSize: 12.5, color: P.faint }}>+{warm} calentamiento</span>}
+            </div>
+            {work.some((x) => x.comment) && (
+              <div style={{ marginTop: 8, fontSize: 13.5, color: P.dim }}>“{work.filter((x) => x.comment).map((x) => x.comment).join(" · ")}”</div>
+            )}
+            {en.comment && <div style={{ marginTop: 8, fontSize: 13.5, color: P.dim, display: "flex", gap: 6 }}><MessageSquare size={13} style={{ marginTop: 3, flexShrink: 0 }} /><span>{en.comment}</span></div>}
+            {en.attachIds && en.attachIds.length > 0 && (
+              <div style={{ display: "flex", gap: 7, marginTop: 8, overflowX: "auto" }}>
+                {en.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={52} />)}
+              </div>
+            )}
           </div>
-        ))}
-        {en.comment && <div style={{ fontSize: 13.5, color: P.ember2, marginTop: 4 }}>💬 {en.comment}</div>}
-        {en.attachIds && en.attachIds.length > 0 && (
-          <div style={{ display: "flex", gap: 7, marginTop: 6, overflowX: "auto" }}>
-            {en.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={48} />)}
-          </div>
-        )}
-      </Card>
-    ))}
-  </div>
-);
+        );
+      })}
+    </div>
+  );
+};
+const ExHistorySheetInline = ({ entries, onOpenImg }) => <HistoryRows entries={entries} onOpenImg={onOpenImg} />;
 
 /* ============================================================
    Nutrición (vista alumno)
@@ -29193,19 +29202,19 @@ const TabBar = ({ tabs, tab, setTab }) => (
     padding: "0 14px calc(12px + env(safe-area-inset-bottom))", pointerEvents: "none" }}>
     {/* Barra flotante en píldora, despegada del borde: la pestaña activa
         lleva una cápsula rellena de tinta; las demás, ícono y nombre chico. */}
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${tabs.length}, 1fr)`, width: "100%", maxWidth: "var(--fj-w)",
-      padding: 7, gap: 2, borderRadius: 999, pointerEvents: "auto",
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`, width: "100%", maxWidth: "var(--fj-w)",
+      padding: 6, gap: 2, borderRadius: 999, pointerEvents: "auto",
       background: `${P.s1}F2`, backdropFilter: "saturate(180%) blur(24px)", WebkitBackdropFilter: "saturate(180%) blur(24px)",
       boxShadow: "0 2px 6px rgba(0,0,0,.10), 0 22px 44px -14px rgba(0,0,0,.45)", border: `1px solid ${P.line}` }}>
       {tabs.map(({ id, label, Icon }) => {
         const on = tab === id;
         return (
-          <button key={id} onClick={() => setTab(id)} aria-current={on ? "page" : undefined}
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "8px 2px", minWidth: 0,
+          <button key={id} onClick={() => setTab(id)} aria-current={on ? "page" : undefined} aria-label={label} title={label}
+            style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, padding: "13px 4px", minWidth: 0,
               borderRadius: 999, background: on ? PLATE_GRAD : "transparent", color: on ? PLATE_FG : TAB_INACTIVE,
               transition: `background ${DUR_ROW}ms ${EASE_STD}, color ${DUR_ROW}ms ${EASE_STD}` }}>
-            <Icon size={20} strokeWidth={on ? 2.5 : 2.1} color={on ? PLATE_FG : TAB_INACTIVE} />
-            <span style={{ fontSize: 10, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{label}</span>
+            <Icon size={22} strokeWidth={on ? 2.5 : 2} color={on ? PLATE_FG : TAB_INACTIVE} />
+            {on && <span className="tabIn" style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap" }}>{label}</span>}
           </button>
         );
       })}
@@ -30467,7 +30476,7 @@ const App = () => {
   const [splashMinDone, setSplashMinDone] = useState(false);
   const [splashExiting, setSplashExiting] = useState(false);
   const [splashGone, setSplashGone] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setSplashMinDone(true), 1200); return () => clearTimeout(t); }, []);
+  useEffect(() => { const t = setTimeout(() => setSplashMinDone(true), 2300); return () => clearTimeout(t); }, []);
   useEffect(() => {
     if (loading || !splashMinDone || splashGone) return;
     setSplashExiting(true);
@@ -31556,7 +31565,7 @@ const App = () => {
   })();
 
   return (
-    <div className={easyMode ? "fj fj-easy" : "fj"} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
+    <div className={(easyMode ? "fj fj-easy" : "fj") + " appEnter"} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
         paddingBottom: enSesion ? 0 : "calc(96px + env(safe-area-inset-bottom))" }}>
