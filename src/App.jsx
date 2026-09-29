@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v358";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v359";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2424,7 +2424,7 @@ const FREE_AI_MODEL = "openai";
 
 function anthropicBlocksToOpenAI(system, messages) {
   const out = [];
-  if (system) out.push({ role: "system", content: system });
+  if (system) out.push({ role: "system", content: system + "\n\nREGLAS DE RIGOR (obligatorias): usa SOLO los datos del contexto del alumno; si falta un dato, dilo y pídelo en vez de suponerlo. No inventes cifras, estudios, marcas ni referencias. Razona paso a paso antes de concluir en volumen, periodización o ajustes de rutina, y explica brevemente el porqué de cada cambio. Si no estás seguro, indícalo." });
   for (const m of messages || []) {
     if (typeof m.content === "string") { out.push({ role: m.role, content: m.content }); continue; }
     const parts = [];
@@ -2453,15 +2453,21 @@ async function callClaudeAPI(apiKey, body, { idleMs = 120000, retries = 1 } = {}
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), idleMs);
     try {
-      const r = await fetch("https://text.pollinations.ai/openai", {
-        method: "POST",
-        signal: ctrl.signal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: FREE_AI_MODEL, messages, max_tokens: Math.min(body.max_tokens || 2000, 8000) }),
-      });
+      // Primero el servidor propio (varios proveedores gratuitos en cadena,
+      // con cupo repartido); si ni siquiera responde, directo a Pollinations.
+      const payload = JSON.stringify({ model: FREE_AI_MODEL, messages, max_tokens: Math.min(body.max_tokens || 2000, 8000) });
+      let r;
+      try {
+        r = await fetch(`${SB_PROJECT}/functions/v1/forja-ai`, { method: "POST", signal: ctrl.signal, headers: SB_H, body: payload });
+        if (!r.ok && r.status !== 429 && r.status !== 503) throw new TypeError("servidor de IA no disponible");
+      } catch (e0) {
+        if (e0 && e0.name === "AbortError") throw e0;
+        r = await fetch("https://text.pollinations.ai/openai", { method: "POST", signal: ctrl.signal, headers: { "Content-Type": "application/json" }, body: payload });
+      }
       if (!r.ok) {
         clearTimeout(timer);
-        const txt = await r.text().catch(() => "");
+        let txt = await r.text().catch(() => "");
+        try { const je = JSON.parse(txt); if (je && je.error) { if (r.status === 429 || r.status === 503) throw new Error(je.error); txt = je.error; } } catch (e1) { if (e1 && e1.message && !(e1 instanceof SyntaxError)) throw e1; }
         if (r.status === 429 && attempt < retries) { await new Promise((res) => setTimeout(res, 1500)); continue; }
         if (r.status >= 500 && attempt < retries) continue; // error del servidor: reintenta una vez
         let msg = `Error ${r.status}: ${txt.slice(0, 300) || "la IA gratuita no respondió."}`;
