@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v357";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v358";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2486,6 +2486,30 @@ async function callClaudeAPI(apiKey, body, { idleMs = 120000, retries = 1 } = {}
       throw e;
     }
   }
+}
+
+/* Respuesta COMPLETA sin importar el largo: si el modelo se corta por el
+   límite de tokens (o deja una tabla / bloque de código a medias), se le pide
+   que continúe exactamente donde quedó y se une todo, hasta 5 tandas. Así el
+   chat nunca muestra una respuesta trunca. */
+const pareceTruncada = (t) => {
+  const fences = (t.match(/^```/gm) || []).length;
+  if (fences % 2 === 1) return true;
+  const last = (t.trimEnd().split("\n").pop() || "").trim();
+  return last.startsWith("|") && !last.endsWith("|");
+};
+async function callClaudeComplete(apiKey, body, maxParts = 5) {
+  let acc = "";
+  let msgs = body.messages;
+  for (let part = 0; part < maxParts; part++) {
+    const data = await callClaudeAPI(apiKey, { ...body, max_tokens: 8000, messages: msgs });
+    const chunk = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n");
+    acc += chunk;
+    if (!chunk || (data.stop_reason !== "max_tokens" && !pareceTruncada(acc))) break;
+    msgs = [...body.messages, { role: "assistant", content: acc },
+      { role: "user", content: "Continúa EXACTAMENTE desde donde quedó tu respuesta anterior (incluso a mitad de una línea o tabla). No repitas nada de lo anterior, no saludes ni expliques que continúas." }];
+  }
+  return { content: [{ type: "text", text: acc }], stop_reason: "end_turn" };
 }
 
 /* Recupera un objeto de rutina de un texto que quizá venga truncado (respuesta
@@ -5402,6 +5426,8 @@ const GlobalStyle = () => {
     .fj .quench { animation: fjQuench .9s ease forwards; }
     @keyframes fjPulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
     .fj .pulse { animation: fjPulse 1.6s ease-in-out infinite; }
+    @keyframes fjDot { 0%,60%,100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-4px); opacity: 1; } }
+    .fj .fj-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: ${P.faint}; animation: fjDot 1s ease-in-out infinite; }
     @keyframes fjUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
     /* Al desplegar una rutina en Coach → Rutinas, los días aparecían de
        golpe, sin transición: quien tocaba el acordeón no tenía forma de
@@ -20834,7 +20860,7 @@ const NutriAITab = ({ plan, savePlan, currentStudent }) => {
     })();
   }, []);
 
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
+  useEffect(() => { if (messages.length && scrollRef.current) scrollRef.current.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
 
   const systemPrompt = `Eres una IA experta en nutrición deportiva y asesoría en fitness, integrada en FORJA, una plataforma de entrenamiento. Estás asesorando al coach sobre el alumno actual.
 
@@ -20867,9 +20893,9 @@ REGLAS:
     const nextMsgs = [...messages, { role: "user", content: text }];
     setMessages(nextMsgs); setInput(""); setBusy(true);
     try {
-      const data = await callClaudeAPI(apiKey, {
+      const data = await callClaudeComplete(apiKey, {
         model: "claude-opus-4-6",
-        max_tokens: 1200,
+        max_tokens: 8000,
         system: systemPrompt,
         messages: nextMsgs.map((m) => ({ role: m.role, content: m.content })),
       });
@@ -20927,47 +20953,21 @@ REGLAS:
         </div>
       )}
 
-      {messages.length === 0 && apiKey && (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Sugerencias para empezar</div>
-          {suggestions.map((s, i) => (
-            <button key={i} onClick={() => setInput(s)} style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px",
-              background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, marginBottom: 6, fontSize: 14, color: P.dim, lineHeight: 1.4 }}>
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
+      {messages.length === 0 && apiKey && <ChatSuggestions items={suggestions} onPick={(t) => setInput(t)} />}
 
-      <div ref={scrollRef} style={{ maxHeight: "50vh", overflowY: "auto", marginBottom: 12 }}>
+      <div>
         {messages.map((m, i) => (
-          <div key={i} style={{ marginBottom: 10, display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-            <div style={{ maxWidth: "85%", padding: "10px 13px", borderRadius: 14,
-              background: m.role === "user" ? `${P.line}` : P.s2,
-              border: `1px solid ${m.role === "user" ? `${P.dim}` : P.line}`,
-              fontSize: 14.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
-              {m.content}
-            </div>
-          </div>
+          m.role === "user"
+            ? <ChatBubble key={i} role="user">{m.content}</ChatBubble>
+            : <ChatBubble key={i} role="assistant" text={m.content}><ChatMarkdown text={m.content} /></ChatBubble>
         ))}
-        {busy && (
-          <div style={{ marginBottom: 10, display: "flex" }}>
-            <div style={{ padding: "10px 13px", borderRadius: 14, background: P.s2, border: `1px solid ${P.line}`, fontSize: 14.5, color: P.dim }}>
-              <span className="pulse">Pensando…</span>
-            </div>
-          </div>
-        )}
-        {err && <div style={{ padding: "10px 13px", borderRadius: 10, background: `${P.red}22`, border: `1px solid ${P.red}55`, fontSize: 13.5, color: P.red, marginBottom: 8 }}>{err}</div>}
+        {busy && <ChatTyping label="Pensando" />}
+        {err && <div style={{ padding: "12px 16px", borderRadius: 18, background: `${P.red}22`, fontSize: 13.5, color: P.red, marginBottom: 10 }}>{err}</div>}
+        <div ref={scrollRef} style={{ height: 1 }} />
       </div>
 
-      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-        <textarea rows={2} placeholder={apiKey ? "Escribe tu consulta…" : "Configura la API key primero"} disabled={!apiKey || busy}
-          value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          style={{ flex: 1, padding: "10px 12px", fontSize: 15, minWidth: 0, resize: "none" }} />
-        <Btn kind="ember" disabled={!input.trim() || !apiKey || busy} onClick={send} style={{ padding: "12px 14px", minWidth: 0 }}>
-          <Send size={16} />
-        </Btn>
+      <div style={{ position: "sticky", bottom: "calc(96px + env(safe-area-inset-bottom))", zIndex: 5, paddingTop: 8, background: `linear-gradient(to top, ${P.bg} 70%, transparent)` }}>
+        <ChatComposer value={input} onChange={setInput} onSend={send} busy={busy} disabled={!apiKey} placeholder={apiKey ? "Escribe tu consulta…" : "Activa la IA primero"} />
       </div>
 
       {messages.length > 0 && (
@@ -22779,6 +22779,132 @@ const KnowledgePanel = () => {
   );
 };
 
+/* ---- Chat: primitivas compartidas (markdown, burbujas, redactor) ---- */
+const mdInline = (t) => {
+  const out = []; const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\n]+\*)/g; let last = 0, m, i = 0;
+  while ((m = re.exec(t))) {
+    if (m.index > last) out.push(t.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith("**")) out.push(<strong key={i++} style={{ fontWeight: 700 }}>{tok.slice(2, -2)}</strong>);
+    else if (tok[0] === "`") out.push(<code key={i++} style={{ background: P.s3, borderRadius: 6, padding: "1px 6px", fontSize: "0.92em", fontFamily: "ui-monospace, Menlo, monospace" }}>{tok.slice(1, -1)}</code>);
+    else out.push(<em key={i++}>{tok.slice(1, -1)}</em>);
+    last = m.index + tok.length;
+  }
+  if (last < t.length) out.push(t.slice(last));
+  return out;
+};
+const ChatMarkdown = ({ text }) => {
+  const lines = String(text || "").replace(/\r/g, "").split("\n");
+  const blocks = []; let i = 0, k = 0;
+  const isBlockStart = (ln) => /^\s*(#{1,4}\s|```|[-*•]\s|\d+[.)]\s|\||(-{3,}|\*{3,})\s*$)/.test(ln);
+  while (i < lines.length) {
+    const ln = lines[i];
+    if (!ln.trim()) { i++; continue; }
+    if (/^\s*```/.test(ln)) {
+      const buf = []; i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]);
+      i++;
+      blocks.push(<pre key={k++} style={{ margin: "8px 0", padding: "10px 12px", background: P.s3, borderRadius: 14, overflowX: "auto", fontSize: 13, lineHeight: 1.45, fontFamily: "ui-monospace, Menlo, monospace" }}>{buf.join("\n")}</pre>);
+      continue;
+    }
+    const h = ln.match(/^(#{1,4})\s+(.*)/);
+    if (h) { blocks.push(<div key={k++} style={{ fontSize: h[1].length <= 2 ? 17 : 15.5, fontWeight: 800, letterSpacing: "-.02em", margin: "14px 0 6px" }}>{mdInline(h[2])}</div>); i++; continue; }
+    if (/^\s*(-{3,}|\*{3,})\s*$/.test(ln)) { blocks.push(<div key={k++} style={{ height: 1, background: P.fillTertiary, margin: "12px 0" }} />); i++; continue; }
+    if (ln.trim().startsWith("|")) {
+      const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) { rows.push(lines[i].trim()); i++; }
+      const cells = rows.map((r) => r.replace(/^\||\|$/g, "").split("|").map((c) => c.trim()));
+      const body = cells.filter((r) => !r.every((c) => /^:?-{2,}:?$/.test(c)));
+      const [head, ...rest] = body;
+      blocks.push(
+        <div key={k++} style={{ overflowX: "auto", margin: "8px 0", borderRadius: 14, border: `1px solid ${P.fillTertiary}` }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13.5, overflowWrap: "normal", wordBreak: "normal" }}>
+            <thead><tr>{(head || []).map((c, j) => <th key={j} style={{ textAlign: "left", padding: "8px 10px", background: P.s3, fontWeight: 700, whiteSpace: "nowrap" }}>{mdInline(c)}</th>)}</tr></thead>
+            <tbody>{rest.map((r, ri) => <tr key={ri}>{r.map((c, j) => <td key={j} style={{ padding: "8px 10px", borderTop: `1px solid ${P.fillTertiary}`, verticalAlign: "top" }}>{mdInline(c)}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+    const li = ln.match(/^\s*([-*•]|\d+[.)])\s+/);
+    if (li) {
+      const ordered = /\d/.test(li[1]); const items = [];
+      while (i < lines.length && /^\s*([-*•]|\d+[.)])\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*([-*•]|\d+[.)])\s+/, "")); i++; }
+      const Tag = ordered ? "ol" : "ul";
+      blocks.push(<Tag key={k++} style={{ margin: "6px 0", paddingLeft: 22 }}>{items.map((t, j) => <li key={j} style={{ margin: "3px 0" }}>{mdInline(t)}</li>)}</Tag>);
+      continue;
+    }
+    const buf = [];
+    while (i < lines.length && lines[i].trim() && !(buf.length && isBlockStart(lines[i]))) buf.push(lines[i++]);
+    blocks.push(<p key={k++} style={{ margin: "6px 0", whiteSpace: "pre-wrap" }}>{mdInline(buf.join("\n"))}</p>);
+  }
+  return <div style={{ overflowWrap: "anywhere" }}>{blocks}</div>;
+};
+
+const ChatTyping = ({ label }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0 14px" }}>
+    <span style={{ width: 30, height: 30, borderRadius: 15, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Sparkles size={15} /></span>
+    <span style={{ display: "inline-flex", gap: 5, padding: "13px 16px", borderRadius: "22px 22px 22px 8px", background: P.s2 }} aria-label={label || "Escribiendo"}>
+      {[0, 1, 2].map((d) => <i key={d} className="fj-dot" style={{ animationDelay: `${d * 160}ms` }} />)}
+    </span>
+  </div>
+);
+
+const ChatBubble = ({ role, children, text, onCopy }) => {
+  const mine = role === "user";
+  return (
+    <div style={{ display: "flex", flexDirection: mine ? "row-reverse" : "row", alignItems: "flex-start", gap: 10, margin: "0 0 14px" }}>
+      {!mine && <span style={{ width: 30, height: 30, borderRadius: 15, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}><Sparkles size={15} /></span>}
+      <div style={{ minWidth: 0, maxWidth: mine ? "82%" : "calc(100% - 42px)", display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start", gap: 4 }}>
+        <div style={{ padding: mine ? "11px 16px" : "10px 16px", borderRadius: mine ? "22px 22px 8px 22px" : "22px 22px 22px 8px",
+          background: mine ? PLATE_GRAD : P.s2, color: mine ? PLATE_FG : P.text, fontSize: 15, lineHeight: 1.5, maxWidth: "100%", boxSizing: "border-box" }}>
+          {mine ? <span style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{children}</span> : children}
+        </div>
+        {!mine && text && (
+          <button onClick={() => { try { navigator.clipboard.writeText(text); onCopy && onCopy(); } catch {} }} aria-label="Copiar respuesta"
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: P.faint, padding: "3px 8px" }}><Copy size={12} /> Copiar</button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ChatSuggestions = ({ items, onPick }) => (
+  <div style={{ display: "flex", flexDirection: "column", gap: 8, margin: "4px 0 14px" }}>
+    {items.map((t, i) => (
+      <button key={i} onClick={() => onPick(t)} style={{ textAlign: "left", padding: "13px 16px", borderRadius: 20, background: P.s2, color: P.dim, fontSize: 14.5, lineHeight: 1.4, display: "flex", gap: 10, alignItems: "center" }}>
+        <Sparkles size={15} color={P.faint} style={{ flexShrink: 0 }} /><span>{t}</span>
+      </button>
+    ))}
+  </div>
+);
+
+// Redactor de chat: cápsula con el campo que crece solo y un botón redondo de
+// envío; `tools` (adjuntar, dictar…) van en una fila chica arriba.
+const ChatComposer = ({ value, onChange, onSend, busy, placeholder, tools, disabled }) => {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 140) + "px";
+  }, [value]);
+  const can = !!value.trim() && !busy && !disabled;
+  return (
+    <div style={{ background: P.s2, borderRadius: 28, padding: tools ? "8px 8px 8px 12px" : "6px 6px 6px 16px", boxShadow: CARD_SHADOW }}>
+      {tools && <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "2px 4px 6px" }}>{tools}</div>}
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
+        <textarea ref={ref} rows={1} placeholder={placeholder} disabled={busy || disabled} value={value} onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (can) onSend(); } }}
+          style={{ flex: 1, minWidth: 0, resize: "none", background: "transparent", border: "none", borderRadius: 0, padding: "10px 4px", fontSize: 16, lineHeight: 1.4, maxHeight: 140 }} />
+        <button onClick={() => can && onSend()} disabled={!can} aria-label="Enviar"
+          style={{ width: 42, height: 42, borderRadius: 21, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            background: can ? PLATE_GRAD : P.s4, color: can ? PLATE_FG : P.faint, opacity: 1 }}>
+          <Send size={18} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
 /* ---- Chat del agente ---- */
 const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onNeedKey, toast }) => {
   const sid = currentStudent?.id;
@@ -22805,7 +22931,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
     return () => { alive = false; };
   }, [sid]);
 
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy]);
+  useEffect(() => { if (messages.length && scrollRef.current) scrollRef.current.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
 
   const persist = (msgs) => { if (sid) sSet(`forja-bb-chat:${sid}`, msgs); };
 
@@ -22849,9 +22975,9 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
     try {
       const ctx = buildAthleteContext({ plan, history, athlete: plan.athlete, student: currentStudent });
       const apiMessages = await Promise.all(nextMsgs.map(async (m) => ({ role: m.role, content: await contentForAPI(m) })));
-      const data = await callClaudeAPI(apiKey, {
+      const data = await callClaudeComplete(apiKey, {
         model: AI_MODEL,
-        max_tokens: 3000,
+        max_tokens: 8000,
         system: buildBBSystemPrompt(ctx, specialty, (plan.athlete || {}).enhanced === "asistido"),
         messages: apiMessages,
       });
@@ -22927,41 +23053,27 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
       {messages.length === 0 && <div style={{ fontSize: 13.5, color: P.faint, lineHeight: 1.45, marginBottom: 12 }}>{spec.focus}</div>}
 
       {messages.length === 0 && (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Consultas frecuentes de {spec.label.toLowerCase()}</div>
-          {spec.sugg.map((s, i) => (
-            <button key={i} onClick={() => (apiKey ? send(s) : setInput(s))} style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px",
-              background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, marginBottom: 6, fontSize: 14, color: P.dim, lineHeight: 1.4 }}>
-              {s}
-            </button>
-          ))}
-        </div>
+        <ChatSuggestions items={spec.sugg} onPick={(t) => (apiKey ? send(t) : setInput(t))} />
       )}
 
-      <div ref={scrollRef} style={{ maxHeight: "52vh", overflowY: "auto", marginBottom: 12, WebkitOverflowScrolling: "touch" }}>
+      <div>
         {messages.map((m, i) => {
           if (m.role === "user") {
             return (
-              <div key={i} style={{ marginBottom: 10, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+              <div key={i}>
                 {m.attachIds && m.attachIds.length > 0 && (
-                  <div style={{ display: "flex", gap: 6, marginBottom: 5, maxWidth: "85%", overflowX: "auto" }}>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 5, justifyContent: "flex-end", overflowX: "auto" }}>
                     {m.attachIds.map((id) => <AttachThumb key={id} id={id} size={56} onOpen={setViewImg} />)}
                   </div>
                 )}
-                {m.content && (
-                  <div style={{ maxWidth: "85%", padding: "10px 13px", borderRadius: "18px 18px 6px 18px", background: `${P.line}`,
-                    border: `1px solid ${P.dim}`, fontSize: 14.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{m.content}</div>
-                )}
+                {m.content && <ChatBubble role="user">{m.content}</ChatBubble>}
               </div>
             );
           }
           const { clean, actions } = parseAIActions(m.content);
           return (
-            <div key={i} style={{ marginBottom: 10 }}>
-              <div style={{ display: "flex" }}>
-                <div style={{ maxWidth: "92%", padding: "10px 13px", borderRadius: "18px 18px 18px 6px", background: P.s2,
-                  border: `1px solid ${P.line}`, fontSize: 14.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{clean || "(sin texto)"}</div>
-              </div>
+            <div key={i} style={{ marginBottom: 4 }}>
+              <ChatBubble role="assistant" text={clean} onCopy={() => toast && toast("Copiado")}><ChatMarkdown text={clean || "(sin texto)"} /></ChatBubble>
               {actions.map((act, j) => {
                 const key = `${i}-${j}`;
                 const done = applied[key];
@@ -23028,14 +23140,9 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
             </div>
           );
         })}
-        {busy && (
-          <div style={{ marginBottom: 10, display: "flex" }}>
-            <div style={{ padding: "10px 13px", borderRadius: 14, background: P.s2, border: `1px solid ${P.line}`, fontSize: 14.5, color: P.dim }}>
-              <span className="pulse">Analizando el caso…</span>
-            </div>
-          </div>
-        )}
-        {err && <div style={{ padding: "10px 13px", borderRadius: 10, background: `${P.red}22`, border: `1px solid ${P.red}55`, fontSize: 13.5, color: P.red, marginBottom: 8 }}>{err}</div>}
+        {busy && <ChatTyping label="Analizando el caso" />}
+        {err && <div style={{ padding: "12px 16px", borderRadius: 18, background: `${P.red}22`, fontSize: 13.5, color: P.red, marginBottom: 10 }}>{err}</div>}
+        <div ref={scrollRef} style={{ height: 1 }} />
       </div>
 
       {pendingAttach.length > 0 && (
@@ -23046,19 +23153,14 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
           ))}
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <AttachButton mode="both" iconOnly disabled={busy} onError={setErr} onAttached={(id) => setPendingAttach((a) => [...a, id])} />
-          <AttachButton mode="file" iconOnly disabled={busy} onError={setErr} onAttached={(id) => setPendingAttach((a) => [...a, id])} />
-          <VoiceDictateButton disabled={busy} onError={setErr} onResult={(text) => setInput((v) => (v ? `${v} ${text}` : text))} />
-        </div>
-        <textarea rows={2} placeholder={apiKey ? `Pregunta de ${spec.label.toLowerCase()}…` : "Configura la API key primero"} disabled={busy}
-          value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          style={{ flex: 1, padding: "10px 12px", fontSize: 15, minWidth: 0, resize: "none" }} />
-        <Btn kind="ember" disabled={(!input.trim() && !pendingAttach.length) || busy} onClick={() => send()} style={{ padding: "12px 14px", minWidth: 0 }}>
-          <Send size={16} />
-        </Btn>
+      <div style={{ position: "sticky", bottom: "calc(96px + env(safe-area-inset-bottom))", zIndex: 5, paddingTop: 8, background: `linear-gradient(to top, ${P.bg} 70%, transparent)` }}>
+        <ChatComposer value={input} onChange={setInput} onSend={() => send()} busy={busy}
+          placeholder={`Pregunta de ${spec.label.toLowerCase()}…`}
+          tools={<>
+            <AttachButton mode="both" iconOnly disabled={busy} onError={setErr} onAttached={(id) => setPendingAttach((a) => [...a, id])} />
+            <AttachButton mode="file" iconOnly disabled={busy} onError={setErr} onAttached={(id) => setPendingAttach((a) => [...a, id])} />
+            <VoiceDictateButton disabled={busy} onError={setErr} onResult={(text) => setInput((v) => (v ? `${v} ${text}` : text))} />
+          </>} />
       </div>
 
       {messages.length > 0 && (
@@ -23114,9 +23216,9 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
     setMessages(nextMsgs); setInput(""); setBusy(true);
     try {
       const ctx = buildAthleteContext({ plan, history, athlete: plan.athlete, student });
-      const data = await callClaudeAPI(apiKey, {
+      const data = await callClaudeComplete(apiKey, {
         model: AI_MODEL,
-        max_tokens: 1400,
+        max_tokens: 8000,
         system: buildStudentSystemPrompt(ctx, student?.name, buildActiveSessionSummary(active)),
         messages: nextMsgs,
       });
@@ -23141,39 +23243,29 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
   }
 
   return (
-    <div>
-      {messages.length === 0 && (
-        <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5, marginBottom: 12 }}>
-          Pregúntame lo que sea sobre tu entrenamiento: qué te toca hoy, cómo hacer un ejercicio, qué significa tu tempo o tu RIR, cómo vas con tu volumen, o cualquier duda de la app.
-        </div>
-      )}
-      <div ref={scrollRef} style={{ maxHeight: "48dvh", overflowY: "auto", WebkitOverflowScrolling: "touch", marginBottom: 10 }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 8 }}>
-            <div style={{ maxWidth: "88%", padding: "9px 13px", borderRadius: m.role === "user" ? "18px 18px 6px 18px" : "18px 18px 18px 6px",
-              fontSize: 14.5, lineHeight: 1.45, whiteSpace: "pre-wrap",
-              background: m.role === "user" ? PLATE_GRAD : P.s2, color: m.role === "user" ? PLATE_FG : P.text,
-              border: m.role === "user" ? "none" : `1px solid ${P.line}` }}>{m.content}</div>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "6px 0 8px" }}>
+        {messages.length === 0 ? (
+          <div style={{ padding: "18px 2px 6px" }}>
+            <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.1, marginBottom: 6 }}>Hola, ¿en qué te ayudo?</div>
+            <div style={{ fontSize: 14.5, color: P.faint, lineHeight: 1.5, marginBottom: 16 }}>Pregúntame lo que sea sobre tu entrenamiento, tu volumen o la app.</div>
+            <ChatSuggestions items={["¿Qué me toca entrenar hoy?", "¿Cómo voy con mi volumen esta semana?", "Explícame qué es el RIR y cómo usarlo"]} onPick={(t) => send(t)} />
           </div>
+        ) : messages.map((m, i) => (
+          m.role === "user"
+            ? <ChatBubble key={i} role="user">{m.content}</ChatBubble>
+            : <ChatBubble key={i} role="assistant" text={m.content} onCopy={() => toast && toast("Copiado")}><ChatMarkdown text={m.content} /></ChatBubble>
         ))}
-        {busy && <div style={{ fontSize: 13, color: P.faint, padding: "4px 2px" }}>Pensando…</div>}
+        {busy && <ChatTyping label="Pensando" />}
+        {err && <div style={{ padding: "12px 16px", borderRadius: 18, background: `${P.red}22`, fontSize: 13.5, color: P.red, marginBottom: 10 }}>{err}</div>}
       </div>
-      {err && <div style={{ fontSize: 13, color: P.red, marginBottom: 8 }}>{err}</div>}
-      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-        <VoiceDictateButton disabled={busy} onError={setErr} onResult={(text) => setInput((v) => (v ? `${v} ${text}` : text))} />
-        <textarea rows={2} placeholder="Escribe tu pregunta…" disabled={busy}
-          value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          style={{ flex: 1, padding: "10px 12px", fontSize: 15, minWidth: 0, resize: "none" }} />
-        <Btn kind="ember" disabled={!input.trim() || busy} onClick={() => send()} style={{ padding: "12px 14px", minWidth: 0 }}>
-          <Send size={16} />
-        </Btn>
+      <div style={{ flexShrink: 0, paddingTop: 6 }}>
+        <ChatComposer value={input} onChange={setInput} onSend={() => send()} busy={busy} placeholder="Escribe tu pregunta…"
+          tools={<>
+            <VoiceDictateButton disabled={busy} onError={setErr} onResult={(text) => setInput((v) => (v ? `${v} ${text}` : text))} />
+            {messages.length > 0 && <button onClick={clearChat} aria-label="Reiniciar conversación" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: P.faint, padding: "6px 10px" }}><Trash2 size={13} /> Nueva conversación</button>}
+          </>} />
       </div>
-      {messages.length > 0 && (
-        <div style={{ marginTop: 10 }}>
-          <Btn kind="line" small onClick={clearChat}><Trash2 size={12} /> Reiniciar conversación</Btn>
-        </div>
-      )}
     </div>
   );
 };
@@ -30098,17 +30190,19 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
           display: "flex", alignItems: "flex-end", justifyContent: "center",
           paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
           <div className="sheetIn" onClick={(e) => e.stopPropagation()}
-            style={{ background: P.s1, border: `1px solid ${P.frame}`, borderRadius: "22px 22px 0 0", width: "100%", maxWidth: "var(--fj-w)",
-              maxHeight: "88dvh", minHeight: "55dvh", display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px",
-              paddingTop: "max(14px, env(safe-area-inset-top))", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Sparkles size={18} color={P.ember2} />
-                <h2 className="disp" style={{ margin: 0, fontSize: 19, textTransform: "uppercase" }}>Asistente IA</h2>
+            style={{ background: P.bg, borderRadius: "34px 34px 0 0", width: "100%", maxWidth: "var(--fj-w)",
+              height: "calc(100dvh - env(safe-area-inset-top) - 10px)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 22px 8px", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ width: 34, height: 34, borderRadius: 17, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}><Sparkles size={17} /></span>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: "-.03em", lineHeight: 1.1 }}>Asistente IA</h2>
+                  <div style={{ fontSize: 12, color: P.faint }}>Conoce tu rutina y tu progreso</div>
+                </div>
               </div>
-              <button onClick={() => setChatOpen(false)} aria-label="Cerrar" style={{ color: P.dim, padding: 6 }}><X size={20} /></button>
+              <button onClick={() => setChatOpen(false)} aria-label="Cerrar" style={{ width: 36, height: 36, borderRadius: 18, background: P.s3, color: P.faint, display: "flex", alignItems: "center", justifyContent: "center" }}><X size={18} /></button>
             </div>
-            <div style={{ overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "14px 18px calc(20px + env(safe-area-inset-bottom))", flex: 1, minHeight: 0 }}>
+            <div style={{ flex: 1, minHeight: 0, padding: "0 18px calc(14px + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column" }}>
               <StudentAIChat plan={plan} history={history} student={student} active={active} apiKey={apiKey} toast={toast} />
             </div>
           </div>
