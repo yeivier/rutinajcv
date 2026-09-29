@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v364";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v365";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -4983,19 +4983,47 @@ const normNombreEj = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/
   .toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 
 // El historial se guarda por id de ejercicio; si el plan se regeneró y el
-// ejercicio tiene un id nuevo, el historial "desaparecía". Se busca también
-// por nombre (exName de cada registro) y se unifica, sin tocar los datos.
+// ejercicio tiene un id nuevo (o un nombre apenas distinto), el historial
+// "desaparecía". Se une por CLAVE de nombre —sin paréntesis, artículos,
+// plurales ni orden de palabras— y por los vínculos manuales que el usuario
+// haya hecho (history.aliasKeys), sin tocar los datos guardados.
+const CLAVE_STOP = new Set(["en", "de", "con", "la", "el", "los", "las", "a", "o", "y", "tipo", "del", "al", "por", "para", "un", "una"]);
+const claveEj = (name) => {
+  const t = String(name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9 ]+/g, " ").split(/\s+/)
+    .filter((w) => w && !CLAVE_STOP.has(w)).map((w) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w));
+  return [...new Set(t)].sort().join(" ");
+};
 const exEntries = (history, ex) => {
   const byEx = (history && history.byEx) || {};
   if (!ex) return [];
-  const k = normNombreEj(ex.name);
+  const k = claveEj(ex.name);
   const own = byEx[ex.id] || [];
   if (!k) return own;
-  const ids = Object.keys(byEx).filter((id) => id !== ex.id && (byEx[id] || []).some((en) => normNombreEj(en.exName) === k));
-  if (!ids.length) return own;
+  const keys = new Set([k, ...((((history && history.aliasKeys) || {})[k]) || [])]);
   const all = [...own];
-  ids.forEach((id) => byEx[id].forEach((en) => all.push(en)));
-  return all.sort((a, b) => (a.date || "") < (b.date || "") ? -1 : 1);
+  Object.keys(byEx).forEach((id) => {
+    if (id === ex.id) return;
+    (byEx[id] || []).forEach((en) => { if (keys.has(claveEj(en.exName))) all.push(en); });
+  });
+  if (all.length === own.length) return own;
+  return all.sort((x, y) => (x.date || "") < (y.date || "") ? -1 : 1);
+};
+// Ejercicios del historial agrupados por nombre-clave, para ofrecer vincularlos.
+const gruposHistorial = (history, ex) => {
+  const byEx = (history && history.byEx) || {};
+  const k = claveEj(ex && ex.name);
+  const mios = new Set(k.split(" "));
+  const m = new Map();
+  Object.keys(byEx).forEach((id) => (byEx[id] || []).forEach((en) => {
+    const c = claveEj(en.exName);
+    if (!c || c === k) return;
+    const g = m.get(c) || { clave: c, nombre: en.exName || "Ejercicio", n: 0, last: "" };
+    g.n++; if ((en.date || "") >= g.last) { g.last = en.date || ""; g.nombre = en.exName || g.nombre; }
+    m.set(c, g);
+  }));
+  return [...m.values()].map((g) => ({ ...g, afin: g.clave.split(" ").filter((w) => mios.has(w)).length }))
+    .sort((a, b) => b.afin - a.afin || (b.last < a.last ? -1 : 1));
 };
 /* Dónde meter un ejercicio nuevo de `m`. Primero, entre los días que YA
    entrenan ese músculo, el que menos series de trabajo tiene en total:
@@ -9980,7 +10008,7 @@ const FinDescansoAviso = ({ marca }) => {
   );
 };
 
-const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRenameEx, onRemoveEx }) => {
+const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRenameEx, onRemoveEx }) => {
   const [weightUnit, setWeightUnit] = useWeightUnit();
   const [themeMode, setThemeMode] = useTheme();
   const pendingWrites = usePendingWrites();
@@ -10026,6 +10054,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   // había ninguna. Ahora la "✕" siempre ofrece las cuatro salidas.
   const [salida, setSalida] = useState(false);
   const [histEx, setHistEx] = useState(null);
+  const [vincularOpen, setVincularOpen] = useState(false);
   // Reordenar series con "mantén pulsado y arrastra" — mismo mecanismo que
   // ya usa el editor de rutina para ejercicios y días (useHoldDragHandle +
   // DragHandle). Sirve para acomodar una serie que cayó en el lugar
@@ -11595,6 +11624,51 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
       </Sheet>
       <Sheet open={histEx != null} onClose={() => setHistEx(null)} title={histEx != null ? `Historial · ${exs[histEx].name}` : "Historial"} tall>
         <ExHistorySheetInline entries={histEx != null ? exEntries(history, exs[histEx]) : []} onOpenImg={setViewImg} />
+        {histEx != null && saveHistory && (
+          <button onClick={() => setVincularOpen(true)}
+            style={{ width: "100%", marginTop: 6, padding: "14px 16px", borderRadius: 20, background: P.s2, color: P.dim, fontSize: 14.5, fontWeight: 600, textAlign: "left", display: "flex", alignItems: "center", gap: 10 }}>
+            <Layers size={16} /> ¿Faltan registros? Vincular otros ejercicios
+          </button>
+        )}
+      </Sheet>
+      <Sheet open={vincularOpen && histEx != null} onClose={() => setVincularOpen(false)} title="Vincular registros" tall>
+        {histEx != null && (() => {
+          const ex = exs[histEx];
+          const k = claveEj(ex.name);
+          const vinc = new Set(((history.aliasKeys || {})[k]) || []);
+          const toggle = (clave) => {
+            const next = new Set(vinc);
+            if (next.has(clave)) next.delete(clave); else next.add(clave);
+            const h = structuredClone(history);
+            h.aliasKeys = { ...(h.aliasKeys || {}), [k]: [...next] };
+            saveHistory(h);
+          };
+          const grupos = gruposHistorial(history, ex);
+          return (
+            <>
+              <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.5, marginBottom: 14 }}>
+                Marca los ejercicios cuyos registros son <b style={{ color: P.text }}>{ex.name}</b> con otro nombre. Sus series aparecen juntas en el historial. Los más parecidos van arriba.
+              </div>
+              {grupos.length === 0 && <div style={{ fontSize: 14, color: P.faint }}>No hay otros ejercicios con registros.</div>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {grupos.map((g) => {
+                  const on = vinc.has(g.clave);
+                  return (
+                    <button key={g.clave} onClick={() => toggle(g.clave)} aria-pressed={on}
+                      style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "13px 15px", borderRadius: 20, textAlign: "left",
+                        background: on ? P.s3 : P.s1, border: `1px solid ${on ? P.text : "transparent"}` }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontSize: 15, fontWeight: 600, color: P.text, overflowWrap: "anywhere" }}>{g.nombre}</span>
+                        <span style={{ display: "block", fontSize: 12.5, color: P.faint }}>{g.n} {g.n === 1 ? "registro" : "registros"}{g.last ? ` · último ${fmtDate(g.last)}` : ""}</span>
+                      </span>
+                      {on && <Check size={18} strokeWidth={3} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          );
+        })()}
       </Sheet>
       <Sheet open={mediaOpen} onClose={() => setMediaOpen(false)} title="Video y fotos de la sesión">
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -11774,7 +11848,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   );
 };
 
-const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, fxRestSeg, onOpenAIChat, onLeave, onOpenDevices, sid }) => {
+const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, fxRestSeg, onOpenAIChat, onLeave, onOpenDevices, sid }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
   // Marca de tiempo del último fin de descanso: dispara el destello en
@@ -12301,7 +12375,7 @@ const TrainTab = ({ plan, history, active, setActive, saveActive, savePlan, fini
       <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
         onClose={() => setPidiendoGym(null)}
         onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g, d._fecha); }} />
-      <FocusModeMono active={active} history={history} plan={plan} patch={patch} onOpenDevices={onOpenDevices} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
+      <FocusModeMono saveHistory={saveHistory} active={active} history={history} plan={plan} patch={patch} onOpenDevices={onOpenDevices} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
         timer={timer} finDescanso={finDescanso} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
         onStartRest={(seg, ei, si) => { setTimer({ exIdx: ei || 0, setIdx: si || 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
@@ -31576,7 +31650,7 @@ const App = () => {
             autoOpenPosing={autoOpenPosing} onAutoOpenPosingConsumed={() => setAutoOpenPosing(false)} />
         )}
         {mode === "alumno" && tab === "entrenar" && (
-          <TrainTab plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive} savePlan={savePlan}
+          <TrainTab saveHistory={saveHistory} plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive} savePlan={savePlan}
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             abrirDiaId={abrirDiaId} onAutoStartConsumed={() => setAbrirDiaId(null)} fxRestSeg={fxRestSeg}
