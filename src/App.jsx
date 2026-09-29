@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v363";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v364";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7902,13 +7902,22 @@ const ExerciseProgress = ({ entries, sessions }) => {
     (sessions || []).forEach((s) => m.set(s.id, (s.gym || "").trim()));
     return m;
   }, [sessions]);
-  const gimnasios = useMemo(() => {
+  // Todos los gimnasios que conoce la app: los de fábrica, los que escribió a
+  // mano y cualquiera que aparezca en alguna sesión (aunque sea de otro
+  // ejercicio). Antes solo salían los de ESTE ejercicio y parecía que faltaban.
+  const [gymsGuardados, setGymsGuardados] = useState([]);
+  useEffect(() => { let vivo = true; listaDeGimnasios().then((r) => { if (vivo) setGymsGuardados(r.lista || []); }).catch(() => {}); return () => { vivo = false; }; }, []);
+  const gymsConRegistros = useMemo(() => {
     const set = new Set();
     all.forEach((en) => { const g = gymDeSesion.get(en.sessionId); if (g) set.add(g); });
-    return [...set].sort((a, b) => a.localeCompare(b, "es"));
+    return set;
   }, [all, gymDeSesion]);
-  // Si el gimnasio elegido dejó de aparecer (cambiaste de rango, o ya no
-  // hay registros ahí) se vuelve a "Todos" en vez de mostrar una curva vacía.
+  const gimnasios = useMemo(() => {
+    const set = new Set([...GIMNASIOS, ...gymsGuardados]);
+    gymDeSesion.forEach((g) => { if (g) set.add(g); });
+    return [...set].sort((a, b) => a.localeCompare(b, "es"));
+  }, [gymsGuardados, gymDeSesion]);
+  // Si el gimnasio elegido ya no existe en la lista se vuelve a "Todos".
   useEffect(() => { if (gymFiltro !== "todos" && !gimnasios.includes(gymFiltro)) setGymFiltro("todos"); }, [gimnasios, gymFiltro]);
   const porGym = gymFiltro === "todos" ? all : all.filter((en) => gymDeSesion.get(en.sessionId) === gymFiltro);
 
@@ -7976,7 +7985,7 @@ const ExerciseProgress = ({ entries, sessions }) => {
           padding: "12px 22px 12px 0", background: "transparent", border: "none",
           color: P.text, fontSize: 15, fontWeight: 600, textAlign: "right", fontFamily: "inherit" }}>
         <option value="todos">Todos los gimnasios</option>
-        {gimnasios.map((g) => <option key={g} value={g}>{g}</option>)}
+        {gimnasios.map((g) => <option key={g} value={g}>{g}{gymsConRegistros.has(g) ? "" : " · sin registros"}</option>)}
       </select>
       <ChevronDown size={16} color={P.chevron} strokeWidth={2.4}
         style={{ position: "absolute", right: 12, pointerEvents: "none" }} />
