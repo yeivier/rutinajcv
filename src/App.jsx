@@ -17,7 +17,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v354";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v355";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2820,7 +2820,7 @@ function withApproachSets(exs, history) {
     if (ex.muscle) gruposVistos.add(ex.muscle);
     if (isGroup || work.length === 0 || hasWarm || esEjercicioPorTiempo(ex)) return ex;
 
-    const esNuevo = !((byEx[ex.id] || []).length);
+    const esNuevo = !(exEntries({ byEx }, ex).length);
     let n;
     if (esNuevo) n = 3;
     else if (esPrimeroDeSuGrupo) n = esEjercicioComplejo(ex) ? 3 : 2;
@@ -4903,6 +4903,21 @@ const EJERCICIOS_EXTRA = {
 const normNombreEj = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
   .toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 
+// El historial se guarda por id de ejercicio; si el plan se regeneró y el
+// ejercicio tiene un id nuevo, el historial "desaparecía". Se busca también
+// por nombre (exName de cada registro) y se unifica, sin tocar los datos.
+const exEntries = (history, ex) => {
+  const byEx = (history && history.byEx) || {};
+  if (!ex) return [];
+  const k = normNombreEj(ex.name);
+  const own = byEx[ex.id] || [];
+  if (!k) return own;
+  const ids = Object.keys(byEx).filter((id) => id !== ex.id && (byEx[id] || []).some((en) => normNombreEj(en.exName) === k));
+  if (!ids.length) return own;
+  const all = [...own];
+  ids.forEach((id) => byEx[id].forEach((en) => all.push(en)));
+  return all.sort((a, b) => (a.date || "") < (b.date || "") ? -1 : 1);
+};
 /* Dónde meter un ejercicio nuevo de `m`. Primero, entre los días que YA
    entrenan ese músculo, el que menos series de trabajo tiene en total:
    respeta el reparto de la rutina (una elevación lateral va al día de
@@ -8248,7 +8263,7 @@ const ExHistorySheet = ({ open, onClose, exName, entries, sessions, onOpenImg })
 // "Nuevo" de ExerciseInfoSheet — misma lógica de withBest/recentPRs que
 // ya usan ExerciseProgress y ProgressTabMono, filtrada a un solo ejercicio.
 function exerciseHistorySummary(ex, history) {
-  const entries = (history && history.byEx && history.byEx[ex.id]) || [];
+  const entries = exEntries(history, ex);
   const withBest = entries.map((en) => {
     const done = (en.sets || []).filter((s) => s.done && s.weight !== "");
     return { date: en.date, best: done.length ? Math.max(...done.map((s) => +s.weight)) : null };
@@ -8765,7 +8780,7 @@ const SessionExercise = ({ ex, exIdx, gr, history, onPatchEx, onPatchSet, onSetD
   const [open, setOpen] = useState(exIdx === 0);
   const [hist, setHist] = useState(false);
   const [info, setInfo] = useState(false);
-  const entries = (history.byEx[ex.id] || []);
+  const entries = exEntries(history, ex);
   const lastEntry = entries.length ? entries[entries.length - 1] : null;
   const doneCount = ex.sets.filter((s) => s.done).length;
   const complete = doneCount === ex.sets.length && ex.sets.length > 0;
@@ -8927,7 +8942,7 @@ const SessionGroupBlock = ({ exsAll, members, kind, rounds, history, onPatchEx, 
                 const s = exsAll[mi].sets[r];
                 if (!s) return null;
                 const ex = exsAll[mi];
-                const entries = history.byEx[ex.id] || [];
+                const entries = exEntries(history, ex);
                 const lastEntry = entries.length ? entries[entries.length - 1] : null;
                 return (
                   <div key={mi} style={{ marginBottom: 7 }}>
@@ -9708,7 +9723,7 @@ const RetoSesion = ({ exs, history }) => {
   const r = useMemo(() => {
     let volHoy = 0, volPrev = 0, superadas = 0, anotadas = 0, conRef = 0;
     (exs || []).forEach((ex) => {
-      const arr = (history.byEx && history.byEx[ex.id]) || [];
+      const arr = exEntries(history, ex);
       const prev = arr.length ? arr[arr.length - 1] : null;
       if (!prev) return;
       conRef++;
@@ -10004,7 +10019,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
   }, [timer, now]);
 
   const exs = active.exs;
-  const lastEntryOf = (exId) => { const arr = history.byEx[exId] || []; return arr.length ? arr[arr.length - 1] : null; };
+  const lastEntryOf = (exId) => { const arr = exEntries(history, (exs.find((x) => x.id === exId)) || { id: exId }); return arr.length ? arr[arr.length - 1] : null; };
 
   // Bloques: uno por ejercicio suelto, uno por superserie/triserie/
   // gigante — igual agrupamiento que antes tenía `pages`, pero acá cada
@@ -10067,7 +10082,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
     const clone = structuredClone(active);
     let any = false;
     clone.exs.forEach((exx) => {
-      const entries = history.byEx[exx.id] || [];
+      const entries = exEntries(history, exx);
       const lastEntry = entries.length ? entries[entries.length - 1] : null;
       const prevTrabajo = lastEntry ? seriesDeTrabajo(lastEntry.sets) : [];
       let nTrabajo = -1;
@@ -11076,7 +11091,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
               // Última vez en esta misma serie de trabajo, en una línea.
               let ult = null;
               if (!isWarm && !b.group) {
-                const en = history.byEx[exs[r.ei].id] || [];
+                const en = exEntries(history, exs[r.ei]);
                 const le = en.length ? en[en.length - 1] : null;
                 const pt = le ? seriesDeTrabajo(le.sets) : [];
                 const pv = pt[workN - 1];
@@ -11461,7 +11476,7 @@ const FocusModeMono = ({ active, history, plan, patch, patchSet, patchEx, onErro
         })()}
       </Sheet>
       <Sheet open={histEx != null} onClose={() => setHistEx(null)} title={histEx != null ? `Historial · ${exs[histEx].name}` : "Historial"} tall>
-        <ExHistorySheetInline entries={(histEx != null && history.byEx[exs[histEx].id]) || []} onOpenImg={setViewImg} />
+        <ExHistorySheetInline entries={histEx != null ? exEntries(history, exs[histEx]) : []} onOpenImg={setViewImg} />
       </Sheet>
       <Sheet open={mediaOpen} onClose={() => setMediaOpen(false)} title="Video y fotos de la sesión">
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -15546,7 +15561,10 @@ const ProgressTabRouter = (props) => <ProgressTabMono {...props} />;
 // Versión inline (no sheet) del historial por ejercicio, reutilizada en Progreso y Actividad
 const ExHistorySheetInline = ({ entries, onOpenImg }) => (
   <div>
-    {[...entries].reverse().map((en, i) => (
+    {(!entries || entries.length === 0) && (
+      <Empty icon={History} title="Sin registros todavía" body="Cuando completes este ejercicio en una sesión, acá verás tus pesos, repeticiones y RIR anteriores." />
+    )}
+    {[...(entries || [])].reverse().map((en, i) => (
       <Card key={i} style={{ padding: "11px 13px", marginBottom: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
           <span style={{ fontWeight: 700, fontSize: 14.5 }}>{fmtDateFull(en.date)}</span>
