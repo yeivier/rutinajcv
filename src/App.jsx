@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v369";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v371";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5487,7 +5487,7 @@ const GlobalStyle = () => {
     .fj [style*="border-radius: 16px"], .fj [style*="border-radius: 17px"], .fj [style*="border-radius: 18px"] { border-radius: 24px !important; }
     /* Entrada de tarjetas: fundido con deslizamiento corto, escalonado por
        posición entre hermanas, en toda pantalla. */
-    .fj .fj-card { animation: fjUp ${DUR_PUSH}ms ${EASE_IN} both; }
+    .fj .fj-card { animation: fjUp ${DUR_PUSH}ms ${EASE_IN} backwards; }
     .fj .fj-card:nth-child(2) { animation-delay: 40ms; }
     .fj .fj-card:nth-child(3) { animation-delay: 80ms; }
     .fj .fj-card:nth-child(4) { animation-delay: 120ms; }
@@ -5576,13 +5576,13 @@ const GlobalStyle = () => {
        siempre, pero escalonadas por índice (--i, puesto inline en cada
        tarjeta) — que aparezcan una tras otra, no todas de golpe, es lo
        que hace que una grilla se sienta viva en vez de solo "cargada". */
-    .fj .fj-studio-card { animation: fjUp ${DUR_PUSH}ms ${EASE_STD} both;
+    .fj .fj-studio-card { animation: fjUp ${DUR_PUSH}ms ${EASE_STD} backwards;
       animation-delay: calc(var(--i, 0) * 45ms); }
     /* Barras de volumen del creador: crecen desde 0 en vez de aparecer ya
        llenas — el ancho final lo sigue poniendo React (inline style),
        esto solo anima DESDE cero hasta ese ancho. */
     @keyframes fjBarGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-    .fj .fj-studio-bar { transform-origin: left; animation: fjBarGrow ${DUR_PUSH + 200}ms ${EASE_STD} both; }
+    .fj .fj-studio-bar { transform-origin: left; animation: fjBarGrow ${DUR_PUSH + 200}ms ${EASE_STD} backwards; }
 
     /* Sesión: pasar de serie o de ejercicio tiene que VERSE. Antes el
        contenido se reemplazaba de golpe, con los mismos números
@@ -6009,11 +6009,11 @@ const Toggle = ({ on, onChange, disabled, label }) => (
 // UN dato corto debajo del nombre (la regla es "sin frase descriptiva", no
 // "sin dato": "Pendiente" o "2 / 4" son un dato, no un hint). `badge` es un
 // contador chico arriba a la derecha (p. ej. mensajes sin leer).
-const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
+const Tile = ({ Icon, label, value, badge, onClick, disabled, compact }) => (
   <button onClick={onClick} disabled={disabled} style={{ position: "relative", width: "100%", height: "100%",
     boxSizing: "border-box", textAlign: "left",
-    background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_TILE, padding: "14px 12px",
-    display: "flex", flexDirection: "column", gap: 10, opacity: disabled ? .5 : 1,
+    background: P.s1, border: "1px solid transparent", borderRadius: R_TILE, padding: compact ? "10px 12px" : "14px 12px",
+    display: "flex", flexDirection: compact ? "row" : "column", alignItems: compact ? "center" : undefined, gap: compact ? 10 : 10, opacity: disabled ? .5 : 1,
     transition: `opacity ${DUR_ROW}ms ease` }}>
     {badge != null && (
       <span style={{ position: "absolute", top: 10, right: 10, minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9,
@@ -6032,7 +6032,7 @@ const Tile = ({ Icon, label, value, badge, onClick, disabled }) => (
         sílabas con guion — "Tempori-zador", "Configura-ción" — en vez de un
         tajo feo a mitad de letra; overflowWrap queda de respaldo por si el
         navegador no tiene diccionario de guionado. */}
-    <div style={{ minWidth: 0, marginTop: "auto" }}>
+    <div style={{ minWidth: 0, marginTop: compact ? 0 : "auto" }}>
       <div style={{ fontSize: 14.5, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "break-word", hyphens: "auto", WebkitHyphens: "auto" }}>{label}</div>
       {value != null && <div style={{ fontSize: 12.5, color: P.faint2, marginTop: 1, overflowWrap: "break-word" }}>{value}</div>}
     </div>
@@ -6349,16 +6349,20 @@ function useExitEditOnOutside(active, onExit) {
 // "Atletas" (sin subtítulo) quedaba más baja que "Check-in · últimos 7 días"
 // en la misma fila del Panel: dos fichas vecinas con el borde inferior a
 // distinta altura es el defecto de simetría que más se nota de toda la app.
-const KpiTile = ({ top, value, sub, onClick }) => (
-  <button onClick={onClick} style={{ width: "100%", height: "100%", textAlign: "left", boxSizing: "border-box",
-    background: P.s1, border: `1px solid ${P.frame}`, borderRadius: R_TILE, padding: "14px 12px",
-    display: "flex", flexDirection: "column", gap: 3 }}>
-    <span style={{ fontSize: 13, color: P.faint2 }}>{top}</span>
-    <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-.02em", color: P.text, lineHeight: 1.15, marginTop: "auto" }}>{value}</span>
-    <span style={{ fontSize: 13, color: P.faint2, lineHeight: 1.3, minHeight: 17,
-      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub != null ? sub : ""}</span>
-  </button>
-);
+const KpiTile = ({ top, value, sub, onClick }) => {
+  const vacio = value === "—"; // sin dato: solo el rótulo y un guion, sin frase de relleno
+  return (
+    <button onClick={onClick} style={{ width: "100%", height: "100%", textAlign: "left", boxSizing: "border-box",
+      background: P.s1, border: "1px solid transparent", borderRadius: R_TILE, padding: "11px 14px",
+      display: "flex", flexDirection: "column", gap: 2 }}>
+      <span style={{ fontSize: 12.5, color: P.faint2 }}>{top}</span>
+      <span style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-.03em", color: vacio ? P.textQuaternary : P.text, lineHeight: 1.1 }}>{value}</span>
+      {!vacio && sub != null && sub !== "" && (
+        <span style={{ fontSize: 12, color: P.faint2, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</span>
+      )}
+    </button>
+  );
+};
 
 // Grupo de filas del sistema: un rótulo chico y una tarjeta con filas
 // "nombre · valor · chevron". Es el patrón que más se repite en la app;
@@ -13656,12 +13660,12 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           { key: "kpi-sueno", node: kpiEstado.sueno },
           { key: "kpi-comidas", node: kpiEstado.comidas },
 
-          { key: "act-entrenar", node: <Tile Icon={Dumbbell} label="Entrenar" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} /> },
-          { key: "act-ia", node: <Tile Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} /> },
-          { key: "act-checkin", node: <Tile Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
+          { key: "act-entrenar", node: <Tile compact Icon={Dumbbell} label="Entrenar" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} /> },
+          { key: "act-ia", node: <Tile compact Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} /> },
+          { key: "act-checkin", node: <Tile compact Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
             value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} /> },
-          { key: "act-mensajes", node: <Tile Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} /> },
-          { key: "act-nutricion", span: "full", node: <Tile Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
+          { key: "act-mensajes", node: <Tile compact Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} /> },
+          { key: "act-nutricion", span: "full", node: <Tile compact Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
             value={mealsTotal ? `${mealsDoneCount} de ${mealsTotal} comidas` : "Ver y registrar"} /> },
 
           { key: "semana", span: "full", node: (
@@ -29206,11 +29210,11 @@ const SettingGroup = ({ label, children }) => (
 // un collage.
 const STAT_FOOT_H = 16;
 const StatTile = ({ label, value, unit, note, bar, onClick }) => (
-  <Card onClick={onClick} style={{ padding: "18px 18px", display: "flex", flexDirection: "column", gap: 6,
+  <Card onClick={onClick} style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4,
     height: "100%", boxSizing: "border-box",
     cursor: onClick ? "pointer" : undefined, position: "relative" }}>
     <span className="mono" style={{ letterSpacing: ".08em" }}>{label}</span>
-    <span style={{ fontSize: 34, fontWeight: 800, lineHeight: 1, letterSpacing: "-.04em", marginTop: "auto" }}>
+    <span style={{ fontSize: 28, fontWeight: 800, lineHeight: 1, letterSpacing: "-.04em", marginTop: "auto" }}>
       {value}{unit && <span style={{ fontSize: 14 }}>{unit}</span>}
     </span>
     <span style={{ display: "flex", alignItems: "center", minHeight: STAT_FOOT_H }}>
