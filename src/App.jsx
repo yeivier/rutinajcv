@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v378";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v379";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8060,12 +8060,12 @@ const ExerciseProgress = ({ entries, sessions }) => {
   const gymChips = gimnasios.length > 1 && (
     <div style={{ position: "relative", display: "flex", alignItems: "center", marginBottom: 10,
       borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, padding: "0 14px", minHeight: HIT }}>
-      <span className="mono" style={{ letterSpacing: ".08em", flexShrink: 0, marginRight: 10 }}>Gimnasio</span>
+      <Home size={17} color={P.faint} style={{ flexShrink: 0, marginRight: 10 }} />
       <select value={gymFiltro} onChange={(e) => setGymFiltro(e.target.value)}
         aria-label="Elegir el gimnasio del que ver el progreso"
         style={{ flex: 1, minWidth: 0, appearance: "none", WebkitAppearance: "none",
           padding: "12px 22px 12px 0", background: "transparent", border: "none",
-          color: P.text, fontSize: 15, fontWeight: 600, textAlign: "right", fontFamily: "inherit" }}>
+          color: P.text, fontSize: 16, fontWeight: 700, textAlign: "left", fontFamily: "inherit" }}>
         <option value="todos">Todos los gimnasios</option>
         {gimnasios.map((g) => <option key={g} value={g}>{g}{gymsConRegistros.has(g) ? "" : " · sin registros"}</option>)}
       </select>
@@ -8088,124 +8088,80 @@ const ExerciseProgress = ({ entries, sessions }) => {
     );
   }
 
+  const pillR = (on) => ({ flexShrink: 0, padding: "10px 14px", borderRadius: 999, fontSize: 15, fontWeight: 800,
+    background: on ? PLATE_GRAD : P.s2, color: on ? PLATE_FG : P.text });
+  const deltaR = (p) => p && (
+    <span style={{ color: p.color, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 3, fontVariantNumeric: "tabular-nums" }}>
+      <p.Icon size={13} strokeWidth={2.8} />{Math.abs(p.pct).toFixed(1).replace(".", ",")}%
+    </span>
+  );
+  const ultimoV = chartData.length ? (metricDef.calc(filtered[filtered.length - 1]) || 0) : null;
   return (
     <div style={{ marginBottom: 16 }}>
       {gymChips}
-      <div style={{ display: "flex", gap: 4, marginBottom: 10, overflowX: "auto" }}>
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", margin: "0 -20px 14px", padding: "2px 20px", WebkitOverflowScrolling: "touch" }}>
         {PROGRESS_RANGES.map((r) => (
-          <button key={r.id} onClick={() => setRange(r.id)} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
-            background: range === r.id ? P.s3 : "transparent", color: range === r.id ? P.text : P.faint, border: `1px solid ${range === r.id ? P.line : "transparent"}` }}>
-            {r.label}
-          </button>
+          <button key={r.id} onClick={() => setRange(r.id)} aria-pressed={range === r.id} style={pillR(range === r.id)}>{r.label}</button>
         ))}
-        {/* Rango libre: desde un día puntual hasta años — las seis
-            fichas de arriba son atajos, esta es "elegí vos las fechas". */}
-        <button onClick={() => setRange("custom")} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
-          display: "inline-flex", alignItems: "center", gap: 5,
-          background: range === "custom" ? P.s3 : "transparent", color: range === "custom" ? P.text : P.faint, border: `1px solid ${range === "custom" ? P.line : "transparent"}` }}>
-          <Calendar size={12} /> Personalizado
+        <button onClick={() => setRange("custom")} aria-pressed={range === "custom"} aria-label="Rango personalizado" title="Rango personalizado"
+          style={{ ...pillR(range === "custom"), padding: 0, width: 46, height: 46, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Calendar size={19} />
         </button>
       </div>
       {range === "custom" && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-            aria-label="Desde" style={{ flex: 1, minWidth: 0, padding: "9px 10px", fontSize: 14 }} />
-          <span style={{ color: P.faint, fontSize: 13 }}>a</span>
-          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-            aria-label="Hasta" style={{ flex: 1, minWidth: 0, padding: "9px 10px", fontSize: 14 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} aria-label="Desde" style={{ flex: 1, minWidth: 0, padding: "12px 12px", fontSize: 15 }} />
+          <span style={{ color: P.faint, fontSize: 13 }}>→</span>
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} aria-label="Hasta" style={{ flex: 1, minWidth: 0, padding: "12px 12px", fontSize: 15 }} />
         </div>
       )}
 
-      {/* Qué se grafica. Antes la gráfica era solo el peso máximo, que
-          esconde la mitad de lo que pasa: se puede estar subiendo el
-          volumen sin tocar el máximo, o subir el peso perdiendo reps. */}
-      <SectionSwitch style={{ marginBottom: 10 }} value={metric} onChange={setMetric}
+      <SectionSwitch style={{ marginBottom: 18 }} value={metric} onChange={setMetric}
         items={EX_METRICS.map((m) => ({ id: m.id, label: m.label }))} />
 
       {chartData.length ? (
-        <Card style={{ padding: "14px 8px 6px", marginBottom: 12 }}>
-          {/* El dato en grande arriba de la curva, no solo el delta: lo
-              primero que se busca al abrir esta pantalla es "¿en cuánto
-              estoy?", y antes había que leerlo del último punto del eje. */}
-          <div style={{ padding: "0 10px 6px" }}>
-            <div style={{ fontSize: 13, color: P.faint2 }}>{metricDef.label} por sesión</div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>
-                {(() => { const v = metricDef.calc(filtered[filtered.length - 1]) || 0;
-                  return metricDef.unit === "kg" ? kg(v) : Math.round(v).toLocaleString("es-CL"); })()}
-              </span>
-              {metricDef.unit && <span style={{ fontSize: 15, color: P.faint2 }}>{metricDef.unit}</span>}
-            </div>
-            {/* El veredicto del rango elegido, siempre con % Y kg — no
-                solo un delta suelto que había que interpretar. */}
-            {rangeProgress && (
-              <div style={{ marginTop: 4 }}>
-                <ProgressBadge p={rangeProgress} unit={metricDef.unit} />
-                <span style={{ color: P.faint2, fontSize: 12.5, marginLeft: 5 }}>en el rango elegido</span>
-              </div>
-            )}
+        <div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span className="num" style={{ fontSize: 48, fontWeight: 800, letterSpacing: "-.05em", lineHeight: 1 }}>
+              {metricDef.unit === "kg" ? kg(ultimoV) : Math.round(ultimoV).toLocaleString("es-CL")}
+            </span>
+            {metricDef.unit && <span style={{ fontSize: 17, fontWeight: 700, color: P.faint }}>{metricDef.unit}</span>}
+            <span style={{ marginLeft: "auto", fontSize: 17 }}>{deltaR(rangeProgress)}</span>
           </div>
-          <ChartBox data={chartData} unit={metricDef.unit} />
-        </Card>
+          <div style={{ fontSize: 14, color: P.faint, fontWeight: 600, marginTop: 6, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span>{withBest.length} sesiones</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Award size={14} /> {allTimeBest != null ? kg(allTimeBest) : "—"} kg</span>
+            {delta30 != null && <span style={{ color: delta30 >= 0 ? P.text : P.red }}>30 d: {delta30 >= 0 ? "+" : "−"}{kg(Math.abs(delta30))}</span>}
+          </div>
+          <div style={{ margin: "10px -8px 0" }}><ChartBox data={chartData} unit={metricDef.unit} /></div>
+        </div>
       ) : (
-        <div style={{ fontSize: 14, color: P.faint, padding: "10px 2px", marginBottom: 12 }}>Sin sesiones en este rango. Prueba un rango más amplio.</div>
+        <div style={{ fontSize: 14, color: P.faint, padding: "10px 2px" }}>Sin sesiones en este rango.</div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
-        <Card style={{ padding: "10px 6px", textAlign: "center" }}>
-          <div className="disp" style={{ fontSize: 18, fontWeight: 700 }}>{withBest.length}</div>
-          <div style={{ fontSize: 11, color: P.dim, marginTop: 2 }}>Sesiones</div>
-        </Card>
-        <Card style={{ padding: "10px 6px", textAlign: "center" }}>
-          <div className="disp" style={{ fontSize: 18, fontWeight: 700, color: delta30 == null ? P.text : delta30 >= 0 ? P.ember2 : P.red }}>
-            {delta30 == null ? "—" : `${delta30 >= 0 ? "+" : ""}${kg(delta30)}`}
-          </div>
-          <div style={{ fontSize: 11, color: P.dim, marginTop: 2 }}>Últimos 30 días</div>
-        </Card>
-        <Card style={{ padding: "10px 6px", textAlign: "center" }}>
-          <div className="disp" style={{ fontSize: 18, fontWeight: 700, color: P.ember2, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
-            <Award size={14} /> {allTimeBest != null ? kg(allTimeBest) : "—"}
-          </div>
-          <div style={{ fontSize: 11, color: P.dim, marginTop: 2 }}>Mejor marca</div>
-        </Card>
-      </div>
-
-      <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>Progreso serie a serie</div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
-          <thead>
-            <tr style={{ color: P.faint, textAlign: "left" }}>
-              <th style={{ padding: "4px 6px", fontWeight: 600 }}>Fecha</th>
-              <th style={{ padding: "4px 6px", fontWeight: 600 }}>Series</th>
-              <th style={{ padding: "4px 6px", fontWeight: 600 }}>Reps</th>
-              <th style={{ padding: "4px 6px", fontWeight: 600 }}>Peso</th>
-              <th style={{ padding: "4px 6px", fontWeight: 600 }}>Progreso</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...withBest].reverse().map((x, i, arr) => {
-              const prev = arr[i + 1];
-              // % y kg contra la sesión anterior de este ejercicio — el
-              // pedido explícito era que el aumento (o retroceso) de peso
-              // quedara especificado en las dos unidades, no solo una.
-              const prog = prev ? progresoEntre(prev.best, x.best) : null;
-              const isBest = x.best === allTimeBest;
-              return (
-                <tr key={x.en.sessionId} style={{ borderTop: `1px solid ${P.line}`, background: isBest ? `${P.s3}` : "transparent" }}>
-                  <td style={{ padding: "6px 6px", whiteSpace: "nowrap" }}>{fmtDate(x.en.date)}</td>
-                  <td style={{ padding: "6px 6px" }}>{x.setsDone}</td>
-                  <td style={{ padding: "6px 6px" }}>{x.totalReps}</td>
-                  <td style={{ padding: "6px 6px", fontWeight: 700, whiteSpace: "nowrap" }}>
-                    {kg(x.best)} kg {isBest && <Award size={11} color={P.ember2} style={{ verticalAlign: -1, marginLeft: 2 }} />}
-                  </td>
-                  <td style={{ padding: "6px 6px", whiteSpace: "nowrap" }}>
-                    <ProgressBadge p={prog} unit="kg" compact />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      {/* Sesión a sesión: una fila cada una — fecha, series × reps y a la
+          derecha el mejor peso con su variación. */}
+      <div style={{ marginTop: 20 }}>
+        {[...withBest].reverse().map((x, i, arr) => {
+          const prev = arr[i + 1];
+          const prog = prev ? progresoEntre(prev.best, x.best) : null;
+          const isBest = x.best === allTimeBest;
+          const d = new Date(x.en.date);
+          return (
+            <div key={x.en.sessionId} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 2px", borderTop: `1px solid ${P.fillTertiary}` }}>
+              <div style={{ width: 62, flexShrink: 0 }}>
+                <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-.02em" }}>{d.getDate()} {MESES_CORTO[d.getMonth()].toLowerCase()}</div>
+              </div>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 14.5, color: P.faint, fontWeight: 600 }}>{x.setsDone} × {x.totalReps} reps</div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 5 }}>
+                  {isBest && <Award size={14} color={P.faint} />}{kg(x.best)}<span style={{ fontSize: 13, color: P.faint, fontWeight: 700 }}>kg</span>
+                </div>
+                <div style={{ fontSize: 13.5, marginTop: 1, minHeight: 18 }}>{prog ? deltaR(prog) : null}</div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -8320,91 +8276,71 @@ const ProgressSummaryPanel = ({ history }) => {
     });
   }, [history.byEx, fromMs, toMs]);
 
+  const RANGO_CORTO = { w: "Semana", m: "Mes", "3m": "3 meses", y: "Año", all: "Todo" };
+  const pill = (on) => ({ flexShrink: 0, padding: "10px 14px", borderRadius: 999, fontSize: 15, fontWeight: 800,
+    background: on ? PLATE_GRAD : P.s2, color: on ? PLATE_FG : P.text });
+  const delta = (p) => p && (
+    <span style={{ color: p.color, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 3, fontVariantNumeric: "tabular-nums" }}>
+      <p.Icon size={14} strokeWidth={2.8} />{Math.abs(p.pct).toFixed(1).replace(".", ",")}%
+    </span>
+  );
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", gap: 4, marginBottom: 10, overflowX: "auto" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, overflowX: "auto", margin: "0 -20px 14px", padding: "2px 20px", WebkitOverflowScrolling: "touch" }}>
         {SUMMARY_RANGES.map((r) => (
-          <button key={r.id} onClick={() => setRange(r.id)} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
-            background: range === r.id ? P.s3 : "transparent", color: range === r.id ? P.text : P.faint, border: `1px solid ${range === r.id ? P.line : "transparent"}` }}>
-            {r.label}
-          </button>
+          <button key={r.id} onClick={() => setRange(r.id)} aria-pressed={range === r.id} style={pill(range === r.id)}>{RANGO_CORTO[r.id] || r.label}</button>
         ))}
-        {/* Rango libre: desde un día puntual hasta años. */}
-        <button onClick={() => setRange("custom")} style={{ flexShrink: 0, padding: "6px 12px", borderRadius: 9, fontSize: 13.5, fontWeight: 700,
-          display: "inline-flex", alignItems: "center", gap: 5,
-          background: range === "custom" ? P.s3 : "transparent", color: range === "custom" ? P.text : P.faint, border: `1px solid ${range === "custom" ? P.line : "transparent"}` }}>
-          <Calendar size={12} /> Personalizado
+        <button onClick={() => setRange("custom")} aria-pressed={range === "custom"} aria-label="Rango personalizado" title="Rango personalizado"
+          style={{ ...pill(range === "custom"), padding: 0, width: 46, height: 46, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Calendar size={19} />
         </button>
       </div>
       {range === "custom" && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} aria-label="Desde" style={{ flex: 1, minWidth: 0, padding: "9px 10px", fontSize: 14 }} />
-          <span style={{ color: P.faint, fontSize: 13 }}>a</span>
-          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} aria-label="Hasta" style={{ flex: 1, minWidth: 0, padding: "9px 10px", fontSize: 14 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} aria-label="Desde" style={{ flex: 1, minWidth: 0, padding: "12px 12px", fontSize: 15 }} />
+          <span style={{ color: P.faint, fontSize: 13 }}>→</span>
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} aria-label="Hasta" style={{ flex: 1, minWidth: 0, padding: "12px 12px", fontSize: 15 }} />
         </div>
       )}
 
       {enPeriodo.length === 0 ? (
-        <Card style={{ padding: 20 }}>
-          <Empty icon={BarChart3} title="Sin sesiones en este rango" body="Elegí otro período, o entrená y volvé a mirar acá." />
-        </Card>
+        <Empty icon={BarChart3} title="Sin sesiones" body="" />
       ) : (
         <>
-          <Card style={{ padding: "14px 8px 6px", marginBottom: 12 }}>
-            <div style={{ padding: "0 10px 6px" }}>
-              <div style={{ fontSize: 13, color: P.faint2 }}>Volumen total</div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>
-                  {Math.round(volPeriodo).toLocaleString("es-CL")}
-                </span>
-                <span style={{ fontSize: 15, color: P.faint2 }}>kg</span>
-              </div>
-              {volProgress ? (
-                <div style={{ marginTop: 4 }}>
-                  <ProgressBadge p={volProgress} unit="kg" />
-                  <span style={{ color: P.faint2, fontSize: 12.5, marginLeft: 5 }}>vs. el período anterior</span>
-                </div>
-              ) : (
-                <div style={{ marginTop: 4, fontSize: 12.5, color: P.faint2 }}>
-                  {enPeriodo.length} {enPeriodo.length === 1 ? "sesión" : "sesiones"} · {setsPeriodo} series
-                </div>
-              )}
+          {/* Lo primero: el volumen del período en grande, su variación y el
+              gráfico. Sesiones y series, en una sola línea debajo. */}
+          <div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+              <span className="num" style={{ fontSize: 48, fontWeight: 800, letterSpacing: "-.05em", lineHeight: 1 }}>
+                {Math.round(volPeriodo).toLocaleString("es-CL")}
+              </span>
+              <span style={{ fontSize: 17, fontWeight: 700, color: P.faint }}>kg</span>
+              <span style={{ marginLeft: "auto", fontSize: 17 }}>{delta(volProgress)}</span>
             </div>
-            {chartData.length > 1 && <BarChartBox data={chartData} unit="kg" color={P.text} height={150} />}
-          </Card>
-
-          {volProgress && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-              <Card style={{ padding: "10px 6px", textAlign: "center" }}>
-                <div className="disp" style={{ fontSize: 18, fontWeight: 700 }}>{enPeriodo.length}</div>
-                <div style={{ fontSize: 11, color: P.dim, marginTop: 2 }}>Sesiones</div>
-              </Card>
-              <Card style={{ padding: "10px 6px", textAlign: "center" }}>
-                <div className="disp" style={{ fontSize: 18, fontWeight: 700 }}>{setsPeriodo}</div>
-                <div style={{ fontSize: 11, color: P.dim, marginTop: 2 }}>Series</div>
-              </Card>
+            <div style={{ fontSize: 14, color: P.faint, fontWeight: 600, marginTop: 6 }}>
+              {enPeriodo.length} {enPeriodo.length === 1 ? "sesión" : "sesiones"} · {setsPeriodo} series
             </div>
-          )}
-
-          <div style={{ fontSize: 13, color: P.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 8 }}>
-            Por ejercicio en este rango
+            {chartData.length > 1 && <div style={{ margin: "10px -8px 0" }}><BarChartBox data={chartData} unit="kg" color={P.text} height={130} /></div>}
           </div>
-          {porEjercicio.length === 0 ? (
-            <div style={{ fontSize: 14, color: P.faint, padding: "4px 2px" }}>Sin ejercicios con peso registrado en este rango.</div>
-          ) : (
-            <Card style={{ overflow: "hidden" }}>
-              {porEjercicio.map((x, i) => (
-                <div key={x.exId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px",
-                  borderBottom: i < porEjercicio.length - 1 ? `1px solid ${P.line}` : "none" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.name}</div>
-                    <div style={{ fontSize: 12, color: P.faint2, marginTop: 1 }}>{kg(x.ultimo)} kg · {x.n} {x.n === 1 ? "registro" : "registros"}</div>
-                  </div>
-                  {x.prog ? <ProgressBadge p={x.prog} unit="kg" compact /> : <span style={{ fontSize: 12.5, color: P.faint, flexShrink: 0 }}>Un solo registro</span>}
+
+          {/* Ejercicios: una fila cada uno, nombre completo a la izquierda y
+              a la derecha el último peso con su variación. */}
+          <div style={{ marginTop: 22 }}>
+            {porEjercicio.length === 0 ? (
+              <div style={{ fontSize: 14, color: P.faint, padding: "4px 2px" }}>Sin ejercicios con peso registrado.</div>
+            ) : porEjercicio.map((x, i) => (
+              <div key={x.exId} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 2px", borderTop: `1px solid ${P.fillTertiary}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 16.5, fontWeight: 700, letterSpacing: "-.01em", lineHeight: 1.25, overflowWrap: "anywhere" }}>{x.name}</div>
+                  <div style={{ fontSize: 13, color: P.faint, marginTop: 2, fontWeight: 600 }}>{x.n} {x.n === 1 ? "registro" : "registros"}</div>
                 </div>
-              ))}
-            </Card>
-          )}
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums" }}>{kg(x.ultimo)}<span style={{ fontSize: 13, color: P.faint, fontWeight: 700 }}> kg</span></div>
+                  <div style={{ fontSize: 14, marginTop: 1 }}>{x.prog ? delta(x.prog) : <span style={{ color: P.faint2 }}>—</span>}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </>
       )}
     </div>
@@ -15358,12 +15294,11 @@ const DiarioImportado = ({ history }) => {
 // chevron que abre una lista para elegir, igual que cualquier selector
 // del sistema (ColorPickerSheet, el selector de Ejercicio de acá abajo).
 const PROGRESO_SUB_ITEMS = [
-  { id: "resumen", label: "Resumen" }, { id: "fuerza", label: "Fuerza" }, { id: "cuerpo", label: "Cuerpo" },
-  { id: "volumen", label: "Volumen" }, { id: "logros", label: "Logros" }, { id: "historial", label: "Historial" },
+  { id: "resumen", label: "Resumen", Icon: LayoutGrid }, { id: "fuerza", label: "Fuerza", Icon: Dumbbell }, { id: "cuerpo", label: "Cuerpo", Icon: Scale },
+  { id: "volumen", label: "Volumen", Icon: BarChart3 }, { id: "logros", label: "Logros", Icon: Trophy }, { id: "historial", label: "Historial", Icon: History },
 ];
 const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, onOpenCheckin }) => {
   const [sub, setSub] = useState("fuerza");
-  const [subPickerOpen, setSubPickerOpen] = useState(false);
   const [exId, setExId] = useState("");
   const [measureOpen, setMeasureOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -15412,27 +15347,9 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
       <ScreenTitle title="Progreso" />
 
-      <button onClick={() => setSubPickerOpen(true)} aria-label="Elegir qué sección de Progreso ver"
-        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
-          borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, padding: "0 14px", minHeight: HIT }}>
-        <span style={{ fontSize: 16, fontWeight: 700, color: P.text }}>{(PROGRESO_SUB_ITEMS.find((i) => i.id === sub) || {}).label}</span>
-        <ChevronDown size={17} color={P.chevron} strokeWidth={2.4} />
-      </button>
-      <Sheet open={subPickerOpen} onClose={() => setSubPickerOpen(false)} title="Ver">
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {PROGRESO_SUB_ITEMS.map((it) => {
-            const on = sub === it.id;
-            return (
-              <button key={it.id} onClick={() => { setSub(it.id); setSubPickerOpen(false); }}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
-                  padding: "14px 16px", borderRadius: R_TILE, background: on ? P.s3 : P.s1, border: `1px solid ${P.line}` }}>
-                <span style={{ fontSize: 16, fontWeight: on ? 700 : 500, color: P.text }}>{it.label}</span>
-                {on && <Check size={18} color={SES.acc} strokeWidth={3} />}
-              </button>
-            );
-          })}
-        </div>
-      </Sheet>
+      <div style={{ marginBottom: 16 }}>
+        <SectionSwitch value={sub} onChange={setSub} items={PROGRESO_SUB_ITEMS} />
+      </div>
 
       {sub === "resumen" && <ProgressSummaryPanel history={history} />}
 
@@ -15447,12 +15364,12 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
                fila del sistema que abre un selector. */
             <div style={{ position: "relative", display: "flex", alignItems: "center",
               borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, padding: "0 14px", minHeight: HIT }}>
-              <span className="mono" style={{ letterSpacing: ".08em", flexShrink: 0, marginRight: 10 }}>Ejercicio</span>
+              <Dumbbell size={17} color={P.faint} style={{ flexShrink: 0, marginRight: 10 }} />
               <select value={exId} onChange={(e) => setExId(e.target.value)}
                 aria-label="Elegir el ejercicio del que ver el progreso"
                 style={{ flex: 1, minWidth: 0, appearance: "none", WebkitAppearance: "none",
                   padding: "12px 22px 12px 0", background: "transparent", border: "none",
-                  color: P.text, fontSize: 15, fontWeight: 600, textAlign: "right", fontFamily: "inherit" }}>
+                  color: P.text, fontSize: 16, fontWeight: 700, textAlign: "left", fontFamily: "inherit" }}>
                 {allEx.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
               </select>
               <ChevronDown size={16} color={P.chevron} strokeWidth={2.4}
@@ -15461,24 +15378,18 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           )}
           <ExerciseProgress entries={entries} sessions={history.sessions} />
           {recentPRs.length > 0 && (
-            <Collapsible title="Récords recientes" summary={`${recentPRs.length}`}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                {/* La insignia "PR" y el valor van en el mismo verde que usa
-                    la sesión para "lo que ya hiciste" (v201/v202) — un
-                    récord es, sin ambigüedad, algo bueno: es donde el
-                    acento único de la app tiene sentido usarse acá también. */}
-                {recentPRs.map((pr, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 13, background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE, padding: "14px 15px" }}>
-                    <span style={{ width: 32, height: 32, borderRadius: 10, background: SES.accSoft, border: `1px solid ${SES.accLine}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: SES.acc, flexShrink: 0 }}>PR</span>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 14.5, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.name}</span>
-                      <span style={{ fontSize: 12.5, color: P.faint2 }}>{daysAgoLabel(pr.date)}</span>
-                    </div>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: SES.acc, flexShrink: 0 }}>{pr.value}</span>
+            <div style={{ marginTop: 22 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 800, marginBottom: 4 }}><Award size={17} /> {recentPRs.length}</div>
+              {recentPRs.map((pr, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 2px", borderTop: `1px solid ${P.fillTertiary}` }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, overflowWrap: "anywhere" }}>{pr.name}</div>
+                    <div style={{ fontSize: 13, color: P.faint, fontWeight: 600 }}>{daysAgoLabel(pr.date)}</div>
                   </div>
-                ))}
-              </div>
-            </Collapsible>
+                  <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.02em", flexShrink: 0 }}>{pr.value}</span>
+                </div>
+              ))}
+            </div>
           )}
         </>
       )}
