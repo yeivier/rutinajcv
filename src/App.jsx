@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v373";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v375";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -9913,28 +9913,15 @@ const RetoSesion = ({ exs, history }) => {
     : "Vas igual que la última vez";
   const avance = r.volPrev > 0 ? Math.max(0, Math.min(100, (r.volHoy / r.volPrev) * 100)) : 0;
   return (
-    <div style={{ borderRadius: 16, background: SES.card, border: `1px solid ${gana ? SES.accLine : SES.line}`, padding: "14px 15px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
-        <Trophy size={17} color={col} style={{ flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: SES.ink }}>{titulo}</div>
-          <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 1 }}>
-            {r.superadas} de {r.anotadas} {r.anotadas === 1 ? "serie superada" : "series superadas"}
-          </div>
-        </div>
-        <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: col, letterSpacing: ".02em", flexShrink: 0 }}>
+    <div style={{ padding: "2px 2px 0" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: SES.dim }}>{titulo}</span>
+        <span style={{ fontSize: 15, fontWeight: 800, color: col, letterSpacing: "-.01em", flexShrink: 0 }}>
           {dif >= 0 ? "+" : "−"}{Math.abs(Math.round(pct))}%
         </span>
       </div>
-      {/* Barra: el 100 % es el volumen de la última vez. Pasarlo es el reto. */}
-      <div style={{ position: "relative", height: 6, borderRadius: 3, background: SES.campo, overflow: "hidden" }}>
-        <div style={{ width: `${avance}%`, height: "100%", background: col,
-          transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
-      </div>
-      <div className="mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5,
-        letterSpacing: ".06em", color: SES.faint, marginTop: 5 }}>
-        <span>hoy {Math.round(r.volHoy).toLocaleString("es-CL")} kg</span>
-        <span>mismas series entonces {Math.round(r.volPrev).toLocaleString("es-CL")} kg</span>
+      <div style={{ position: "relative", height: 3, borderRadius: 2, background: SES.campo, overflow: "hidden" }}>
+        <div style={{ width: `${avance}%`, height: "100%", background: col, transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
       </div>
     </div>
   );
@@ -9949,17 +9936,9 @@ const RetoEjercicio = ({ reto }) => {
   const gana = pct >= 1, pierde = pct <= -1;
   const col = gana ? SES.acc : pierde ? SES.faint : SES.dim;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9, padding: "8px 10px",
-      borderRadius: 10, background: SES.campo, border: `1px solid ${gana ? SES.accLine : SES.line}` }}>
-      <Trophy size={14} color={col} style={{ flexShrink: 0 }} />
-      <span style={{ fontSize: 12, color: SES.ink, flex: 1, minWidth: 0 }}>
-        <b style={{ color: col }}>{superadas}</b> de {anotadas} {anotadas === 1 ? "serie superada" : "series superadas"}
-      </span>
-      {volPrev > 0 && (
-        <span className="mono" style={{ fontSize: 10.5, fontWeight: 700, color: col, letterSpacing: ".03em" }}>
-          {dif >= 0 ? "+" : "−"}{Math.abs(Math.round(pct))}% vol
-        </span>
-      )}
+    <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 13, color: SES.faint }}>
+      <span><b style={{ color: col }}>{superadas}</b> de {anotadas} superadas</span>
+      {volPrev > 0 && <b style={{ color: col }}>{dif >= 0 ? "+" : "−"}{Math.abs(Math.round(pct))}%</b>}
     </div>
   );
 };
@@ -9987,12 +9966,7 @@ const RetoSerie = ({ actual, previa, unidad }) => {
   }[r.estado];
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-      {refTxt && (
-        <span className="mono" style={{ fontSize: 10, letterSpacing: ".05em", color: SES.faint,
-          background: SES.campo, borderRadius: 5, padding: "2px 6px" }}>
-          la vez pasada {refTxt}
-        </span>
-      )}
+      {refTxt && <span style={{ fontSize: 12.5, color: SES.faint }}>antes {refTxt}</span>}
       {meta && (
         <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: meta.col }}>
           <meta.Icon size={11} strokeWidth={3} />
@@ -10078,6 +10052,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
   const [salida, setSalida] = useState(false);
   const [histEx, setHistEx] = useState(null);
   const [vincularOpen, setVincularOpen] = useState(false);
+  const [herrOpen, setHerrOpen] = useState(false);
   // Reordenar series con "mantén pulsado y arrastra" — mismo mecanismo que
   // ya usa el editor de rutina para ejercicios y días (useHoldDragHandle +
   // DragHandle). Sirve para acomodar una serie que cayó en el lugar
@@ -10569,13 +10544,13 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
     const hasWarmRows = firstWarmIdx !== -1;
     // Detalle desplegado: indicaciones, tempo, última vez, el reto y el
     // detalle de cada serie, todo detrás de un mismo chevron por tarjeta.
-    const abierta = detalleAbierto.has(bi);
+    const abierta = true; // todo el detalle a la vista, sin chevron
 
     return (
-      <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: 12, padding: "13px 13px 4px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
-          <span style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: SES.campo, fontSize: 12.5, fontWeight: 700, color: SES.dim, marginTop: 1 }}>{bi + 1}</span>
+      <div style={{ background: SES.card, border: "none", borderRadius: 24, padding: "18px 16px 10px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <span style={{ width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            background: SES.campo, fontSize: 13.5, fontWeight: 800, color: SES.dim, marginTop: 1 }}>{bi + 1}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* El nombre se puede editar EN VIVO (renombrar o poner nombre a un
                 ejercicio recién agregado en un entrenamiento libre). En
@@ -10589,7 +10564,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
                   background: SES.campo, border: `1px solid ${SES.acc}`, borderRadius: 8, padding: "6px 9px", outline: "none", fontFamily: "inherit" }} />
             ) : (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ fontSize: 15.5, fontWeight: 700, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.01em" }}>{titulo || "Ejercicio sin nombre"}</div>
+                <div style={{ fontSize: 19, fontWeight: 800, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.03em", overflowWrap: "anywhere" }}>{titulo || "Ejercicio sin nombre"}</div>
                 {puedeEditar && !block.group && (
                   <button onClick={() => setRenameId(exs[block.ei].id)} aria-label={`Renombrar ${titulo || "ejercicio"}`}
                     style={{ background: "transparent", border: "none", color: SES.faint, display: "inline-flex", padding: 2, flexShrink: 0 }}>
@@ -10617,56 +10592,24 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
               color: SES.dim, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Play size={11} fill="currentColor" />
           </button>
-          {/* El detalle (indicaciones, tempo, última vez, el reto — y el
-              detalle de cada serie más abajo) queda desplegable: por
-              defecto la tarjeta muestra solo el nombre y la tabla. */}
-          <button onClick={() => toggleDetalle(bi)}
-            aria-label={`${abierta ? "Ocultar" : "Mostrar"} el detalle de ${titulo}`}
-            aria-expanded={abierta}
-            style={{ width: 26, height: 26, borderRadius: 13, flexShrink: 0, background: SES.campo, border: "none",
-              color: SES.dim, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <ChevronDown size={13} style={{ transform: abierta ? "rotate(180deg)" : "none", transition: `transform ${DUR_MICRO}ms ${EASE_STD}` }} />
-          </button>
         </div>
 
-        {abierta && (indicaciones || tempo || ultimaVez || (retoEx && retoEx.anotadas > 0)) && (
-          <>
-            {indicaciones && (
-              <div style={{ fontSize: 12.5, color: SES.dim, lineHeight: 1.45, marginTop: 9, padding: "8px 10px",
-                background: SES.campo, borderRadius: 8, whiteSpace: "pre-wrap" }}>{indicaciones}</div>
-            )}
-            {tempo && <div style={{ marginTop: 9 }}><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
-            {ultimaVez && <div style={{ fontSize: 12, color: SES.faint, marginTop: 9 }}>{ultimaVez}</div>}
-            {/* Reto del ejercicio completo: cómo va el volumen de hoy contra el
-                de la última vez. Solo aparece cuando ya anotaste alguna serie,
-                para que no muestre "−100 %" antes de empezar. */}
-            {retoEx && retoEx.anotadas > 0 && (
-              <RetoEjercicio reto={retoEx} />
-            )}
-          </>
+        {(indicaciones || tempo || ultimaVez || (retoEx && retoEx.anotadas > 0)) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10, paddingLeft: 42 }}>
+            {ultimaVez && <div style={{ fontSize: 13, color: SES.faint }}>{ultimaVez}</div>}
+            {indicaciones && <div style={{ fontSize: 13, color: SES.dim, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{indicaciones}</div>}
+            {tempo && <div><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
+            {retoEx && retoEx.anotadas > 0 && <RetoEjercicio reto={retoEx} />}
+          </div>
         )}
 
-        {/* Cabecera de columnas: sin ella, tres casillas iguales no dicen
-            cuál es cuál hasta que se tocan. */}
-        <div className="mono" style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 12, paddingBottom: 6, borderBottom: `1px solid ${SES.line}` }}>
-          <span style={{ flex: 1, minWidth: 0, fontSize: 9.5, letterSpacing: ".07em", textTransform: "uppercase", color: SES.faint }}>Serie</span>
-          {/* La cabecera de peso es un toggle: tocarla cambia la unidad con la
-              que se anota ESTE ejercicio (kg↔lb), sin tocar los demás ni la
-              global. En superserie no aplica (cada ejercicio la suya). */}
-          {block.group ? (
-            <span style={{ width: 48, textAlign: "center", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: SES.faint }}>peso</span>
-          ) : (
-            <button onClick={() => patchEx(block.ei, { unit: blockUnit === "lb" ? "kg" : "lb" })}
-              aria-label={`Anotar este ejercicio en ${blockUnit === "lb" ? "kilos" : "libras"} (ahora ${blockUnit})`}
-              style={{ width: 48, textAlign: "center", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase",
-                color: SES.acc, fontWeight: 700, background: "transparent", border: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
-              {blockUnit} <ArrowUpDown size={9} />
-            </button>
-          )}
-          {["Reps", "RIR"].map((l) => (
-            <span key={l} style={{ width: 48, textAlign: "center", fontSize: 9.5, letterSpacing: ".05em", textTransform: "uppercase", color: SES.faint }}>{l}</span>
+        {/* Cabecera de columnas mínima: qué es cada casilla. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 14, paddingBottom: 2 }}>
+          <span style={{ flex: 1, minWidth: 0 }} />
+          {[block.group ? "peso" : blockUnit, "reps", "RIR"].map((l) => (
+            <span key={l} style={{ width: 48, textAlign: "center", fontSize: 11.5, fontWeight: 600, color: SES.faint }}>{l}</span>
           ))}
-          <span style={{ width: 34, textAlign: "center", fontSize: 10, color: SES.faint }}>✓</span>
+          <span style={{ width: 34 }} />
         </div>
 
         {block.rows.map((r, i) => {
@@ -10682,7 +10625,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
             .filter(Boolean).join(" · ");
           // Consigna de la serie: en las de trabajo, reps · RIR objetivo; en
           // las de aproximación, el objetivo de carga (% del peso de trabajo).
-          const detalle = isWarm ? (st.pctT ? `${st.pctT}${st.repsT ? ` × ${st.repsT}` : ""}` : (pie || "subir de a poco, sin fallar")) : (consigna || pie || "—");
+          const detalle = isWarm ? (st.repsT ? `× ${st.repsT}` : "") : (consigna || pie || "");
           // Etiqueta de la fila: Aprox. N para el calentamiento, Serie N para
           // el trabajo, Ronda N para la superserie. Cada tipo numera aparte.
           const etiqueta = block.group ? `Ronda ${(r.round || 0) + 1}` : isWarm ? `Aprox. ${meta.no}` : `Serie ${meta.no}`;
@@ -10692,22 +10635,9 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
           const dónde = `${block.group ? `ronda ${(r.round || 0) + 1}` : isWarm ? `aproximación ${meta.no}` : `serie ${meta.no}`} de ${exx.name}`;
           return (
             <React.Fragment key={`${r.ei}-${r.si}`}>
-            {/* Subtítulos que separan el calentamiento del trabajo dentro del
-                ejercicio, para que se lea "primero la aproximación, después las
-                series de trabajo". Solo en ejercicios simples con aproximación. */}
-            {!block.group && i === firstWarmIdx && (
-              <div className="mono" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, marginBottom: -2, fontSize: 9.5, letterSpacing: ".07em", textTransform: "uppercase", color: SES.acc, fontWeight: 700 }}>
-                <Flame size={11} /> Calentamiento · no cuenta como volumen
-              </div>
-            )}
-            {!block.group && hasWarmRows && i === firstWorkIdx && (
-              <div className="mono" style={{ marginTop: 8, marginBottom: -2, fontSize: 9.5, letterSpacing: ".07em", textTransform: "uppercase", color: SES.faint, fontWeight: 700 }}>
-                Series de trabajo
-              </div>
-            )}
             <div data-set-row data-set-ei={r.ei} data-set-si={r.si}
               onClickCapture={(ev) => { if (Date.now() < (setDragRef.current.blockUntil || 0)) { ev.stopPropagation(); ev.preventDefault(); } }}
-              style={{ padding: "10px 0", borderBottom: i < block.rows.length - 1 ? `1px solid ${SES.line}` : "none",
+              style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${SES.campo}` : "none",
                 background: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? SES.campo : "transparent",
                 boxShadow: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_SHADOW : "none",
                 transform: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_TRANSFORM
@@ -10716,39 +10646,18 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
                 transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 5 }}>
               <div style={{ flex: 1, minWidth: 0, paddingRight: 6 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 700, color: st.done ? SES.acc : isWarm ? SES.dim : SES.ink }}>
-                    {etiqueta}
-                  </span>
-                  {/* El tipo de serie es tocable: abre el selector para
-                      cambiarla entre calentamiento, trabajo, top set, drop,
-                      rest-pause, AMRAP y demás. En superserie no aplica. */}
-                  {puedeEditar && !block.group ? (
-                    <button onClick={() => setTipoEn({ ei: r.ei, si: r.si })}
-                      aria-label={`Cambiar el tipo de la ${dónde} (ahora ${(SET_TYPES[st.type] || SET_TYPES.normal).label})`}
-                      className="mono" style={{ fontSize: 9.5, letterSpacing: ".05em", color: SES.acc, background: SES.campo,
-                        borderRadius: 5, padding: "2px 7px", border: "none", display: "inline-flex", alignItems: "center", gap: 3 }}>
-                      {isWarm ? "WRM" : (tipo || "WRK")} <ChevronDown size={9} />
-                    </button>
-                  ) : (tipo && st.type !== "normal" && !isWarm && (
-                    <span className="mono" style={{ fontSize: 9.5, letterSpacing: ".05em", color: SES.dim, background: SES.campo, borderRadius: 5, padding: "1px 6px" }}>{tipo}</span>
-                  ))}
-                  {/* Reordenar series: mantén pulsado y arrastra hasta el
-                      lugar que corresponde — por ejemplo, subir una WRM que
-                      "Añadir serie" agregó al final hasta juntarla con las
-                      otras WRM. Solo en ejercicios simples: en superserie
-                      las filas son rondas, no series propias. */}
-                  {puedeEditar && !block.group && (
-                    <DragHandle active={!!(setDragging && setDragging.ei === r.ei && setDragging.si === r.si)}
-                      label={`Mantén pulsado y arrastra para mover la ${dónde}`}
-                      onActivate={() => startSetDrag(r.ei, r.si)}
-                      onDragMove={setDragMove}
-                      onDragEnd={endSetDrag}
-                      style={{ margin: "0 0 0 auto", minWidth: 30, minHeight: 30, padding: 4 }} />
-                  )}
-                </div>
+                {puedeEditar && !block.group ? (
+                  <button onClick={() => setTipoEn({ ei: r.ei, si: r.si })}
+                    aria-label={`Cambiar el tipo de la ${dónde} (ahora ${(SET_TYPES[st.type] || SET_TYPES.normal).label})`}
+                    style={{ display: "flex", alignItems: "baseline", gap: 6, textAlign: "left", padding: 0 }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: st.done ? SES.acc : isWarm ? SES.faint : SES.ink }}>{etiqueta}</span>
+                    {!isWarm && st.type !== "normal" && tipo && <span style={{ fontSize: 11.5, fontWeight: 700, color: SES.acc }}>{tipo}</span>}
+                  </button>
+                ) : (
+                  <span style={{ fontSize: 15, fontWeight: 700, color: st.done ? SES.acc : isWarm ? SES.faint : SES.ink }}>{etiqueta}</span>
+                )}
                 {block.group && <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 2 }}>{exx.name}</div>}
-                {abierta && <div style={{ fontSize: 12, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{detalle}</div>}
+                {detalle && <div style={{ fontSize: 12.5, color: SES.faint, marginTop: 3, lineHeight: 1.4 }}>{detalle}</div>}
                 {/* EL RETO, serie por serie: qué hiciste la vez pasada en
                     esta misma serie y si hoy vas por encima. Se recalcula
                     solo con cada tecla, porque sale del propio dato de la
@@ -10789,8 +10698,8 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
             {/* Acceso directo al comentario de ESTA serie (antes vivía tras
                 el «···»): un toque abre la caja debajo de la fila. Si la
                 serie ya tiene datos, aparece también «Borrar». */}
-            {cmtKey !== restKey(r.ei, r.si) && (
-              <div style={{ display: "flex", flexWrap: "wrap", columnGap: 12, rowGap: 6, marginTop: 6, paddingLeft: 1 }}>
+            {cmtKey !== restKey(r.ei, r.si) && (i === idxActiva || !!st.comment || (st.attachIds || []).length > 0) && (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 6, marginTop: 8, paddingLeft: 1 }}>
                 {!st.comment && (
                   <button onClick={() => openCmt(restKey(r.ei, r.si))}
                     aria-label={`Comentar la ${dónde}`}
@@ -10816,15 +10725,23 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
                     el ejercicio. */}
                 <button onClick={() => setVal(r.ei, r.si, "unit", unitDeSerie(st, r.ei) === "lb" ? "kg" : "lb")}
                   aria-label={`Anotar esta serie en ${unitDeSerie(st, r.ei) === "lb" ? "kilos" : "libras"} (ahora ${unitDeSerie(st, r.ei)})`}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
-                  <ArrowUpDown size={12} /> {unitDeSerie(st, r.ei)}
+                  title={unitDeSerie(st, r.ei)} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, color: SES.faint, background: "none", border: "none" }}>
+                  <ArrowUpDown size={13} /> {unitDeSerie(st, r.ei)}
                 </button>
                 {!st.comment && ((st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null)) ? (
-                  <button onClick={() => clearSet(r.ei, r.si)}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: SES.faint, background: "none", border: "none" }}>
-                    <Trash2 size={12} /> Borrar
+                  <button onClick={() => clearSet(r.ei, r.si)} aria-label={`Borrar los datos de la ${dónde}`} title="Borrar datos"
+                    style={{ display: "inline-flex", alignItems: "center", color: SES.faint, background: "none", border: "none" }}>
+                    <Trash2 size={14} />
                   </button>
                 ) : null}
+                {puedeEditar && !block.group && (
+                  <DragHandle active={!!(setDragging && setDragging.ei === r.ei && setDragging.si === r.si)}
+                    label={`Mantén pulsado y arrastra para mover la ${dónde}`}
+                    onActivate={() => startSetDrag(r.ei, r.si)}
+                    onDragMove={setDragMove}
+                    onDragEnd={endSetDrag}
+                    style={{ margin: "0 0 0 auto", minWidth: 30, minHeight: 30, padding: 4 }} />
+                )}
               </div>
             )}
             <NumberWheelSheet open={!!wheelEn && wheelEn.key === restKey(r.ei, r.si)}
@@ -10841,21 +10758,21 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
         {/* Editar en vivo: sumar o quitar series a este ejercicio, y quitarlo
             de la sesión. Solo en ejercicios simples (no superserie). */}
         {puedeEditar && !block.group && (
-          <div style={{ display: "flex", alignItems: "center", gap: 14, paddingTop: 10, marginTop: 2, borderTop: `1px solid ${SES.line}` }}>
-            <button onClick={() => onAddSet(block.ei)}
-              style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 600, color: SES.acc, background: "none", border: "none" }}>
-              <Plus size={13} /> Añadir serie
+          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingTop: 8, marginTop: 2, borderTop: `1px solid ${SES.campo}` }}>
+            <button onClick={() => onAddSet(block.ei)} aria-label="Añadir serie" title="Añadir serie"
+              style={{ width: 38, height: 38, borderRadius: 19, display: "flex", alignItems: "center", justifyContent: "center", color: SES.acc, background: "none", border: "none" }}>
+              <Plus size={19} strokeWidth={2.4} />
             </button>
             {block.rows.length > 1 && (
-              <button onClick={() => onRemoveSet(block.ei)}
-                style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, color: SES.faint, background: "none", border: "none" }}>
-                <Minus size={13} /> Quitar serie
+              <button onClick={() => onRemoveSet(block.ei)} aria-label="Quitar serie" title="Quitar serie"
+                style={{ width: 38, height: 38, borderRadius: 19, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint, background: "none", border: "none" }}>
+                <Minus size={19} strokeWidth={2.4} />
               </button>
             )}
             <div style={{ flex: 1 }} />
-            <button onClick={() => onRemoveEx(block.ei)} aria-label="Eliminar ejercicio de la sesión"
-              style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, color: SES.faint, background: "none", border: "none" }}>
-              <Trash2 size={13} /> Eliminar
+            <button onClick={() => onRemoveEx(block.ei)} aria-label="Eliminar ejercicio de la sesión" title="Eliminar ejercicio"
+              style={{ width: 38, height: 38, borderRadius: 19, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint, background: "none", border: "none" }}>
+              <Trash2 size={17} />
             </button>
           </div>
         )}
@@ -10882,21 +10799,21 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
           ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
         ].map(([lbl, Icon, onClick, marcado]) => (
           <button key={lbl} onClick={onClick} aria-label={`${lbl} — ${nombre}${marcado ? " (con contenido)" : ""}`} title={lbl}
-            style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: "transparent",
+            style={{ width: 34, height: 34, borderRadius: 17, flexShrink: 0, background: "transparent",
               color: marcado ? SES.acc : SES.faint, border: "none",
               display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon size={15} strokeWidth={2} />
+            <Icon size={17} strokeWidth={2} />
           </button>
         ))}
-        <button onClick={() => setConvOpen(true)} aria-label={`Convertir kg y lb — ${nombre}`}
-          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, padding: "5px 4px",
-            background: "transparent", border: "none", color: SES.faint, fontSize: 12, fontWeight: 500 }}>
-          <ArrowUpDown size={13} /> kg ↔ lb
+        <button onClick={() => setConvOpen(true)} aria-label={`Convertir kg y lb — ${nombre}`} title="Convertir kg ↔ lb"
+          style={{ marginLeft: "auto", width: 34, height: 34, borderRadius: 17, display: "flex", alignItems: "center", justifyContent: "center",
+            background: "transparent", border: "none", color: SES.faint }}>
+          <ArrowUpDown size={17} />
         </button>
-        <button onClick={() => setCalcOpen(true)} aria-label={`Calcular RM — ${nombre}`}
-          style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 4px",
-            background: "transparent", border: "none", color: SES.faint, fontSize: 12, fontWeight: 500 }}>
-          <Calculator size={13} /> Calcular RM
+        <button onClick={() => setCalcOpen(true)} aria-label={`Calcular RM — ${nombre}`} title="Calcular RM"
+          style={{ width: 34, height: 34, borderRadius: 17, display: "flex", alignItems: "center", justifyContent: "center",
+            background: "transparent", border: "none", color: SES.faint }}>
+          <Calculator size={17} />
         </button>
       </div>
       {/* Comentario general del ejercicio, desplegado inline debajo de sus
@@ -10952,97 +10869,35 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
       {/* Cabecera: cuánto llevas, cuánto falta y la salida. Ya no dice
           "ejercicio 2 de 7" porque no hay una página actual: están todos
           abajo, en orden. */}
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 7 }}>
-        <span className="mono" style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-          padding: "7px 12px", borderRadius: 999, background: SES.campo, border: `1px solid ${SES.line}` }}>
-          <Timer size={13} color={SES.faint} />
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: SES.ink, fontVariantNumeric: "tabular-nums" }}>{sessionClock(elapsed)}</span>
-          {hr.connected && hr.bpm != null && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 12.5, color: SES.acc }}>
-              <HeartPulse size={12} /> {hr.bpm}
-            </span>
-          )}
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", color: SES.ink, fontVariantNumeric: "tabular-nums" }}>{sessionClock(elapsed)}</span>
+        <span style={{ fontSize: 15, fontWeight: 600, color: SES.faint, fontVariantNumeric: "tabular-nums" }}>
+          <span style={{ color: SES.acc, fontWeight: 800 }}>{doneSets}</span>/{totalSets}
         </span>
-        <span className="mono" style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-          padding: "7px 11px", borderRadius: 999, background: SES.campo, border: `1px solid ${SES.line}` }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: SES.acc, fontVariantNumeric: "tabular-nums" }}>{doneSets}/{totalSets}</span>
-          <span style={{ fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint }}>series</span>
-        </span>
-        {/* La salida de la sesión, arriba a la derecha y siempre visible
-            —también mientras corre el descanso—. No decide por ti: abre
-            la hoja con las cuatro salidas (seguir, salir, finalizar,
-            descartar), que es el único lugar desde donde se descarta. */}
+        {hr.connected && hr.bpm != null && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 14, fontWeight: 700, color: SES.acc }}>
+            <HeartPulse size={14} /> {hr.bpm}
+          </span>
+        )}
+        <button onClick={() => setHerrOpen(true)} aria-label="Herramientas de la sesión" title="Herramientas"
+          style={{ width: 40, height: 40, borderRadius: 20, marginLeft: "auto", flexShrink: 0, background: SES.campo, color: SES.ink,
+            display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <MoreHorizontal size={20} />
+        </button>
         <button onClick={() => setSalida(true)} aria-label="Salir de la sesión"
-          style={{ width: 36, height: 36, borderRadius: 18, marginLeft: "auto", flexShrink: 0,
-            background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <X size={17} strokeWidth={2.6} />
+          style={{ width: 40, height: 40, borderRadius: 20, flexShrink: 0, background: SES.campo, color: SES.ink,
+            display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <X size={19} strokeWidth={2.6} />
         </button>
       </div>
-
-      {/* Barra de herramientas de la sesión, siempre a la vista (antes
-          escondida tras el «···»): cambiar de tema claro/oscuro, arrancar
-          un descanso a mano, deshacer/rehacer, la unidad de peso y el
-          video/fotos del día. Todo de un toque, sin abrir menús.
-          En Focus Mode se oculta: ahí la pantalla se deja lo más limpia
-          posible, solo con lo justo para registrar la serie. */}
-      {!focusUno && <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-        {(() => {
-          const isLight = themeMode !== "dark";
-          const tbBtn = (key, Icon, label, onClick, on) => (
-            <button key={key} onClick={onClick} aria-label={label} title={label}
-              style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                background: SES.campo, border: `1px solid ${SES.line}`, color: on ? SES.acc : SES.dim }}>
-              <Icon size={16} strokeWidth={2} />
-            </button>
-          );
-          // Pulso en vivo: si hay pulsómetro conectado (por Bluetooth en
-          // Bluefy/Chrome), muestra las pulsaciones al instante; si no,
-          // toca para conectar (o abre Dispositivos con la guía si el
-          // navegador no tiene Bluetooth, p. ej. Safari).
-          const hrTap = hr.connected ? onOpenDevices : (hr.supported ? hr.connect : onOpenDevices);
-          const hrLabel = hr.connected ? (hr.bpm != null ? `${hr.bpm}` : "···") : "Pulso";
-          return (
-            <>
-              <button key="hr" onClick={hrTap}
-                aria-label={hr.connected ? `Frecuencia cardíaca ${hr.bpm != null ? hr.bpm + " pulsaciones por minuto" : "conectada"}` : "Conectar pulsómetro para ver la frecuencia cardíaca"}
-                title="Frecuencia cardíaca"
-                style={{ height: 34, padding: "0 10px", borderRadius: 9, flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5,
-                  fontSize: 12.5, fontWeight: 700, letterSpacing: ".01em",
-                  background: hr.connected ? SES.acc : SES.campo, border: `1px solid ${hr.connected ? SES.acc : SES.line}`,
-                  color: hr.connected ? "#fff" : SES.dim }}>
-                <HeartPulse size={15} strokeWidth={2.4} className={hr.connected && hr.bpm != null ? "pulse" : ""} />
-                {hrLabel}{hr.connected && hr.bpm != null ? <span style={{ fontSize: 9.5, fontWeight: 700, opacity: .85 }}>LPM</span> : null}
-              </button>
-              {tbBtn("tema", isLight ? Moon : Sun, isLight ? "Cambiar a modo oscuro" : "Cambiar a modo claro",
-                () => setThemeMode(isLight ? "dark" : "light"))}
-              {tbBtn("timer", Timer, "Iniciar un descanso a mano",
-                () => onStartRest && onStartRest(120, 0, 0), !!timer)}
-              {tbBtn("undo", Undo2, "Deshacer", () => undoStack.length && undo())}
-              {tbBtn("redo", Redo2, "Rehacer", () => redoStack.length && redo())}
-              <button onClick={() => setWeightUnit(weightUnit === "kg" ? "lb" : "kg")} aria-label="Cambiar unidad de peso"
-                title="Cambiar unidad de peso" style={{ height: 34, padding: "0 10px", borderRadius: 9, flexShrink: 0,
-                  display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11.5, fontWeight: 700, letterSpacing: ".03em",
-                  background: SES.campo, border: `1px solid ${SES.line}` }}>
-                <span style={{ color: weightUnit === "kg" ? SES.acc : SES.faint }}>KG</span>
-                <span style={{ color: SES.faint }}>/</span>
-                <span style={{ color: weightUnit === "lb" ? SES.acc : SES.faint }}>LB</span>
-              </button>
-              {tbBtn("media", Camera, "Video y fotos de la sesión", () => setMediaOpen(true),
-                (active.attachIds || []).length > 0)}
-            </>
-          );
-        })()}
-      </div>}
 
       <div>
         {/* En Focus se esconde el nombre del día y la barra de progreso:
             la pantalla queda solo con el selector y la serie que toca. */}
         {!focusUno && (
         <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${active.dayName} — ver la rutina completa`}
-          style={{ display: "flex", alignItems: "flex-start", gap: 6, textAlign: "left", width: "100%" }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: SES.ink, minWidth: 0, flex: 1,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</span>
-          {onBrowseRoutine && <ChevronRight size={16} color={SES.faint} strokeWidth={2.6} style={{ flexShrink: 0 }} />}
+          style={{ display: "block", textAlign: "left", width: "100%", padding: "4px 0 2px" }}>
+          <span style={{ display: "block", fontSize: 24, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.15, color: SES.ink, overflowWrap: "anywhere" }}>{active.dayName}</span>
         </button>
         )}
         {/* Aviso de sesión retroactiva: deja claro que se está registrando un
@@ -11063,25 +10918,6 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
             transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
         </div>
         )}
-        {/* Selector rápido de vista: "Lista" (todo a la vista) o "Focus" (un
-            ejercicio a la vez, para registrar con los menos toques posibles).
-            Se recuerda entre sesiones. */}
-        {flatSets.length > 1 && (
-          <div role="tablist" aria-label="Vista de la sesión"
-            style={{ display: "flex", gap: 3, marginTop: 10, padding: 3, background: SES.campo, borderRadius: 11, border: `1px solid ${SES.line}` }}>
-            {[["list", "Lista", false], ["focus", "Focus", true]].map(([id, label, val]) => {
-              const activo = focusUno === val;
-              return (
-                <button key={id} role="tab" aria-selected={activo} onClick={() => setFocusUno(val)}
-                  style={{ flex: 1, padding: "7px 0", borderRadius: 8, fontSize: 13.5, fontWeight: 700,
-                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    background: activo ? SES.acc : "transparent", color: activo ? SES.accInk : SES.dim, border: "none" }}>
-                  {val ? <Crosshair size={14} /> : <List size={14} />} {label}
-                </button>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       {/* La sesión entera, ejercicio por ejercicio, hacia abajo. Cada uno
@@ -11097,7 +10933,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
         const bloqueActivo = blocks.findIndex((b) => b.rows.some((r) => !exs[r.ei].sets[r.si].done));
         return (
           <div style={{ position: "sticky", top: "env(safe-area-inset-top)", zIndex: 30, margin: "0 -16px", padding: "8px 16px",
-            background: SES.bg, borderBottom: `1px solid ${SES.line}`,
+            background: SES.bg,
             display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
             {blocks.map((b, bi) => {
               const hechas = b.rows.filter((r) => exs[r.ei].sets[r.si].done).length;
@@ -11112,7 +10948,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
                     fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
                     background: activo ? SES.acc : (listo ? SES.accSoft : SES.campo),
                     color: activo ? SES.accInk : (listo ? SES.acc : SES.dim),
-                    border: `1px solid ${activo ? SES.acc : (listo ? SES.accLine : SES.line)}` }}>
+                    border: "none" }}>
                   <span className="mono" style={{ fontSize: 11, opacity: .8 }}>{bi + 1}</span>
                   {corto}
                   {listo && <Check size={11} strokeWidth={3} />}
@@ -11588,6 +11424,34 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
       {/* Las cuatro salidas de una sesión en curso, en el orden en que se
           usan: seguir es lo más común y va arriba; descartar es lo que no
           se puede deshacer y va último, separado y en rojo. */}
+      <Sheet open={herrOpen} onClose={() => setHerrOpen(false)} title="Herramientas">
+        {(() => {
+          const isLight = themeMode !== "dark";
+          const fila = (Icon, label, onClick, valor, on) => (
+            <button key={label} onClick={onClick}
+              style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", padding: "15px 4px" }}>
+              <span style={{ width: 38, height: 38, borderRadius: 19, background: P.s2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: on ? SES.acc : P.text }}>
+                <Icon size={19} />
+              </span>
+              <span style={{ flex: 1, fontSize: 16, fontWeight: 600 }}>{label}</span>
+              {valor != null && <span style={{ fontSize: 14, color: P.faint, fontWeight: 600 }}>{valor}</span>}
+            </button>
+          );
+          const hrTap = hr.connected ? onOpenDevices : (hr.supported ? hr.connect : onOpenDevices);
+          return (
+            <div>
+              {flatSets.length > 1 && fila(focusUno ? List : Crosshair, focusUno ? "Ver todo en lista" : "Una serie a la vez (Focus)", () => { setFocusUno(!focusUno); setHerrOpen(false); }, focusUno ? "Focus" : "Lista")}
+              {fila(HeartPulse, "Pulsómetro", () => { setHerrOpen(false); hrTap(); }, hr.connected ? (hr.bpm != null ? `${hr.bpm} lpm` : "conectado") : null, hr.connected)}
+              {fila(isLight ? Moon : Sun, isLight ? "Modo oscuro" : "Modo claro", () => setThemeMode(isLight ? "dark" : "light"))}
+              {fila(Timer, "Descanso a mano (2 min)", () => { onStartRest && onStartRest(120, 0, 0); setHerrOpen(false); }, null, !!timer)}
+              {fila(Undo2, "Deshacer", () => { if (undoStack.length) undo(); setHerrOpen(false); })}
+              {fila(Redo2, "Rehacer", () => { if (redoStack.length) redo(); setHerrOpen(false); })}
+              {fila(ArrowUpDown, "Unidad de peso", () => setWeightUnit(weightUnit === "kg" ? "lb" : "kg"), weightUnit.toUpperCase())}
+              {fila(Camera, "Video y fotos de la sesión", () => { setHerrOpen(false); setMediaOpen(true); }, (active.attachIds || []).length ? String((active.attachIds || []).length) : null, (active.attachIds || []).length > 0)}
+            </div>
+          );
+        })()}
+      </Sheet>
       <Sheet open={salida} onClose={() => setSalida(false)} title="Salir de la sesión">
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <SalidaRow icon={Play} title="Seguir entrenando" body="Volver a la serie que estabas haciendo."
