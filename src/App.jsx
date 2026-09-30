@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v377";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v378";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -9229,66 +9229,50 @@ const PastSessionSheet = ({ open, onClose, onElegir, days }) => {
   const abrir = (day) => { if (fecha) onElegir(day, fecha); };
   const hoyYmd = localYmd(hoy);
   return (
-    <Sheet open={open} onClose={onClose} title="Registrar sesión pasada" tall>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ fontSize: 13.5, color: P.faint2 }}>
-          Elige el día que entrenaste y la fecha. Se guarda en la semana que corresponde, con todo lo que registres.
-        </div>
-        {/* Fecha */}
+    <Sheet open={open} onClose={onClose} title="Sesión pasada" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        {/* Fecha: una sola tira que se desliza; «Otra fecha» abre el calendario. */}
         <div>
-          <div className="mono" style={{ fontSize: 11, color: P.faint, marginBottom: 7 }}>FECHA</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", margin: "0 -20px", padding: "2px 20px", WebkitOverflowScrolling: "touch" }}>
             {chips.map((ymd) => {
               const sel = ymd === fecha && !otra;
               return (
                 <button key={ymd} data-keep onClick={() => { setOtra(false); setFecha(ymd); }} aria-pressed={sel}
-                  style={{ padding: "9px 12px", borderRadius: R_ROW, fontSize: 13.5, fontWeight: 600, textTransform: "capitalize",
-                    background: sel ? PLATE_GRAD : P.s3, color: sel ? PLATE_FG : P.text, border: `1px solid ${sel ? PLATE_GRAD : P.line}` }}>
+                  style={{ flexShrink: 0, padding: "11px 16px", borderRadius: 999, fontSize: 15, fontWeight: 700, textTransform: "capitalize",
+                    background: sel ? PLATE_GRAD : P.s2, color: sel ? PLATE_FG : P.text }}>
                   {etiquetaChip(ymd)}
                 </button>
               );
             })}
-            <button data-keep onClick={() => setOtra(true)} aria-pressed={otra}
-              style={{ padding: "9px 12px", borderRadius: R_ROW, fontSize: 13.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6,
-                background: otra ? PLATE_GRAD : "transparent", color: otra ? PLATE_FG : P.text, border: `1px ${otra ? "solid" : "dashed"} ${otra ? PLATE_GRAD : P.separatorStrong}` }}>
-              <Calendar size={15} /> Otra fecha
+            <button data-keep onClick={() => setOtra(true)} aria-pressed={otra} aria-label="Otra fecha" title="Otra fecha"
+              style={{ flexShrink: 0, width: 46, height: 46, borderRadius: 23, display: "flex", alignItems: "center", justifyContent: "center",
+                background: otra ? PLATE_GRAD : P.s2, color: otra ? PLATE_FG : P.text }}>
+              <Calendar size={19} />
             </button>
           </div>
           {otra && (
             <input type="date" value={fecha} max={hoyYmd} data-keep onChange={(e) => setFecha(e.target.value)}
-              style={{ marginTop: 9, width: "100%", padding: "11px 12px", fontSize: 15, background: P.s3,
-                border: `1px solid ${P.line}`, borderRadius: R_TILE, color: P.text, appearance: "none", WebkitAppearance: "none" }} />
+              style={{ marginTop: 10, width: "100%", padding: "13px 14px", fontSize: 16, background: P.s2,
+                border: "none", borderRadius: R_TILE, color: P.text, appearance: "none", WebkitAppearance: "none" }} />
           )}
         </div>
-        {/* Día */}
+        {/* Día de la rutina: filas planas. */}
         <div>
-          <div className="mono" style={{ fontSize: 11, color: P.faint, margin: "2px 0 7px" }}>¿QUÉ ENTRENASTE?</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {(days || []).map((d) => (
-              <button key={d.id} data-keep onClick={() => abrir(d)}
-                style={{ display: "flex", alignItems: "center", gap: 11, textAlign: "left", width: "100%",
-                  padding: "13px 14px", borderRadius: R_TILE, background: P.s3, border: `1px solid ${P.line}` }}>
-                <Dumbbell size={17} color={P.faint2} style={{ flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text }}>{d.name}</div>
-                  {(() => { const ne = d.exs.length, ns = d.exs.reduce((a, e) => a + e.sets.length, 0);
-                    return <div style={{ fontSize: 12.5, color: P.faint }}>{ne} ejercicio{ne !== 1 ? "s" : ""} · {ns} serie{ns !== 1 ? "s" : ""}</div>; })()}
-                </div>
-                <ChevronRight size={17} color={P.faint} />
-              </button>
-            ))}
-            {/* Sesión libre pasada: por si entrenó algo que no está en su rutina. */}
-            <button data-keep onClick={() => abrir({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true })}
-              style={{ display: "flex", alignItems: "center", gap: 11, padding: "13px 14px", borderRadius: R_TILE,
-                background: "transparent", border: `1px dashed ${P.separatorStrong}`, color: P.text }}>
-              <Plus size={17} style={{ flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15.5, fontWeight: 600 }}>Sesión libre</div>
-                <div style={{ fontSize: 12.5, color: P.faint }}>Algo que no está en tu rutina — la armas sobre la marcha</div>
-              </div>
-              <ChevronRight size={17} color={P.faint} />
+          {(days || []).map((d, i) => (
+            <button key={d.id} data-keep onClick={() => abrir(d)}
+              style={{ display: "flex", alignItems: "center", gap: 14, textAlign: "left", width: "100%", padding: "14px 2px",
+                borderTop: i ? `1px solid ${P.fillTertiary}` : "none" }}>
+              <span style={{ width: 34, height: 34, borderRadius: 17, background: P.s2, color: P.faint, fontSize: 14, fontWeight: 800,
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 700, letterSpacing: "-.01em", overflowWrap: "anywhere" }}>{d.name}</span>
+              <ChevronRight size={18} color={P.chevron} />
             </button>
-          </div>
+          ))}
+          <button data-keep onClick={() => abrir({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true })}
+            aria-label="Sesión libre" title="Sesión libre"
+            style={{ marginTop: 12, width: "100%", height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Plus size={22} />
+          </button>
         </div>
       </div>
     </Sheet>
@@ -11856,6 +11840,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
   // se elige: así el registro nunca queda sin sede.
   const [pidiendoGym, setPidiendoGym] = useState(null);
   const [previewDay, setPreviewDay] = useState(null);   // día cuya lista de ejercicios se previsualiza antes del gimnasio
+  const [histOpen, setHistOpen] = useState(false);       // hoja "Historial" (mes → semana → sesiones)
   const [pastOpen, setPastOpen] = useState(false);      // hoja "Registrar sesión pasada" (retroactiva)
   const [confirmSwitch, setConfirmSwitch] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
@@ -11990,7 +11975,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
               <Plus size={26} strokeWidth={2.6} />
             </button>
             {[
-              plan.days.length > 0 && { k: "pasada", Icon: History, label: "Registrar sesión pasada", on: () => setPastOpen(true) },
+              { k: "hist", Icon: History, label: "Historial de sesiones", on: () => setHistOpen(true) },
               { k: "prog", Icon: Trophy, label: "Empezar con un programa conocido", on: () => setProgramasOpen(true) },
               { k: "crear", Icon: ClipboardList, label: "Crear mi rutina", on: () => {
                 const nombre = (prompt("Nombre de tu rutina\n(por ejemplo: «Pecho y hombro» o «Día de pierna»)", "") || "").trim();
@@ -12062,6 +12047,10 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
           warmup={previewDay ? (plan.warmups || {})[routineOf(previewDay)] : ""}
           onClose={() => setPreviewDay(null)}
           onContinue={() => { const d = previewDay; setPreviewDay(null); if (d) setPidiendoGym(d); }} />
+        <Sheet open={histOpen} onClose={() => setHistOpen(false)} title="Historial" tall>
+          <ActivityTab embedded plan={plan} history={history} saveHistory={saveHistory}
+            onRegistrar={plan.days.length > 0 ? () => { setHistOpen(false); setPastOpen(true); } : null} />
+        </Sheet>
         <PastSessionSheet open={pastOpen} days={plan.days} onClose={() => setPastOpen(false)}
           onElegir={(day, fecha) => { setPastOpen(false); setPidiendoGym({ ...day, _fecha: fecha }); }} />
         <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
@@ -19109,11 +19098,96 @@ function groupSessionsByWeek(sessions) {
     }));
 }
 
+
+/* Historial de sesiones ordenado: un selector de MES arriba, debajo las
+   SEMANAS de ese mes (una fila cada una) y, al tocar una semana, aparecen
+   sus sesiones. Nada de una lista larga desplegada de golpe. */
+const MESES_CORTO = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const SesionFila = ({ s, onOpen }) => {
+  const d = new Date(s.date);
+  const dow = d.toLocaleDateString("es-CL", { weekday: "short" }).replace(".", "");
+  return (
+    <button onClick={() => onOpen(s)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14, padding: "12px 2px" }}>
+      <span style={{ width: 48, height: 48, borderRadius: 24, background: P.s2, flexShrink: 0, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", lineHeight: 1.05 }}>
+        <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.03em" }}>{d.getDate()}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: P.faint, textTransform: "capitalize" }}>{dow}</span>
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-.01em", overflowWrap: "anywhere" }}>{s.dayName}</div>
+        <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2, fontWeight: 600 }}>
+          {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg{(s.gym || "").trim() ? ` · ${s.gym}` : ""}
+        </div>
+      </div>
+      {s.hasComments && <MessageSquare size={15} color={P.faint} />}
+      {(s.prs || []).length > 0 && <Award size={15} color={P.faint} />}
+      <ChevronRight size={18} color={P.chevron} />
+    </button>
+  );
+};
+const SesionesMesSemana = ({ sesiones, onOpen }) => {
+  const claveMes = (iso) => { const d = new Date(iso); return d.getFullYear() * 12 + d.getMonth(); };
+  const meses = useMemo(() => [...new Set((sesiones || []).map((x) => claveMes(x.date)))].sort((a, b) => b - a), [sesiones]);
+  const [mes, setMes] = useState(null);
+  const [semAbierta, setSemAbierta] = useState(null);
+  const mesSel = mes != null && meses.includes(mes) ? mes : meses[0];
+  const delMes = useMemo(() => (sesiones || []).filter((x) => claveMes(x.date) === mesSel), [sesiones, mesSel]);
+  const semanas = useMemo(() => groupSessionsByWeek(delMes), [delMes]);
+  const anioHoy = new Date().getFullYear();
+  if (!meses.length) return null;
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", margin: "0 -20px 14px", padding: "2px 20px", WebkitOverflowScrolling: "touch" }}>
+        {meses.map((m) => {
+          const on = m === mesSel;
+          const y = Math.floor(m / 12), mo = m % 12;
+          const n = (sesiones || []).filter((x) => claveMes(x.date) === m).length;
+          return (
+            <button key={m} onClick={() => { setMes(m); setSemAbierta(null); }} aria-pressed={on}
+              style={{ flexShrink: 0, display: "flex", alignItems: "baseline", gap: 6, padding: "10px 16px", borderRadius: 999, fontSize: 15, fontWeight: 800,
+                background: on ? PLATE_GRAD : P.s2, color: on ? PLATE_FG : P.text }}>
+              {MESES_CORTO[mo]}{y !== anioHoy ? ` ${String(y).slice(2)}` : ""}
+              <span style={{ fontSize: 12, fontWeight: 700, opacity: .6 }}>{n}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 13.5, color: P.faint, fontWeight: 600, marginBottom: 6 }}>
+        {delMes.length} {delMes.length === 1 ? "sesión" : "sesiones"} · {Math.round(delMes.reduce((t, x) => t + (+x.volume || 0), 0)).toLocaleString("es-CL")} kg
+      </div>
+      {semanas.map((wk) => {
+        const open = semAbierta === wk.week;
+        return (
+          <div key={wk.week} style={{ borderTop: `1px solid ${P.fillTertiary}` }}>
+            <button onClick={() => setSemAbierta(open ? null : wk.week)} aria-expanded={open}
+              style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "16px 2px" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.02em" }}>{wk.esta ? "Esta semana" : wk.prev ? "Semana pasada" : wk.rango}</div>
+                {(wk.esta || wk.prev) && <div style={{ fontSize: 13, color: P.faint, fontWeight: 600 }}>{wk.rango}</div>}
+              </div>
+              <span style={{ fontSize: 14, color: P.faint, fontWeight: 700, fontVariantNumeric: "tabular-nums", textAlign: "right" }}>
+                <b style={{ color: P.text, fontSize: 17 }}>{wk.sesiones.length}</b> · {Math.round(wk.volumen).toLocaleString("es-CL")} kg
+              </span>
+              <ChevronRight size={20} color={P.chevron} style={{ transform: open ? "rotate(90deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+            </button>
+            {open && (
+              <div style={{ paddingBottom: 8 }}>
+                {wk.sesiones.map((x) => <SesionFila key={x.id} s={x} onOpen={onOpen} />)}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 /* ============================================================
    MODO COACH — actividad del alumno
    ============================================================ */
-const ActivityTab = ({ plan, history, saveHistory }) => {
+const ActivityTab = ({ plan, history, saveHistory, embedded, onRegistrar }) => {
   const [sub, setSub] = useState("ses");
+  const [gymAbierto, setGymAbierto] = useState(null);
   const [sesModo, setSesModo] = useState("semana"); // "semana" | "sede"
   const [openSession, setOpenSession] = useState(null);
   const [exId, setExId] = useState("");
@@ -19197,84 +19271,58 @@ const ActivityTab = ({ plan, history, saveHistory }) => {
   }, [history.activityLog]);
 
   return (
-    <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <ScreenTitle title="Actividad" sub={`${history.sessions.length} sesiones registradas${commented ? ` · ${commented} con comentarios` : ""}`} />
-      <div style={{ display: "flex", gap: 6, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, marginBottom: 16 }}>
-        {[["resumen", "Resumen"], ["ses", "Por sesión"], ["ex", "Por ejercicio"], ["log", "Registro"]].map(([id, l]) => (
-          <button key={id} onClick={() => setSub(id)} style={{ flex: 1, padding: "9px 4px", borderRadius: 10, fontSize: 14.5, fontWeight: 600,
-            background: sub === id ? P.s3 : "transparent", color: sub === id ? P.text : P.faint, border: `1px solid ${sub === id ? P.line : "transparent"}` }}>{l}</button>
-        ))}
-      </div>
+    <div style={{ padding: embedded ? "0 0 24px" : `14px 20px ${TAB_BOTTOM_PAD}` }}>
+      {!embedded && <ScreenTitle title="Actividad" />}
+      {!embedded && (
+        <div style={{ marginBottom: 16 }}>
+          <SectionSwitch value={sub} onChange={setSub}
+            items={[{ id: "resumen", label: "Resumen", Icon: BarChart3 }, { id: "ses", label: "Por sesión", Icon: Calendar },
+                    { id: "ex", label: "Por ejercicio", Icon: Dumbbell }, { id: "log", label: "Registro", Icon: FileText }]} />
+        </div>
+      )}
       {sub === "resumen" && <ProgressSummaryPanel history={history} />}
       {sub === "ses" && (history.sessions.length === 0 ? (
         <Empty icon={Users} title="Aún no hay sesiones" body="Cuando el alumno termine su primera sesión, acá verás todo el detalle: series, comentarios y adjuntos." />
       ) : (<>
-        {/* Cómo se ordena el historial: por semana (calendario, todas las
-            sedes juntas) o por sede (agrupado por gimnasio). */}
-        <div style={{ marginBottom: 14 }}>
-          <SectionSwitch value={sesModo} onChange={setSesModo}
-            items={[{ id: "semana", label: "Por semana" }, { id: "sede", label: "Por sede" }]} />
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16 }}>
+          <div style={{ flex: 1 }}>
+            <SectionSwitch value={sesModo} onChange={setSesModo}
+              items={[{ id: "semana", label: "Por semana", Icon: Calendar }, { id: "sede", label: "Por sede", Icon: Home }]} />
+          </div>
+          {onRegistrar && (
+            <button onClick={onRegistrar} aria-label="Registrar sesión pasada" title="Registrar sesión pasada"
+              style={{ width: 52, height: 52, borderRadius: 26, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Plus size={24} strokeWidth={2.6} />
+            </button>
+          )}
         </div>
 
-        {sesModo === "semana" && groupSessionsByWeek(history.sessions).map((wk) => (
-          <div key={wk.week} style={{ marginBottom: 20 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "0 2px 8px", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 14.5, fontWeight: 700, color: P.text }}>{wk.titulo}</span>
-              {!wk.esta && !wk.prev && <span style={{ fontSize: 12, color: P.faint2 }}>({wk.rango})</span>}
-              <span style={{ marginLeft: "auto", fontSize: 12.5, color: P.faint2, fontVariantNumeric: "tabular-nums" }}>
-                {wk.sesiones.length} ses · {wk.series} series · {Math.round(wk.volumen).toLocaleString("es-CL")} kg
-              </span>
-            </div>
-            {wk.sesiones.map((s) => (
-              <Card key={s.id} style={{ marginBottom: 10 }}>
-                <button onClick={() => setOpenSession(s)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.dayName}</div>
-                    <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>{fmtDateFull(s.date)} · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg</div>
-                    {(s.gym || "").trim() && (
-                      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 5, ...TYPE.caption, color: P.faint2 }}>
-                        <Home size={11} /> {s.gym}
-                      </div>
-                    )}
-                  </div>
-                  {s.hasComments && <MessageSquare size={15} color={P.ember2} />}
-                  {(s.prs || []).length > 0 && <Award size={15} color={P.ember2} />}
-                  <ChevronRight size={16} color={P.faint} />
-                </button>
-              </Card>
-            ))}
-          </div>
-        ))}
+        {sesModo === "semana" && <SesionesMesSemana sesiones={history.sessions} onOpen={setOpenSession} />}
 
-        {sesModo === "sede" && groupSessionsByGym(history.sessions).map((grp) => (
-          <div key={grp.gym || "_sin_gym_"} style={{ marginBottom: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 2px 8px" }}>
-              <Home size={13} color={P.faint} style={{ flexShrink: 0 }} />
-              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: P.faint,
-                textTransform: "uppercase", letterSpacing: ".04em" }}>{grp.gym || "Sin gimnasio registrado"}</span>
-              {puedeEditarGym && (
-                <button onClick={() => setAsignar({ sesiones: grp.sesiones, gym: grp.gym })}
-                  aria-label={grp.gym ? `Cambiar el gimnasio de las sesiones de ${grp.gym}` : "Asignar gimnasio a las sesiones sin gimnasio"}
-                  style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 600, color: P.ember2 }}>
-                  <PencilLine size={12} /> {grp.gym ? "Cambiar" : "Asignar"}
+        {sesModo === "sede" && groupSessionsByGym(history.sessions).map((grp) => {
+          const gk = grp.gym || "_sin_gym_"; const open = gymAbierto === gk;
+          return (
+            <div key={gk} style={{ borderTop: `1px solid ${P.fillTertiary}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button onClick={() => setGymAbierto(open ? null : gk)} aria-expanded={open}
+                  style={{ flex: 1, minWidth: 0, textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "16px 2px" }}>
+                  <Home size={18} color={P.faint} style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 18, fontWeight: 800, letterSpacing: "-.02em", overflowWrap: "anywhere" }}>{grp.gym || "Sin gimnasio"}</span>
+                  <b style={{ fontSize: 17, color: P.text }}>{grp.sesiones.length}</b>
+                  <ChevronRight size={20} color={P.chevron} style={{ transform: open ? "rotate(90deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
                 </button>
-              )}
+                {puedeEditarGym && open && (
+                  <button onClick={() => setAsignar({ sesiones: grp.sesiones, gym: grp.gym })}
+                    aria-label={grp.gym ? `Cambiar el gimnasio de las sesiones de ${grp.gym}` : "Asignar gimnasio a las sesiones sin gimnasio"}
+                    style={{ width: 40, height: 40, borderRadius: 20, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <PencilLine size={17} />
+                  </button>
+                )}
+              </div>
+              {open && <div style={{ paddingBottom: 8 }}>{grp.sesiones.map((x) => <SesionFila key={x.id} s={x} onOpen={setOpenSession} />)}</div>}
             </div>
-            {grp.sesiones.map((s) => (
-              <Card key={s.id} style={{ marginBottom: 10 }}>
-                <button onClick={() => setOpenSession(s)} style={{ width: "100%", textAlign: "left", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15.5 }}>{s.dayName}</div>
-                    <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>{fmtDateFull(s.date)} · {s.setsDone}/{s.setsTotal} series · {Math.round(s.volume).toLocaleString("es-CL")} kg</div>
-                  </div>
-                  {s.hasComments && <MessageSquare size={15} color={P.ember2} />}
-                  {(s.prs || []).length > 0 && <Award size={15} color={P.ember2} />}
-                  <ChevronRight size={16} color={P.faint} />
-                </button>
-              </Card>
-            ))}
-          </div>
-        ))}
+          );
+        })}
       </>))}
       {sub === "ex" && (
         <div>
