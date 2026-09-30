@@ -1,0 +1,7 @@
+<resources>
+    <properties>
+        <!-- Código de tu cuenta FORJA. Está en la app: Más → Dispositivos → Garmin Fénix.
+             Si instalas el .prg a mano (sin la tienda), cámbialo aquí antes de compilar. -->
+        <property id="studentId" type="string">4242nua4mm</property>
+    </properties>
+</resources>
