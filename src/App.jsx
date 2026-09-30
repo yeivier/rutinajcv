@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v382";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v384";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -997,7 +997,7 @@ function avisarFinDescanso(texto) {
   }
 }
 
-const TAB_BOTTOM_PAD = "calc(112px + env(safe-area-inset-bottom))";
+const TAB_BOTTOM_PAD = "calc(100px + env(safe-area-inset-bottom))";
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
 // reconozcan de un vistazo durante el entrenamiento (el resto de la app
@@ -5761,7 +5761,7 @@ const SP = {
 // 12 pantallas ad-hoc y 32 en ScreenTitle) y una docena de tamaños de
 // cuerpo (15.5, 13.5, 12.5, 11.5…). Acá quedan siete escalones y nada más.
 const TYPE = {
-  large:    { fontSize: 42,   fontWeight: 800, letterSpacing: "-.045em", lineHeight: 1.0 },
+  large:    { fontSize: 36,   fontWeight: 800, letterSpacing: "-.045em", lineHeight: 1.0 },
   title:    { fontSize: 26,   fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.12 },
   headline: { fontSize: 18,   fontWeight: 750, letterSpacing: "-.025em", lineHeight: 1.22 },
   body:     { fontSize: 15,   fontWeight: 500, letterSpacing: "-.005em", lineHeight: 1.4 },
@@ -10550,7 +10550,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
             <React.Fragment key={`${r.ei}-${r.si}`}>
             <div data-set-row data-set-ei={r.ei} data-set-si={r.si}
               onClickCapture={(ev) => { if (Date.now() < (setDragRef.current.blockUntil || 0)) { ev.stopPropagation(); ev.preventDefault(); } }}
-              style={{ padding: "12px 12px", marginTop: isWarm && i > 0 ? 0 : (!isWarm && i > 0 && rowMeta[i - 1].warm ? 14 : 0), marginBottom: 8, borderRadius: 22,
+              style={{ padding: "9px 10px", marginTop: isWarm && i > 0 ? 0 : (!isWarm && i > 0 && rowMeta[i - 1].warm ? 10 : 0), marginBottom: 6, borderRadius: 20,
                 background: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? SES.campo
                   : st.done ? SES.accSoft : isWarm ? "transparent" : SES.campo,
                 border: isWarm && !st.done && !(i === idxActiva) ? `1.5px dashed ${SES.line}` : "1.5px solid transparent",
@@ -10559,53 +10559,50 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
                 transform: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_TRANSFORM
                   : (setDragOver && setDragOver.ei === r.ei && setDragOver.si === r.si && setDragging && setDragging.si !== r.si ? "scale(.98)" : "none"),
                 transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
-            {/* Línea 1: número de la serie en un círculo (punteado si es de
-                aproximación, lleno al hacerla) + su consigna. */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            {/* Una sola fila por serie: número (círculo punteado si es de
+                aproximación), peso · reps · RIR y el visto. Debajo, en chico,
+                la consigna y la comparación con la vez pasada. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
               <button onClick={puedeEditar && !block.group ? () => setTipoEn({ ei: r.ei, si: r.si }) : undefined}
                 aria-label={puedeEditar && !block.group ? `Cambiar el tipo de la ${dónde} (ahora ${(SET_TYPES[st.type] || SET_TYPES.normal).label})` : dónde}
-                style={{ width: 36, height: 36, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 15, fontWeight: 800, cursor: puedeEditar && !block.group ? "pointer" : "default",
+                style={{ width: 34, height: 34, borderRadius: 17, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 14, fontWeight: 800, cursor: puedeEditar && !block.group ? "pointer" : "default",
                   background: st.done ? SES.acc : isWarm ? "transparent" : SES.ink,
                   color: st.done ? SES.accInk : isWarm ? SES.faint : SES.card,
                   border: isWarm && !st.done ? `1.5px dashed ${SES.faint}` : "none" }}>
                 {block.group ? (r.round || 0) + 1 : isWarm ? "A" : meta.no}
               </button>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: isWarm ? SES.faint : SES.ink, lineHeight: 1.3 }}>
-                  {isWarm ? `Aprox. ${meta.no}` : block.group ? `Ronda ${(r.round || 0) + 1}` : `Serie ${meta.no}`}
-                  {!isWarm && st.type !== "normal" && tipo && <span style={{ fontSize: 11.5, fontWeight: 700, color: SES.acc, marginLeft: 6 }}>{tipo}</span>}
-                  {detalle && <span style={{ fontSize: 13, fontWeight: 600, color: SES.faint, marginLeft: 8 }}>{detalle}</span>}
-                </div>
-                {block.group && <div style={{ fontSize: 11.5, color: SES.faint, marginTop: 1 }}>{exx.name}</div>}
-                {abierta && !isWarm && !block.group && (
-                  <RetoSerie actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitDeSerie(st, r.ei)} />
-                )}
-              </div>
-            </div>
-            {/* Línea 2: peso, reps y RIR (abren la rueda al tocarlos) y el visto. */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <NumCell flex alto={13} fondo={SES.card} aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)}
+              <NumCell flex alto={10} fondo={SES.card} aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)}
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitDeSerie(st, r.ei))).replace(".", ",")}
                 onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitDeSerie(st, r.ei)))))}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "weight" })} />
-              <NumCell flex alto={13} fondo={SES.card} aria={`Repeticiones de la ${dónde}`} placeholder="reps"
+              <NumCell flex alto={10} fondo={SES.card} aria={`Repeticiones de la ${dónde}`} placeholder="reps"
                 valor={st.reps == null ? "" : String(st.reps)}
                 onCommit={(v) => setVal(r.ei, r.si, "reps", v)}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "reps" })} />
-              <NumCell flex alto={13} fondo={SES.card} aria={`RIR de la ${dónde}`} placeholder="RIR"
+              <NumCell flex alto={10} fondo={SES.card} aria={`RIR de la ${dónde}`} placeholder="RIR"
                 valor={st.rir == null ? "" : String(st.rir)}
                 onCommit={(v) => setVal(r.ei, r.si, "rir", v)}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "rir" })} />
               <button onClick={() => onToggleDone(r.ei, r.si)}
                 aria-label={st.done ? `Desmarcar la ${dónde}` : `Marcar la ${dónde} como hecha`}
                 aria-pressed={st.done}
-                style={{ width: 46, height: 46, borderRadius: 23, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                style={{ width: 42, height: 42, borderRadius: 21, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                   background: st.done ? SES.acc : SES.card, color: st.done ? SES.accInk : SES.faint, border: `1px solid ${st.done ? "transparent" : SES.line}`,
                   transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
-                <Check size={19} strokeWidth={3} />
+                <Check size={18} strokeWidth={3} />
               </button>
             </div>
+            {(detalle || (block.group && exx.name) || (!isWarm && !block.group)) && (
+              <div style={{ paddingLeft: 41, marginTop: 5, fontSize: 12, color: SES.faint, fontWeight: 600, lineHeight: 1.35 }}>
+                {(isWarm ? `Aprox. ${meta.no}` : block.group ? `Ronda ${(r.round || 0) + 1}` : `Serie ${meta.no}`)}
+                {!isWarm && st.type !== "normal" && tipo && <span style={{ color: SES.acc, fontWeight: 700 }}> · {tipo}</span>}
+                {detalle ? ` · ${detalle}` : ""}{block.group ? ` · ${exx.name}` : ""}
+                {abierta && !isWarm && !block.group && (
+                  <RetoSerie actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitDeSerie(st, r.ei)} />
+                )}
+              </div>
+            )}
             {/* Drop set / rest-pause / cluster: las partes siguientes de
                 ESTA serie, cada una con su propio peso y reps (ver
                 MULTI_LEG_TYPES). La primera parte ya va en los campos de
@@ -11903,7 +11900,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
           <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr", gap: 10, marginBottom: 28 }}>
             <button onClick={() => setPidiendoGym({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true })}
               aria-label="Entrenamiento libre" title="Entrenamiento libre"
-              style={{ height: 60, borderRadius: 30, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              style={{ height: 52, borderRadius: 26, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Plus size={26} strokeWidth={2.6} />
             </button>
             {[
@@ -11922,7 +11919,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
               } },
             ].filter(Boolean).map((x) => (
               <button key={x.k} onClick={x.on} aria-label={x.label} title={x.label}
-                style={{ height: 60, borderRadius: 30, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                style={{ height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <x.Icon size={22} strokeWidth={2} />
               </button>
             ))}
@@ -11932,7 +11929,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
           onCopiar={copiarPrograma} />
         {active && (
           <button onClick={() => setBrowsing(false)} aria-label="Volver a mi sesión" title="Volver a mi sesión"
-            style={{ width: "100%", height: 60, borderRadius: 30, marginBottom: 28, background: PLATE_GRAD, color: PLATE_FG,
+            style={{ width: "100%", height: 52, borderRadius: 26, marginBottom: 28, background: PLATE_GRAD, color: PLATE_FG,
               display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 16, fontWeight: 700 }}>
             <Play size={20} /> {active.dayName}
           </button>
@@ -11946,8 +11943,8 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
               return (
                 <div key={g.key} style={{ borderTop: gi ? `1px solid ${P.fillTertiary}` : "none" }}>
                   <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-                    style={{ width: "100%", textAlign: "left", padding: "20px 2px", display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0, fontWeight: 800, fontSize: 22, letterSpacing: "-.03em", lineHeight: 1.15, overflowWrap: "anywhere" }}>{g.label}</div>
+                    style={{ width: "100%", textAlign: "left", padding: "14px 2px", display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0, fontWeight: 800, fontSize: 21, letterSpacing: "-.03em", lineHeight: 1.15, overflowWrap: "anywhere" }}>{g.label}</div>
                     <span style={{ fontSize: 15, fontWeight: 600, color: P.faint, flexShrink: 0 }}>{g.days.length}</span>
                     <ChevronDown size={20} color={P.faint} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
                   </button>
@@ -15975,11 +15972,11 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
           el número que importa. */}
       <div style={{ display: "flex", gap: 10 }}>
         <button onClick={onOpenSupplements} disabled={!onOpenSupplements} aria-label={`Suplementos: ${supplements.length ? `${suppDone} de ${supplements.length}` : "sin cargar"}`} title="Suplementos"
-          style={{ flex: 1, height: 60, borderRadius: 30, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 17, fontWeight: 700 }}>
+          style={{ flex: 1, height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 17, fontWeight: 700 }}>
           <Pill size={22} /> {supplements.length ? `${suppDone}/${supplements.length}` : ""}
         </button>
         <button onClick={() => setShopOpen(true)} aria-label={`Lista de compras: ${shopping.length ? `${shopPending} pendientes` : "vacía"}`} title="Lista de compras"
-          style={{ flex: 1, height: 60, borderRadius: 30, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 17, fontWeight: 700 }}>
+          style={{ flex: 1, height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 17, fontWeight: 700 }}>
           <ShoppingCart size={22} /> {shopping.length ? shopPending : ""}
         </button>
       </div>
