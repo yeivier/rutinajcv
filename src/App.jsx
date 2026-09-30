@@ -9,7 +9,7 @@ import {
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText, Volume2,
   UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, Pill,
-  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette, Crosshair, List
+  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette, Crosshair, List, ShoppingCart, BellOff
 } from "lucide-react";
 
 /* ============================================================
@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v375";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v376";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15814,7 +15814,7 @@ const RachaReminderToggle = ({ plan, savePlan, sid }) => {
 // química, cada uno a su hora — ver ReminderScheduler). Mismo permiso de
 // notificaciones del navegador que el aviso de fin de descanso; si ya
 // está concedido, activar acá no vuelve a pedirlo.
-const NutriReminderBanner = ({ sid, plan }) => {
+const NutriReminderBanner = ({ sid, plan, compact }) => {
   const [pref, setPref] = useNutriReminder();
   const [permiso, setPermiso] = useState(notifyState());
   const [suscribiendo, setSuscribiendo] = useState(false);
@@ -15839,6 +15839,18 @@ const NutriReminderBanner = ({ sid, plan }) => {
     }
   };
   if (permiso === "unsupported") return null;
+  if (compact) {
+    const bloqueado = permiso === "denied";
+    return (
+      <button onClick={activar} disabled={bloqueado || suscribiendo} aria-pressed={!!pref.enabled}
+        aria-label={bloqueado ? "Recordatorios bloqueados en los ajustes del navegador" : pref.enabled ? "Desactivar recordatorios de comidas y suplementos" : "Activar recordatorios de comidas y suplementos"}
+        title={pref.enabled ? "Recordatorios activados" : "Recordatorios"}
+        style={{ width: 44, height: 44, borderRadius: 22, display: "flex", alignItems: "center", justifyContent: "center", opacity: bloqueado ? 0.4 : 1,
+          background: pref.enabled ? PLATE_GRAD : P.s2, color: pref.enabled ? PLATE_FG : P.text }}>
+        {pref.enabled ? <Bell size={20} /> : <BellOff size={20} />}
+      </button>
+    );
+  }
   return (
     <Card style={{ padding: "11px 13px", display: "flex", alignItems: "center", gap: 10 }}>
       <Bell size={16} color={pref.enabled ? P.text : P.faint} style={{ flexShrink: 0 }} />
@@ -15872,6 +15884,7 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
   const [shopOpen, setShopOpen] = useState(false);
   const [shopText, setShopText] = useState("");
   const [mfpOpen, setMfpOpen] = useState(false);
+  const [notasOpen, setNotasOpen] = useState(false);
 
   const mealChecks = (history && history.mealChecks && history.mealChecks[todayKey]) || {};
   const mealsDone = n.meals.filter((m) => mealChecks[m.id]).length;
@@ -15934,148 +15947,144 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
     saveHistory(h);
   };
 
+  const comidaLinea = (m, done) => (mealKcal(m) > 0 ? `${mealKcal(m).toLocaleString("es-CL")} kcal` : (m.time || ""));
+  const pctKcal = hasMealKcal && kcalGoal > 0 ? Math.max(0, Math.min(100, (kcalEaten / kcalGoal) * 100)) : 0;
   return (
-    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
-      <ScreenTitle title="Nutrición" />
-      <NutriReminderBanner sid={sid} plan={plan} />
-      {cyc && (
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: P.text,
-          background: P.s1, border: `1px solid ${P.line}`, borderRadius: 20, padding: "6px 12px", alignSelf: "flex-start" }}>
-          {isTrainDay ? <Dumbbell size={13} /> : <Moon size={13} />} Hoy: día de {isTrainDay ? "entreno" : "descanso"}
-        </div>
-      )}
-      {/* Lo primero: cuánto llevas hoy, no cuánto te toca en total. El
-          objetivo va de leyenda debajo. Sin kcal cargadas por comida se
-          muestra el objetivo del plan y las comidas hechas, que es lo que
-          la app sí sabe. */}
-      <KpiTile top="Calorías"
-        value={hasMealKcal ? kcalEaten.toLocaleString("es-CL") : (v.kcal ? String(v.kcal) : "—")}
-        sub={hasMealKcal ? `de ${kcalGoal.toLocaleString("es-CL")} kcal` : "objetivo del día"} />
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 26 }}>
+      <ScreenTitle title="Nutrición" right={
+        <>
+          {n.notes && (
+            <button onClick={() => setNotasOpen(true)} aria-label="Ver notas del plan de nutrición" title="Notas del plan"
+              style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <FileText size={20} />
+            </button>
+          )}
+          <NutriReminderBanner sid={sid} plan={plan} compact />
+        </>
+      } />
 
-      {hasMacros && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-            {[["Proteína", v.p ? `${v.p} g` : "—"], ["Carbos", v.c ? `${v.c} g` : "—"], ["Grasas", v.f ? `${v.f} g` : "—"]].map(([l, val]) => (
-              <Card key={l} style={{ padding: "11px 6px", textAlign: "center" }}>
-                <div style={{ fontSize: 19, fontWeight: 600 }}>{val}</div>
-                <div style={{ fontSize: 11.5, color: P.faint2, marginTop: 2 }}>{l}</div>
-              </Card>
+      {/* Lo primero: cuánto llevas hoy y contra cuánto. Un número grande y una
+          barra fina; los macros, en una sola línea de tres cifras. */}
+      <div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 60, fontWeight: 800, letterSpacing: "-.05em", lineHeight: 1 }}>
+            {hasMealKcal ? kcalEaten.toLocaleString("es-CL") : (v.kcal ? Number(v.kcal).toLocaleString("es-CL") : "—")}
+          </span>
+          <span style={{ fontSize: 17, fontWeight: 600, color: P.faint }}>
+            {hasMealKcal ? `/ ${kcalGoal.toLocaleString("es-CL")} kcal` : "kcal"}
+          </span>
+          {cyc && <span aria-label={isTrainDay ? "Hoy: día de entreno" : "Hoy: día de descanso"} style={{ marginLeft: "auto", color: P.faint }}>{isTrainDay ? <Dumbbell size={20} /> : <Moon size={20} />}</span>}
+        </div>
+        {hasMealKcal && (
+          <div style={{ height: 4, borderRadius: 2, background: P.fillTertiary, marginTop: 14, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${pctKcal}%`, background: P.prog, borderRadius: 2, transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
+          </div>
+        )}
+        {hasMacros && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 22 }}>
+            {[["P", "Proteína", v.p], ["C", "Carbos", v.c], ["G", "Grasas", v.f]].map(([k, l, val]) => (
+              <div key={k} aria-label={`${l}: ${val ? val + " gramos" : "sin dato"}`}>
+                <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.03em", color: val ? P.text : P.textQuaternary }}>
+                  {val || "—"}{val ? <span style={{ fontSize: 14, fontWeight: 600, color: P.faint, marginLeft: 2 }}>g</span> : null}
+                </div>
+                <div style={{ fontSize: 13, color: P.faint, fontWeight: 600, marginTop: 1 }}>{k}</div>
+              </div>
             ))}
           </div>
-        </div>
-      )}
-      {n.notes && <div style={{ fontSize: 14.5, color: P.dim, background: P.s1, border: `1px solid ${P.line}`, borderRadius: 12, padding: "11px 14px", lineHeight: 1.5, whiteSpace: "pre-line" }}>{n.notes}</div>}
+        )}
+      </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, padding: "0 16px 0 16px" }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>Comidas de hoy</span>
-          {n.meals.length > 0 && <span style={{ fontSize: 13, color: P.faint2 }}>{mealsDone} de {n.meals.length}</span>}
-        </div>
+      <div>
         {n.meals.length === 0 ? (
-          <Card style={{ padding: 20 }}>
-            <Empty icon={Utensils} title="Sin plan de comidas" body="Tu coach aún no carga las comidas del plan — o traé el tuyo desde MyFitnessPal." />
+          <div style={{ padding: "18px 0" }}>
+            <Empty icon={Utensils} title="Sin plan de comidas" body="Tu coach aún no carga las comidas del plan." />
             {savePlan && (
-              <Btn kind="line" small onClick={() => setMfpOpen(true)} style={{ width: "100%", marginTop: 4 }}>
-                <Upload size={14} /> Importar de MyFitnessPal
-              </Btn>
+              <div style={{ display: "flex", justifyContent: "center", marginTop: 6 }}>
+                <button onClick={() => setMfpOpen(true)} aria-label="Importar tu diario de MyFitnessPal" title="Importar de MyFitnessPal"
+                  style={{ width: 52, height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Upload size={22} />
+                </button>
+              </div>
             )}
-          </Card>
+          </div>
         ) : (
-          <Card style={{ overflow: "hidden" }}>
+          <div>
             {n.meals.map((m, i) => {
               const done = !!mealChecks[m.id];
-              // Detalle de la comida: alimentos cargados + la nota (donde
-              // el coach escribe, p. ej., las opciones A/B/C). Si hay
-              // detalle se muestra siempre debajo — es un plan para SEGUIR,
-              // así que las opciones tienen que estar a la vista, no
-              // escondidas tras un toque. El nombre puede envolver.
               const items = (m.items || []).filter((it) => (it.food || "").trim());
               const note = (m.notes || "").trim();
-              // Si la nota es un menú de opciones, el alumno ELIGE una (no
-              // se muestra como lista fija). El resto de la nota (intro) y
-              // las notas sin opciones se muestran como texto.
               const opts = parseMealOptions(note);
               const choice = mealChoices[m.id];
               const hasDetail = items.length > 0 || !!note;
               return (
-                <div key={m.id} style={{ borderBottom: i < n.meals.length - 1 ? `1px solid ${P.line}` : "none" }}>
-                  <button onClick={() => toggleMeal(m.id)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
-                    padding: hasDetail ? "13px 16px 9px" : "13px 16px" }}>
-                    <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                      background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
-                      {done && <Check size={14} color={PLATE_FG} strokeWidth={3} />}
+                <div key={m.id} style={{ borderTop: i ? `1px solid ${P.fillTertiary}` : "none", padding: "16px 0" }}>
+                  <button onClick={() => toggleMeal(m.id)} aria-pressed={done}
+                    aria-label={`${done ? "Desmarcar" : "Marcar como hecha"} ${m.name}`}
+                    style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14 }}>
+                    <span style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                      background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `2px solid ${P.chevron}`,
+                      transition: `background ${DUR_MICRO}ms ${EASE_STD}` }}>
+                      {done && <Check size={17} color={PLATE_FG} strokeWidth={3} />}
                     </span>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: hasDetail ? 600 : 400, color: P.text }}>
-                      {m.name}{opts && choice ? <span style={{ color: P.faint2, fontWeight: 400 }}>{" · Opción " + choice}</span> : null}
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.2, color: done ? P.faint : P.text, textDecoration: done ? "line-through" : "none", overflowWrap: "anywhere" }}>
+                      {m.name}{opts && choice ? <span style={{ color: P.faint, fontWeight: 500, textDecoration: "none" }}>{" · " + choice}</span> : null}
                     </span>
-                    <span style={{ fontSize: 15, color: P.faint2, flexShrink: 0, alignSelf: hasDetail ? "flex-start" : "center", marginTop: hasDetail ? 1 : 0 }}>
-                      {mealKcal(m) > 0
-                        ? `${mealKcal(m).toLocaleString("es-CL")} kcal`
-                        : done ? (m.time || "hecha") : (m.time || "pendiente")}
-                    </span>
+                    <span style={{ fontSize: 14, color: P.faint, flexShrink: 0, fontWeight: 600 }}>{comidaLinea(m, done)}</span>
                   </button>
                   {hasDetail && (
-                    <div style={{ padding: "0 16px 13px 52px", display: "flex", flexDirection: "column", gap: 7 }}>
-                      {items.length > 0 && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                          {items.map((it) => (
-                            <div key={it.id} style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.4 }}>
-                              {it.food}{(it.qty || "").trim() ? <span style={{ color: P.faint2 }}>{" — " + it.qty}</span> : null}
-                            </div>
-                          ))}
+                    <div style={{ paddingLeft: 44, marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {items.map((it) => (
+                        <div key={it.id} style={{ fontSize: 15, color: P.dim, lineHeight: 1.4 }}>
+                          {it.food}{(it.qty || "").trim() ? <span style={{ color: P.faint }}>{" · " + it.qty}</span> : null}
                         </div>
-                      )}
+                      ))}
                       {opts ? (
                         <>
-                          {opts.intro && <div style={{ fontSize: 13.5, color: P.faint2, lineHeight: 1.45 }}>{opts.intro}</div>}
-                          {!choice && <div style={{ fontSize: 12.5, fontWeight: 600, color: P.faint2 }}>Elige tu opción:</div>}
+                          {opts.intro && <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.45 }}>{opts.intro}</div>}
                           {opts.options.map((o) => {
                             const sel = choice === o.key;
                             return (
-                              <button key={o.key} onClick={() => setMealChoice(m.id, sel ? null : o.key)}
-                                style={{ textAlign: "left", display: "flex", gap: 10, alignItems: "flex-start",
-                                  background: sel ? P.s3 : P.s1, border: `1px solid ${sel ? P.text : P.line}`,
-                                  borderRadius: 12, padding: "10px 12px", transition: `border-color ${DUR_ROW}ms ease, background ${DUR_ROW}ms ease` }}>
-                                <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                              <button key={o.key} onClick={() => setMealChoice(m.id, sel ? null : o.key)} aria-pressed={sel}
+                                style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "flex-start", padding: "10px 12px", marginLeft: -12, borderRadius: 16,
+                                  background: sel ? P.s2 : "transparent", transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
+                                <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center",
                                   background: sel ? PLATE_GRAD : "transparent", border: sel ? "none" : `1.5px solid ${P.chevron}`,
-                                  fontSize: 12, fontWeight: 700, color: sel ? PLATE_FG : P.faint2 }}>
-                                  {sel ? <Check size={13} color={PLATE_FG} strokeWidth={3} /> : o.key}
+                                  fontSize: 12, fontWeight: 800, color: sel ? PLATE_FG : P.faint }}>
+                                  {sel ? <Check size={14} color={PLATE_FG} strokeWidth={3} /> : o.key}
                                 </span>
-                                <span style={{ flex: 1, fontSize: 14.5, color: sel ? P.text : P.dim, lineHeight: 1.45, fontWeight: sel ? 600 : 400 }}>{o.text}</span>
+                                <span style={{ flex: 1, fontSize: 15, color: sel ? P.text : P.dim, lineHeight: 1.45, fontWeight: sel ? 600 : 400 }}>{o.text}</span>
                               </button>
                             );
                           })}
                         </>
                       ) : (
-                        note && <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5, whiteSpace: "pre-line" }}>{note}</div>
+                        note && <div style={{ fontSize: 15, color: P.dim, lineHeight: 1.5, whiteSpace: "pre-line" }}>{note}</div>
                       )}
                     </div>
                   )}
                 </div>
               );
             })}
-          </Card>
+          </div>
         )}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 16 }}>Hoy</div>
-        <Card style={{ overflow: "hidden" }}>
-          <button onClick={onOpenSupplements} disabled={!onOpenSupplements}
-            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-            <span style={{ flex: 1, fontSize: 16, color: P.text }}>Suplementos</span>
-            <span style={{ fontSize: 15, color: P.faint2 }}>{supplements.length ? `${suppDone} de ${supplements.length}` : "Sin cargar"}</span>
-            {onOpenSupplements && <ChevronRight size={16} color={P.chevron} />}
-          </button>
-        </Card>
-        <Card style={{ overflow: "hidden" }}>
-          <button onClick={() => setShopOpen(true)} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-            <span style={{ flex: 1, fontSize: 16 }}>Lista de compras</span>
-            <span style={{ fontSize: 15, color: P.faint2 }}>{shopping.length ? `${shopPending} pendiente${shopPending !== 1 ? "s" : ""}` : "Vacía"}</span>
-            <ChevronRight size={16} color={P.chevron} />
-          </button>
-        </Card>
+      {/* Suplementos y lista de compras: dos botones redondos, solo ícono y
+          el número que importa. */}
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={onOpenSupplements} disabled={!onOpenSupplements} aria-label={`Suplementos: ${supplements.length ? `${suppDone} de ${supplements.length}` : "sin cargar"}`} title="Suplementos"
+          style={{ flex: 1, height: 60, borderRadius: 30, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 17, fontWeight: 700 }}>
+          <Pill size={22} /> {supplements.length ? `${suppDone}/${supplements.length}` : ""}
+        </button>
+        <button onClick={() => setShopOpen(true)} aria-label={`Lista de compras: ${shopping.length ? `${shopPending} pendientes` : "vacía"}`} title="Lista de compras"
+          style={{ flex: 1, height: 60, borderRadius: 30, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 17, fontWeight: 700 }}>
+          <ShoppingCart size={22} /> {shopping.length ? shopPending : ""}
+        </button>
       </div>
+
+      <Sheet open={notasOpen} onClose={() => setNotasOpen(false)} title="Notas del plan" tall>
+        <div style={{ fontSize: 16, color: P.dim, lineHeight: 1.6, whiteSpace: "pre-line" }}>{n.notes}</div>
+      </Sheet>
 
       {savePlan && (
         <MyFitnessPalSheet open={mfpOpen} onClose={() => setMfpOpen(false)}
