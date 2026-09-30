@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v381";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v382";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -11952,17 +11952,23 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
                     <ChevronDown size={20} color={P.faint} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
                   </button>
                   {open && (
-                    <div className="deployIn" style={{ paddingBottom: 12 }}>
+                    <div className="deployIn" style={{ paddingBottom: 6 }}>
                       {g.days.map((d, i) => {
                         const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
+                        const ne = d.exs.length, ns = d.exs.reduce((t, e) => t + e.sets.length, 0);
                         return (
                           <button key={d.id} onClick={() => (active ? setConfirmSwitch(d) : setPreviewDay(d))}
-                            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14, padding: "14px 2px" }}>
-                            <span style={{ width: 30, height: 30, borderRadius: 15, background: P.s2, color: P.faint, fontSize: 13, fontWeight: 700,
+                            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14, padding: "16px 16px",
+                              marginBottom: 10, borderRadius: 24, background: P.s1 }}>
+                            <span style={{ width: 40, height: 40, borderRadius: 20, background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 800,
                               display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
-                            <span style={{ flex: 1, minWidth: 0, fontSize: 16.5, fontWeight: 600, lineHeight: 1.3, overflowWrap: "anywhere" }}>{d.name}</span>
-                            {lastDone && <span style={{ fontSize: 12.5, color: P.faint, flexShrink: 0 }}>{fmtDate(lastDone.date)}</span>}
-                            <ChevronRight size={18} color={P.chevron} style={{ flexShrink: 0 }} />
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                              <span style={{ display: "block", fontSize: 17, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.25, overflowWrap: "anywhere" }}>{d.name}</span>
+                              <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: P.faint, marginTop: 3 }}>
+                                {ne} ej · {ns} series{lastDone ? ` · ${fmtDate(lastDone.date)}` : ""}
+                              </span>
+                            </span>
+                            <ChevronRight size={20} color={P.chevron} style={{ flexShrink: 0 }} />
                           </button>
                         );
                       })}
