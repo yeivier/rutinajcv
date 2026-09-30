@@ -5,7 +5,7 @@ import {
   Camera, Check, Plus, Minus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
-  Undo2, Redo2, Calendar, Sparkles, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
+  Undo2, Redo2, Calendar, Sparkles, SlidersHorizontal, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText, Volume2,
   UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, Pill,
@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v376";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v377";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -18039,34 +18039,41 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     // los botones finales ("Nueva rutina"/"Añadir día") no queden pegados
     // contra la barra — con solo TAB_BOTTOM_PAD respiran, pero muy justo.
     <div style={{ padding: `18px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
-      <ScreenTitle title="Rutina" sub={easy ? "Toca una rutina para abrirla y ver sus días." : "Cada cambio se guarda solo y el alumno lo ve al instante."}
+      <ScreenTitle title="Rutina"
         tabs={!easy ? (
           <SectionSwitch value={view} onChange={setView}
-            items={[{ id: "dias", label: "Días" },
-                    { id: "periodo", label: "Periodización" },
-                    { id: "biblioteca", label: `Biblioteca${(library || []).length > 0 ? ` (${library.length})` : ""}` }]} />
+            items={[{ id: "dias", label: "Días", Icon: List },
+                    { id: "periodo", label: "Periodización", Icon: Calendar },
+                    { id: "biblioteca", label: "Biblioteca", Icon: Library }]} />
         ) : null}
         actions={(
-        /* Comparar sirve con dos rutinas o con dos sesiones dentro de una
-           sola, así que la entrada aparece en cualquiera de los dos casos. */
-        <ActionRow>
+        /* Una sola fila de botones redondos, solo ícono (mismo lenguaje
+           que Entrenar del alumno). */
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button onClick={() => setImportOpen(true)} aria-label="Importar rutina con IA" title="Importar rutina con IA"
+            style={{ width: 44, height: 44, borderRadius: 22, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Sparkles size={20} />
+          </button>
           {onOpenCompare && (groupDaysByRoutine(plan.days, plan.routineNames).length >= 2 || (plan.days || []).length >= 2) ? (
-            <button onClick={onOpenCompare}
-              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
-                minHeight: HIT, ...TYPE.subhead,
-                color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px" }}>
-              <Columns2 size={16} /> Comparar
+            <button onClick={onOpenCompare} aria-label="Comparar rutinas" title="Comparar rutinas"
+              style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Columns2 size={20} />
             </button>
           ) : null}
           {plan.days.length > 0 ? (
-            <button onClick={() => setBulkOpen(true)}
-              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
-                minHeight: HIT, ...TYPE.subhead,
-                color: P.text, background: P.s3, borderRadius: R_ROW, padding: "9px 13px" }}>
-              <Camera size={16} /> Imágenes
-            </button>
+            <>
+              <button onClick={() => setBulkOpen(true)} aria-label="Poner imágenes a los ejercicios" title="Imágenes"
+                style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Camera size={20} />
+              </button>
+              <button onClick={() => setMrvRutina(true)} aria-label="Llevar una rutina al MRV exacto" title="Llevar al MRV exacto"
+                style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <TrendingUp size={20} />
+              </button>
+              <RoutinesExportButton plan={plan} who={student?.name} toast={toast} iconOnly />
+            </>
           ) : null}
-        </ActionRow>
+        </div>
         )} />
       {/* Traer un ejercicio del catálogo a un día: llega con nombre, músculo,
           equipo y su imagen ya enlazada, listo para ajustarle las series. */}
@@ -18104,33 +18111,6 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
 
       {(easy || view === "dias") && (<>
 
-      <Card style={{ marginBottom: 26, padding: 0, overflow: "hidden" }}>
-        <button onClick={() => setImportOpen(true)} style={{ width: "100%", textAlign: "left", padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: PLATE_GRAD,
-            boxShadow: "none" }}>
-            <Sparkles size={20} color={PLATE_FG} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 16.5 }}>Importar rutina con IA</div>
-            <div style={{ fontSize: 13.5, color: P.dim, marginTop: 2, lineHeight: 1.35 }}>Sube un PDF, foto o pega el texto. Claude arma los días y ejercicios solo.</div>
-          </div>
-          <ChevronRight size={18} color={P.faint} />
-        </button>
-      </Card>
-
-      {/* Exportar todas las rutinas del plan (PDF / Word), ordenadas por
-          rutina y día. Solo cuando hay días cargados. */}
-      {plan.days.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 22 }}>
-          <RoutinesExportButton plan={plan} who={student?.name} toast={toast} small block />
-          {/* Ajustar el volumen al tope recuperable, desde donde se está
-              mirando la rutina y no tres pantallas adentro. */}
-          <Btn kind="line" small onClick={() => setMrvRutina(true)} style={{ width: "100%" }}>
-            <TrendingUp size={13} /> Llevar una rutina al MRV exacto…
-          </Btn>
-        </div>
-      )}
       <MrvRutinaSheet open={mrvRutina} onClose={() => setMrvRutina(false)} plan={plan} toast={toast} />
 
       {plan.days.length === 0 && (
@@ -18147,7 +18127,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         return (
         <div key={g.key} data-routine-group={g.key}
           onClickCapture={(e) => { if (Date.now() < (routineDragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
-          style={{ marginBottom: 26, borderRadius: 16,
+          style={{ marginBottom: 14, borderRadius: 16,
             background: routineDragging === g.key ? P.s2 : (routineDragOver === g.key && routineDragging ? P.s1 : "transparent"),
             boxShadow: routineDragging === g.key ? DRAG_LIFT_SHADOW : "none",
             border: routineDragging === g.key ? DRAG_LIFT_BORDER : "1px solid transparent",
@@ -18163,34 +18143,20 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               partían en cuatro renglones. */}
           <div style={{ marginBottom: open ? 12 : 0 }}>
             <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 12,
-                background: P.s1, border: `1px solid ${P.frame}`, borderRadius: 14, padding: "13px 14px",
-                boxShadow: CARD_LIFT, textAlign: "left" }}>
-              <span style={{ flexShrink: 0, minWidth: 36, height: 36, borderRadius: 11, padding: "0 4px",
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "14px 4px", textAlign: "left" }}>
+              <span style={{ flexShrink: 0, minWidth: 44, height: 44, borderRadius: 22, padding: "0 4px",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: PLATE_GRAD,
-                boxShadow: "none",
-                color: PLATE_FG, fontWeight: 700, fontSize: 15, letterSpacing: ".01em" }}>{g.key}</span>
+                background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 17 }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="disp" style={{ fontSize: 19, fontWeight: 700, textTransform: "uppercase", color: P.text, lineHeight: 1.15 }}>{g.label}</div>
-                <div style={{ fontSize: 13.5, color: P.faint, marginTop: 3 }}>
-                  {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series
-                  {!routineVisible && <span style={{ color: P.ember2, fontWeight: 700 }}> · Oculta para {student.name}</span>}
-                </div>
-                {/* Series efectivas por grupo muscular de TODA la rutina (suma de
-                    sus días) — mismo desglose que ya tiene cada ficha de día, para
-                    ver de un vistazo cómo reparte volumen sin tener que abrirla. */}
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                  {volumeByMuscleForDays(g.days).map((r) => (
-                    <span key={r.muscle} style={{ fontSize: 11.5, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 6px" }}>
-                      {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
-                    </span>
-                  ))}
+                <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", color: P.text, lineHeight: 1.15, overflowWrap: "anywhere" }}>{g.label}</div>
+                <div style={{ fontSize: 14, color: P.faint, marginTop: 3, fontWeight: 600 }}>
+                  {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.setCount} series
+                  {!routineVisible && <span style={{ color: P.ember2, fontWeight: 700 }}> · oculta</span>}
                 </div>
               </div>
-              {open ? <ChevronUp size={20} color={P.ember} /> : <ChevronDown size={20} color={P.faint} />}
+              <ChevronRight size={22} color={P.faint} style={{ transform: open ? "rotate(90deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
             </button>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, marginTop: 6, paddingRight: 4 }}>
+            {open && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, marginBottom: 4, paddingRight: 4 }}>
               {student && onUpdateStudent && (
                 <button onClick={() => toggleRoutineVisible(g.key)}
                   title={routineVisible ? `Ocultar ${g.label} para ${student.name}` : `Mostrarle ${g.label} a ${student.name}`}
@@ -18221,7 +18187,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 onActivate={() => startRoutineDrag(g.key)}
                 onDragMove={routineDragMove}
                 onDragEnd={endRoutineDrag} />
-            </div>
+            </div>}
           </div>
           {/* El acordeón antes mostraba los días de golpe, sin transición
               ni ninguna marca visual de que "pertenecían" a la rutina de
@@ -18231,8 +18197,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               abajo en la pantalla), y "deployIn" los hace entrar con un
               fundido en vez de aparecer de golpe. */}
           {open && (
-          <div className="deployIn" style={{ marginLeft: 6, paddingLeft: 12, paddingTop: 10, paddingRight: 8, paddingBottom: 2,
-            borderLeft: `2px solid ${P.accEdge}`, background: P.accWell, borderRadius: "0 12px 12px 0" }}>
+          <div className="deployIn" style={{ paddingTop: 4, paddingBottom: 2 }}>
           {g.items.map(({ day: d, index: di }) => (
             <Card key={d.id}
               data-day-card={d.id}
@@ -18256,41 +18221,28 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 zIndex: dragging === d.id ? 5 : "auto",
                 transition: `background .12s ease, box-shadow .14s ease, border-color .14s ease, ${SHIFT_TRANSITION}`,
                 WebkitUserSelect: dragging ? "none" : "auto", userSelect: dragging ? "none" : "auto" }}>
-              <div style={{ display: "flex", flexWrap: "wrap", rowGap: 4, alignItems: "center", gap: 6, padding: "11px 12px" }}>
-                <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ flex: 1, minWidth: 150, textAlign: "left" }}>
-                  <div style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.25, overflowWrap: "break-word" }}>{d.name}</div>
-                  <div style={{ fontSize: 13, color: P.faint }}>{d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
-                  {/* Series efectivas por grupo muscular de ESTA sesión puntual —
-                      igual estructura de ejercicios en todos los mesociclos/semanas
-                      (solo cambian RIR/reps objetivo por semana, no el número de
-                      series), así que este desglose vale para cualquier semana o
-                      mesociclo que esté activo, sin tener que ir a Progreso →
-                      Volumen para verlo. */}
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
-                    {volumeByMuscleForDay(d).rows.map((r) => (
-                      <span key={r.muscle} style={{ fontSize: 11.5, color: P.dim, background: P.s2, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 6px" }}>
-                        {r.muscle} <b style={{ color: P.text }}>{fmtSets(r.sets)}</b>
-                      </span>
-                    ))}
-                  </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "14px 14px" }}>
+                <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} aria-expanded={openDay === d.id} style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                  <div style={{ fontWeight: 800, fontSize: 19, letterSpacing: "-.02em", lineHeight: 1.2, overflowWrap: "anywhere" }}>{d.name}</div>
+                  <div style={{ fontSize: 14, color: P.faint, fontWeight: 600, marginTop: 2 }}>{d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
                 </button>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
-                  <button onClick={() => mut((p) => moveDay(p, di, -1))} style={{ padding: 6, color: P.faint }}><ArrowUp size={15} /></button>
-                  <button onClick={() => mut((p) => moveDay(p, di, +1))} style={{ padding: 6, color: P.faint }}><ArrowDown size={15} /></button>
-                  <button onClick={() => copyDay(d)} title="Copiar el día completo" aria-label={`Copiar el día ${d.name}`}
-                    style={{ padding: 6, color: copiedDay && copiedDay.id === d.id ? P.ember2 : P.faint }}><Copy size={15} /></button>
-                  <button onClick={() => { const name = prompt("Nombre del día:", d.name); if (name) mut((p) => { p.days[di].name = name; }); }} style={{ padding: 6, color: P.faint }}><PencilLine size={15} /></button>
-                  <button onClick={() => setDel({ type: "day", dayId: d.id, name: d.name })} style={{ padding: 6, color: P.faint }}><Trash2 size={15} /></button>
-                  <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} style={{ padding: 6, color: P.faint }}>{openDay === d.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
-                  <DragHandle active={dragging === d.id}
+                <ChevronRight size={20} color={P.faint} style={{ transform: openDay === d.id ? "rotate(90deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}`, flexShrink: 0 }} />
+                <DragHandle active={dragging === d.id}
                     label={`Mantén pulsado y arrastra para mover el día ${d.name}`}
                     onActivate={() => startDrag(d.id)}
                     onDragMove={dayDragMove}
                     onDragEnd={endDrag} />
-                </div>
               </div>
               {openDay === d.id && (
                 <div style={{ padding: "0 12px 12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginBottom: 8 }}>
+                    <button onClick={() => mut((p) => moveDay(p, di, -1))} aria-label={`Subir ${d.name}`} title="Subir día" style={{ padding: 8, color: P.faint }}><ArrowUp size={16} /></button>
+                    <button onClick={() => mut((p) => moveDay(p, di, +1))} aria-label={`Bajar ${d.name}`} title="Bajar día" style={{ padding: 8, color: P.faint }}><ArrowDown size={16} /></button>
+                    <button onClick={() => copyDay(d)} title="Copiar el día completo" aria-label={`Copiar el día ${d.name}`}
+                    style={{ padding: 8, color: copiedDay && copiedDay.id === d.id ? P.ember2 : P.faint }}><Copy size={16} /></button>
+                    <button onClick={() => { const name = prompt("Nombre del día:", d.name); if (name) mut((p) => { p.days[di].name = name; }); }} style={{ padding: 8, color: P.faint }}><PencilLine size={16} /></button>
+                    <button onClick={() => setDel({ type: "day", dayId: d.id, name: d.name })} style={{ padding: 8, color: P.faint }}><Trash2 size={16} /></button>
+                  </div>
                   {(() => { const blocks = exBlocks(d.exs); return d.exs.map((e, ei) => {
                     const gr = exGroupInfo(d.exs, ei);
                     const blockKey = (blocks.find((b) => ei >= b.start && ei < b.end) || {}).key;
@@ -18333,9 +18285,8 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                       </div>
                     )}
                     <div style={{ background: P.s2,
-                      border: `1px solid ${gr.kind ? `${GROUP_KINDS[gr.kind].color}55` : P.line}`,
-                      borderLeft: gr.kind ? `3px solid ${GROUP_KINDS[gr.kind].color}` : `1px solid ${P.line}`,
-                      borderRadius: 11, padding: "9px 10px", marginBottom: gr.linkedToNext ? 2 : 6 }}>
+                      borderLeft: gr.kind ? `3px solid ${GROUP_KINDS[gr.kind].color}` : "none",
+                      borderRadius: 16, padding: "10px 12px", marginBottom: gr.linkedToNext ? 2 : 8 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                       {!e.iconAttachId && e.catId
                         ? <ExerciseThumb ex={e} size={30} radius={8} />
@@ -18373,58 +18324,48 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                         </button>
                       )}
                       <button onClick={() => setDel({ type: "ex", dayId: d.id, exId: e.id, name: e.name })} style={{ padding: 5, color: P.faint }}><Trash2 size={14} /></button>
+                      {gr.first && (
+                        <DragHandle active={exDraggingHere}
+                          label={gr.kind ? `Mantén pulsado y arrastra para mover el bloque de ${e.name}` : `Mantén pulsado y arrastra para mover ${e.name}`}
+                          onActivate={() => startExDrag(d.id, blockKey)}
+                          onDragMove={exDragMove}
+                          onDragEnd={endExDrag} />
+                      )}
                     </div>
-                    {gr.first && (
-                      <DragHandle active={exDraggingHere} block={gr.kind ? " el bloque" : true}
-                        label={gr.kind ? `Mantén pulsado y arrastra para mover el bloque de ${e.name}` : `Mantén pulsado y arrastra para mover ${e.name}`}
-                        onActivate={() => startExDrag(d.id, blockKey)}
-                        onDragMove={exDragMove}
-                        onDragEnd={endExDrag} />
-                    )}
                     </div>
                     </div>
                   );});})()}
-                  <div style={{ fontSize: 12.5, color: P.faint, lineHeight: 1.4, margin: "2px 2px 8px", display: "flex", alignItems: "center", gap: 5 }}>
-                    <Paperclip size={12} /> Toca el clip de un ejercicio para unirlo con el de abajo. Dos = superserie, tres = triserie, cuatro o más = serie gigante. Une otro más para agrandar el bloque.
-                  </div>
-                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                    <Btn kind="ghost" small onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: DEFAULT_REST, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] } })} style={{ flex: 1, minWidth: 150 }}>
-                      <Plus size={15} /> Añadir ejercicio
-                    </Btn>
-                    <Btn kind="ghost" small onClick={() => setCatalogoDia(d.id)} style={{ flex: 1, minWidth: 170 }}>
-                      <Library size={15} /> Buscar en el catálogo
-                    </Btn>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <button onClick={() => setEditEx({ dayId: d.id, ex: { id: uid(), isNew: true, name: "", muscle: MUSCLES[0], rest: DEFAULT_REST, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] } })} aria-label="Añadir ejercicio" title="Añadir ejercicio"
+                      style={{ width: 48, height: 48, borderRadius: 24, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: PLATE_GRAD, color: PLATE_FG }}><Plus size={22} /></button>
+                    <button onClick={() => setCatalogoDia(d.id)} aria-label="Buscar en el catálogo" title="Buscar en el catálogo"
+                      style={{ width: 48, height: 48, borderRadius: 24, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: P.s2, color: P.text }}><Library size={21} /></button>
                     {copiedEx && (
-                      <Btn kind="line" small onClick={() => pasteExercise(d.id)} style={{ flex: 1.25, minWidth: 170 }}>
-                        <ClipboardList size={15} /> Pegar «{copiedEx.name}»
-                      </Btn>
+                      <button onClick={() => pasteExercise(d.id)} aria-label={`Pegar ${copiedEx.name}`} title={`Pegar «${copiedEx.name}»`}
+                        style={{ width: 48, height: 48, borderRadius: 24, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: P.s2, color: P.text }}><ClipboardList size={21} /></button>
                     )}
                     {copiedDay && copiedDay.id !== d.id && (copiedDay.exs || []).length > 0 && (
-                      <Btn kind="line" small onClick={() => pasteDayExercises(d.id)} style={{ flex: 1.5, minWidth: 200 }}>
-                        <ClipboardList size={15} /> Pegar {copiedDay.exs.length} ejercicios de «{copiedDay.name}»
-                      </Btn>
+                      <button onClick={() => pasteDayExercises(d.id)} aria-label={`Pegar ejercicios de ${copiedDay.name}`} title={`Pegar ${copiedDay.exs.length} ejercicios de «${copiedDay.name}»`}
+                        style={{ width: 48, height: 48, borderRadius: 24, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: P.s2, color: P.text }}><ClipboardList size={21} /></button>
                     )}
                     {copiedBlock && (
-                      <Btn kind="line" small onClick={() => pasteBlock(d.id)} style={{ flex: 1.5, minWidth: 200 }}>
-                        <ClipboardList size={15} /> Pegar {GROUP_KINDS[copiedBlock.kind].label.toLowerCase()} ({copiedBlock.size} ejercicios)
-                      </Btn>
+                      <button onClick={() => pasteBlock(d.id)} aria-label="Pegar bloque" title={`Pegar ${GROUP_KINDS[copiedBlock.kind].label.toLowerCase()} (${copiedBlock.size} ejercicios)`}
+                        style={{ width: 48, height: 48, borderRadius: 24, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: P.s2, color: P.text }}><ClipboardList size={21} /></button>
                     )}
                   </div>
                 </div>
               )}
             </Card>
           ))}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Btn kind="ember" onClick={() => mut((p) => {
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4 }}>
+            <button onClick={() => mut((p) => {
               const at = p.days.reduce((last, day, i) => (routineOf(day) === g.key ? i + 1 : last), p.days.length);
               p.days.splice(at, 0, { id: uid(), name: `Día ${g.days.length + 1}`, routine: g.key, exs: [] });
-            })} style={{ flex: 1, minWidth: 180 }}>
-              <Plus size={16} /> Añadir día a la {g.label}
-            </Btn>
+            })} aria-label={`Añadir día a ${g.label}`} title="Añadir día"
+              style={{ flex: 1, height: 48, borderRadius: 24, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={22} /></button>
             {copiedDay && (
-              <Btn kind="line" onClick={() => pasteDay(g.key)} style={{ flex: 1, minWidth: 180 }}>
-                <ClipboardList size={16} /> Pegar día «{copiedDay.name}»
-              </Btn>
+              <button onClick={() => pasteDay(g.key)} aria-label={`Pegar día ${copiedDay.name}`} title={`Pegar día «${copiedDay.name}»`}
+                style={{ width: 48, height: 48, borderRadius: 24, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><ClipboardList size={21} /></button>
             )}
           </div>
           </div>
@@ -18439,14 +18380,12 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
       {/* Separado del resto con su propio margen (no solo el padding del
           contenedor): así "Nueva rutina" nunca queda pegada visualmente
           contra la última tarjeta ni contra la barra inferior. */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: plan.days.length === 0 ? 10 : 22 }}>
-        <Btn kind="line" onClick={() => mut((p) => { const key = nextRoutineKey(p.days); p.days.push({ id: uid(), name: "Día 1", routine: key, exs: [] }); setOpenRoutines((o) => [...o, key]); })} style={{ flex: 1, minWidth: 180 }}>
-          <Plus size={16} /> Nueva rutina
-        </Btn>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: plan.days.length === 0 ? 10 : 18 }}>
+        <button onClick={() => mut((p) => { const key = nextRoutineKey(p.days); p.days.push({ id: uid(), name: "Día 1", routine: key, exs: [] }); setOpenRoutines((o) => [...o, key]); })} aria-label="Nueva rutina" title="Nueva rutina"
+          style={{ flex: 1, height: 56, borderRadius: 28, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={24} /></button>
         {copiedRoutine && (
-          <Btn kind="line" onClick={pasteRoutine} style={{ flex: 1.3, minWidth: 200 }}>
-            <ClipboardList size={16} /> Pegar {copiedRoutine.label} como rutina nueva
-          </Btn>
+          <button onClick={pasteRoutine} aria-label={`Pegar ${copiedRoutine.label} como rutina nueva`} title={`Pegar ${copiedRoutine.label} como rutina nueva`}
+            style={{ width: 56, height: 56, borderRadius: 28, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><ClipboardList size={22} /></button>
         )}
       </div>
       </>)}
@@ -18803,228 +18742,187 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
       </div>
     );
   };
+  const [ajOpen, setAjOpen] = useState(false);
+  const bare = { background: "transparent", border: "none", boxShadow: "none", padding: "6px 0", borderRadius: 0 };
+  const roundBtn = { width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
+  const macroCol = (label, key, ph) => {
+    const derived = solve === key;
+    return (
+      <div style={{ flex: key === "kcal" ? 1.5 : 1, minWidth: 0 }}>
+        <Inp type="number" inputMode="numeric" placeholder={ph} readOnly={derived}
+          value={derived ? v[key] : (n[key] === "" || n[key] == null ? "" : n[key])}
+          onChange={(e) => setMacro(key, e.target.value)}
+          style={{ ...bare, fontSize: key === "kcal" ? 32 : 26, fontWeight: 800, letterSpacing: "-.04em", color: derived ? P.faint : P.text }} />
+        <button onClick={() => setSolve(key)} aria-label={`Calcular ${SOLVE_LABEL[key]} automáticamente`} aria-pressed={derived}
+          style={{ fontSize: 13, fontWeight: 700, color: derived ? P.text : P.faint, padding: "2px 0", borderBottom: `2px solid ${derived ? P.text : "transparent"}` }}>
+          {label}
+        </button>
+      </div>
+    );
+  };
+  const tinyBtn = { width: 36, height: 36, borderRadius: 18, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
   return (
     <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-      <ScreenTitle title="Nutrición" />
-      {onOpenNutritionAI && (
-        <Card style={{ marginBottom: 14, padding: 0, overflow: "hidden" }}>
-          <button onClick={onOpenNutritionAI} style={{ width: "100%", textAlign: "left", padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              background: PLATE_GRAD,
-              boxShadow: "none" }}>
-              <Utensils size={19} color={PLATE_FG} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 16.5 }}>Coach IA de nutrición</div>
-              <div style={{ fontSize: 13.5, color: P.dim, marginTop: 2, lineHeight: 1.35 }}>Especializado en macros, timing y adherencia — ya conoce el plan de este alumno.</div>
-            </div>
-            <ChevronRight size={18} color={P.faint} />
-          </button>
-        </Card>
+      <ScreenTitle title="Nutrición" right={
+        <>
+          {onOpenNutritionAI && (
+            <button onClick={onOpenNutritionAI} aria-label="Coach IA de nutrición" title="Coach IA de nutrición" style={roundBtn}><Sparkles size={20} /></button>
+          )}
+          <button onClick={() => setAjOpen(true)} aria-label="Objetivo, ciclado y notas" title="Objetivo, ciclado y notas" style={roundBtn}><SlidersHorizontal size={20} /></button>
+        </>
+      } />
+
+      {/* Macros del plan: cuatro cifras grandes editables. Tocar el nombre
+          de una cifra la marca como la que la app calcula sola. */}
+      <div style={{ display: "flex", gap: 10 }}>
+        {macroCol("kcal", "kcal", "2500")}
+        {macroCol("P", "p", "180")}
+        {macroCol("C", "c", "280")}
+        {macroCol("G", "f", "70")}
+      </div>
+      <div style={{ display: "flex", height: 5, borderRadius: 3, overflow: "hidden", margin: "14px 0 6px", background: P.s3 }}>
+        <div style={{ width: `${v.pctP}%`, background: P.green }} />
+        <div style={{ width: `${v.pctC}%`, background: P.blue }} />
+        <div style={{ width: `${v.pctF}%`, background: P.line }} />
+      </div>
+      <div style={{ fontSize: 13, color: P.faint, fontWeight: 600 }}>{v.tot} kcal · P {v.pctP}% · C {v.pctC}% · G {v.pctF}%</div>
+      {weightTrend && (
+        <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13.5, color: P.dim, lineHeight: 1.45 }}>
+          <TrendingUp size={16} color={weightTrend.tone} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>{weightTrend.msg}</span>
+        </div>
       )}
-      <Card style={{ padding: 14, marginBottom: 14 }}>
-        <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 7 }}>Macros del plan</div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13, color: P.dim }}>Calcular automáticamente:</span>
-          <select value={solve} onChange={(e) => setSolve(e.target.value)} style={{ flex: 1, minWidth: 130, padding: "7px 8px", fontSize: 14 }}>
-            {Object.entries(SOLVE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-          </select>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {macroInput("KCAL", "kcal", "2500")}
-          {macroInput("PROT (g)", "p", "180")}
-          {macroInput("CARB (g)", "c", "280")}
-          {macroInput("GRASA (g)", "f", "70")}
-        </div>
-        {/* Reparto de calorías por macro */}
-        <div style={{ marginTop: 11, padding: "10px 11px", background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10 }}>
-          <div style={{ display: "flex", height: 8, borderRadius: 5, overflow: "hidden", marginBottom: 8, background: P.s3 }}>
-            <div style={{ width: `${v.pctP}%`, background: P.green }} />
-            <div style={{ width: `${v.pctC}%`, background: P.blue }} />
-            <div style={{ width: `${v.pctF}%`, background: P.line }} />
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 12px", fontSize: 12.5, color: P.dim }}>
-            <span><b style={{ color: P.green }}>Proteína</b> {v.p} g · {v.pk} kcal ({v.pctP}%)</span>
-            <span><b style={{ color: P.blue }}>Carbos</b> {v.c} g · {v.ck} kcal ({v.pctC}%)</span>
-            <span><b style={{ color: P.text }}>Grasa</b> {v.f} g · {v.fk} kcal ({v.pctF}%)</span>
-          </div>
-          <div style={{ fontSize: 13.5, color: P.text, fontWeight: 700, marginTop: 6 }}>Total: {v.tot} kcal</div>
-        </div>
-        {/* Objetivo calórico según fase */}
-        <div style={{ marginTop: 11, padding: "10px 11px", background: `${P.s3}`, border: `1px solid ${P.line}`, borderRadius: 10 }}>
-          <div style={{ fontSize: 12, color: P.ember2, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 7 }}>Objetivo calórico</div>
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-            <div style={{ flex: 1, minWidth: 120 }}>
-              <div style={{ fontSize: 11.5, color: P.dim, fontWeight: 700, marginBottom: 3 }}>Mantención (kcal)</div>
-              <Inp type="number" inputMode="numeric" placeholder={estMaint ? String(estMaint) : "2800"} value={n.maintenance === "" || n.maintenance == null ? "" : n.maintenance}
-                onChange={(e) => mut((x) => (x.maintenance = e.target.value === "" ? "" : (+e.target.value || 0)))} style={{ textAlign: "center" }} />
+
+      {/* Comidas: lista plana, cada una con sus alimentos en filas. */}
+      <div style={{ marginTop: 22 }}>
+        {n.meals.map((m, mi) => (
+          <div key={m.id} style={{ borderTop: mi ? `1px solid ${P.fillTertiary}` : "none", padding: "16px 0" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <Inp value={m.name} placeholder="Comida" aria-label="Nombre de la comida" onChange={(e) => mut((x) => (x.meals[mi].name = e.target.value))}
+                style={{ ...bare, fontSize: 19, fontWeight: 700, letterSpacing: "-.02em", flex: 1, minWidth: 0 }} />
+              <Inp type="time" value={m.time} aria-label="Hora" onChange={(e) => mut((x) => (x.meals[mi].time = e.target.value))} style={{ ...bare, width: 104, fontSize: 14, fontWeight: 600, color: P.faint }} />
+              <button onClick={() => mut((x) => x.meals.splice(mi, 1))} aria-label="Quitar comida" style={{ ...tinyBtn, background: "transparent", color: P.faint }}><Trash2 size={17} /></button>
             </div>
-            <div style={{ flex: 1, minWidth: 130 }}>
-              <div style={{ fontSize: 11.5, color: P.dim, fontWeight: 700, marginBottom: 3 }}>Fase</div>
-              <select value={goal} onChange={(e) => mut((x) => (x.goal = e.target.value))} style={{ width: "100%", padding: "9px 8px", fontSize: 14 }}>
-                {Object.entries(GOAL_META).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
-              </select>
-            </div>
-          </div>
-          {estMaint > 0 && (
-            <button onClick={() => mut((x) => (x.maintenance = estMaint))} style={{ fontSize: 12.5, color: P.blue, marginTop: 6, textDecoration: "underline" }}>
-              Estimar mantención por peso (≈ {estMaint} kcal)
-            </button>
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 9, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 14, color: P.dim }}>
-              Objetivo: <b className="disp" style={{ color: GOAL_META[goal].color, fontSize: 16 }}>{maint > 0 ? `${targetK} kcal` : "—"}</b>
-              {maint > 0 && goal !== "mant" && <span style={{ fontSize: 12.5, color: P.faint }}> ({goal === "deficit" ? "−20%" : "+10%"})</span>}
-            </div>
-            <div style={{ flex: 1 }} />
-            {maint > 0 && (() => {
-              // Ajusta el macro que ya esté marcado como "automático" arriba
-              // (proteína, carbos o grasa) — no siempre carbos. Si el modo
-              // automático actual es "kcal" (no tiene sentido aplicar un
-              // objetivo de calorías Y que las calorías sean el valor
-              // derivado a la vez), cae en carbos por defecto.
-              const applyKey = solve === "kcal" ? "c" : solve;
-              const applyLabel = SOLVE_LABEL[applyKey].toLowerCase();
-              return (
-                <Btn kind="ember" small onClick={() => mut((x) => { x.kcal = targetK; x.solve = applyKey; recalc(x, applyKey); })}>
-                  Aplicar y ajustar {applyLabel}
-                </Btn>
-              );
-            })()}
-          </div>
-          <div style={{ fontSize: 12, color: P.faint, marginTop: 7, lineHeight: 1.4 }}>
-            «Aplicar» fija las calorías objetivo y recalcula el macro marcado como automático arriba (proteína, carbohidratos o grasa) manteniendo fijos los otros dos. Cambia el macro automático en «Calcular automáticamente» si quieres ajustar otro.
-          </div>
-          {weightTrend && (
-            <div style={{ marginTop: 11, padding: "10px 11px", background: P.s2, border: `1px solid ${P.line}`, borderRadius: 10, display: "flex", gap: 8, alignItems: "flex-start" }}>
-              <TrendingUp size={15} color={weightTrend.tone} style={{ flexShrink: 0, marginTop: 1 }} />
-              <div style={{ fontSize: 13, color: P.dim, lineHeight: 1.45 }}>
-                <b style={{ color: weightTrend.tone }}>Tendencia real de peso (últimas 2 semanas vs. las 2 anteriores):</b> {weightTrend.msg}
+            {m.items.map((it, ii) => (
+              <div key={it.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <Inp value={it.food} placeholder="Alimento" onChange={(e) => mut((x) => (x.meals[mi].items[ii].food = e.target.value))} style={{ ...bare, flex: 1, minWidth: 0, fontSize: 15.5 }} />
+                <Inp value={it.qty} placeholder="Cantidad" onChange={(e) => mut((x) => (x.meals[mi].items[ii].qty = e.target.value))} style={{ ...bare, width: 96, fontSize: 15, color: P.dim }} />
+                <button onClick={() => mut((x) => x.meals[mi].items.splice(ii, 1))} aria-label="Quitar alimento" style={{ ...tinyBtn, background: "transparent", color: P.faint, width: 30 }}><X size={15} /></button>
               </div>
-            </div>
-          )}
-        </div>
-        <div style={{ marginTop: 10 }}><Txt rows={2} placeholder="Notas generales del plan nutricional…" value={n.notes} onChange={(e) => mut((x) => (x.notes = e.target.value))} /></div>
-      </Card>
-
-      <Card style={{ padding: 14, marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: cyc ? 14 : 0 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, color: P.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Ciclado de carbohidratos</div>
-            <div style={{ fontSize: 13, color: P.dim, marginTop: 3, lineHeight: 1.4 }}>Macros distintos para días de entreno y de descanso. Si hay rutina programada ese día en la Agenda, cuenta como día de entreno.</div>
-          </div>
-          <div style={{ display: "flex", background: P.s1, border: `1px solid ${P.line}`, borderRadius: 10, padding: 3, gap: 3, flexShrink: 0 }}>
-            {[["off", "No", false], ["on", "Sí", true]].map(([id, label, val]) => (
-              <button key={id} onClick={() => mut((x) => (x.cycling = val))} style={{ padding: "5px 9px", borderRadius: 8, fontSize: 12, fontWeight: 700,
-                background: cyc === val ? P.s3 : "transparent", color: cyc === val ? P.text : P.faint, border: `1px solid ${cyc === val ? P.line : "transparent"}` }}>{label}</button>
             ))}
-          </div>
-        </div>
-        {cyc && (
-          <>
-            {macroMiniBlock("train", "Día de entreno", P.ember2)}
-            {macroMiniBlock("rest", "Día de descanso", P.blue)}
-            <div style={{ fontSize: 12, color: P.faint, marginTop: 10, lineHeight: 1.4 }}>Estos macros reemplazan a los de arriba mientras el ciclado esté activado. El alumno ve automáticamente los del tipo de día que le toca hoy.</div>
-          </>
-        )}
-      </Card>
-      {n.meals.map((m, mi) => (
-        <Card key={m.id} style={{ padding: 13, marginBottom: 10 }}>
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <Inp value={m.name} placeholder="Nombre de la comida" onChange={(e) => mut((x) => (x.meals[mi].name = e.target.value))} />
-            <Inp type="time" value={m.time} onChange={(e) => mut((x) => (x.meals[mi].time = e.target.value))} style={{ width: 110 }} />
-            <button onClick={() => mut((x) => x.meals.splice(mi, 1))} aria-label="Quitar comida" style={{ color: P.faint }}><Trash2 size={16} /></button>
-          </div>
-          {/* Calorías de la comida. Es opcional: sin esto el alumno ve la
-              comida igual, solo que no se le puede decir cuánto lleva
-              consumido del objetivo del día. */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
-            <Inp type="number" inputMode="numeric" value={m.kcal === "" || m.kcal == null ? "" : m.kcal} placeholder="kcal de esta comida"
-              onChange={(e) => mut((x) => (x.meals[mi].kcal = e.target.value === "" ? "" : (+e.target.value || 0)))} style={{ width: 150 }} />
-            <span style={{ fontSize: 12.5, color: P.faint }}>opcional · suma al total del día</span>
-          </div>
-          {m.items.map((it, ii) => (
-            <div key={it.id} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-              <Inp value={it.food} placeholder="Alimento" onChange={(e) => mut((x) => (x.meals[mi].items[ii].food = e.target.value))} />
-              <Inp value={it.qty} placeholder="Cantidad" onChange={(e) => mut((x) => (x.meals[mi].items[ii].qty = e.target.value))} style={{ width: 110 }} />
-              <button onClick={() => mut((x) => x.meals[mi].items.splice(ii, 1))} style={{ color: P.faint }}><X size={15} /></button>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+              <button onClick={() => mut((x) => x.meals[mi].items.push({ id: uid(), food: "", qty: "" }))} aria-label="Añadir alimento" title="Añadir alimento" style={tinyBtn}><Plus size={17} /></button>
+              <Inp type="number" inputMode="numeric" value={m.kcal === "" || m.kcal == null ? "" : m.kcal} placeholder="kcal" aria-label="kcal de esta comida"
+                onChange={(e) => mut((x) => (x.meals[mi].kcal = e.target.value === "" ? "" : (+e.target.value || 0)))} style={{ ...bare, width: 64, fontSize: 14, fontWeight: 600 }} />
+              <Inp value={m.notes} placeholder="Nota" aria-label="Nota de esta comida" onChange={(e) => mut((x) => (x.meals[mi].notes = e.target.value))} style={{ ...bare, flex: 1, minWidth: 0, fontSize: 14, color: P.dim }} />
             </div>
-          ))}
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <Btn kind="line" small onClick={() => mut((x) => x.meals[mi].items.push({ id: uid(), food: "", qty: "" }))}><Plus size={13} /> Alimento</Btn>
-            <Inp value={m.notes} placeholder="Nota de esta comida (opcional)" onChange={(e) => mut((x) => (x.meals[mi].notes = e.target.value))} style={{ fontSize: 14 }} />
           </div>
-        </Card>
-      ))}
-      <Btn kind="ember" style={{ width: "100%" }} onClick={() => mut((x) => x.meals.push({ id: uid(), name: `Comida ${n.meals.length + 1}`, time: "", kcal: "", items: [{ id: uid(), food: "", qty: "" }], notes: "" }))}>
-        <Plus size={16} /> Añadir comida
-      </Btn>
+        ))}
+      </div>
+      <button onClick={() => mut((x) => x.meals.push({ id: uid(), name: `Comida ${n.meals.length + 1}`, time: "", kcal: "", items: [{ id: uid(), food: "", qty: "" }], notes: "" }))}
+        aria-label="Añadir comida" title="Añadir comida"
+        style={{ width: "100%", height: 56, borderRadius: 28, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Plus size={24} />
+      </button>
 
-      {/* Suplementos. El modelo (plan.nutrition.supplements) ya existía y
-          el alumno ya los marcaba en Nutrición, pero no había forma de
-          cargarlos: la lista nacía siempre vacía. Acá se cargan, con dosis
-          y momento, y con el bloque en que los ve el alumno ("Diario" o
-          "Entreno"). Los ítems viejos, que solo tienen nombre, siguen
-          válidos y caen en "Diario". */}
-      <div style={{ marginTop: 26 }}>
-        <div className="mono" style={{ margin: "0 4px 8px" }}>Suplementos</div>
+      {/* Suplementos: una fila por suplemento; días y bloque en fichas chicas. */}
+      <div style={{ marginTop: 30 }}>
+        <div className="mono" style={{ margin: "0 0 6px" }}>Suplementos</div>
         {(n.supplements || []).map((sp, si) => (
-          <Card key={sp.id} style={{ padding: 13, marginBottom: 10 }}>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <Inp value={sp.name} placeholder="Nombre del suplemento" onChange={(e) => mut((x) => (x.supplements[si].name = e.target.value))} />
-              <button onClick={() => mut((x) => x.supplements.splice(si, 1))} aria-label="Quitar suplemento" style={{ color: P.faint }}><Trash2 size={16} /></button>
+          <div key={sp.id} style={{ borderTop: si ? `1px solid ${P.fillTertiary}` : "none", padding: "14px 0" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <Inp value={sp.name} placeholder="Suplemento" aria-label="Nombre del suplemento" onChange={(e) => mut((x) => (x.supplements[si].name = e.target.value))}
+                style={{ ...bare, flex: 1, minWidth: 0, fontSize: 17, fontWeight: 700 }} />
+              <button onClick={() => mut((x) => x.supplements.splice(si, 1))} aria-label="Quitar suplemento" style={{ ...tinyBtn, background: "transparent", color: P.faint }}><Trash2 size={17} /></button>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Inp value={sp.dose || ""} placeholder="Dosis (5 g)" onChange={(e) => mut((x) => (x.supplements[si].dose = e.target.value))} />
-              <Inp value={sp.when || ""} placeholder="Momento (pre entreno)" onChange={(e) => mut((x) => (x.supplements[si].when = e.target.value))} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <Inp value={sp.dose || ""} placeholder="Dosis" aria-label="Dosis" onChange={(e) => mut((x) => (x.supplements[si].dose = e.target.value))} style={{ ...bare, flex: 1, minWidth: 0, fontSize: 15 }} />
+              <Inp value={sp.when || ""} placeholder="Momento" aria-label="Momento" onChange={(e) => mut((x) => (x.supplements[si].when = e.target.value))} style={{ ...bare, flex: 1, minWidth: 0, fontSize: 15, color: P.dim }} />
+              <Inp type="time" value={sp.notifyTime || ""} aria-label="Hora del recordatorio" onChange={(e) => mut((x) => (x.supplements[si].notifyTime = e.target.value))} style={{ ...bare, width: 104, fontSize: 14, color: P.faint }} />
             </div>
-            {/* Hora exacta (opcional): sin esto no hay de qué recordatorio
-                mandar — "cada día" no dice A QUÉ HORA. Vacía, el ítem sigue
-                andando igual (se ve en Suplementación y en el calendario),
-                solo que sin recordatorio. */}
-            <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-              <Inp type="time" value={sp.notifyTime || ""} onChange={(e) => mut((x) => (x.supplements[si].notifyTime = e.target.value))} style={{ width: 110 }} />
-              <span style={{ fontSize: 12.5, color: P.faint }}>hora del recordatorio (opcional)</span>
-            </div>
-            {/* Qué días de la semana toca: vacío = todos los días. Es lo
-                que hace falta para protocolos de 2-3 veces por semana
-                (ej. una inyección lunes y jueves), no solo "diario". */}
             <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
               {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((k) => {
                 const days = sp.days || [];
-                const on = days.includes(k);
+                const on = days.includes(k) || days.length === 0;
                 return (
                   <button key={k} onClick={() => mut((x) => {
                     const cur = x.supplements[si].days || [];
                     x.supplements[si].days = cur.includes(k) ? cur.filter((d) => d !== k) : [...cur, k];
                   })}
-                    aria-label={`${DOW_LETTERS[k]} ${on ? "activado" : "desactivado"}`}
-                    style={{ flex: 1, padding: "7px 0", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
-                      background: on ? P.text : P.s3, color: on ? P.s1 : P.faint, border: "none" }}>{DOW_LETTERS[k]}</button>
+                    aria-label={`${DOW_LETTERS[k]} ${days.includes(k) ? "activado" : "desactivado"}`}
+                    style={{ flex: 1, padding: "8px 0", borderRadius: 999, fontSize: 12.5, fontWeight: 700,
+                      background: days.includes(k) ? P.text : P.s3, color: days.includes(k) ? P.s1 : P.faint, opacity: on ? 1 : .6, border: "none" }}>{DOW_LETTERS[k]}</button>
                 );
               })}
             </div>
-            <div style={{ fontSize: 11.5, color: P.faint2, marginTop: 4 }}>
-              {(sp.days || []).length === 0 ? "Todos los días" : "Solo los días marcados"}
-            </div>
-            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
               {SUPP_GROUPS.map(([gid, glabel]) => {
                 const on = (sp.group || "diario") === gid;
                 return (
-                  <button key={gid} onClick={() => mut((x) => (x.supplements[si].group = gid))}
-                    style={{ flex: 1, padding: "8px 6px", borderRadius: 9, fontSize: 13.5, fontWeight: 600,
-                      background: on ? P.s3 : "transparent", color: on ? P.text : P.faint,
-                      border: `1px solid ${on ? P.line : "transparent"}` }}>{glabel}</button>
+                  <button key={gid} onClick={() => mut((x) => (x.supplements[si].group = gid))} aria-pressed={on}
+                    style={{ flex: 1, padding: "8px 6px", borderRadius: 999, fontSize: 13.5, fontWeight: 700,
+                      background: on ? P.s3 : "transparent", color: on ? P.text : P.faint, border: "none" }}>{glabel}</button>
                 );
               })}
             </div>
-          </Card>
+          </div>
         ))}
-        <Btn kind="line" style={{ width: "100%" }}
-          onClick={() => mut((x) => { x.supplements = [...(x.supplements || []), { id: uid(), name: "", dose: "", when: "", group: "diario", days: [], notifyTime: "" }]; })}>
-          <Plus size={16} /> Añadir suplemento
-        </Btn>
+        <button onClick={() => mut((x) => { x.supplements = [...(x.supplements || []), { id: uid(), name: "", dose: "", when: "", group: "diario", days: [], notifyTime: "" }]; })}
+          aria-label="Añadir suplemento" title="Añadir suplemento"
+          style={{ width: "100%", height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Plus size={22} />
+        </button>
       </div>
+
+      {/* Objetivo calórico, ciclado y notas: lo que se toca poco, aparte. */}
+      <Sheet open={ajOpen} onClose={() => setAjOpen(false)} title="Objetivo y ciclado">
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 120 }}>
+            <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, marginBottom: 4 }}>Mantención (kcal)</div>
+            <Inp type="number" inputMode="numeric" placeholder={estMaint ? String(estMaint) : "2800"} value={n.maintenance === "" || n.maintenance == null ? "" : n.maintenance}
+              onChange={(e) => mut((x) => (x.maintenance = e.target.value === "" ? "" : (+e.target.value || 0)))} style={{ textAlign: "center" }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 130 }}>
+            <div style={{ fontSize: 13, color: P.faint, fontWeight: 700, marginBottom: 4 }}>Fase</div>
+            <select value={goal} onChange={(e) => mut((x) => (x.goal = e.target.value))} style={{ width: "100%", padding: "14px 10px", fontSize: 15 }}>
+              {Object.entries(GOAL_META).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+            </select>
+          </div>
+        </div>
+        {estMaint > 0 && (
+          <button onClick={() => mut((x) => (x.maintenance = estMaint))} style={{ fontSize: 13.5, color: P.blue, marginTop: 8, textDecoration: "underline" }}>
+            Estimar por peso (≈ {estMaint} kcal)
+          </button>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14 }}>
+          <div className="disp" style={{ fontSize: 28, fontWeight: 800, color: GOAL_META[goal].color }}>{maint > 0 ? `${targetK} kcal` : "—"}</div>
+          <div style={{ flex: 1 }} />
+          {maint > 0 && (() => {
+            const applyKey = solve === "kcal" ? "c" : solve;
+            return (
+              <Btn kind="ember" small onClick={() => { mut((x) => { x.kcal = targetK; x.solve = applyKey; recalc(x, applyKey); }); setAjOpen(false); }}>
+                <Check size={15} /> Aplicar
+              </Btn>
+            );
+          })()}
+        </div>
+        <div style={{ height: 1, background: P.fillTertiary, margin: "20px 0" }} />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: cyc ? 14 : 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>Ciclado de carbohidratos</div>
+          <button onClick={() => mut((x) => (x.cycling = !cyc))} role="switch" aria-checked={cyc} aria-label="Ciclado de carbohidratos"
+            style={{ width: 52, height: 32, borderRadius: 16, background: cyc ? PLATE_GRAD : P.s3, position: "relative", flexShrink: 0 }}>
+            <span style={{ position: "absolute", top: 3, left: cyc ? 23 : 3, width: 26, height: 26, borderRadius: "50%", background: cyc ? PLATE_FG : P.s1, transition: `left ${DUR_MICRO}ms ${EASE_STD}` }} />
+          </button>
+        </div>
+        {cyc && (
+          <>
+            {macroMiniBlock("train", "Día de entreno", P.ember2)}
+            {macroMiniBlock("rest", "Día de descanso", P.blue)}
+          </>
+        )}
+        <div style={{ height: 1, background: P.fillTertiary, margin: "20px 0" }} />
+        <Txt rows={3} placeholder="Notas generales del plan" value={n.notes} onChange={(e) => mut((x) => (x.notes = e.target.value))} />
+      </Sheet>
     </div>
   );
 };
@@ -19043,9 +18941,10 @@ const InstructionsEditor = ({ plan, savePlan }) => {
           <Txt value={it.body} placeholder="Detalle de la indicación…" onChange={(e) => mut((p) => (p.instructions[i].body = e.target.value))} />
         </Card>
       ))}
-      <Btn kind="ember" style={{ width: "100%" }} onClick={() => mut((p) => p.instructions.push({ id: uid(), title: "", body: "" }))}>
-        <Plus size={16} /> Añadir indicación
-      </Btn>
+      <button onClick={() => mut((p) => p.instructions.push({ id: uid(), title: "", body: "" }))} aria-label="Añadir indicación" title="Añadir indicación"
+        style={{ width: "100%", height: 56, borderRadius: 28, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Plus size={24} />
+      </button>
     </div>
   );
 };
@@ -19096,7 +18995,7 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
 
   return (
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
-      <ScreenTitle title="Atletas" sub={`${rows.length} ${rows.length === 1 ? "alumno" : "alumnos"} · toca uno para gestionarlo`} />
+      <ScreenTitle title="Atletas" right={<span style={{ fontSize: 22, fontWeight: 800, color: P.faint }}>{rows.length}</span>} />
       <div style={{ position: "relative", marginBottom: 12 }}>
         <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
         <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar atleta" aria-label="Buscar atleta"
@@ -19119,30 +19018,27 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
         // (el mismo vistazo de siempre, sin salir de esta lista).
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filtered.map((r) => (
-            <Card key={r.id} style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ width: 34, height: 34, borderRadius: 17, background: P.s3, border: `1px solid ${P.line}`,
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 13.5, fontWeight: 700, color: P.faint }}>
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 4px", borderBottom: `1px solid ${P.fillTertiary}` }}>
+              <button onClick={() => onManage(r.id)} aria-label={`Gestionar a ${r.name}`}
+                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 14, textAlign: "left" }}>
+                <span style={{ width: 48, height: 48, borderRadius: 24, background: P.s3,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 18, fontWeight: 800, color: P.text }}>
                   {(r.name || "?").trim().charAt(0).toUpperCase()}
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
-                  <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>última {lastLabel(r.lastDays).toLowerCase()}</div>
+                  <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: "-.02em", color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                  <div style={{ fontSize: 14, color: P.faint, marginTop: 1, fontWeight: 600 }}>{lastLabel(r.lastDays).toLowerCase()}</div>
                 </div>
-                {/* `SES.acc` (el mismo verde de la sesión, ahora acorde al
-                    tema claro/oscuro) en vez de `P.green` — ese token quedó
-                    monocromo a propósito en el resto de la app; acá SÍ hace
-                    falta un color real para leer la adherencia de un vistazo. */}
                 {r.pct != null && (
-                  <span style={{ fontSize: 15, fontWeight: 700, flexShrink: 0, fontVariantNumeric: "tabular-nums",
+                  <span style={{ fontSize: 22, fontWeight: 800, flexShrink: 0, fontVariantNumeric: "tabular-nums", letterSpacing: "-.03em",
                     color: r.pct >= 70 ? SES.acc : P.faint }}>{r.pct}%</span>
                 )}
-              </div>
-              <ActionRow>
-                <Btn kind="ember" small onClick={() => onManage(r.id)} style={{ width: "100%" }}><ClipboardList size={13} /> Gestionar</Btn>
-                <Btn kind="line" small onClick={() => openDetail(r)} style={{ width: "100%" }}><History size={13} /> Actividad</Btn>
-              </ActionRow>
-            </Card>
+              </button>
+              <button onClick={() => openDetail(r)} aria-label={`Actividad de ${r.name}`} title="Actividad"
+                style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <History size={20} />
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -19881,7 +19777,7 @@ const BillingConfigCard = () => {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>Cobro online</div>
           <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>
-            {cfg.connected ? `${BILLING_PROVIDERS.find((p) => p.id === cfg.provider)?.label} · clave pública configurada` : "No conectado — los pagos de arriba se registran a mano"}
+            {cfg.connected ? BILLING_PROVIDERS.find((p) => p.id === cfg.provider)?.label : "No conectado"}
           </div>
         </div>
         <Btn kind="line" small onClick={() => setOpen(true)}>{cfg.connected ? "Editar" : "Configurar"}</Btn>
@@ -20239,20 +20135,19 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
             </div>
           ) },
           { key: "accesos", span: "full", node: (
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Accesos</div>
-              <SettingGroup>
-                <SettingRow Icon={ClipboardList} label="Nueva rutina" onClick={onNewRoutine} />
-                <SettingRow Icon={UserPlus} label="Agregar atleta" onClick={onAddStudent} />
-                <SettingRow Icon={DollarSign} label="Cobrar cuota" onClick={onOpenCobros} last={!onOpenTeam} />
-                {onOpenTeam && (
-                  <SettingRow Icon={Award} label="Equipo y roles" onClick={onOpenTeam} last
-                    right={<span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      {teamSize != null && <span style={{ fontSize: 15, color: P.faint2 }}>{teamSize}</span>}
-                      <ChevronRight size={17} color={P.faint} strokeWidth={2.4} />
-                    </span>} />
-                )}
-              </SettingGroup>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {[
+                [ClipboardList, "Nueva rutina", onNewRoutine, true],
+                [UserPlus, "Agregar atleta", onAddStudent, false],
+                [DollarSign, "Cobrar cuota", onOpenCobros, false],
+                onOpenTeam ? [Award, `Equipo y roles${teamSize != null ? ` (${teamSize})` : ""}`, onOpenTeam, false] : null,
+              ].filter(Boolean).map(([Icon, label, fn, primary]) => (
+                <button key={label} onClick={fn} aria-label={label} title={label}
+                  style={{ flex: 1, height: 56, borderRadius: 28, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: primary ? PLATE_GRAD : P.s2, color: primary ? PLATE_FG : P.text }}>
+                  <Icon size={22} />
+                </button>
+              ))}
             </div>
           ) },
         ].filter((pn) => pn && pn.node);   // un panel sin contenido no ocupa celda
@@ -20374,8 +20269,8 @@ const CobrosTab = ({ roster, toast }) => {
             </div>
             {lastPay && <div style={{ fontSize: 12, color: P.faint, marginTop: 6 }}>Último pago: {fmtDateFull(lastPay.date)} · {fmtMoney(lastPay.amount, r.pay.currency)}</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <Btn kind="line" small onClick={() => setEditing(r.id)} style={{ flex: 1 }}><PencilLine size={13} /> Pack</Btn>
-              <Btn kind="ember" small onClick={() => { setPayingId(r.id); setAmountDraft(r.pay.amount ? String(r.pay.amount) : ""); setNoteDraft(""); }} style={{ flex: 1 }}><Check size={13} /> Registrar pago</Btn>
+              <button onClick={() => setEditing(r.id)} aria-label={`Pack de ${r.name}`} title="Pack" style={{ flex: 1, height: 48, borderRadius: 24, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}><PencilLine size={20} /></button>
+              <button onClick={() => { setPayingId(r.id); setAmountDraft(r.pay.amount ? String(r.pay.amount) : ""); setNoteDraft(""); }} aria-label={`Registrar pago de ${r.name}`} title="Registrar pago" style={{ flex: 1, height: 48, borderRadius: 24, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}><Check size={22} /></button>
             </div>
           </Card>
         );
@@ -23372,15 +23267,10 @@ const AITab = ({ plan, savePlan, history, currentStudent, toast, jumpSub, onJump
 };
 
 const SubNav = ({ sub, setSub }) => (
-  <div style={{ display: "flex", gap: 5, overflowX: "auto", marginBottom: 6, padding: "8px 0", WebkitOverflowScrolling: "touch",
-    position: "sticky", top: 0, zIndex: 7, background: P.bg }}>
-    {[["agente", "Agente"], ["ficha", "Ficha"], ["volumen", "Volumen"], ["saber", "Saber"], ["nutricion", "Nutrición"]].map(([id, label]) => {
-      const on = sub === id;
-      return (
-        <button key={id} onClick={() => setSub(id)} style={{ flexShrink: 0, padding: "7px 13px", borderRadius: 10, fontSize: 14, fontWeight: 600,
-          background: on ? P.s3 : "transparent", border: `1px solid ${on ? P.line : "transparent"}`, color: on ? P.text : P.faint }}>{label}</button>
-      );
-    })}
+  <div style={{ marginBottom: 6, padding: "8px 0", position: "sticky", top: 0, zIndex: 7, background: P.bg }}>
+    <SectionSwitch value={sub} onChange={setSub}
+      items={[["agente", "Agente", Sparkles], ["ficha", "Ficha", FileText], ["volumen", "Volumen", BarChart3], ["saber", "Saber", BookOpen], ["nutricion", "Nutrición", Utensils]]
+        .map(([id, label, Icon]) => ({ id, label, Icon }))} />
   </div>
 );
 
@@ -26099,6 +25989,11 @@ const TABS = {
     { id: "cmas", label: "Más", Icon: MoreHorizontal, sections: ["cmas"] },
   ],
 };
+const SECTION_ICONS = {
+  chat: MessageSquare, indicaciones: ClipboardList, cmas: MoreHorizontal,
+  actividad: History, progresion: TrendingUp, rankings: Trophy, cobros: DollarSign, leads: UserPlus,
+  rutina: Dumbbell, creador: Layers, borradores: PencilLine, nutricion: Utensils, ia: Sparkles,
+};
 const SECTION_LABELS = {
   chat: "Chat", indicaciones: "Indicaciones", cmas: "Más",
   actividad: "Actividad", progresion: "Progresión", rankings: "Rankings", cobros: "Cobros", leads: "Leads",
@@ -27960,7 +27855,7 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
 
   return (
     <div style={{ padding: `18px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
-      <ScreenTitle title="Creador de rutinas" sub="Todas tus rutinas de un vistazo — comparalas por volumen y saltá a editarlas en «Rutina»."
+      <ScreenTitle title="Creador" sub="Todas tus rutinas de un vistazo — comparalas por volumen y saltá a editarlas en «Rutina»."
         tabs={<SectionSwitch compact value={modo} onChange={setModo}
           items={[{ id: "cards", label: "Rutinas" }, { id: "comparar", label: "Comparar" }]} />} />
 
@@ -28883,20 +28778,24 @@ const SectionSwitch = ({ items, value, onChange, style, compact }) => {
   const n = items.length;
   const many = compact || n >= 4;
   const tight = n >= 5;
+  // Con ícono en todas las opciones el segmentado es solo íconos (como la
+  // barra de abajo); el nombre queda en aria-label/title.
+  const iconOnly = items.every((it) => it.Icon);
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`,
-      gap: 3, background: P.s4, borderRadius: 10, padding: 3, ...style }}>
-      {items.map(({ id, label }) => {
+      gap: 3, background: P.s4, borderRadius: 999, padding: 4, ...style }}>
+      {items.map(({ id, label, Icon }) => {
         const on = value === id;
         return (
-          <button key={id} onClick={() => onChange(id)} title={label}
-            style={{ minWidth: 0, textAlign: "center", padding: tight ? "9px 1px" : many ? "9px 2px" : "9px 6px", borderRadius: 8,
-              background: on ? P.s1 : "transparent", color: on ? P.text : P.faint,
-              // Única sombra permitida en todo el sistema: la pastilla del
-              // segmentado. El README la lista como la excepción explícita.
-              boxShadow: on ? "0 2px 6px -3px rgba(0,0,0,.3)" : "none",
+          <button key={id} onClick={() => onChange(id)} title={label} aria-label={label} aria-pressed={on}
+            style={{ minWidth: 0, textAlign: "center", padding: iconOnly ? "11px 0" : tight ? "9px 1px" : many ? "9px 2px" : "9px 6px", borderRadius: 999,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: on ? PLATE_GRAD : "transparent", color: on ? PLATE_FG : P.faint,
               fontSize: tight ? 11.5 : many ? 12.5 : 13.5, fontWeight: on ? 700 : 600,
-              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</button>
+              transition: `background ${DUR_ROW}ms ${EASE_STD}, color ${DUR_ROW}ms ${EASE_STD}`,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {iconOnly ? <Icon size={21} strokeWidth={on ? 2.4 : 2} /> : label}
+          </button>
         );
       })}
     </div>
@@ -28933,7 +28832,7 @@ const ScreenTitle = ({ eyebrow, title, right, sub, tabs, actions }) => (
       <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: 1 }}>
         {eyebrow && <div className="mono" style={{ letterSpacing: ".16em" }}>{eyebrow}</div>}
         <h1 style={{ margin: 0, ...TYPE.large }}>{title}</h1>
-        {sub && (
+        {sub && String(sub).length <= 32 && (
           <div style={{ ...TYPE.footnote, color: P.faint, overflow: "hidden", textOverflow: "ellipsis",
             display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{sub}</div>
         )}
@@ -31489,7 +31388,7 @@ const App = () => {
             (Atletas, Rutinas). Con una sola sección no se dibuja nada. */}
         {!utility && tabSections.length > 1 && (
           <div style={{ padding: "6px 16px 2px" }}>
-            <SectionSwitch compact items={tabSections.map((x) => ({ id: x, label: SECTION_LABELS[x] || x }))}
+            <SectionSwitch compact items={tabSections.map((x) => ({ id: x, label: SECTION_LABELS[x] || x, Icon: SECTION_ICONS[x] }))}
               value={sub} onChange={(v) => setSection((o) => ({ ...o, [tab]: v }))} />
           </div>
         )}
