@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v384";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v385";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7349,13 +7349,13 @@ const AtletasMensajesTab = ({ roster, toast }) => {
         </Card>
       )}
       <Sheet open={!!openStudent} onClose={() => setOpenStudent(null)} title={openStudent ? openStudent.name : "Chat"} tall>
-        {openStudent && <ChatTab sid={openStudent.id} role="coach" studentName={openStudent.name} />}
+        {openStudent && <ChatTab inSheet sid={openStudent.id} role="coach" studentName={openStudent.name} />}
       </Sheet>
     </div>
   );
 };
 
-const ChatTab = ({ sid, role, studentName }) => {
+const ChatTab = ({ sid, role, studentName, inSheet }) => {
   const [msgs, setMsgs] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [text, setText] = useState("");
@@ -7444,7 +7444,7 @@ const ChatTab = ({ sid, role, studentName }) => {
         </div>
       </div>
 
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "flex", flexDirection: "column", gap: 12, padding: "18px 18px 84px", minHeight: "46vh" }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "flex", flexDirection: "column", gap: 12, padding: inSheet ? "18px 18px 96px" : "18px 18px 84px", minHeight: "46vh" }}>
         {loaded && msgs.length === 0 && (
           <div style={{ textAlign: "center", fontSize: 13.5, color: MONO.inkDim, padding: "20px 10px" }}>Todavía no hay mensajes. Escribe el primero.</div>
         )}
@@ -7488,9 +7488,9 @@ const ChatTab = ({ sid, role, studentName }) => {
       </div>
 
       {/* Barra de composición: "+" 44px, campo, envío 44px en tinta */}
-      <div style={{ position: "fixed", left: 0, right: 0, bottom: "var(--fj-tabbar-h)", zIndex: 45,
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: inSheet ? 0 : "var(--fj-tabbar-h)", zIndex: 45,
         maxWidth: "var(--fj-w)", margin: "0 auto",
-        display: "flex", alignItems: "center", gap: 10, padding: "12px 18px",
+        display: "flex", alignItems: "center", gap: 10, padding: inSheet ? "10px 18px calc(10px + env(safe-area-inset-bottom))" : "12px 18px",
         background: MONO.surface, borderTop: `1px solid ${MONO.line}` }}>
         <ChatPlusButton onAttached={sendAttach} />
         <input value={text} onChange={(e) => setText(e.target.value)}
