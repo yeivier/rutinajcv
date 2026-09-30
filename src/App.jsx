@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v372";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v373";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -12113,153 +12113,85 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
   if (listMode) {
     return (
       <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-        <ScreenTitle title="Entrenar" sub="Elige la rutina y el día. Te preguntamos el gimnasio y arranca." />
-        {/* Exportar todas las rutinas del plan (PDF / Word), ordenadas por
-            rutina y día. Solo si hay algo que exportar. */}
-        {plan.days.length > 0 && (
-          <div style={{ display: "flex", marginBottom: 12 }}>
-            <RoutinesExportButton plan={plan} toast={toast} small block />
+        <ScreenTitle title="Entrenar" right={plan.days.length > 0 ? <RoutinesExportButton plan={plan} toast={toast} iconOnly /> : null} />
+
+        {/* Acciones: solo íconos, en una fila. Entrenamiento libre (principal),
+            registrar una sesión pasada, empezar un programa conocido y crear
+            una rutina propia. Cada una lleva su nombre en aria-label/title. */}
+        {!active && (
+          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr", gap: 10, marginBottom: 28 }}>
+            <button onClick={() => setPidiendoGym({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true })}
+              aria-label="Entrenamiento libre" title="Entrenamiento libre"
+              style={{ height: 60, borderRadius: 30, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Plus size={26} strokeWidth={2.6} />
+            </button>
+            {[
+              plan.days.length > 0 && { k: "pasada", Icon: History, label: "Registrar sesión pasada", on: () => setPastOpen(true) },
+              { k: "prog", Icon: Trophy, label: "Empezar con un programa conocido", on: () => setProgramasOpen(true) },
+              { k: "crear", Icon: ClipboardList, label: "Crear mi rutina", on: () => {
+                const nombre = (prompt("Nombre de tu rutina\n(por ejemplo: «Pecho y hombro» o «Día de pierna»)", "") || "").trim();
+                if (!nombre) return;
+                const np = structuredClone(plan);
+                np.days = [...(np.days || []), { id: uid(), name: nombre, routine: ROUTINE_MIA, exs: [] }];
+                np.routineNames = { ...(np.routineNames || {}) };
+                if (!np.routineNames[ROUTINE_MIA]) np.routineNames[ROUTINE_MIA] = ROUTINE_MIA_LABEL;
+                np.updatedAt = todayISO();
+                savePlan(np);
+                toast && toast(`✓ «${nombre}» creada — entrénala y agrégale ejercicios`);
+              } },
+            ].filter(Boolean).map((x) => (
+              <button key={x.k} onClick={x.on} aria-label={x.label} title={x.label}
+                style={{ height: 60, borderRadius: 30, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <x.Icon size={22} strokeWidth={2} />
+              </button>
+            ))}
           </div>
-        )}
-        {/* Entrenamiento libre: empezar una sesión vacía y armarla sobre la
-            marcha (agregar ejercicios, series, reps…) durante el propio
-            entrenamiento. Deshabilitado mientras hay una sesión en curso. */}
-        {!active && (
-          <button onClick={() => setPidiendoGym({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true })}
-            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
-              padding: "12px 14px", borderRadius: R_CARD, background: PLATE_GRAD, color: PLATE_FG, border: "none" }}>
-            <span style={{ width: 34, height: 34, borderRadius: 11, background: "rgba(255,255,255,.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Plus size={20} />
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 15.5 }}>Entrenamiento libre</div>
-              <div style={{ fontSize: 12.5, opacity: .8, marginTop: 1 }}>Empieza vacío, agregá sobre la marcha</div>
-            </div>
-            <ChevronRight size={18} />
-          </button>
-        )}
-        {/* Registrar una sesión PASADA: el atleta entrenó (o pudo entrenar)
-            un día de esta semana o la anterior y se le olvidó cargar los
-            datos. Elige el día y la fecha y entra al mismo Focus Mode —
-            optimizado, con series, comentarios y conversor kg/lb— pero la
-            sesión queda archivada en la fecha y la semana que corresponde. */}
-        {!active && plan.days.length > 0 && (
-          <button onClick={() => setPastOpen(true)}
-            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
-              padding: "12px 14px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
-            <span style={{ width: 34, height: 34, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <History size={19} />
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 15.5 }}>Registrar sesión pasada</div>
-              <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>¿Entrenaste y no lo cargaste?</div>
-            </div>
-            <ChevronRight size={18} color={P.faint} />
-          </button>
-        )}
-        {/* Crear una rutina propia desde cero. El atleta le pone nombre y
-            queda como un día más en "Mis rutinas": desde ahí la entrena
-            cuando quiera y le agrega ejercicios en vivo, igual que en el
-            entrenamiento libre. Es lo que faltaba para que el modo libre
-            sirva más de una vez. */}
-        {!active && (
-          <button onClick={() => setProgramasOpen(true)}
-            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
-              padding: "12px 14px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
-            <span style={{ width: 34, height: 34, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Trophy size={19} />
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 15.5 }}>Empezar con un programa conocido</div>
-              <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>StrongLifts, PPL, nSuns, GZCL, GVT, RP</div>
-            </div>
-            <ChevronRight size={18} color={P.faint} />
-          </button>
         )}
         <ProgramasSheet open={programasOpen} onClose={() => setProgramasOpen(false)}
           onCopiar={copiarPrograma} />
-        {!active && (
-          <button onClick={() => {
-              const nombre = (prompt("Nombre de tu rutina\n(por ejemplo: «Pecho y hombro» o «Día de pierna»)", "") || "").trim();
-              if (!nombre) return;
-              const np = structuredClone(plan);
-              np.days = [...(np.days || []), { id: uid(), name: nombre, routine: ROUTINE_MIA, exs: [] }];
-              np.routineNames = { ...(np.routineNames || {}) };
-              if (!np.routineNames[ROUTINE_MIA]) np.routineNames[ROUTINE_MIA] = ROUTINE_MIA_LABEL;
-              np.updatedAt = todayISO();
-              savePlan(np);
-              toast && toast(`✓ «${nombre}» creada — entrénala y agrégale ejercicios`);
-            }}
-            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
-              padding: "12px 14px", borderRadius: R_CARD, background: P.s1, color: P.text, border: `1px solid ${P.frame}` }}>
-            <span style={{ width: 34, height: 34, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <ClipboardList size={19} />
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 15.5 }}>Crear mi rutina</div>
-              <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>Tuya, aparte de las del coach</div>
-            </div>
-            <ChevronRight size={18} color={P.faint} />
-          </button>
-        )}
         {active && (
-          <Card style={{ padding: 16, marginBottom: 14, borderColor: P.text, borderWidth: 1.5 }}>
-            <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 3 }}>Sesión en curso: {active.dayName}</div>
-            <div style={{ fontSize: 13.5, color: P.dim, marginBottom: 10 }}>Estás mirando la rutina. Tu registro sigue guardado tal como lo dejaste.</div>
-            <Btn kind="ember" small onClick={() => setBrowsing(false)} style={{ width: "100%" }}>
-              <Play size={15} /> Volver a mi sesión
-            </Btn>
-          </Card>
+          <button onClick={() => setBrowsing(false)} aria-label="Volver a mi sesión" title="Volver a mi sesión"
+            style={{ width: "100%", height: 60, borderRadius: 30, marginBottom: 28, background: PLATE_GRAD, color: PLATE_FG,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 16, fontWeight: 700 }}>
+            <Play size={20} /> {active.dayName}
+          </button>
         )}
         {plan.days.length === 0 ? (
           <Empty icon={Dumbbell} title="Aún no hay rutina" body="Tu coach todavía no carga días de entrenamiento. Pídele que entre en modo Coach y arme el plan." />
-        ) : routineGroups.map((g) => {
-          const open = openRoutines.includes(g.key);
-          return (
-            <Card key={g.key} style={{ marginBottom: 12, overflow: "hidden" }}>
-              <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-                style={{ width: "100%", textAlign: "left", padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: open ? PLATE_GRAD : P.s3, color: open ? PLATE_FG : P.faint, fontSize: 16, fontWeight: 700, flexShrink: 0 }}>{g.key}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="disp" style={{ fontWeight: 700, fontSize: 18, textTransform: "uppercase" }}>{g.label}</div>
-                  <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>
-                    {g.days.length} entrenamiento{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series
-                  </div>
-                  {g.note && <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2, lineHeight: 1.35 }}>{g.note}</div>}
+        ) : (
+          <div>
+            {routineGroups.map((g, gi) => {
+              const open = openRoutines.includes(g.key);
+              return (
+                <div key={g.key} style={{ borderTop: gi ? `1px solid ${P.fillTertiary}` : "none" }}>
+                  <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
+                    style={{ width: "100%", textAlign: "left", padding: "20px 2px", display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0, fontWeight: 800, fontSize: 22, letterSpacing: "-.03em", lineHeight: 1.15, overflowWrap: "anywhere" }}>{g.label}</div>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: P.faint, flexShrink: 0 }}>{g.days.length}</span>
+                    <ChevronDown size={20} color={P.faint} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+                  </button>
+                  {open && (
+                    <div className="deployIn" style={{ paddingBottom: 12 }}>
+                      {g.days.map((d, i) => {
+                        const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
+                        return (
+                          <button key={d.id} onClick={() => (active ? setConfirmSwitch(d) : setPreviewDay(d))}
+                            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14, padding: "14px 2px" }}>
+                            <span style={{ width: 30, height: 30, borderRadius: 15, background: P.s2, color: P.faint, fontSize: 13, fontWeight: 700,
+                              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
+                            <span style={{ flex: 1, minWidth: 0, fontSize: 16.5, fontWeight: 600, lineHeight: 1.3, overflowWrap: "anywhere" }}>{d.name}</span>
+                            {lastDone && <span style={{ fontSize: 12.5, color: P.faint, flexShrink: 0 }}>{fmtDate(lastDone.date)}</span>}
+                            <ChevronRight size={18} color={P.chevron} style={{ flexShrink: 0 }} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-                {open ? <ChevronUp size={19} color={P.ember} /> : <ChevronDown size={19} color={P.faint} />}
-              </button>
-              {open && (
-                // "Pozo" tintado con el acento: diferencia de un vistazo lo que
-                // cuelga de la rutina (los días) de la cabecera de la rutina,
-                // sin cambiar de color duro. Las tarjetas de día van en blanco
-                // encima, así el anidado se lee como profundidad.
-                <div style={{ padding: "10px 12px 12px", background: P.accWell, borderTop: `1px solid ${P.accEdge}` }}>
-                  {g.days.map((d, i) => {
-                    const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
-                    return (
-                      <Card key={d.id} style={{ marginBottom: 10, background: P.s1, border: `1px solid ${P.line}` }}>
-                        <button onClick={() => (active ? setConfirmSwitch(d) : setPreviewDay(d))} style={{ width: "100%", textAlign: "left", padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
-                          <div style={{ width: 36, height: 36, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
-                            background: P.accWell, color: P.ember, fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 700, fontSize: 16.5 }}>{d.name}</div>
-                            <div style={{ fontSize: 13.5, color: P.faint, marginTop: 2 }}>
-                              {d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series
-                              {lastDone ? ` · última vez ${fmtDate(lastDone.date)}` : " · nunca realizada"}
-                            </div>
-                          </div>
-                          <ChevronRight size={18} color={P.faint} />
-                        </button>
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-          );
-        })}
+              );
+            })}
+          </div>
+        )}
         {/* Primero la lista de ejercicios de la sesión; recién desde ahí se
             elige el gimnasio. La ✕ de la hoja permite salir sin empezar. */}
         <DayPreviewSheet open={!!previewDay} day={previewDay} history={history}
@@ -21944,7 +21876,7 @@ ${body}
 const slugForFile = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
 // Botón + hoja para exportar todas las rutinas. Se cae bien en cualquier
 // pantalla que tenga `plan` (Entrenar del alumno, Rutinas del coach).
-const RoutinesExportButton = ({ plan, who, toast, small, block }) => {
+const RoutinesExportButton = ({ plan, who, toast, small, block, iconOnly }) => {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const hayRutinas = (plan.days || []).length > 0;
@@ -21965,7 +21897,14 @@ const RoutinesExportButton = ({ plan, who, toast, small, block }) => {
   };
   return (
     <>
-      <Btn kind="line" small={small} onClick={() => setOpen(true)} style={block ? { width: "100%" } : undefined}><FileDown size={small ? 13 : 15} /> Exportar rutinas</Btn>
+      {iconOnly ? (
+        <button onClick={() => setOpen(true)} aria-label="Exportar rutinas" title="Exportar rutinas"
+          style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <FileDown size={20} />
+        </button>
+      ) : (
+        <Btn kind="line" small={small} onClick={() => setOpen(true)} style={block ? { width: "100%" } : undefined}><FileDown size={small ? 13 : 15} /> Exportar rutinas</Btn>
+      )}
       <Sheet open={open} onClose={() => setOpen(false)} title="Exportar rutinas">
         {!hayRutinas ? (
           <Empty icon={FileDown} title="No hay rutinas para exportar" body="Cuando el plan tenga días de entrenamiento cargados, vas a poder bajar todas las rutinas ordenadas en PDF o Word." />
