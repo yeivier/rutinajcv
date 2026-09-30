@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v380";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v381";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -25169,6 +25169,73 @@ async function importFromZip(buf) {
   return { out, conteo };
 }
 
+/* ---------- Reloj Garmin (app FORJA para Connect IQ) ----------
+   La app del reloj no lee el plan completo (es enorme para la memoria de un
+   reloj): FORJA publica una versión compacta en `forja-watch:<id>` con los
+   días, ejercicios, series objetivo y el último peso usado. El reloj registra
+   las series y las deja en `forja-watchlog:<id>`; al abrir FORJA se importan
+   al historial como una sesión más y se vacía la bandeja. */
+function buildWatchPayload(plan, history, nombre) {
+  const days = ((plan && plan.days) || []).slice(0, 14);
+  const lastSes = [...((history && history.sessions) || [])].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+  const idxLast = lastSes ? days.findIndex((d) => d.id === lastSes.dayId) : -1;
+  const nx = days.length ? days[(idxLast + 1) % days.length].id : "";
+  const cut = (t, n) => String(t || "").replace(/\s+/g, " ").trim().slice(0, n);
+  return {
+    v: 1, u: Date.now(), n: cut(nombre, 20), nx,
+    d: days.map((d) => ({
+      id: d.id, n: cut(d.name, 24), g: cut(((plan.routineNames || {})[d.routine]) || d.routine || "", 16),
+      e: (d.exs || []).slice(0, 14).map((ex) => {
+        const prev = ((history && history.byEx && history.byEx[ex.id]) || []).slice(-1)[0];
+        const pw = prev ? (prev.sets || []).filter((x) => x.done && x.type !== "warmup" && x.weight !== "" && x.weight != null) : [];
+        return {
+          i: ex.id, n: cut(ex.name, 26), rt: +ex.rest || 90,
+          s: (ex.sets || []).slice(0, 10).map((st, k) => {
+            const p = pw[Math.min(k, pw.length - 1)];
+            // Sin claves vacías: el reloj tiene poca memoria y cada byte cuenta.
+            const o = { r: cut(st.repsT, 8), q: cut(st.rirT, 3) };
+            if (st.type === "warmup") o.t = "w";
+            if (p) { o.w = num(p.weight); if (p.reps !== "" && p.reps != null) o.l = num(p.reps); }
+            return o;
+          }),
+        };
+      }),
+    })),
+  };
+}
+// Mete al historial las sesiones que dejó el reloj. Cada una trae un id
+// propio (`w-…`): importar dos veces la misma no la duplica.
+function aplicarLogsReloj(h0, logs) {
+  const h = structuredClone(h0); let n = 0;
+  (Array.isArray(logs) ? logs : []).forEach((L) => {
+    if (!L || !L.id) return;
+    const id = `w-${L.id}`;
+    if ((h.sessions || []).some((x) => x.id === id)) return;
+    const date = L.t ? new Date(L.t * 1000).toISOString() : todayISO();
+    let volume = 0, setsDone = 0; const prs = [], recorded = [];
+    (L.e || []).forEach((ex) => {
+      const sets = (ex.s || []).map((x) => ({ id: uid(), type: x[3] === 1 ? "warmup" : "normal", repsT: "", rirT: "",
+        weight: x[0] == null ? "" : String(x[0]), reps: x[1] == null ? "" : String(x[1]), rir: x[2] == null || x[2] < 0 ? "" : String(x[2]),
+        done: true, comment: "", attachIds: [], drops: [] }));
+      if (!sets.length) return;
+      sets.forEach((s) => { setsDone += 1; volume += num(s.weight) * num(s.reps); });
+      if (!h.byEx) h.byEx = {};
+      const key = ex.i || `watch-${ex.n}`;
+      const prevMax = (h.byEx[key] || []).reduce((m, en) => Math.max(m, ...(en.sets || []).filter((s) => s.done).map((s) => num(s.weight)), 0), 0);
+      const nowMax = Math.max(0, ...sets.filter((s) => s.type !== "warmup").map((s) => num(s.weight)));
+      if (nowMax > 0 && nowMax > prevMax) prs.push(`${ex.n}: ${kg(nowMax)} kg`);
+      if (!h.byEx[key]) h.byEx[key] = [];
+      h.byEx[key].push({ sessionId: id, date, dayId: L.d || "", dayName: L.dn || "Reloj", exName: ex.n, sets, comment: "", attachIds: [] });
+      recorded.push({ exId: key, name: ex.n });
+    });
+    if (!recorded.length) return;
+    h.sessions.push({ id, date, dayId: L.d || "", dayName: L.dn || "Reloj", gym: "", durationMin: Math.max(1, +L.m || 1), volume, setsDone, setsTotal: setsDone,
+      prs, hasComments: false, exs: recorded, attachIds: [] });
+    n += 1;
+  });
+  return { h, n };
+}
+
 // Cómo se conecta cada cosa, de verdad. `via` decide qué botón sale:
 //   ble    → Bluetooth directo desde el navegador (funciona hoy)
 //   import → exportar de la app de la marca e importar el archivo acá
@@ -25243,7 +25310,7 @@ const BleIosHelp = ({ toast }) => {
   );
 };
 
-const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
+const DevicesSheet = ({ open, onClose, toast, history, saveHistory, sid, onPublishWatch }) => {
   const [detail, setDetail] = useState(null);
   const [pane, setPane] = useState(null);      // "import"
   const [texto, setTexto] = useState("");
@@ -25350,6 +25417,25 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory }) => {
           </div>
         ) : (
           <div className="paneIn">
+            {/* Reloj Garmin Fénix: la app FORJA del reloj se enlaza con este
+                código; el botón manda la rutina al reloj ahora mismo. */}
+            {sid && (
+              <Card style={{ padding: "14px 16px", marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: P.s3, color: P.text }}>
+                    <Watch size={19} />
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: P.faint2 }}>Garmin Fénix · código</div>
+                    <div className="mono" style={{ fontSize: 22, fontWeight: 800, letterSpacing: ".04em", color: P.text, textTransform: "none", overflowWrap: "anywhere" }}>{sid}</div>
+                  </div>
+                  <button aria-label="Copiar el código" title="Copiar" onClick={async () => { try { await navigator.clipboard.writeText(sid); toast && toast("Código copiado"); } catch { toast && toast(sid); } }}
+                    style={{ width: 40, height: 40, borderRadius: 20, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Copy size={17} /></button>
+                  <button aria-label="Enviar la rutina al reloj" title="Enviar la rutina al reloj" onClick={async () => { const ok = onPublishWatch ? await onPublishWatch() : false; toast && toast(ok ? "Rutina enviada al reloj" : "No pude enviarla"); }}
+                    style={{ width: 40, height: 40, borderRadius: 20, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Send size={17} /></button>
+                </div>
+              </Card>
+            )}
             {/* Estado del pulsómetro arriba: es lo único que se conecta en
                 vivo y lo que cambia mientras entrenas. */}
             <Card style={{ padding: "14px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
@@ -31036,6 +31122,52 @@ const App = () => {
     return { durationMin, setsDone, setsTotal, volume, prs };
   }, [history]);
 
+  // Reloj Garmin: publica la rutina compacta y trae lo que se registró allá.
+  const historyRef = useRef(history); historyRef.current = history;
+  const watchSigRef = useRef("");
+  const publicarReloj = useCallback(async (force) => {
+    const id = sidRef.current;
+    if (!id || !plan || !(plan.days || []).length) return false;
+    const st = (roster.students || []).find((x) => x.id === id);
+    const p = buildWatchPayload(plan, historyRef.current, st ? st.name : "");
+    const sig = JSON.stringify(p.d) + p.nx;
+    if (!force && sig === watchSigRef.current) return true;
+    watchSigRef.current = sig;
+    return sSet(`forja-watch:${id}`, p);
+  }, [plan, roster]);
+  useEffect(() => {
+    if (!sid || !plan) return;
+    const t = setTimeout(() => { publicarReloj(false); }, 4000);
+    return () => clearTimeout(t);
+  }, [sid, plan, history, publicarReloj]);
+  const traerLogsReloj = useCallback(async () => {
+    const id = sidRef.current;
+    if (!id) return;
+    // El reloj deja cada sesión en su propia clave (`forja-watchlog:<id>:<n>`):
+    // así nunca pisa a otra y no tiene que leer antes de escribir.
+    let filas = [];
+    try {
+      const r = await fetchWithTimeout(`${SB_URL}?key=like.${encodeURIComponent(`forja-watchlog:${id}:`)}*&select=key,value`, { headers: SB_H });
+      if (!r.ok) return;
+      filas = await r.json();
+    } catch { return; }
+    if (!Array.isArray(filas) || !filas.length) return;
+    const res = aplicarLogsReloj(historyRef.current, filas.map((f) => f.value));
+    if (res.n) {
+      setHistory(res.h);
+      await sSet(`forja-history:${id}`, res.h);
+      toast(`✓ ${res.n} ${res.n === 1 ? "sesión traída" : "sesiones traídas"} del reloj`);
+    }
+    for (const f of filas) await sDel(f.key, true);
+  }, []);
+  useEffect(() => {
+    if (!sid) return;
+    const t = setTimeout(traerLogsReloj, 3500);
+    const onVis = () => { if (document.visibilityState === "visible") traerLogsReloj(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
+  }, [sid, traerLogsReloj]);
+
   const discardSession = useCallback(() => {
     clearTimeout(activeTimer.current);
     activeRef.current = null; setActive(null); setSavedAt("");
@@ -31560,7 +31692,7 @@ const App = () => {
       <FichaSheet open={fichaOpen} onClose={() => setFichaOpen(false)} plan={plan} savePlan={savePlan}
         history={history} currentStudent={currentStudent} toast={toast} />
       <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast}
-        history={history} saveHistory={saveHistory} />
+        history={history} saveHistory={saveHistory} sid={sid} onPublishWatch={() => publicarReloj(true)} />
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
         onEnter={(m, id) => { setRosterOpen(false); openIdentity(m, id, roster, myTeamId); }}
         onAdd={() => addStudent(false)} onRename={renameStudent} onRemove={(s) => setConfirmDel(s)} />

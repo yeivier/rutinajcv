@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<iq:manifest version="3" xmlns:iq="http://www.garmin.com/xml/connectiq">
+    <iq:application entry="ForjaApp" id="0f857b9a-2605-4f28-b457-5826856abe09" launcherIcon="@Drawables.LauncherIcon"
+                    minApiLevel="4.2.0" name="@Strings.AppName" type="watch-app" version="1.0.0">
+        <iq:products>
+            <!-- Fénix 8. Si el SDK Manager no te muestra alguno, borra esa línea. -->
+            <iq:product id="fenix843mm"/>
+            <iq:product id="fenix847mm"/>
+            <iq:product id="fenix8solar47mm"/>
+            <iq:product id="fenix8solar51mm"/>
+            <iq:product id="fenix8pro47mm"/>
+            <iq:product id="fenix8pro51mm"/>
+        </iq:products>
+        <iq:permissions>
+            <iq:uses-permission id="Communications"/>
+            <iq:uses-permission id="Fit"/>
+            <iq:uses-permission id="Sensor"/>
+        </iq:permissions>
+        <iq:languages/>
+        <iq:barrels/>
+    </iq:application>
+</iq:manifest>
