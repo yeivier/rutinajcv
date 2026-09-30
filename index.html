@@ -48,6 +48,25 @@
     })();
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <script>
+    /* Menos «zoom» en el móvil: la interfaz se dibuja como en una pantalla ~15 % más ancha
+       y se reduce, así entra más contenido sin desplazarse. Solo en teléfonos en vertical;
+       tablets, escritorio y horizontal quedan como siempre. */
+    (function () {
+      var ESC = 0.87;
+      function ajusta() {
+        try {
+          var m = document.querySelector('meta[name="viewport"]');
+          var min = Math.min(screen.width, screen.height);
+          var vertical = window.matchMedia("(orientation: portrait)").matches;
+          var esc = (min < 600 && vertical) ? ESC : 1;
+          m.setAttribute("content", "width=device-width, initial-scale=" + esc + ", minimum-scale=" + esc + ", maximum-scale=" + esc + ", viewport-fit=cover, user-scalable=no");
+        } catch (e) {}
+      }
+      ajusta();
+      window.addEventListener("orientationchange", function () { setTimeout(ajusta, 250); });
+    })();
+  </script>
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="FORJA" />
@@ -85,7 +104,7 @@
   <!-- v206: type="module" para poder partir el bundle en trozos (recharts,
        ~320 KB, ahora va aparte y solo se baja al abrir un gráfico). Un
        módulo se ejecuta como defer y respeta el orden con config.js. -->
-  <script type="module" src="/bundle.js?v=382"></script>
+  <script type="module" src="/bundle.js?v=384"></script>
   <script>
     // Registra el service worker que permite abrir la app sin internet
     // (sirve la última copia guardada de index.html/bundle.js cuando no
