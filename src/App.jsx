@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v385";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v386";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -7918,10 +7918,10 @@ const PROGRESS_RANGES = [
    subir el peso perdiendo reps. Cada métrica trae su unidad y cómo se
    calcula por sesión. */
 const EX_METRICS = [
-  { id: "peso", label: "Peso máx.", unit: "kg", calc: (x) => x.best },
+  { id: "e1rm", label: "Fuerza", unit: "kg", calc: (x) => x.e1rm },
+  { id: "pw", label: "Reps a peso", unit: "reps", calc: (x) => x.pwReps },
+  { id: "peso", label: "Carga", unit: "kg", calc: (x) => x.best },
   { id: "volumen", label: "Volumen", unit: "kg", calc: (x) => x.volumen },
-  { id: "e1rm", label: "e1RM", unit: "kg", calc: (x) => x.e1rm },
-  { id: "reps", label: "Reps", unit: "", calc: (x) => x.totalReps },
 ];
 
 /* El veredicto que se repite en toda la pantalla de Progreso —serie a
@@ -8032,7 +8032,38 @@ const ExerciseProgress = ({ entries, sessions }) => {
     : (cutoff ? withBest.filter((x) => new Date(x.en.date).getTime() >= cutoff) : withBest);
 
   const metricDef = EX_METRICS.find((m) => m.id === metric) || EX_METRICS[0];
-  const chartData = filtered.map((x) => ({ d: fmtDate(x.en.date), v: metricDef.calc(x) || 0 }));
+  // Todo lo hecho en el rango, agrupado por PESO: cuántas reps se lograron
+  // con cada carga y cuándo — es lo que dice si conviene subir el peso o
+  // buscar una rep más con el mismo.
+  const [pesoSel, setPesoSel] = useState(null);
+  const [mesAbierto, setMesAbierto] = useState(null);
+  const [sesAbierta, setSesAbierta] = useState(null);
+  const [pesoAbierto, setPesoAbierto] = useState(null);
+  const [verTodosPesos, setVerTodosPesos] = useState(false);
+  const porPeso = useMemo(() => {
+    const m = new Map();
+    filtered.forEach((x) => (x.en.sets || []).forEach((st) => {
+      if (!st.done || st.type === "warmup" || st.weight === "" || st.weight == null) return;
+      const w = +st.weight, r = +st.reps || 0;
+      if (!w || !r) return;
+      if (!m.has(w)) m.set(w, []);
+      m.get(w).push({ date: x.en.date, sid: x.en.sessionId, reps: r, rir: st.rir });
+    }));
+    return [...m.entries()].map(([w, arr]) => {
+      const best = arr.reduce((a, b) => (b.reps > a.reps ? b : a), arr[0]);
+      return { w, arr, n: arr.length, best, last: arr[arr.length - 1] };
+    }).sort((a, b) => b.w - a.w);
+  }, [filtered]);
+  const pesoActivo = porPeso.find((p) => p.w === pesoSel)
+    || [...porPeso].sort((a, b) => b.n - a.n || b.w - a.w)[0] || null;
+  // Reps máximas logradas con el peso activo, sesión a sesión.
+  const pwPorSesion = (x) => {
+    if (!pesoActivo) return 0;
+    return (x.en.sets || []).reduce((mx, st) => (st.done && st.type !== "warmup" && +st.weight === pesoActivo.w ? Math.max(mx, +st.reps || 0) : mx), 0);
+  };
+  const filteredPw = filtered.map((x) => ({ ...x, pwReps: pwPorSesion(x) })).filter((x) => metric !== "pw" || x.pwReps > 0);
+  const serie = metric === "pw" ? filteredPw : filtered;
+  const chartData = serie.map((x) => ({ d: fmtDate(x.en.date), v: metricDef.calc(x) || 0 }));
   const allTimeBest = withBest.length ? Math.max(...withBest.map((x) => x.best)) : null;
 
   // Delta de últimos 30 días: compara el último registro con el que había
@@ -8050,22 +8081,22 @@ const ExerciseProgress = ({ entries, sessions }) => {
   // El veredicto del rango sigue la métrica elegida, no siempre el peso:
   // compara el primer y el último registro DENTRO del rango elegido
   // (fijo o personalizado) — % y kg, con la palabra exacta.
-  const rangeProgress = filtered.length >= 2
-    ? progresoEntre(metricDef.calc(filtered[0]) || 0, metricDef.calc(filtered[filtered.length - 1]) || 0) : null;
+  const rangeProgress = serie.length >= 2
+    ? progresoEntre(metricDef.calc(serie[0]) || 0, metricDef.calc(serie[serie.length - 1]) || 0) : null;
 
   // Chips de gimnasio: solo si el ejercicio se registró en más de uno —
   // con un solo gimnasio (o ninguno asignado) filtrar no aporta nada.
   // Mismo selector desplegable que el de Ejercicio: rótulo a la izquierda,
   // valor a la derecha y chevron.
   const gymChips = gimnasios.length > 1 && (
-    <div style={{ position: "relative", display: "flex", alignItems: "center", marginBottom: 10,
-      borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, padding: "0 14px", minHeight: HIT }}>
-      <Home size={17} color={P.faint} style={{ flexShrink: 0, marginRight: 10 }} />
+    <div style={{ position: "relative", display: "flex", alignItems: "center", marginBottom: 8,
+      borderRadius: 999, background: P.s1, border: `1px solid ${P.line}`, padding: "0 14px", minHeight: 38 }}>
+      <Home size={15} color={P.faint} style={{ flexShrink: 0, marginRight: 8 }} />
       <select value={gymFiltro} onChange={(e) => setGymFiltro(e.target.value)}
         aria-label="Elegir el gimnasio del que ver el progreso"
         style={{ flex: 1, minWidth: 0, appearance: "none", WebkitAppearance: "none",
-          padding: "12px 22px 12px 0", background: "transparent", border: "none",
-          color: P.text, fontSize: 16, fontWeight: 700, textAlign: "left", fontFamily: "inherit" }}>
+          padding: "8px 22px 8px 0", background: "transparent", border: "none",
+          color: P.text, fontSize: 14.5, fontWeight: 700, textAlign: "left", fontFamily: "inherit" }}>
         <option value="todos">Todos los gimnasios</option>
         {gimnasios.map((g) => <option key={g} value={g}>{g}{gymsConRegistros.has(g) ? "" : " · sin registros"}</option>)}
       </select>
@@ -8088,81 +8119,194 @@ const ExerciseProgress = ({ entries, sessions }) => {
     );
   }
 
-  const pillR = (on) => ({ flexShrink: 0, padding: "10px 14px", borderRadius: 999, fontSize: 15, fontWeight: 800,
+  const pillR = (on) => ({ flexShrink: 0, padding: "7px 13px", borderRadius: 999, fontSize: 13.5, fontWeight: 800,
     background: on ? PLATE_GRAD : P.s2, color: on ? PLATE_FG : P.text });
   const deltaR = (p) => p && (
     <span style={{ color: p.color, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 3, fontVariantNumeric: "tabular-nums" }}>
-      <p.Icon size={13} strokeWidth={2.8} />{Math.abs(p.pct).toFixed(1).replace(".", ",")}%
+      <p.Icon size={12} strokeWidth={2.8} />{Math.abs(p.pct).toFixed(1).replace(".", ",")}%
     </span>
   );
-  const ultimoV = chartData.length ? (metricDef.calc(filtered[filtered.length - 1]) || 0) : null;
+  const ultimoV = serie.length ? (metricDef.calc(serie[serie.length - 1]) || 0) : null;
+  const mejorE1 = withBest.reduce((m, x) => Math.max(m, x.e1rm || 0), 0);
+  // La mejor serie de una sesión (la de mayor e1RM) para mostrarla como «peso × reps».
+  const mejorSerie = (x) => (x.en.sets || []).filter((st) => st.done && st.type !== "warmup" && st.weight !== "" && +st.reps > 0)
+    .reduce((b, st) => { const e = e1rmDe(+st.weight, +st.reps, +st.rir || 0) || 0; return (!b || e > b.e) ? { w: +st.weight, r: +st.reps, e } : b; }, null);
+  // Sesiones agrupadas por mes (la más reciente primero); cada una se despliega.
+  const MESES_L = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  const meses = [];
+  [...filtered].reverse().forEach((x) => {
+    const d = new Date(x.en.date); const k = d.getFullYear() * 12 + d.getMonth();
+    let g = meses[meses.length - 1];
+    if (!g || g.k !== k) { g = { k, label: `${MESES_L[d.getMonth()]}${d.getFullYear() !== new Date().getFullYear() ? " " + d.getFullYear() : ""}`, items: [] }; meses.push(g); }
+    g.items.push(x);
+  });
+  const mesAbiertoK = mesAbierto != null ? mesAbierto : (meses[0] ? meses[0].k : null);
+  const pesosVisibles = verTodosPesos ? porPeso : porPeso.slice(0, 6);
+  const maxRepsPeso = porPeso.reduce((m, p) => Math.max(m, p.best.reps), 1);
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div style={{ marginBottom: 12 }}>
       {gymChips}
-      <div style={{ display: "flex", gap: 8, overflowX: "auto", margin: "0 -20px 14px", padding: "2px 20px", WebkitOverflowScrolling: "touch" }}>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", margin: "0 -20px 10px", padding: "2px 20px", WebkitOverflowScrolling: "touch" }}>
         {PROGRESS_RANGES.map((r) => (
           <button key={r.id} onClick={() => setRange(r.id)} aria-pressed={range === r.id} style={pillR(range === r.id)}>{r.label}</button>
         ))}
         <button onClick={() => setRange("custom")} aria-pressed={range === "custom"} aria-label="Rango personalizado" title="Rango personalizado"
-          style={{ ...pillR(range === "custom"), padding: 0, width: 46, height: 46, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Calendar size={19} />
+          style={{ ...pillR(range === "custom"), padding: 0, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Calendar size={15} />
         </button>
       </div>
       {range === "custom" && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} aria-label="Desde" style={{ flex: 1, minWidth: 0, padding: "12px 12px", fontSize: 15 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} aria-label="Desde" style={{ flex: 1, minWidth: 0, padding: "9px 10px", fontSize: 14 }} />
           <span style={{ color: P.faint, fontSize: 13 }}>→</span>
-          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} aria-label="Hasta" style={{ flex: 1, minWidth: 0, padding: "12px 12px", fontSize: 15 }} />
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} aria-label="Hasta" style={{ flex: 1, minWidth: 0, padding: "9px 10px", fontSize: 14 }} />
         </div>
       )}
 
-      <SectionSwitch style={{ marginBottom: 18 }} value={metric} onChange={setMetric}
+      <SectionSwitch style={{ marginBottom: 12 }} value={metric} onChange={setMetric}
         items={EX_METRICS.map((m) => ({ id: m.id, label: m.label }))} />
+
+      {/* «Reps a peso»: se elige la carga y se ve cuántas reps se lograron con
+          ella en cada sesión — para decidir cuándo subir el peso. */}
+      {metric === "pw" && porPeso.length > 0 && (
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", margin: "0 -20px 10px", padding: "2px 20px", WebkitOverflowScrolling: "touch" }}>
+          {[...porPeso].sort((a, b) => b.n - a.n || b.w - a.w).slice(0, 8).sort((a, b) => a.w - b.w).map((p) => (
+            <button key={p.w} onClick={() => setPesoSel(p.w)} aria-pressed={pesoActivo && pesoActivo.w === p.w}
+              style={{ ...pillR(pesoActivo && pesoActivo.w === p.w), fontSize: 13 }}>{kg(p.w)} kg</button>
+          ))}
+        </div>
+      )}
 
       {chartData.length ? (
         <div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-            <span className="num" style={{ fontSize: 48, fontWeight: 800, letterSpacing: "-.05em", lineHeight: 1 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+            <span className="num" style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-.04em", lineHeight: 1 }}>
               {metricDef.unit === "kg" ? kg(ultimoV) : Math.round(ultimoV).toLocaleString("es-CL")}
             </span>
-            {metricDef.unit && <span style={{ fontSize: 17, fontWeight: 700, color: P.faint }}>{metricDef.unit}</span>}
-            <span style={{ marginLeft: "auto", fontSize: 17 }}>{deltaR(rangeProgress)}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: P.faint }}>
+              {metric === "pw" && pesoActivo ? `reps a ${kg(pesoActivo.w)} kg` : metricDef.unit}
+            </span>
+            <span style={{ marginLeft: "auto", fontSize: 15 }}>{deltaR(rangeProgress)}</span>
           </div>
-          <div style={{ fontSize: 14, color: P.faint, fontWeight: 600, marginTop: 6, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span>{withBest.length} sesiones</span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Award size={14} /> {allTimeBest != null ? kg(allTimeBest) : "—"} kg</span>
-            {delta30 != null && <span style={{ color: delta30 >= 0 ? P.text : P.red }}>30 d: {delta30 >= 0 ? "+" : "−"}{kg(Math.abs(delta30))}</span>}
+          <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 600, marginTop: 4, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span>{filtered.length} ses</span>
+            {mejorE1 > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><Award size={12} /> {mejorE1} kg est.</span>}
+            {delta30 != null && <span style={{ color: delta30 >= 0 ? P.faint : P.red }}>30 d {delta30 >= 0 ? "+" : "−"}{kg(Math.abs(delta30))} kg</span>}
           </div>
-          <div style={{ margin: "10px -8px 0" }}><ChartBox data={chartData} unit={metricDef.unit} /></div>
+          {chartData.length > 1
+            ? <div style={{ margin: "6px -8px 0" }}><ChartBox data={chartData} unit={metricDef.unit} height={130} /></div>
+            : <div style={{ fontSize: 13, color: P.faint, marginTop: 8 }}>Un solo registro: falta otro para ver la evolución.</div>}
         </div>
       ) : (
         <div style={{ fontSize: 14, color: P.faint, padding: "10px 2px" }}>Sin sesiones en este rango.</div>
       )}
 
-      {/* Sesión a sesión: una fila cada una — fecha, series × reps y a la
-          derecha el mejor peso con su variación. */}
-      <div style={{ marginTop: 20 }}>
-        {[...withBest].reverse().map((x, i, arr) => {
-          const prev = arr[i + 1];
-          const prog = prev ? progresoEntre(prev.best, x.best) : null;
-          const isBest = x.best === allTimeBest;
-          const d = new Date(x.en.date);
-          return (
-            <div key={x.en.sessionId} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 2px", borderTop: `1px solid ${P.fillTertiary}` }}>
-              <div style={{ width: 62, flexShrink: 0 }}>
-                <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-.02em" }}>{d.getDate()} {MESES_CORTO[d.getMonth()].toLowerCase()}</div>
+      {/* Récords por carga: cuántas reps se logran con cada peso. Se abre para ver el historial. */}
+      {porPeso.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 800, color: P.dim, marginBottom: 2 }}>
+            <Dumbbell size={14} /> Reps por peso
+          </div>
+          {pesosVisibles.map((p) => {
+            const open = pesoAbierto === p.w;
+            return (
+              <div key={p.w} style={{ borderTop: `1px solid ${P.fillTertiary}` }}>
+                <button onClick={() => setPesoAbierto(open ? null : p.w)} aria-expanded={open}
+                  style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "11px 2px" }}>
+                  <span style={{ width: 62, flexShrink: 0, fontSize: 15, fontWeight: 800, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums" }}>{kg(p.w)}<span style={{ fontSize: 11.5, color: P.faint, fontWeight: 700 }}> kg</span></span>
+                  <span style={{ flex: 1, minWidth: 0, height: 6, borderRadius: 3, background: P.s3, overflow: "hidden" }}>
+                    <span style={{ display: "block", height: "100%", width: `${Math.max(6, (p.best.reps / maxRepsPeso) * 100)}%`, background: P.text, borderRadius: 3 }} />
+                  </span>
+                  <span style={{ width: 64, flexShrink: 0, textAlign: "right", fontSize: 15, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{p.best.reps}<span style={{ fontSize: 11.5, color: P.faint, fontWeight: 700 }}> reps</span></span>
+                  <ChevronRight size={16} color={P.chevron} style={{ transform: open ? "rotate(90deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}`, flexShrink: 0 }} />
+                </button>
+                {open && (
+                  <div style={{ padding: "0 2px 10px" }}>
+                    <div style={{ fontSize: 12.5, color: P.faint, fontWeight: 600, marginBottom: 6 }}>
+                      Mejor: {p.best.reps} reps ({fmtDate(p.best.date)}) · meta: {p.best.reps + 1} reps · {p.n} {p.n === 1 ? "serie" : "series"}
+                    </div>
+                    {[...p.arr].reverse().slice(0, 8).map((a, i) => (
+                      <div key={i} style={{ display: "flex", gap: 10, fontSize: 13.5, padding: "4px 0", color: P.dim, fontWeight: 600 }}>
+                        <span style={{ width: 62 }}>{fmtDate(a.date)}</span>
+                        <span style={{ flex: 1 }}>{a.reps} reps</span>
+                        <span style={{ color: P.faint }}>{a.rir !== "" && a.rir != null ? `RIR ${a.rir}` : ""}</span>
+                      </div>
+                    ))}
+                    <button onClick={() => { setPesoSel(p.w); setMetric("pw"); }} aria-label={`Graficar las reps con ${kg(p.w)} kg`}
+                      style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 800, color: P.text }}>
+                      <TrendingUp size={14} /> Ver evolución
+                    </button>
+                  </div>
+                )}
               </div>
-              <div style={{ flex: 1, minWidth: 0, fontSize: 14.5, color: P.faint, fontWeight: 600 }}>{x.setsDone} × {x.totalReps} reps</div>
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 5 }}>
-                  {isBest && <Award size={14} color={P.faint} />}{kg(x.best)}<span style={{ fontSize: 13, color: P.faint, fontWeight: 700 }}>kg</span>
-                </div>
-                <div style={{ fontSize: 13.5, marginTop: 1, minHeight: 18 }}>{prog ? deltaR(prog) : null}</div>
+            );
+          })}
+          {porPeso.length > 6 && (
+            <button onClick={() => setVerTodosPesos((v) => !v)} aria-label={verTodosPesos ? "Ver menos pesos" : "Ver todos los pesos"}
+              style={{ width: "100%", padding: "8px 0", color: P.faint }}>
+              <ChevronDown size={18} style={{ transform: verTodosPesos ? "rotate(180deg)" : "none" }} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Sesiones: por mes; cada una se despliega y muestra sus series. */}
+      {meses.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 800, color: P.dim, marginBottom: 2 }}>
+            <Calendar size={14} /> Sesiones
+          </div>
+          {meses.map((g) => {
+            const openM = mesAbiertoK === g.k;
+            return (
+              <div key={g.k} style={{ borderTop: `1px solid ${P.fillTertiary}` }}>
+                <button onClick={() => setMesAbierto(openM ? -1 : g.k)} aria-expanded={openM}
+                  style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "12px 2px" }}>
+                  <span style={{ flex: 1, fontSize: 15.5, fontWeight: 800, letterSpacing: "-.02em" }}>{g.label}</span>
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: P.faint }}>{g.items.length}</span>
+                  <ChevronRight size={16} color={P.chevron} style={{ transform: openM ? "rotate(90deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+                </button>
+                {openM && g.items.map((x, i) => {
+                  const idx = filtered.indexOf(x);
+                  const prev = idx > 0 ? filtered[idx - 1] : null;
+                  const prog = prev ? progresoEntre(prev.e1rm, x.e1rm) : null;
+                  const ms = mejorSerie(x);
+                  const openS = sesAbierta === x.en.sessionId;
+                  const d = new Date(x.en.date);
+                  return (
+                    <div key={x.en.sessionId} style={{ background: P.s1, borderRadius: 16, marginBottom: 6 }}>
+                      <button onClick={() => setSesAbierta(openS ? null : x.en.sessionId)} aria-expanded={openS}
+                        style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px" }}>
+                        <span style={{ width: 40, flexShrink: 0, textAlign: "center", lineHeight: 1.1 }}>
+                          <span style={{ display: "block", fontSize: 16, fontWeight: 800 }}>{d.getDate()}</span>
+                          <span style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: P.faint, textTransform: "uppercase" }}>{d.toLocaleDateString("es-CL", { weekday: "short" }).replace(".", "")}</span>
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 800, letterSpacing: "-.02em" }}>
+                          {ms ? `${kg(ms.w)} kg × ${ms.r}` : "—"}
+                          <span style={{ fontSize: 12, color: P.faint, fontWeight: 600 }}>  · {x.setsDone} {x.setsDone === 1 ? "serie" : "series"}</span>
+                        </span>
+                        <span style={{ fontSize: 13, flexShrink: 0 }}>{prog ? deltaR(prog) : null}</span>
+                        <ChevronRight size={15} color={P.chevron} style={{ flexShrink: 0, transform: openS ? "rotate(90deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+                      </button>
+                      {openS && (
+                        <div style={{ padding: "0 12px 10px 62px" }}>
+                          {(x.en.sets || []).filter((st) => st.done).map((st, k) => (
+                            <div key={k} style={{ display: "flex", gap: 10, fontSize: 13.5, padding: "3px 0", fontWeight: 600, color: st.type === "warmup" ? P.faint : P.text }}>
+                              <span style={{ width: 22, color: P.faint }}>{st.type === "warmup" ? "A" : k + 1}</span>
+                              <span style={{ flex: 1, fontVariantNumeric: "tabular-nums" }}>{st.weight !== "" ? `${kg(+st.weight)} kg` : "—"} × {st.reps}</span>
+                              <span style={{ color: P.faint }}>{st.rir !== "" && st.rir != null ? `RIR ${st.rir}` : ""}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
@@ -13811,12 +13955,12 @@ const cargarRecharts = () => _rechartsProm || (_rechartsProm = import("recharts"
 // el número importante que es, no como una nota al pie.
 const chartTooltipStyle = { background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12, fontSize: 13,
   padding: "8px 12px", boxShadow: "0 6px 20px rgba(0,0,0,.12)" };
-const ChartBox = ({ data, unit, accent }) => {
+const ChartBox = ({ data, unit, accent, height = 210 }) => {
   const [R, setR] = useState(null);
   useEffect(() => { let on = true; cargarRecharts().then((m) => { if (on) setR(m); }).catch(() => {}); return () => { on = false; }; }, []);
   if (!R) {
     return (
-      <div style={{ width: "100%", height: 210, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <Loader2 size={22} color={P.faint} className="fj-spin" />
       </div>
     );
@@ -13827,7 +13971,7 @@ const ChartBox = ({ data, unit, accent }) => {
   // <linearGradient id="…">, o el segundo pisa el relleno del primero.
   const gid = `fjChartGrad-${Math.random().toString(36).slice(2, 9)}`;
   return (
-    <div style={{ width: "100%", height: 210 }}>
+    <div style={{ width: "100%", height }}>
       <R.ResponsiveContainer>
         <R.ComposedChart data={data} margin={{ top: 12, right: 12, left: 12, bottom: 0 }}>
           <defs>
@@ -13841,11 +13985,11 @@ const ChartBox = ({ data, unit, accent }) => {
           <R.Tooltip contentStyle={chartTooltipStyle}
             labelStyle={{ color: P.dim, fontWeight: 700, marginBottom: 2 }} itemStyle={{ color: c, fontWeight: 700 }}
             formatter={(v) => [`${v} ${unit}`, ""]} cursor={{ stroke: P.line, strokeDasharray: "3 3" }} />
-          <R.Area type="monotone" dataKey="v" stroke="none" fill={`url(#${gid})`} isAnimationActive animationDuration={700} animationEasing="ease-out" />
-          <R.Line type="monotone" dataKey="v" stroke={c} strokeWidth={3}
+          <R.Area type="linear" dataKey="v" stroke="none" fill={`url(#${gid})`} tooltipType="none" isAnimationActive animationDuration={700} animationEasing="ease-out" />
+          <R.Line type="linear" dataKey="v" stroke={c} strokeWidth={2.5}
             dot={(p) => (p.index === data.length - 1
-              ? <circle key={p.key || p.index} cx={p.cx} cy={p.cy} r={5.5} fill={c} stroke={P.s1} strokeWidth={2.5} />
-              : <circle key={p.key || p.index} cx={p.cx} cy={p.cy} r={0} />)}
+              ? <circle key={p.key || p.index} cx={p.cx} cy={p.cy} r={5} fill={c} stroke={P.s1} strokeWidth={2.5} />
+              : <circle key={p.key || p.index} cx={p.cx} cy={p.cy} r={data.length <= 14 ? 3 : 0} fill={c} />)}
             activeDot={{ r: 6, fill: c, stroke: P.bg, strokeWidth: 2 }}
             isAnimationActive animationDuration={700} animationEasing="ease-out" />
         </R.ComposedChart>
@@ -15346,7 +15490,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
       <ScreenTitle title="Progreso" />
 
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 10 }}>
         <SectionSwitch value={sub} onChange={setSub} items={PROGRESO_SUB_ITEMS} />
       </div>
 
@@ -15361,14 +15505,14 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
                blanca con un nombre adentro. Ahora lleva su rotulo a la
                izquierda, el valor a la derecha y un chevron, como cualquier
                fila del sistema que abre un selector. */
-            <div style={{ position: "relative", display: "flex", alignItems: "center",
-              borderRadius: R_TILE, background: P.s1, border: `1px solid ${P.line}`, padding: "0 14px", minHeight: HIT }}>
-              <Dumbbell size={17} color={P.faint} style={{ flexShrink: 0, marginRight: 10 }} />
+            <div style={{ position: "relative", display: "flex", alignItems: "center", marginBottom: 8,
+              borderRadius: 999, background: P.s1, border: `1px solid ${P.line}`, padding: "0 14px", minHeight: 38 }}>
+              <Dumbbell size={15} color={P.faint} style={{ flexShrink: 0, marginRight: 8 }} />
               <select value={exId} onChange={(e) => setExId(e.target.value)}
                 aria-label="Elegir el ejercicio del que ver el progreso"
                 style={{ flex: 1, minWidth: 0, appearance: "none", WebkitAppearance: "none",
-                  padding: "12px 22px 12px 0", background: "transparent", border: "none",
-                  color: P.text, fontSize: 16, fontWeight: 700, textAlign: "left", fontFamily: "inherit" }}>
+                  padding: "8px 22px 8px 0", background: "transparent", border: "none",
+                  color: P.text, fontSize: 14.5, fontWeight: 700, textAlign: "left", fontFamily: "inherit" }}>
                 {allEx.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
               </select>
               <ChevronDown size={16} color={P.chevron} strokeWidth={2.4}
