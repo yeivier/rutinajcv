@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v389";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v390";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -79,8 +79,8 @@ const BRAND = { name: "FORJA", tagline: "The Ultimate Bodybuilding App" };
 // etiquetar eventos en la Agenda.
 const LIGHT_THEME = {
   P: {
-    bg: "#F2F2F7", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#EFEFF4", s4: "#E8E8EE",
-    line: "#E5E5EA", text: "#101012", dim: "#2B2B30",
+    bg: "#F6F3F0", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#F1EEEB", s4: "#E9E5E1",
+    line: "#E9E4DF", text: "#101012", dim: "#2B2B30",
     // Secundario y terciario, un punto más oscuros que el gris de sistema
     // original (#5A5A63/#6B6B75): a pedido explícito, para que la
     // descripción de cada pantalla y los metadatos no se sientan
@@ -89,14 +89,14 @@ const LIGHT_THEME = {
     faint: "#494950", faint2: "#55555D",
     // Acento = tinta. ember2 es la variante para texto chico e iconografía
     // secundaria; en claro coincide con la tinta porque ya pasa AA de sobra.
-    ember: "#101012", ember2: "#101012", glow: "#101012",
+    ember: "#F04E1F", ember2: "#D93F12", glow: "#F04E1F",
     // Neutros, no colores: "óptimo"/"informativo" se leen por la palabra y
     // por la forma del indicador, no porque el bloque sea verde o azul.
     // El rojo del sistema iOS se conserva SOLO para lo destructivo.
     green: "#101012", blue: "#5A5A63", red: "#D70015",
     // Color de anillos y barras de progreso (neutro en claro, como hasta
     // ahora; en el tema Rosa es un rosa vivo, no negro).
-    prog: "#101012",
+    prog: "#F04E1F",
     // Segundo acento — SOLO para cuando un gráfico necesita distinguir dos
     // series a la vez (p. ej. "Rutina A" vs "Rutina B" en el comparador):
     // el resto de la interfaz sigue monocromática a propósito, pero un
@@ -105,26 +105,28 @@ const LIGHT_THEME = {
     accent2: "#2E6FF2",
     // Borde de tarjeta: hairline, no marco. Las tarjetas se separan del
     // fondo gris por el blanco y la línea de 1px, no por elevación.
-    frame: "#E5E5EA",
-    // Fondo plano: sin degradado. Un degradado en el fondo es justo lo que
-    // hace que una app se vea "de plantilla" y no de sistema.
-    bgGrad: "#F2F2F7",
+    frame: "#E9E4DF",
+    // Atmósfera: dos resplandores cálidos muy suaves arriba (naranja forja a
+    // la derecha, rosa a la izquierda) que mueren antes de la mitad. Da
+    // profundidad sin ensuciar la lectura: el contenido va sobre tarjetas
+    // blancas y el resto es aire.
+    bgGrad: "radial-gradient(90% 34% at 92% -4%, rgba(255,138,43,.20), transparent 72%), radial-gradient(70% 28% at -4% 6%, rgba(219,47,91,.09), transparent 70%), #F6F3F0",
     // Tokens del handoff de rediseño (MVP): s3 ya cubre "fill-secondary"
     // del spec (botón secundario, − +, chip) y s4 ya cubre
     // "fill-quaternary" (pista del segmentado) — estos cuatro son los
     // que faltaban y no tenían dónde vivir en la paleta existente.
-    fillTertiary: "#EDEDF2",   // separador dentro de tarjeta, pista de barra, placeholder de video
-    separatorStrong: "#D9D9DE", // borde de campo, segmento de progreso vacío
+    fillTertiary: "#EFEBE7",   // separador dentro de tarjeta, pista de barra, placeholder de video
+    separatorStrong: "#E2DCD6", // borde de campo, segmento de progreso vacío
     textQuaternary: "#A0A0AA",  // pestaña inactiva, acción deshabilitada, placeholder
     chevron: "#C4C4CB",         // chevron de fila
     dotInactive: "#DEDEE4",     // punto de día futuro
   },
   // Las "placas" (botón primario, pestaña activa, chip de estado) son tinta
   // plena con texto blanco.
-  plateGrad: "#101012",
+  plateGrad: "linear-gradient(135deg, #FF8A2B 0%, #F2491F 52%, #DB2F5B 100%)",
   plateFg: "#FFFFFF",
-  plateDim: "#A8A8B0",
-  plateBorder: "#101012",
+  plateDim: "#FFC7A6",
+  plateBorder: "#F2491F",
 };
 const DARK_THEME = {
   P: {
@@ -135,9 +137,9 @@ const DARK_THEME = {
     // plataforma es fondo claro y tinta (blanco/negro), no verde. El
     // verde de la pantalla de sesión (`teColors`, más abajo) es aparte y
     // no se toca: ahí sigue siendo la única marca de color, a propósito.
-    ember: "#FFFFFF", ember2: "#FFFFFF", glow: "#FFFFFF",
+    ember: "#FF7A3D", ember2: "#FF8F57", glow: "#FF7A3D",
     green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
-    prog: "#FFFFFF",
+    prog: "#FF7A3D",
     accent2: "#5B9CFF",
     frame: "#35353C", bgGrad: "#0F0F11",
     // Mismos 5 tokens nuevos, invertidos para el tema oscuro siguiendo el
@@ -147,10 +149,10 @@ const DARK_THEME = {
   },
   // Placas monocromas, igual criterio que LIGHT_THEME pero invertido:
   // tinta blanca (la del tema oscuro) con texto negro encima.
-  plateGrad: "#FFFFFF",
-  plateFg: "#101012",
+  plateGrad: "linear-gradient(135deg, #FF8A2B 0%, #F2491F 52%, #DB2F5B 100%)",
+  plateFg: "#FFFFFF",
   plateDim: "#8A8A94",
-  plateBorder: "#FFFFFF",
+  plateBorder: "#F2491F",
 };
 // Tercer tema, a pedido (blanco y rosado): mismas tarjetas blancas que
 // LIGHT_THEME —el contenido sigue leyéndose igual de limpio— pero el
@@ -997,7 +999,7 @@ function avisarFinDescanso(texto) {
   }
 }
 
-const TAB_BOTTOM_PAD = "calc(84px + env(safe-area-inset-bottom))";
+const TAB_BOTTOM_PAD = "calc(108px + env(safe-area-inset-bottom))";
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
 // reconozcan de un vistazo durante el entrenamiento (el resto de la app
@@ -3027,6 +3029,13 @@ async function seedAccessProfiles() {
   }
   if (changed) await saveAccess(a);
 }
+// "hoy", "ayer", "hace 3 d": lo que importa de una fecha pasada en una fila.
+const haceDias = (iso) => {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const d = Math.round((hoy - new Date(String(iso).slice(0, 10) + "T00:00:00")) / 86400000);
+  if (!(d >= 0)) return fmtDate(iso);
+  return d === 0 ? "hoy" : d === 1 ? "ayer" : d < 30 ? `hace ${d} d` : fmtDate(iso);
+};
 const fmtDate = (iso) => {
   const d = new Date(iso);
   return d.toLocaleDateString("es-CL", { day: "numeric", month: "short" });
@@ -5434,6 +5443,7 @@ function instalarFormasIOS() {
     for (const e of lista) {
       if (e.dataset && e.dataset.fjr) continue;
       if (!e.closest(".fj") && !e.classList.contains("fj")) continue;
+      if (e.closest("[data-fjkeep]")) { e.dataset.fjr = "1"; continue; }
       const cs = getComputedStyle(e);
       const tl = px(cs.borderTopLeftRadius), tr = px(cs.borderTopRightRadius), br = px(cs.borderBottomRightRadius), bl = px(cs.borderBottomLeftRadius);
       if (tl < 12 || Math.abs(tl - tr) > .5 || Math.abs(tl - br) > .5 || Math.abs(tl - bl) > .5) continue;
@@ -5442,7 +5452,7 @@ function instalarFormasIOS() {
       const w = r.width, h = r.height, m = Math.min(w, h);
       if (Math.abs(w - h) <= 3 && tl >= m / 2 - 2) continue;     // círculo
       if (tl >= m / 2 - 2 && h < 34) continue;                     // etiqueta / barra fina
-      const t = m >= 90 ? 16 : m >= 56 ? 14 : 12;
+      const t = m >= 140 ? 22 : m >= 90 ? 18 : m >= 56 ? 14 : 12;
       if (tl > t) e.style.setProperty("border-radius", `${t}px`, "important");
       e.dataset.fjr = "1";
     }
@@ -5452,6 +5462,43 @@ function instalarFormasIOS() {
     obs.observe(document.body, { childList: true, subtree: true });
     procesa(document.body);
   } catch (e) { /* sin observador no pasa nada: queda el diseño de siempre */ }
+}
+
+/* Entrada al desplazarse: las fichas que ya están a la vista entran
+   escalonadas (una tras otra); las que están más abajo esperan, invisibles,
+   y suben suavemente cuando llegan a pantalla. Todo por clases CSS
+   (.fj-rev / .fj-pre) y sin tocar el estado de React: si el navegador no
+   soporta IntersectionObserver o pide menos movimiento, no pasa nada y
+   las fichas se ven de siempre. */
+function instalarRevelado() {
+  if (typeof window === "undefined" || window.__fjRev) return;
+  window.__fjRev = true;
+  try {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !window.IntersectionObserver) return;
+    let n = 0, tReset = null;
+    const entra = (el) => {
+      el.classList.remove("fj-pre"); el.classList.add("fj-rev");
+      setTimeout(() => { el.classList.remove("fj-rev"); el.style.removeProperty("--i"); }, 1100);
+    };
+    const io = new IntersectionObserver((es) => {
+      for (const e of es) if (e.isIntersecting) { io.unobserve(e.target); e.target.style.setProperty("--i", "0"); entra(e.target); }
+    }, { threshold: 0.06, rootMargin: "0px 0px -3% 0px" });
+    const marca = (el) => {
+      if (el.dataset.fjv) return;
+      el.dataset.fjv = "1";
+      const r = el.getBoundingClientRect();
+      if (r.top < window.innerHeight * 0.98) { el.style.setProperty("--i", String(Math.min(n++, 9))); entra(el); }
+      else { el.classList.add("fj-pre"); io.observe(el); }
+    };
+    const barre = (raiz) => {
+      if (!raiz || raiz.nodeType !== 1) return;
+      if (raiz.classList && raiz.classList.contains("fj-card")) marca(raiz);
+      raiz.querySelectorAll && raiz.querySelectorAll(".fj-card").forEach(marca);
+      clearTimeout(tReset); tReset = setTimeout(() => { n = 0; }, 160);
+    };
+    new MutationObserver((muts) => { for (const mu of muts) mu.addedNodes.forEach(barre); }).observe(document.body, { childList: true, subtree: true });
+    barre(document.body);
+  } catch (e) { /* sin esto la app se ve igual, solo sin la entrada animada */ }
 }
 
 /* Título compacto de iOS: cuando el título grande de la pantalla sale por
@@ -5514,7 +5561,7 @@ const GlobalStyle = () => {
        de una pantalla negra. Una sola variable controla el shell principal,
        la barra de pestañas y las hojas modales, así los tres quedan
        siempre alineados al mismo ancho. */
-    :root { --fj-w: 520px; --fj-tabbar-h: calc(54px + env(safe-area-inset-bottom)); }
+    :root { --fj-w: 520px; --fj-tabbar-h: calc(72px + env(safe-area-inset-bottom)); }
     @media (min-width: 720px) { :root { --fj-w: 640px; } }
     @media (min-width: 1024px) { :root { --fj-w: 800px; } }
     /* Grillas de tarjetas (stats del Dashboard, etc.): 2 columnas en
@@ -5533,7 +5580,7 @@ const GlobalStyle = () => {
       .fj button:not(:disabled) { transition: opacity .12s ease; }
       .fj button:not(:disabled):hover { opacity: .72; }
     }
-    .fj button:not(:disabled):active { opacity: .55; }
+    .fj button:not(:disabled):active { opacity: .82; }
     @keyframes fjSpin { to { transform: rotate(360deg); } }
     .fj-spin { animation: fjSpin .85s linear infinite; }
     .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
@@ -5566,13 +5613,7 @@ const GlobalStyle = () => {
     .fj [style*="border-radius: 9px"], .fj [style*="border-radius: 10px"], .fj [style*="border-radius: 11px"] { border-radius: 15px !important; }
     .fj [style*="border-radius: 12px"], .fj [style*="border-radius: 13px"], .fj [style*="border-radius: 14px"], .fj [style*="border-radius: 15px"] { border-radius: 18px !important; }
     .fj [style*="border-radius: 16px"], .fj [style*="border-radius: 17px"], .fj [style*="border-radius: 18px"] { border-radius: 24px !important; }
-    /* Entrada de tarjetas: fundido con deslizamiento corto, escalonado por
-       posición entre hermanas, en toda pantalla. */
-    .fj .fj-card { animation: fjUp ${DUR_PUSH}ms ${EASE_IN} backwards; }
-    .fj .fj-card:nth-child(2) { animation-delay: 40ms; }
-    .fj .fj-card:nth-child(3) { animation-delay: 80ms; }
-    .fj .fj-card:nth-child(4) { animation-delay: 120ms; }
-    .fj .fj-card:nth-child(n+5) { animation-delay: 160ms; }
+    /* La entrada de las fichas (.fj-card) la maneja instalarRevelado(): .fj-rev / .fj-pre. */
     .fj b, .fj strong { font-weight: 600; }
     /* Micro-etiquetas en versalitas (ENTRENO DE HOY, VOLUMEN, ADHERENCIA…):
        SF Mono, 11px, tracking abierto. Es el único sitio donde se usa una
@@ -5596,8 +5637,8 @@ const GlobalStyle = () => {
        tocarlo, como el de iOS — sin tener que agregarlo botón por botón.
        Un estilo inline (drag, animaciones propias) siempre gana por
        especificidad, así que esto nunca choca con esos casos. */
-    .fj button:not(:disabled) { transition: transform ${DUR_MICRO}ms ${EASE_STD}; }
-    .fj button:not(:disabled):active { transform: scale(.96); }
+    .fj button:not(:disabled) { transition: transform 360ms cubic-bezier(.34,1.5,.5,1), opacity ${DUR_MICRO}ms ease; }
+    .fj button:not(:disabled):active { transform: scale(.965); transition-duration: 90ms; }
     /* Easy Mode: todo un punto más grande y con más aire. Se hace con una
        sola clase en la raíz (no tocando cada componente) para que valga
        en toda la app de una sola vez — texto más grande, casillas más
@@ -5651,7 +5692,22 @@ const GlobalStyle = () => {
        las hojas de verdad. Las hojas siguen con sheetIn/fjUp sin tocar;
        esto es solo para el contenido de la pestaña activa. */
     @keyframes fjTabFade { from { opacity: 0; } to { opacity: 1; } }
-    .fj .tabIn { animation: fjTabFade ${DUR_ROW}ms ${EASE_STD}; }
+    .fj .tabIn { animation: fjTabFade 340ms ${EASE_STD}; }
+    /* Movimiento "de sistema": fichas que suben al entrar, título que
+       asoma, botones que responden con un rebote corto al soltar. */
+    @keyframes fjRise { from { opacity: 0; transform: translateY(26px) scale(.985); } to { opacity: 1; transform: none; } }
+    .fj .fj-rev { animation: fjRise .72s ${EASE_IN} backwards; animation-delay: calc(var(--i, 0) * 62ms); }
+    .fj .fj-pre { opacity: 0; transform: translateY(26px) scale(.985); }
+    @keyframes fjTitleIn { from { opacity: 0; transform: translateY(10px); letter-spacing: -.01em; } to { opacity: 1; transform: none; } }
+    .fj h1 { animation: fjTitleIn .6s ${EASE_IN} backwards; }
+    .fj .fj-hero { animation: fjRise .9s ${EASE_IN} .05s backwards; }
+    @keyframes fjFloat { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-7px) rotate(3deg); } }
+    .fj .fj-float { animation: fjFloat 6s ease-in-out infinite; }
+    @keyframes fjShine { from { transform: translateX(-130%) skewX(-18deg); } to { transform: translateX(330%) skewX(-18deg); } }
+    .fj .fj-shine { animation: fjShine 3.4s ${EASE_STD} 1.1s infinite; }
+    @keyframes fjPing { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(1.9); opacity: 0; } }
+    .fj .fj-ping { animation: fjPing 2.2s ${EASE_OUT} infinite; }
+    @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 
     /* Creador de rutinas: las tarjetas entran con el mismo fjUp de
        siempre, pero escalonadas por índice (--i, puesto inline en cada
@@ -5695,7 +5751,7 @@ const GlobalStyle = () => {
     @keyframes splashFadeIn { from { opacity: 0; } to { opacity: 1; } }
     .fj .splashFadeIn { animation: splashFadeIn .3s ease both; }
     @keyframes splashIcon { 0% { opacity: 0; transform: scale(.4) rotate(-14deg); } 55% { opacity: 1; transform: scale(1.12) rotate(2deg); } 100% { opacity: 1; transform: scale(1) rotate(0); } }
-    .fj .splashIcon { animation: splashIcon .8s cubic-bezier(.16,1,.3,1) both, splashPulse 1.8s ease-out .8s both; }
+    .fj .splashIcon { animation: splashIcon .9s cubic-bezier(.16,1,.3,1) both, splashPulse 1.8s ease-out .8s both; --fj-pulse: rgba(255,255,255,.5); }
     @keyframes splashPulse { 0% { box-shadow: 0 0 0 0 var(--fj-pulse, rgba(255,255,255,.35)); } 100% { box-shadow: 0 0 0 46px rgba(0,0,0,0); } }
     @keyframes splashLetter { from { opacity: 0; transform: translateY(26px) scale(.86); filter: blur(10px); } to { opacity: 1; transform: none; filter: blur(0); } }
     .fj .splashLetter { display: inline-block; animation: splashLetter .7s cubic-bezier(.16,1,.3,1) both; }
@@ -5705,6 +5761,11 @@ const GlobalStyle = () => {
     .fj .splashRule { animation: splashRule .9s cubic-bezier(.16,1,.3,1) 1s both; }
     @keyframes splashGlow { from { transform: scale(.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
     .fj .splashGlow { animation: splashGlow 1.6s cubic-bezier(.16,1,.3,1) both; }
+    @keyframes splashRing { 0% { transform: scale(.4); opacity: .9; } 100% { transform: scale(7); opacity: 0; } }
+    .fj .splashRing { animation: splashRing 2.1s cubic-bezier(.16,1,.3,1) both; }
+    @keyframes splashSparkUp { 0% { transform: translate(0, 0) scale(1); opacity: 0; } 12% { opacity: .95; } 100% { transform: translate(var(--dx), -92vh) scale(.2); opacity: 0; } }
+    .fj .splashSpark { position: absolute; bottom: -12px; border-radius: 50%; background: #fff; box-shadow: 0 0 10px 2px rgba(255,255,255,.7);
+      animation: splashSparkUp var(--t) cubic-bezier(.2,.6,.3,1) var(--d) both; }
     @keyframes splashSweep { from { left: -45%; } to { left: 115%; } }
     .fj .splashSweep { animation: splashSweep 1.3s cubic-bezier(.4,0,.2,1) .3s both; }
     /* Entrada de la app: al terminar el splash, todo el contenido sube y se
@@ -5817,7 +5878,7 @@ const GlobalStyle = () => {
 // hace que una app se vea "de plantilla" en vez de de sistema.
 const CARD_LIFT = "none";
 // Relieve suave y difuso (en vez de marco): el aire alrededor separa las tarjetas.
-const CARD_SHADOW = "none";
+const CARD_SHADOW = "0 1px 2px rgba(70,35,10,.045), 0 12px 30px -14px rgba(70,35,10,.18)";
 // Radios del sistema: tarjeta / control / fila.
 const R_CARD = 28;
 const R_TILE = 22;
@@ -6561,7 +6622,7 @@ const Btn = ({ children, kind = "ghost", onClick, style, disabled, small, ...res
   // contorno. El único rojo es el del sistema iOS, y solo en lo destructivo.
   const filled = { background: P.s3, border: "1px solid transparent", color: P.text };
   const kinds = {
-    ember: { background: PLATE_GRAD, color: PLATE_FG, border: `1px solid ${PLATE_GRAD}`, fontWeight: 700 },
+    ember: { background: PLATE_GRAD, color: PLATE_FG, border: `1px solid ${PLATE_BORDER}`, fontWeight: 700 },
     ghost: filled,
     line:  { background: "transparent", border: `1px solid ${P.line}`, color: P.dim },
     green: filled,
@@ -6576,7 +6637,7 @@ const TypeBadge = ({ type, onInfo, big }) => {
     <button onClick={onInfo} title={t.label} className="mono"
       style={{ display: "inline-flex", alignItems: "center", gap: 4,
         background: t.strong ? PLATE_GRAD : P.s3, color: t.strong ? PLATE_FG : P.faint,
-        border: `1px solid ${t.strong ? PLATE_GRAD : P.line}`, borderRadius: 7,
+        border: `1px solid ${t.strong ? PLATE_BORDER : P.line}`, borderRadius: 7,
         padding: big ? "4px 9px" : "3px 8px", fontSize: big ? 12 : 10.5, letterSpacing: ".08em" }}>
       {t.short}{onInfo && <Info size={big ? 12 : 10} strokeWidth={2.5} />}
     </button>
@@ -6816,39 +6877,56 @@ const Logo = ({ size = 26 }) => (
 // ahí aparece una barra de progreso indeterminada — no antes, para no
 // competir con la animación de entrada. Respeta prefers-reduced-motion
 // (la regla global en GlobalStyle corta toda animación a solo opacidad).
+// Chispas de la forja: posiciones fijas (no al azar, así la intro es igual
+// en cada arranque y no depende de Math.random en el render).
+const SPLASH_SPARKS = Array.from({ length: 26 }, (_, i) => ({
+  x: (i * 37 + 11) % 100, dx: ((i * 29) % 41) - 20, s: 3 + ((i * 7) % 5),
+  d: ((i * 53) % 100) / 100 * 1.5 + 0.2, t: 2.4 + ((i * 11) % 10) / 10 * 1.8,
+}));
 const SplashScreen = ({ exiting }) => (
-  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bg, position: "relative", overflow: "hidden",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    opacity: exiting ? 0 : 1, transform: exiting ? "scale(1.12)" : "scale(1)", filter: exiting ? "blur(6px)" : "none",
+  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", position: "relative", overflow: "hidden",
+    display: "flex", alignItems: "center", justifyContent: "center", color: "#fff",
+    background: "linear-gradient(168deg, #FFA24A 0%, #F2491F 46%, #C61E5C 100%)",
+    opacity: exiting ? 0 : 1, transform: exiting ? "scale(1.18)" : "scale(1)", filter: exiting ? "blur(10px)" : "none",
     transition: `opacity ${DUR_ROW * 2.5}ms ${EASE_STD}, transform ${DUR_ROW * 2.5}ms ${EASE_STD}, filter ${DUR_ROW * 2.5}ms ${EASE_STD}` }}>
     <GlobalStyle />
-    {/* Escenario: un resplandor del color de acento que se expande desde el
-        centro, y dos destellos de luz que barren la pantalla — la "forja". */}
-    <div aria-hidden="true" className="splashGlow" style={{ position: "absolute", left: "50%", top: "46%", width: "140vmax", height: "140vmax",
-      marginLeft: "-70vmax", marginTop: "-70vmax", borderRadius: "50%",
-      background: `radial-gradient(closest-side, ${hexRgba(P.ember, 0.22)}, ${hexRgba(P.ember, 0.08)} 38%, transparent 70%)` }} />
-    <div aria-hidden="true" className="splashSweep" style={{ position: "absolute", top: 0, bottom: 0, width: "38%",
-      background: `linear-gradient(100deg, transparent, ${hexRgba(P.ember, 0.16)}, transparent)` }} />
-    <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 26 }}>
-      <div className="splashIcon" style={{ width: 96, height: 96, borderRadius: 30,
-        display: "flex", alignItems: "center", justifyContent: "center", background: PLATE_GRAD,
-        boxShadow: `0 0 0 0 ${hexRgba(P.ember, 0.5)}` }}>
-        <svg viewBox="0 0 24 24" width={54} height={54} aria-hidden="true" fill={PLATE_FG}>
-          <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
-          <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
-          <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
-          <rect x="16.5" y="6.6" width="2.5" height="10.8" rx="0.9" />
-          <rect x="19.5" y="8.2" width="2" height="7.6" rx="0.7" />
+    {/* Escenario: resplandor blanco que nace en el centro, anillos de onda
+        expansiva, chispas que suben y un destello que barre la pantalla. */}
+    <div aria-hidden="true" className="splashGlow" style={{ position: "absolute", left: "50%", top: "46%", width: "130vmax", height: "130vmax",
+      marginLeft: "-65vmax", marginTop: "-65vmax", borderRadius: "50%",
+      background: "radial-gradient(closest-side, rgba(255,255,255,.34), rgba(255,255,255,.10) 40%, transparent 70%)" }} />
+    {[0, 0.5].map((d, i) => (
+      <div key={i} aria-hidden="true" className="splashRing" style={{ position: "absolute", left: "50%", top: "46%", width: 120, height: 120,
+        marginLeft: -60, marginTop: -60, borderRadius: "50%", border: "2px solid rgba(255,255,255,.7)", animationDelay: `${0.35 + d}s` }} />
+    ))}
+    {SPLASH_SPARKS.map((k, i) => (
+      <span key={i} aria-hidden="true" className="splashSpark" style={{ left: `${k.x}%`, width: k.s, height: k.s, "--dx": `${k.dx}vw`, "--t": `${k.t}s`, "--d": `${k.d}s` }} />
+    ))}
+    <div aria-hidden="true" className="splashSweep" style={{ position: "absolute", top: 0, bottom: 0, width: "34%",
+      background: "linear-gradient(90deg, transparent, rgba(255,255,255,.2) 50%, transparent)" }} />
+    <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 30, marginTop: "-4vh" }}>
+      <div data-fjkeep className="splashIcon" style={{ width: 112, height: 112, borderRadius: 34,
+        display: "flex", alignItems: "center", justifyContent: "center", background: "#fff",
+        boxShadow: "0 24px 60px -12px rgba(120,20,30,.55), 0 0 0 0 rgba(255,255,255,.5)" }}>
+        <svg viewBox="0 0 24 24" width={64} height={64} aria-hidden="true">
+          <defs><linearGradient id="spg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#FF8A2B" /><stop offset=".55" stopColor="#F2491F" /><stop offset="1" stopColor="#DB2F5B" /></linearGradient></defs>
+          <g fill="url(#spg)">
+            <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
+            <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
+            <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
+            <rect x="16.5" y="6.6" width="2.5" height="10.8" rx="0.9" />
+            <rect x="19.5" y="8.2" width="2" height="7.6" rx="0.7" />
+          </g>
         </svg>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-        <div style={{ fontSize: 52, fontWeight: 800, letterSpacing: ".16em", color: P.text, paddingLeft: ".16em", lineHeight: 1 }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+        <div style={{ fontSize: 58, fontWeight: 800, letterSpacing: ".16em", paddingLeft: ".16em", lineHeight: 1, textShadow: "0 6px 30px rgba(120,20,30,.35)" }}>
           {BRAND.name.split("").map((ch, i) => (
-            <span key={i} className="splashLetter" style={{ animationDelay: `${.45 + i * .09}s` }}>{ch}</span>
+            <span key={i} className="splashLetter" style={{ animationDelay: `${.5 + i * .09}s` }}>{ch}</span>
           ))}
         </div>
-        <div className="splashRule" style={{ height: 2, borderRadius: 2, background: P.ember }} />
-        <div className="splashTag" style={{ fontSize: 12.5, color: P.faint, fontWeight: 600,
+        <div className="splashRule" style={{ height: 2, borderRadius: 2, background: "rgba(255,255,255,.9)" }} />
+        <div className="splashTag" style={{ fontSize: 12.5, color: "rgba(255,255,255,.88)", fontWeight: 600,
           fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
           textTransform: "uppercase", letterSpacing: ".22em" }}>{BRAND.tagline}</div>
       </div>
@@ -11963,7 +12041,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
                     <button key={p} onClick={() => setC4pct(p)}
                       style={{ flex: 1, minWidth: 56, padding: "8px 0", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
                         background: c4pct === p ? PLATE_GRAD : P.s3, color: c4pct === p ? PLATE_FG : P.dim,
-                        border: `1px solid ${c4pct === p ? PLATE_GRAD : P.separatorStrong}` }}>{p}%</button>
+                        border: `1px solid ${c4pct === p ? PLATE_BORDER : P.separatorStrong}` }}>{p}%</button>
                   ))}
                 </div>
               </Card>
@@ -12003,6 +12081,36 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
     </div>
   );
 };
+
+/* Tarjeta héroe: la acción principal de la pantalla (empezar el entreno que
+   toca) en el degradado de la marca, con anillos que flotan, un destello que
+   la cruza y un botón de play que late. Es la misma en Inicio y en Entrenar. */
+const HeroCard = ({ Icon, eyebrow, title, meta, label, onClick, play = true }) => (
+  <button data-fjkeep onClick={onClick} aria-label={label} title={label} className="fj-hero"
+    style={{ position: "relative", overflow: "hidden", width: "100%", textAlign: "left", display: "block", borderRadius: 28, padding: "22px 22px 20px",
+      background: PLATE_GRAD, color: PLATE_FG, boxShadow: `0 22px 44px -18px ${hexRgba(P.ember, 0.75)}` }}>
+    <svg aria-hidden="true" className="fj-float" viewBox="0 0 200 200" width={230} height={230} style={{ position: "absolute", right: -64, top: -70, opacity: 0.2 }}>
+      {[28, 52, 76, 100].map((r) => <circle key={r} cx="100" cy="100" r={r} fill="none" stroke="#fff" strokeWidth="1.6" />)}
+    </svg>
+    <span aria-hidden="true" className="fj-shine" style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "22%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent)" }} />
+    <span style={{ position: "relative", display: "flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: 600, opacity: 0.88, letterSpacing: ".01em" }}>
+      {Icon && <Icon size={15} fill="currentColor" strokeWidth={0} />}{eyebrow}
+    </span>
+    <span style={{ position: "relative", display: "block", fontSize: 31, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.08, marginTop: 10, maxWidth: "78%", overflowWrap: "anywhere" }}>{title}</span>
+    <span style={{ position: "relative", display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginTop: 20 }}>
+      <span style={{ fontSize: 14, fontWeight: 600, opacity: 0.9 }}>{meta}</span>
+      {play && (
+        <span style={{ position: "relative", width: 58, height: 58, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <span aria-hidden="true" className="fj-ping" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "rgba(255,255,255,.5)" }} />
+          <span style={{ position: "relative", width: 58, height: 58, borderRadius: 29, background: "#fff", color: P.ember2, display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 10px 24px -6px rgba(90,20,10,.45)" }}>
+            <Play size={24} fill="currentColor" style={{ marginLeft: 3 }} />
+          </span>
+        </span>
+      )}
+    </span>
+  </button>
+);
 
 const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, fxRestSeg, onOpenAIChat, onLeave, onOpenDevices, sid }) => {
   const [summary, setSummary] = useState(null);
@@ -12245,9 +12353,29 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
   );
 
   if (listMode) {
+    // Día que toca: el siguiente al último que se entrenó dentro de su misma
+    // rutina (cíclico); sin historial, el primero de la primera rutina.
+    const proximo = (() => {
+      if (!routineGroups.length) return null;
+      const ult = [...history.sessions].reverse().find((x) => routineGroups.some((g) => g.days.some((d) => d.id === x.dayId)));
+      let g0 = routineGroups[0], i0 = 0;
+      if (ult) {
+        const g = routineGroups.find((gg) => gg.days.some((d) => d.id === ult.dayId));
+        const i = g.days.findIndex((d) => d.id === ult.dayId);
+        g0 = g; i0 = (i + 1) % g.days.length;
+      }
+      const d = g0.days[i0];
+      return d ? { ...d, _rutina: g0.label } : null;
+    })();
     return (
       <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
         <ScreenTitle title="Entrenar" right={plan.days.length > 0 ? <RoutinesExportButton plan={plan} toast={toast} iconOnly /> : null} />
+
+        {!active && proximo && (
+          <div style={{ marginBottom: 14 }}><HeroCard Icon={Zap} eyebrow={proximo._rutina} title={proximo.name} label={`Empezar ${proximo.name}`}
+            meta={`${proximo.exs.length} ej · ${proximo.exs.reduce((t, e) => t + e.sets.length, 0)} series`}
+            onClick={() => setPreviewDay(proximo)} /></div>
+        )}
 
         {/* Acciones: solo íconos, en una fila. Entrenamiento libre (principal),
             registrar una sesión pasada, empezar un programa conocido y crear
@@ -12293,43 +12421,60 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
         {plan.days.length === 0 ? (
           <Empty icon={Dumbbell} title="Aún no hay rutina" body="Tu coach todavía no carga días de entrenamiento. Pídele que entre en modo Coach y arme el plan." />
         ) : (
-          <div>
-            {routineGroups.map((g, gi) => {
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {routineGroups.map((g) => {
               const open = openRoutines.includes(g.key);
+              const nEj = g.days.reduce((t, d) => t + d.exs.length, 0);
+              const hechos = g.days.filter((d) => history.sessions.some((x) => x.dayId === d.id)).length;
               return (
-                <div key={g.key} style={{ borderTop: gi ? `1px solid ${P.fillTertiary}` : "none" }}>
+                <Card key={g.key} style={{ overflow: "hidden" }}>
                   <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-                    style={{ width: "100%", textAlign: "left", padding: "14px 2px", display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0, fontWeight: 800, fontSize: 21, letterSpacing: "-.03em", lineHeight: 1.15, overflowWrap: "anywhere" }}>{g.label}</div>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: P.faint, flexShrink: 0 }}>{g.days.length}</span>
-                    <ChevronDown size={20} color={P.faint} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+                    style={{ width: "100%", textAlign: "left", padding: "16px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+                    <span style={{ position: "relative", width: 50, height: 50, borderRadius: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                      background: hexRgba(P.ember, 0.12), color: P.ember2 }}>
+                      <Dumbbell size={23} strokeWidth={2.1} />
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontWeight: 750, fontSize: 19, letterSpacing: "-.025em", lineHeight: 1.18, overflowWrap: "anywhere" }}>{g.label}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+                        <span style={{ display: "flex", gap: 4 }} aria-label={`${hechos} de ${g.days.length} días hechos`}>
+                          {g.days.slice(0, 8).map((d) => {
+                            const hecho = history.sessions.some((x) => x.dayId === d.id);
+                            return <i key={d.id} style={{ width: 18, height: 5, borderRadius: 3, background: hecho ? PLATE_GRAD : P.s4 }} />;
+                          })}
+                        </span>
+                        <span style={{ fontSize: 12.5, fontWeight: 500, color: P.faint }}>{g.days.length} · {nEj} ej</span>
+                      </span>
+                    </span>
+                    <span style={{ width: 32, height: 32, borderRadius: 16, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <ChevronDown size={18} color={P.dim} style={{ transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_PUSH}ms ${EASE_STD}` }} />
+                    </span>
                   </button>
                   {open && (
-                    <div className="deployIn" style={{ paddingBottom: 6 }}>
-                      <div style={{ background: P.s1, borderRadius: 14, padding: "0 0 0 16px", overflow: "hidden" }}>
+                    <div className="deployIn" style={{ padding: "0 8px 8px" }}>
                       {g.days.map((d, i) => {
-                        const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
+                        const lastDone = [...history.sessions].reverse().find((x) => x.dayId === d.id);
                         const ne = d.exs.length, ns = d.exs.reduce((t, e) => t + e.sets.length, 0);
+                        const esProx = proximo && proximo.id === d.id;
                         return (
                           <button key={d.id} onClick={() => (active ? setConfirmSwitch(d) : setPreviewDay(d))}
-                            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "12px 12px 12px 0",
-                              borderTop: i ? `0.5px solid ${P.separatorStrong || P.fillTertiary}` : "none" }}>
-                            <span style={{ width: 30, height: 30, borderRadius: 15, background: P.s3, color: P.text, fontSize: 14, fontWeight: 600,
-                              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
+                            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", marginTop: i ? 2 : 0, borderRadius: 14,
+                              background: esProx ? hexRgba(P.ember, 0.08) : "transparent" }}>
+                            <span style={{ width: 34, height: 34, borderRadius: 17, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                              background: esProx ? PLATE_GRAD : P.s3, color: esProx ? PLATE_FG : P.text, fontSize: 14.5, fontWeight: 700 }}>{i + 1}</span>
                             <span style={{ flex: 1, minWidth: 0 }}>
-                              <span style={{ display: "block", fontSize: 16.5, fontWeight: 400, lineHeight: 1.25, overflowWrap: "anywhere" }}>{d.name}</span>
+                              <span style={{ display: "block", fontSize: 16.5, fontWeight: 600, letterSpacing: "-.015em", lineHeight: 1.25, overflowWrap: "anywhere" }}>{d.name}</span>
                               <span style={{ display: "block", fontSize: 13, fontWeight: 400, color: P.faint, marginTop: 2 }}>
-                                {ne} ej · {ns} series{lastDone ? ` · ${fmtDate(lastDone.date)}` : ""}
+                                {ne} ej · {ns} series{lastDone ? ` · ${haceDias(lastDone.date)}` : ""}
                               </span>
                             </span>
-                            <ChevronRight size={16} color={P.chevron} style={{ flexShrink: 0 }} />
+                            <Play size={15} color={esProx ? P.ember2 : P.chevron} fill={esProx ? P.ember2 : "none"} style={{ flexShrink: 0 }} />
                           </button>
                         );
                       })}
-                      </div>
                     </div>
                   )}
-                </div>
+                </Card>
               );
             })}
           </div>
@@ -12845,7 +12990,7 @@ const RecoveryScale = ({ label, tag, lo, hi, value, onChange }) => (
         <button key={n} onClick={() => onChange(n)} aria-pressed={value === n} aria-label={`${label}: ${n} de 10`}
           style={{ flex: 1, padding: "9px 0", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
             background: value === n ? PLATE_GRAD : MONO.chipBg, color: value === n ? PLATE_FG : MONO.inkDim,
-            border: `1px solid ${value === n ? PLATE_GRAD : MONO.chipBorder}` }}>{n}</button>
+            border: `1px solid ${value === n ? PLATE_BORDER : MONO.chipBorder}` }}>{n}</button>
       ))}
     </div>
   </MonoCard>
@@ -13708,18 +13853,10 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
                Ahora el título ocupa el ancho completo y la acción del día
                es una barra al pie — el destino táctil más grande de la
                pantalla, que es lo que corresponde a la acción principal. */
-            <Card style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
-                <span className="mono" style={{ fontSize: 10.5, letterSpacing: ".16em" }}>{workout.eyebrow}</span>
-                <span style={{ fontSize: 23, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.12,
-                  display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{workout.title}</span>
-                <span style={{ fontSize: 12.5, color: P.faint }}>
-                  {workout.exs ? `${workout.exs.length} ${workout.exs.length === 1 ? "ejercicio" : "ejercicios"} · ${workout.sets} ${workout.sets === 1 ? "serie" : "series"} · ${estimateSessionMin(workout.sets)} min` : workout.sub}
-                </span>
-              </div>
-              <Btn kind="ember" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)}
-                style={{ width: "100%", minHeight: HIT }}>{active ? "Continuar" : "Entrenar"}</Btn>
-            </Card>
+            <HeroCard Icon={active ? Play : Zap} eyebrow={workout.eyebrow} title={workout.title}
+              label={active ? "Continuar sesión" : "Entrenar ahora"}
+              meta={workout.exs ? `${workout.exs.length} ${workout.exs.length === 1 ? "ejercicio" : "ejercicios"} · ${workout.sets} ${workout.sets === 1 ? "serie" : "series"} · ${estimateSessionMin(workout.sets)} min` : (workout.sub || "")}
+              onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
           ) : emptyCard },
 
           d.adherence != null && { key: "adherencia", span: "full", node: (
@@ -18400,10 +18537,12 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               partían en cuatro renglones. */}
           <div style={{ marginBottom: open ? 12 : 0 }}>
             <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "14px 4px", textAlign: "left" }}>
-              <span style={{ flexShrink: 0, minWidth: 44, height: 44, borderRadius: 22, padding: "0 4px",
+              className="fj-card"
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", textAlign: "left",
+                background: P.s1, borderRadius: 22, boxShadow: CARD_SHADOW }}>
+              <span style={{ flexShrink: 0, minWidth: 50, height: 50, borderRadius: 16, padding: "0 4px",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 17 }}>{g.key}</span>
+                background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 19, boxShadow: `0 8px 16px -8px ${hexRgba(P.ember, 0.7)}` }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", color: P.text, lineHeight: 1.15, overflowWrap: "anywhere" }}>{g.label}</div>
                 <div style={{ fontSize: 14, color: P.faint, marginTop: 3, fontWeight: 600 }}>
@@ -18411,7 +18550,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                   {!routineVisible && <span style={{ color: P.ember2, fontWeight: 700 }}> · oculta</span>}
                 </div>
               </div>
-              <ChevronRight size={22} color={P.faint} style={{ transform: open ? "rotate(90deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+              <ChevronRight size={22} color={P.faint} style={{ transform: open ? "rotate(90deg)" : "none", transition: `transform ${DUR_PUSH}ms ${EASE_STD}` }} />
             </button>
             {open && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, marginBottom: 4, paddingRight: 4 }}>
               {student && onUpdateStudent && (
@@ -24725,7 +24864,7 @@ const ScheduleEditor = ({ plan, history, savePlan, roster, bookings, onSaveBooki
           {[30, 45, 60, 75, 90].map((m) => (
             <button key={m} onClick={() => onSaveAvailability({ durationMin: m })} style={{ flex: 1, minWidth: 70, padding: "12px 0", borderRadius: R_TILE, fontSize: 15, fontWeight: 700,
               background: availability.durationMin === m ? PLATE_GRAD : P.s3, color: availability.durationMin === m ? PLATE_FG : P.text,
-              border: `1px solid ${availability.durationMin === m ? PLATE_GRAD : P.line}` }}>{m} min</button>
+              border: `1px solid ${availability.durationMin === m ? PLATE_BORDER : P.line}` }}>{m} min</button>
           ))}
         </div>
       </Sheet>
@@ -29349,28 +29488,36 @@ const StatTile = ({ label, value, unit, note, bar, onClick }) => (
 // (#A0A0AA contra #5A5A63): así la activa destaca por contraste puro, sin
 // necesidad de un color de acento.
 const TAB_INACTIVE = "#A0A0AA";
-const TabBar = ({ tabs, tab, setTab }) => (
-  <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
-    paddingBottom: "env(safe-area-inset-bottom)", pointerEvents: "none" }}>
-    {/* Barra de pestañas de iOS: plana, translúcida, con un filo fino arriba.
-        La pestaña activa se tiñe de tinta; las demás, gris. */}
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`, width: "100%", maxWidth: "var(--fj-w)",
-      padding: "6px 8px 4px", pointerEvents: "auto",
-      background: `${P.s1}E8`, backdropFilter: "saturate(180%) blur(22px)", WebkitBackdropFilter: "saturate(180%) blur(22px)",
-      borderTop: `0.5px solid ${P.separatorStrong || P.line}` }}>
-      {tabs.map(({ id, label, Icon }) => {
-        const on = tab === id;
-        return (
-          <button key={id} onClick={() => setTab(id)} aria-current={on ? "page" : undefined} aria-label={label} title={label}
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 4px", minWidth: 0, minHeight: 44,
-              color: on ? P.text : TAB_INACTIVE, transition: `color ${DUR_ROW}ms ${EASE_STD}` }}>
-            <Icon size={25} strokeWidth={on ? 2.3 : 1.7} color={on ? P.text : TAB_INACTIVE} />
-          </button>
-        );
-      })}
+const TabBar = ({ tabs, tab, setTab }) => {
+  const n = tabs.length;
+  const idx = Math.max(0, tabs.findIndex((t) => t.id === tab));
+  return (
+    <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
+      padding: "0 14px calc(10px + env(safe-area-inset-bottom))", pointerEvents: "none" }}>
+      {/* Barra flotante de cristal: una cápsula translúcida suspendida sobre el
+          contenido, con una pastilla de color que se desliza hasta la pestaña
+          activa (resorte con un pequeño rebote). Solo íconos. */}
+      <div data-fjkeep style={{ position: "relative", display: "grid", gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, width: "100%",
+        maxWidth: "calc(var(--fj-w) - 28px)", padding: 6, pointerEvents: "auto", borderRadius: 32,
+        background: `${P.s1}D6`, backdropFilter: "saturate(190%) blur(26px)", WebkitBackdropFilter: "saturate(190%) blur(26px)",
+        boxShadow: `0 16px 40px -10px rgba(60,28,8,.30), 0 0 0 .5px ${P.separatorStrong || P.line}` }}>
+        <span aria-hidden="true" style={{ position: "absolute", top: 6, bottom: 6, left: 6, width: `calc((100% - 12px) / ${n})`, borderRadius: 26,
+          background: PLATE_GRAD, boxShadow: `0 8px 18px -6px ${hexRgba(P.ember, 0.65)}`,
+          transform: `translateX(${idx * 100}%)`, transition: "transform 560ms cubic-bezier(.34,1.42,.5,1)" }} />
+        {tabs.map(({ id, label, Icon }) => {
+          const on = tab === id;
+          return (
+            <button key={id} onClick={() => setTab(id)} aria-current={on ? "page" : undefined} aria-label={label} title={label}
+              style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 4px", minWidth: 0, minHeight: 46,
+                color: on ? PLATE_FG : TAB_INACTIVE, transition: `color ${DUR_ROW}ms ${EASE_STD}` }}>
+              <Icon size={24} strokeWidth={on ? 2.3 : 1.8} color={on ? PLATE_FG : TAB_INACTIVE} />
+            </button>
+          );
+        })}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 /* ---- Selección de identidad (por dispositivo) ---- */
 const GateTile = ({ onClick, avatar, label }) => (
@@ -31165,7 +31312,7 @@ const App = () => {
     await enterDelegate(prof); maybeOfferFaceId(prof.id, prof.name);
   };
 
-  useEffect(() => { instalarFormasIOS(); }, []);
+  useEffect(() => { instalarFormasIOS(); instalarRevelado(); }, []);
   useEffect(() => {
     // Red de seguridad del arranque: si CUALQUIER cosa inesperada truena acá
     // adentro (una forma de dato que el código no esperaba, una promesa que
@@ -31769,7 +31916,7 @@ const App = () => {
       <GlobalStyle />
       {!enSesion && <NavTituloCompacto clave={`${mode}|${tab}|${sub || ""}|${utility || ""}`} />}
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
-        paddingBottom: enSesion ? 0 : "calc(96px + env(safe-area-inset-bottom))" }}>
+        paddingBottom: enSesion ? 0 : "calc(116px + env(safe-area-inset-bottom))" }}>
         {/* Cabecera: identidad como texto a la izquierda (solo informativa —
             quién está usando la app ahora) y el avatar a la derecha, que es
             el único que abre algo (la hoja "Más"). Antes el texto de la
