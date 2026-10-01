@@ -447,7 +447,7 @@ OJO: en tu A_V3 ning\xFAn ejercicio tiene m\xFAsculos secundarios marcados, as\x
     .fj .ord-wrap[data-hueco] { transition: none !important; }
     .fj .ord-wrap[data-hueco] > * { animation: none !important; opacity: 0; }
     .fj .ord-wrap[data-hueco]::after {
-      content: ""; position: absolute; inset: 0; border-radius: ${gt}px;
+      content: ""; position: absolute; inset: 0; border-radius: ${yt}px;
       border: 1.5px dashed ${s.line}; background: ${s.s4};
     }
     /* El fantasma flotante que sigue al dedo 1:1 (nodo clonado fuera del
@@ -604,7 +604,7 @@ NUTRICI\xD3N CARGADA EN EL PLAN
 
 HISTORIAL (${r.length} sesiones registradas en total)
 \xDAltimas sesiones:
-${k}
+${w}
 Peso corporal: ${S}
 
 INDICACIONES GENERALES DEL PLAN
