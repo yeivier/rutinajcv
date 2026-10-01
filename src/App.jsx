@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v394";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v395";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10217,7 +10217,16 @@ const ProntitudCard = ({ history, compacta }) => {
    agrupaciones), y recién con "Elegir gimnasio y empezar" se abre el
    selector de sede. La ✕ de la hoja (Sheet) permite salir sin empezar
    nada. Es solo lectura: no registra ni arranca la sesión por sí sola. */
-const DayPreviewSheet = ({ day, open, onClose, onContinue, history, warmup }) => {
+const DayPreviewSheet = ({ day, open, onClose, onContinue, onStart, history, warmup }) => {
+  // Empezar es UN toque: entra directo en la última sede usada. Cambiarla
+  // es un chip chico al lado, no un paso obligatorio.
+  const [sede, setSede] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    let vivo = true;
+    listaDeGimnasios().then(({ ultimo }) => { if (vivo) setSede(ultimo || ""); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [open]);
   const exs = (day && day.exs) || [];
   const totalSets = exs.reduce((a, e) => a + (e.sets || []).length, 0);
   const lastDone = day && [...(history?.sessions || [])].reverse().find((s) => s.dayId === day.id);
@@ -10282,11 +10291,17 @@ const DayPreviewSheet = ({ day, open, onClose, onContinue, history, warmup }) =>
           );
         })}
         <div style={{ height: 2 }} />
-        <Btn kind="ember" onClick={onContinue} style={{ width: "100%" }}>
-          Elegir gimnasio y empezar <ChevronRight size={17} />
-        </Btn>
-        <div style={{ fontSize: 12, color: P.faint, textAlign: "center", lineHeight: 1.4 }}>
-          Toca la ✕ de arriba para salir sin empezar la sesión.
+        <div style={{ position: "sticky", bottom: 0, display: "flex", gap: 8, alignItems: "stretch", paddingTop: 6, background: P.s1 }}>
+          <Btn kind="ember" onClick={() => { if (sede && onStart) { recordarGimnasio(sede); onStart(sede); } else onContinue(); }} style={{ flex: 1 }}>
+            <Play size={16} fill="currentColor" /> Empezar{sede ? ` · ${sede}` : ""}
+          </Btn>
+          {sede && (
+            <button onClick={onContinue} aria-label="Cambiar de gimnasio" title="Cambiar de gimnasio"
+              style={{ width: 52, borderRadius: R_TILE, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                background: P.s3, border: `1px solid ${P.line}`, color: P.text }}>
+              <Home size={18} />
+            </button>
+          )}
         </div>
       </div>
     </Sheet>
@@ -10343,8 +10358,8 @@ const RetoSesion = ({ exs, history }) => {
   return (
     <div style={{ padding: "2px 2px 0" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: SES.dim }}>{titulo}</span>
-        <span style={{ fontSize: 15, fontWeight: 800, color: col, letterSpacing: "-.01em", flexShrink: 0 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: SES.faint }}>{titulo}</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: col, letterSpacing: "-.01em", flexShrink: 0 }}>
           {dif >= 0 ? "+" : "−"}{Math.abs(Math.round(pct))}%
         </span>
       </div>
@@ -10377,7 +10392,7 @@ const RetoEjercicio = ({ reto }) => {
    reps, aparece el veredicto y se actualiza con cada tecla.
    El color sale de la paleta de la sesión: el acento es "lo lograste",
    igual que el tilde de serie hecha. */
-const RetoSerie = ({ actual, previa, unidad }) => {
+const RetoSerie = ({ actual, previa, unidad, compacto }) => {
   const r = retoDeSerie(actual, previa);
   if (r.estado === "nuevo") return null;   // primera vez: no hay contra qué medir
   const ref = r.previa || (r.estado !== "pendiente" && r.previa);
@@ -10393,8 +10408,8 @@ const RetoSerie = ({ actual, previa, unidad }) => {
     pendiente: null,
   }[r.estado];
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-      {refTxt && <span style={{ fontSize: 12.5, color: SES.faint }}>antes {refTxt}</span>}
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: compacto ? 0 : 4 }}>
+      {refTxt && <span style={{ fontSize: compacto ? 11.5 : 12.5, color: SES.faint }}>antes {refTxt}</span>}
       {meta && (
         <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: meta.col }}>
           <meta.Icon size={11} strokeWidth={3} />
@@ -11031,7 +11046,13 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
           </div>
         )}
 
-        <div style={{ height: 8 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "12px 10px 4px", fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", color: SES.faint }}>
+          <span style={{ width: 34, flexShrink: 0, textAlign: "center" }}>{block.group ? "RONDA" : "SERIE"}</span>
+          <span style={{ flex: 1, textAlign: "center" }}>{unitFor(block.group ? block.members[0] : block.ei).toUpperCase()}</span>
+          <span style={{ flex: 1, textAlign: "center" }}>REPS</span>
+          <span style={{ flex: 1, textAlign: "center" }}>RIR</span>
+          <span style={{ width: 42, flexShrink: 0 }} />
+        </div>
 
         {block.rows.map((r, i) => {
           // Focus Mode (una serie a la vez): solo se pinta la fila pedida.
@@ -11058,12 +11079,11 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
             <React.Fragment key={`${r.ei}-${r.si}`}>
             <div data-set-row data-set-ei={r.ei} data-set-si={r.si}
               onClickCapture={(ev) => { if (Date.now() < (setDragRef.current.blockUntil || 0)) { ev.stopPropagation(); ev.preventDefault(); } }}
-              style={{ padding: "9px 10px", marginTop: isWarm && i > 0 ? 0 : (!isWarm && i > 0 && rowMeta[i - 1].warm ? 10 : 0), marginBottom: 6, borderRadius: 20,
+              style={{ padding: "7px 10px 4px", marginTop: isWarm && i > 0 ? 0 : (!isWarm && i > 0 && rowMeta[i - 1].warm ? 8 : 0), marginBottom: 4, borderRadius: 20,
                 background: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? SES.campo
-                  : st.done ? SES.accSoft : isWarm ? "transparent" : SES.campo,
-                border: isWarm && !st.done && !(i === idxActiva) ? `1.5px dashed ${SES.line}` : "1.5px solid transparent",
-                boxShadow: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_SHADOW
-                  : (i === idxActiva && !st.done) ? `inset 0 0 0 2px ${SES.ink}` : "none",
+                  : st.done ? SES.accSoft : (i === idxActiva && !st.done) ? SES.campo : "transparent",
+                border: "1.5px solid transparent",
+                boxShadow: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_SHADOW : "none",
                 transform: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_TRANSFORM
                   : (setDragOver && setDragOver.ei === r.ei && setDragOver.si === r.si && setDragging && setDragging.si !== r.si ? "scale(.98)" : "none"),
                 transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
@@ -11080,15 +11100,15 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
                   border: isWarm && !st.done ? `1.5px dashed ${SES.faint}` : "none" }}>
                 {block.group ? (r.round || 0) + 1 : isWarm ? "A" : meta.no}
               </button>
-              <NumCell flex alto={10} fondo={SES.card} aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)}
+              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)}
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitDeSerie(st, r.ei))).replace(".", ",")}
                 onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitDeSerie(st, r.ei)))))}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "weight" })} />
-              <NumCell flex alto={10} fondo={SES.card} aria={`Repeticiones de la ${dónde}`} placeholder="reps"
+              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`Repeticiones de la ${dónde}`} placeholder="reps"
                 valor={st.reps == null ? "" : String(st.reps)}
                 onCommit={(v) => setVal(r.ei, r.si, "reps", v)}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "reps" })} />
-              <NumCell flex alto={10} fondo={SES.card} aria={`RIR de la ${dónde}`} placeholder="RIR"
+              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`RIR de la ${dónde}`} placeholder="RIR"
                 valor={st.rir == null ? "" : String(st.rir)}
                 onCommit={(v) => setVal(r.ei, r.si, "rir", v)}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "rir" })} />
@@ -11101,70 +11121,53 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
                 <Check size={18} strokeWidth={3} />
               </button>
             </div>
-            {(detalle || (block.group && exx.name) || (!isWarm && !block.group)) && (
-              <div style={{ paddingLeft: 41, marginTop: 5, fontSize: 12, color: SES.faint, fontWeight: 600, lineHeight: 1.35 }}>
-                {(isWarm ? `Aprox. ${meta.no}` : block.group ? `Ronda ${(r.round || 0) + 1}` : `Serie ${meta.no}`)}
-                {!isWarm && st.type !== "normal" && tipo && <span style={{ color: SES.acc, fontWeight: 700 }}> · {tipo}</span>}
-                {detalle ? ` · ${detalle}` : ""}{block.group ? ` · ${exx.name}` : ""}
-                {abierta && !isWarm && !block.group && (
-                  <RetoSerie actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitDeSerie(st, r.ei)} />
-                )}
-              </div>
-            )}
-            {/* Drop set / rest-pause / cluster: las partes siguientes de
-                ESTA serie, cada una con su propio peso y reps (ver
-                MULTI_LEG_TYPES). La primera parte ya va en los campos de
-                arriba; esto solo aparece para esos tres tipos. */}
             {renderLegs(st, r.ei, r.si, dónde)}
-            {/* Acceso directo al comentario de ESTA serie (antes vivía tras
-                el «···»): un toque abre la caja debajo de la fila. Si la
-                serie ya tiene datos, aparece también «Borrar». */}
-            {cmtKey !== restKey(r.ei, r.si) && (i === idxActiva || !!st.comment || (st.attachIds || []).length > 0) && (
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 6, marginTop: 8, paddingLeft: 1 }}>
-                {!st.comment && (
-                  <button onClick={() => openCmt(restKey(r.ei, r.si))}
-                    aria-label={`Comentar la ${dónde}`}
-                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
-                      width: 26, height: 26, color: SES.faint, background: "none", border: "none" }}>
-                    <MessageSquare size={15} />
-                  </button>
-                )}
-                {/* Adjuntar foto, video o archivo a ESTA serie — evidencia de
-                    cómo salió (técnica, marcador de la máquina, una
-                    molestia que avisar). El ícono se resalta si ya tiene
-                    algo adjunto. */}
-                {attachKey !== restKey(r.ei, r.si) && (
-                  <button onClick={() => setAttachKey(restKey(r.ei, r.si))}
-                    aria-label={`Adjuntar foto, video o archivo a la ${dónde}${(st.attachIds || []).length ? ` (${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"})` : ""}`}
-                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
-                      width: 26, height: 26, color: (st.attachIds || []).length ? SES.acc : SES.faint, background: "none", border: "none" }}>
-                    <Paperclip size={15} />
-                  </button>
-                )}
-                {/* Conversor kg⇄lb de ESTA serie: convierte el peso ya
-                    escrito a la otra unidad, sin tocar las demás series ni
-                    el ejercicio. */}
-                <button onClick={() => setVal(r.ei, r.si, "unit", unitDeSerie(st, r.ei) === "lb" ? "kg" : "lb")}
-                  aria-label={`Anotar esta serie en ${unitDeSerie(st, r.ei) === "lb" ? "kilos" : "libras"} (ahora ${unitDeSerie(st, r.ei)})`}
-                  title={unitDeSerie(st, r.ei)} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, color: SES.faint, background: "none", border: "none" }}>
-                  <ArrowUpDown size={13} /> {unitDeSerie(st, r.ei)}
-                </button>
-                {!st.comment && ((st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null)) ? (
-                  <button onClick={() => clearSet(r.ei, r.si)} aria-label={`Borrar los datos de la ${dónde}`} title="Borrar datos"
-                    style={{ display: "inline-flex", alignItems: "center", color: SES.faint, background: "none", border: "none" }}>
-                    <Trash2 size={14} />
-                  </button>
-                ) : null}
-                {puedeEditar && !block.group && (
-                  <DragHandle active={!!(setDragging && setDragging.ei === r.ei && setDragging.si === r.si)}
-                    label={`Mantén pulsado y arrastra para mover la ${dónde}`}
-                    onActivate={() => startSetDrag(r.ei, r.si)}
-                    onDragMove={setDragMove}
-                    onDragEnd={endSetDrag}
-                    style={{ margin: "0 0 0 auto", minWidth: 30, minHeight: 30, padding: 4 }} />
+            {/* Segunda línea, siempre a la vista en CADA serie: lo que se
+                pedía (reps · RIR), la comparación con la vez pasada y, a la
+                derecha, comentar / adjuntar foto / unidad / borrar / mover. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 2, minHeight: 32 }}>
+              <div style={{ flex: 1, minWidth: 0, paddingLeft: 3, fontSize: 11.5, color: SES.faint, fontWeight: 600, lineHeight: 1.3, overflow: "hidden" }}>
+                <div>
+                  {!isWarm && st.type !== "normal" && tipo && <span style={{ color: SES.acc, fontWeight: 700 }}>{tipo} · </span>}
+                  {detalle ? detalle : (isWarm ? `Aprox. ${meta.no}` : "")}{block.group ? ` · ${exx.name}` : ""}
+                </div>
+                {abierta && !isWarm && !block.group && (
+                  <RetoSerie compacto actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitDeSerie(st, r.ei)} />
                 )}
               </div>
-            )}
+              {cmtKey !== restKey(r.ei, r.si) && (
+                <button onClick={() => openCmt(restKey(r.ei, r.si))} aria-label={`Comentar la ${dónde}`}
+                  style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", color: st.comment ? SES.acc : SES.faint, background: "none", border: "none", flexShrink: 0 }}>
+                  <MessageSquare size={16} fill={st.comment ? "currentColor" : "none"} />
+                </button>
+              )}
+              {attachKey !== restKey(r.ei, r.si) && (
+                <button onClick={() => setAttachKey(restKey(r.ei, r.si))}
+                  aria-label={`Adjuntar foto, video o archivo a la ${dónde}${(st.attachIds || []).length ? ` (${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"})` : ""}`}
+                  style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", color: (st.attachIds || []).length ? SES.acc : SES.faint, background: "none", border: "none", flexShrink: 0 }}>
+                  <Paperclip size={16} />
+                </button>
+              )}
+              <button onClick={() => setVal(r.ei, r.si, "unit", unitDeSerie(st, r.ei) === "lb" ? "kg" : "lb")}
+                aria-label={`Anotar esta serie en ${unitDeSerie(st, r.ei) === "lb" ? "kilos" : "libras"} (ahora ${unitDeSerie(st, r.ei)})`}
+                title={unitDeSerie(st, r.ei)} style={{ height: 32, padding: "0 6px", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11.5, fontWeight: 700, color: SES.faint, background: "none", border: "none", flexShrink: 0 }}>
+                <ArrowUpDown size={13} />{unitDeSerie(st, r.ei)}
+              </button>
+              {!st.comment && ((st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null)) ? (
+                <button onClick={() => clearSet(r.ei, r.si)} aria-label={`Borrar los datos de la ${dónde}`} title="Borrar datos"
+                  style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", color: SES.faint, background: "none", border: "none", flexShrink: 0 }}>
+                  <Trash2 size={14} />
+                </button>
+              ) : null}
+              {puedeEditar && !block.group && (
+                <DragHandle active={!!(setDragging && setDragging.ei === r.ei && setDragging.si === r.si)}
+                  label={`Mantén pulsado y arrastra para mover la ${dónde}`}
+                  onActivate={() => startSetDrag(r.ei, r.si)}
+                  onDragMove={setDragMove}
+                  onDragEnd={endSetDrag}
+                  style={{ margin: 0, minWidth: 30, minHeight: 30, padding: 4 }} />
+              )}
+            </div>
             <NumberWheelSheet open={!!wheelEn && wheelEn.key === restKey(r.ei, r.si)}
               field={wheelEn && wheelEn.key === restKey(r.ei, r.si) ? wheelEn.field : "weight"}
               value={wheelEn && wheelEn.field === "reps" ? st.reps : wheelEn && wheelEn.field === "rir" ? st.rir : st.weight}
@@ -12558,7 +12561,8 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
         <DayPreviewSheet open={!!previewDay} day={previewDay} history={history}
           warmup={previewDay ? (plan.warmups || {})[routineOf(previewDay)] : ""}
           onClose={() => setPreviewDay(null)}
-          onContinue={() => { const d = previewDay; setPreviewDay(null); if (d) setPidiendoGym(d); }} />
+          onContinue={() => { const d = previewDay; setPreviewDay(null); if (d) setPidiendoGym(d); }}
+          onStart={(g) => { const d = previewDay; setPreviewDay(null); if (d) startSession(d, g, d._fecha); }} />
         <Sheet open={histOpen} onClose={() => setHistOpen(false)} title="Historial" tall>
           <ActivityTab embedded plan={plan} history={history} saveHistory={saveHistory}
             onRegistrar={plan.days.length > 0 ? () => { setHistOpen(false); setPastOpen(true); } : null} />
