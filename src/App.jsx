@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v392";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v393";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5628,7 +5628,7 @@ const GlobalStyle = () => {
     .fj input:focus-visible, .fj textarea:focus-visible, .fj select:focus-visible { outline: none; }
     .fj button:focus-visible { outline: 2px solid ${P.ember}; outline-offset: 2px; }
     .fj input::placeholder, .fj textarea::placeholder { color: ${P.faint}; }
-    .fj input.chat-input::placeholder { color: ${P.faint2}; opacity: 1; }
+    .fj input.chat-input::placeholder, .fj textarea.chat-input::placeholder { color: ${P.faint2}; opacity: 1; }
     .fj button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
     /* Feedback táctil global: cualquier botón se achica un toque al
        tocarlo, como el de iOS — sin tener que agregarlo botón por botón.
@@ -7503,21 +7503,53 @@ const AtletasMensajesTab = ({ roster, toast }) => {
           ))}
         </Card>
       )}
-      <Sheet open={!!openStudent} onClose={() => setOpenStudent(null)} title={openStudent ? openStudent.name : "Chat"} tall>
-        {openStudent && <ChatTab inSheet sid={openStudent.id} role="coach" studentName={openStudent.name} />}
-      </Sheet>
+      {openStudent && <ChatTab sid={openStudent.id} role="coach" studentName={openStudent.name} onBack={() => setOpenStudent(null)} />}
     </div>
   );
 };
 
-const ChatTab = ({ sid, role, studentName, inSheet }) => {
+// Alto real de lo que se ve cuando sube el teclado en iPhone: sin esto la barra
+// de escribir quedaba escondida detrás del teclado.
+function useVisualViewport() {
+  const [v, setV] = useState(() => ({ h: 0, t: 0 }));
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const f = () => setV({ h: Math.round(vv.height), t: Math.round(vv.offsetTop) });
+    f();
+    vv.addEventListener("resize", f); vv.addEventListener("scroll", f);
+    return () => { vv.removeEventListener("resize", f); vv.removeEventListener("scroll", f); };
+  }, []);
+  return v;
+}
+
+// Un check-in o cualquier mensaje con forma de formulario ("Pregunta: valor",
+// una por línea) se dibuja como una tabla compacta, no como un muro de texto.
+function filasDeMensaje(texto) {
+  const l = String(texto || "").split("\n").map((x) => x.trim()).filter(Boolean);
+  if (l.length < 4) return null;
+  const filas = l.slice(1).map((x) => { const i = x.lastIndexOf(": "); return i > 0 && i < 48 ? [x.slice(0, i), x.slice(i + 2)] : null; });
+  if (filas.filter(Boolean).length < Math.ceil(filas.length * 0.7)) return null;
+  return { titulo: l[0], filas: filas.filter(Boolean) };
+}
+
+// Conversación a pantalla completa (como iMessage/WhatsApp): cabecera con
+// volver, mensajes que se desplazan solos y la barra de escribir siempre
+// abajo, sobre el teclado. Sin barra de pestañas encima ni botones flotantes.
+const ChatTab = ({ sid, role, studentName, onBack }) => {
   const [msgs, setMsgs] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [text, setText] = useState("");
   const [viewImg, setViewImg] = useState(null);
   const [sending, setSending] = useState(false);
+  const [lejos, setLejos] = useState(false);     // ¿está scrolleado lejos del final?
   const scrollRef = useRef(null);
+  const inputRef = useRef(null);
+  const alFinalRef = useRef(true);
+  const primeraRef = useRef(true);
   const key = sid ? `forja-chat:${sid}` : null;
+  const vv = useVisualViewport();
+  const swipe = useSwipeBack(() => onBack && onBack());
 
   useEffect(() => {
     if (!key) return;
@@ -7540,42 +7572,58 @@ const ChatTab = ({ sid, role, studentName, inSheet }) => {
     return () => { alive = false; clearInterval(iv); setChatSeenAt(role, sid, Date.now()); };
   }, [key]);
 
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [msgs]);
+  const alFinal = (suave) => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: suave ? "smooth" : "auto" });
+  };
+  // Baja solo si ya estabas abajo o si el mensaje nuevo es tuyo; si estás
+  // leyendo algo anterior, no te mueve de lugar.
+  useEffect(() => {
+    const ultimo = msgs[msgs.length - 1];
+    if (primeraRef.current && loaded) { primeraRef.current = false; requestAnimationFrame(() => alFinal(false)); return; }
+    if (alFinalRef.current || (ultimo && ultimo.from === role)) requestAnimationFrame(() => alFinal(true));
+  }, [msgs, loaded]);
+  // Al subir el teclado, mantener el final a la vista.
+  useEffect(() => { if (alFinalRef.current) requestAnimationFrame(() => alFinal(false)); }, [vv.h]);
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const d = el.scrollHeight - el.scrollTop - el.clientHeight;
+    alFinalRef.current = d < 90;
+    setLejos(d > 240);
+  };
 
   const push = async (m) => {
     const next = [...msgs, m];
     setMsgs(next);
     await sSet(key, next);
   };
-
+  const crece = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  };
   const send = async () => {
     const t = text.trim();
     if (!t || !key || sending) return;
     setSending(true);
     setText("");
+    requestAnimationFrame(crece);
     await push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, from: role, kind: "text", text: t, ts: Date.now() });
     setSending(false);
+    if (inputRef.current) inputRef.current.focus();
   };
-
   const sendAttach = async (id) => {
     if (!key) return;
     await push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, from: role, kind: "media", attachId: id, ts: Date.now() });
   };
 
-  if (!sid) {
-    return (
-      <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
-        <div style={{ color: P.faint, fontSize: 14.5 }}>Elige un alumno para ver el chat.</div>
-      </div>
-    );
-  }
-
   const headerName = role === "coach" ? (studentName || "Alumno") : "Tu coach";
   const initials = headerName.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
-  // El diseño muestra un punto de estado bajo el nombre. FORJA no tiene
-  // presencia real (nadie publica "estoy conectado"), así que en vez de
-  // inventar un "En línea" fijo se muestra el dato que sí existe: cuándo
-  // escribió por última vez la otra persona. Mismo tamaño y misma forma.
+  // FORJA no tiene presencia real (nadie publica "estoy conectado"): se muestra
+  // el dato que sí existe, cuándo escribió por última vez la otra persona.
   const lastFromOther = [...msgs].reverse().find((m) => m.from !== role);
   const otherMins = lastFromOther ? Math.round((Date.now() - lastFromOther.ts) / 60000) : null;
   const presence = otherMins == null ? "Sin mensajes todavía"
@@ -7583,86 +7631,116 @@ const ChatTab = ({ sid, role, studentName, inSheet }) => {
     : otherMins < 60 ? `Activo hace ${otherMins} min`
     : otherMins < 1440 ? `Activo hace ${Math.round(otherMins / 60)} h`
     : `Activo hace ${Math.round(otherMins / 1440)} d`;
-  let lastDay = null;
 
   return (
-    <div style={{ background: MONO.bg, minHeight: "100%", display: "flex", flexDirection: "column" }}>
-      {/* Header blanco, como una barra de navegación de sistema */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 20px 14px",
-        background: MONO.surface, borderBottom: `1px solid ${MONO.line}` }}>
-        <span style={{ width: 40, height: 40, borderRadius: 13, background: MONO.ink, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{initials}</span>
-        <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: MONO.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headerName}</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: MONO.inkTertiary }}>
-            <i style={{ width: 6, height: 6, borderRadius: "50%", background: MONO.ink, flexShrink: 0 }} />{presence}
-          </span>
+    <SheetPortal>
+      <div {...swipe} data-fjkeep style={{ position: "fixed", left: 0, right: 0, top: vv.h ? vv.t : 0, height: vv.h ? vv.h : "100dvh", maxWidth: "var(--fj-w)", margin: "0 auto",
+        zIndex: 70, display: "flex", flexDirection: "column", background: MONO.bg, color: P.text }}>
+        {/* Cabecera: volver, avatar y nombre. Siempre visible. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "calc(8px + env(safe-area-inset-top)) 12px 10px 8px",
+          background: `${P.s1}F2`, backdropFilter: "saturate(180%) blur(20px)", WebkitBackdropFilter: "saturate(180%) blur(20px)",
+          borderBottom: `0.5px solid ${P.separatorStrong || P.line}`, flexShrink: 0 }}>
+          <button onClick={onBack} aria-label="Volver" title="Volver"
+            style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: P.text, flexShrink: 0 }}>
+            <ChevronLeft size={26} strokeWidth={2.2} />
+          </button>
+          <span style={{ width: 40, height: 40, borderRadius: 20, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{initials}</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0, flex: 1 }}>
+            <span style={{ fontSize: 17, fontWeight: 650, letterSpacing: "-.015em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headerName}</span>
+            <span style={{ fontSize: 12.5, color: MONO.inkTertiary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{presence}</span>
+          </div>
         </div>
-      </div>
 
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch", display: "flex", flexDirection: "column", gap: 12, padding: inSheet ? "18px 18px 96px" : "18px 18px 84px", minHeight: "46vh" }}>
-        {loaded && msgs.length === 0 && (
-          <div style={{ textAlign: "center", fontSize: 13.5, color: MONO.inkDim, padding: "20px 10px" }}>Todavía no hay mensajes. Escribe el primero.</div>
-        )}
-        {msgs.map((m) => {
-          const own = m.from === role;
-          // El alumno siempre en tinta y el coach siempre en blanco, mire
-          // quien mire — así el hilo se lee igual desde los dos lados.
-          const isAlumno = m.from === "alumno";
-          const dayLabel = fmtChatDay(m.ts);
-          const showDay = dayLabel !== lastDay;
-          lastDay = dayLabel;
-          // Colores de burbuja FIJOS, sin seguir MONO/P: "se lee igual
-          // mire quien mire" incluye modo oscuro — antes usaban MONO.ink
-          // (que en oscuro es casi blanco) de fondo con letra clara
-          // encima, letra invisible sobre fondo casi igual de claro.
-          const bubbleBg = isAlumno ? "#101012" : "#FFFFFF";
-          const bubbleColor = isAlumno ? "#F0F0F3" : "#2B2B30";
-          const bubbleBorder = isAlumno ? "none" : "1px solid #E5E5EA";
-          const timeColor = isAlumno ? "#8C8C96" : "#8E8E93";
-          return (
-            <React.Fragment key={m.id}>
-              {showDay && <div style={{ textAlign: "center", fontSize: 11.5, fontWeight: 600, color: MONO.inkTertiary }}>{dayLabel}</div>}
-              <div style={{ alignSelf: own ? "flex-end" : "flex-start", maxWidth: "78%", display: "flex", flexDirection: "column", gap: 5 }}>
-                {m.kind === "media" ? (
-                  <>
-                    <ChatMedia id={m.attachId} onOpen={setViewImg} />
-                    <span style={{ fontSize: 11, color: MONO.inkTertiary, alignSelf: own ? "flex-end" : "flex-start" }}>{fmtChatTime(m.ts)}</span>
-                  </>
-                ) : (
-                  <div style={{ background: bubbleBg, border: bubbleBorder,
-                    borderRadius: own ? "18px 18px 6px 18px" : "18px 18px 18px 6px",
-                    padding: "13px 15px", display: "flex", flexDirection: "column", gap: 5 }}>
-                    <span style={{ fontSize: 14.5, fontWeight: 400, lineHeight: 1.5, color: bubbleColor, whiteSpace: "pre-wrap" }}>{m.text}</span>
-                    <span style={{ fontSize: 11, color: timeColor, alignSelf: "flex-end" }}>{fmtChatTime(m.ts)}</span>
+        <div ref={scrollRef} onScroll={onScroll}
+          style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain", display: "flex", flexDirection: "column", padding: "14px 14px 10px" }}>
+          {loaded && msgs.length === 0 && (
+            <div style={{ margin: "auto", textAlign: "center", color: MONO.inkTertiary, display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: 24 }}>
+              <MessageSquare size={34} strokeWidth={1.5} />
+              <span style={{ fontSize: 14.5 }}>Escribe el primer mensaje</span>
+            </div>
+          )}
+          {(() => {
+            let lastDay = null;
+            return msgs.map((m, i) => {
+              const own = m.from === role;
+              const prev = msgs[i - 1], next = msgs[i + 1];
+              const dayLabel = fmtChatDay(m.ts);
+              const showDay = dayLabel !== lastDay;
+              lastDay = dayLabel;
+              // Mensajes seguidos de la misma persona (menos de 4 min) se pegan
+              // en un bloque y la hora sale solo en el último.
+              const junto = (a, b) => a && b && a.from === b.from && Math.abs(b.ts - a.ts) < 240000 && fmtChatDay(a.ts) === fmtChatDay(b.ts);
+              const pegadoArriba = !showDay && junto(prev, m), pegadoAbajo = junto(m, next) && fmtChatDay(next.ts) === dayLabel;
+              const isAlumno = m.from === "alumno";
+              // El alumno siempre en la placa (tinta o acento) y el coach siempre en
+              // blanco, mire quien mire: el hilo se lee igual desde los dos lados.
+              const bg = isAlumno ? PLATE_GRAD : P.s1;
+              const fg = isAlumno ? PLATE_FG : P.text;
+              const r = 20, rc = 6;
+              const radius = own
+                ? `${r}px ${pegadoArriba ? rc : r}px ${pegadoAbajo ? rc : 6}px ${r}px`
+                : `${pegadoArriba ? rc : r}px ${r}px ${r}px ${pegadoAbajo ? rc : 6}px`;
+              const tabla = m.kind === "text" ? filasDeMensaje(m.text) : null;
+              return (
+                <React.Fragment key={m.id}>
+                  {showDay && (
+                    <div style={{ alignSelf: "center", margin: i ? "14px 0 10px" : "2px 0 10px", padding: "3px 11px", borderRadius: 999, background: P.s3, fontSize: 12, fontWeight: 600, color: MONO.inkTertiary }}>{dayLabel}</div>
+                  )}
+                  <div style={{ alignSelf: own ? "flex-end" : "flex-start", maxWidth: tabla ? "92%" : "80%", marginTop: pegadoArriba ? 2 : 8, display: "flex", flexDirection: "column", gap: 3, alignItems: own ? "flex-end" : "flex-start" }}>
+                    {m.kind === "media" ? (
+                      <ChatMedia id={m.attachId} onOpen={setViewImg} />
+                    ) : tabla ? (
+                      <div style={{ background: bg, color: fg, borderRadius: radius, padding: "11px 14px 12px", minWidth: 250, border: isAlumno ? "none" : `1px solid ${P.line}` }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.85, marginBottom: 6, lineHeight: 1.3 }}>{tabla.titulo}</div>
+                        {tabla.filas.map(([k, v], j) => (
+                          <div key={j} style={{ display: "flex", justifyContent: "space-between", gap: 14, padding: "5px 0", fontSize: 14, lineHeight: 1.3,
+                            borderTop: j ? `0.5px solid ${isAlumno ? hexRgba(PLATE_FG, 0.18) : P.line}` : "none" }}>
+                            <span style={{ opacity: 0.68 }}>{k}</span>
+                            <span style={{ fontWeight: 650, textAlign: "right", flexShrink: 0 }}>{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ background: bg, color: fg, borderRadius: radius, padding: "9px 14px 10px", fontSize: 16, lineHeight: 1.38, whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+                        border: isAlumno ? "none" : `1px solid ${P.line}` }}>{m.text}</div>
+                    )}
+                    {!pegadoAbajo && <span style={{ fontSize: 11.5, color: MONO.inkTertiary, padding: "0 4px" }}>{fmtChatTime(m.ts)}</span>}
                   </div>
-                )}
-              </div>
-            </React.Fragment>
-          );
-        })}
-      </div>
+                </React.Fragment>
+              );
+            });
+          })()}
+        </div>
 
-      {/* Barra de composición: "+" 44px, campo, envío 44px en tinta */}
-      <div style={{ position: "fixed", left: 0, right: 0, bottom: inSheet ? 0 : "var(--fj-tabbar-h)", zIndex: 45,
-        maxWidth: "var(--fj-w)", margin: "0 auto",
-        display: "flex", alignItems: "center", gap: 10, padding: inSheet ? "10px 18px calc(10px + env(safe-area-inset-bottom))" : "12px 18px",
-        background: MONO.surface, borderTop: `1px solid ${MONO.line}` }}>
-        <ChatPlusButton onAttached={sendAttach} />
-        <input value={text} onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
-          placeholder="Escribe un mensaje…"
-          className="chat-input"
-          style={{ flex: 1, minWidth: 0, padding: "13px 15px", borderRadius: 14, background: MONO.chipBg, border: `1px solid ${MONO.line}`, fontSize: 14.5, color: MONO.ink }} />
-        {/* Tinta plena siempre: el diseño no atenúa este botón. Antes bajaba
-            a 40% con el campo vacío y se leía gris, que es justo lo que no
-            debe pasar con el único elemento accionable de la barra. */}
-        <button onClick={send} disabled={!text.trim() || sending} aria-label="Enviar"
-          style={{ width: 44, height: 44, borderRadius: 14, background: "#101012", border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <ArrowRight size={19} color="#FFFFFF" strokeWidth={2.4} />
-        </button>
+        {/* Botón para volver al final cuando estás leyendo algo anterior. */}
+        {lejos && (
+          <button onClick={() => alFinal(true)} aria-label="Ir al último mensaje" title="Ir al final"
+            style={{ position: "absolute", right: 16, bottom: 82, width: 42, height: 42, borderRadius: 21, background: P.s1, color: P.text,
+              boxShadow: "0 6px 18px rgba(0,0,0,.18), 0 0 0 .5px rgba(0,0,0,.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <ChevronDown size={22} strokeWidth={2.2} />
+          </button>
+        )}
+
+        {/* Barra de escribir: adjuntar, campo que crece con el texto y enviar. */}
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "8px 10px calc(8px + env(safe-area-inset-bottom))", flexShrink: 0,
+          background: `${P.s1}F2`, backdropFilter: "saturate(180%) blur(20px)", WebkitBackdropFilter: "saturate(180%) blur(20px)",
+          borderTop: `0.5px solid ${P.separatorStrong || P.line}` }}>
+          <ChatPlusButton onAttached={sendAttach} />
+          <textarea ref={inputRef} value={text} rows={1} enterKeyHint="send"
+            onChange={(e) => { setText(e.target.value); requestAnimationFrame(crece); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && window.matchMedia && !window.matchMedia("(pointer: coarse)").matches) { e.preventDefault(); send(); } }}
+            placeholder="Mensaje" aria-label="Escribe un mensaje" className="chat-input"
+            style={{ flex: 1, minWidth: 0, resize: "none", padding: "10px 14px", borderRadius: 22, background: P.s3, border: `1px solid ${P.line}`,
+              fontSize: 16, lineHeight: 1.3, color: P.text, maxHeight: 128, minHeight: 44, display: "block" }} />
+          <button onClick={send} disabled={!text.trim() || sending} aria-label="Enviar" title="Enviar"
+            style={{ width: 44, height: 44, borderRadius: 22, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              opacity: text.trim() ? 1 : 0.35, transition: `opacity ${DUR_ROW}ms ${EASE_STD}` }}>
+            <ArrowUp size={21} strokeWidth={2.6} />
+          </button>
+        </div>
+        <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
       </div>
-      <ImageViewer src={viewImg} onClose={() => setViewImg(null)} />
-    </div>
+    </SheetPortal>
   );
 };
 
@@ -7700,9 +7778,9 @@ const ChatPlusButton = ({ onAttached }) => {
       </span>
       <button aria-label="Adjuntar foto o video"
         onClick={() => { const b = ref.current && ref.current.querySelector("button"); b && b.click(); }}
-        style={{ width: 44, height: 44, borderRadius: 14, background: MONO.chipBg, border: `1px solid ${MONO.line}`,
-          display: "flex", alignItems: "center", justifyContent: "center", color: MONO.inkTertiary }}>
-        <Plus size={19} strokeWidth={2.2} />
+        style={{ width: 44, height: 44, borderRadius: 22, background: MONO.chipBg, border: `1px solid ${MONO.line}`,
+          display: "flex", alignItems: "center", justifyContent: "center", color: MONO.inkDim }}>
+        <Plus size={22} strokeWidth={2.2} />
       </button>
     </span>
   );
@@ -32059,7 +32137,7 @@ const App = () => {
   return (
     <div className={(easyMode ? "fj fj-easy" : "fj") + (appEntrada ? " appEnter" : "")} onAnimationEnd={(e) => { if (e.target === e.currentTarget) setAppEntrada(false); }} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
-      {!enSesion && <NavTituloCompacto clave={`${mode}|${tab}|${sub || ""}|${utility || ""}`} />}
+      {!enSesion && utility !== "chat" && <NavTituloCompacto clave={`${mode}|${tab}|${sub || ""}|${utility || ""}`} />}
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
         paddingBottom: enSesion ? 0 : "calc(116px + env(safe-area-inset-bottom))" }}>
         {/* Cabecera: identidad como texto a la izquierda (solo informativa —
@@ -32105,7 +32183,7 @@ const App = () => {
             de la pestaña actual, con cabecera de volver. */}
         {utility && (
           <div className="sheetIn" {...utilitySwipe}>
-            <PushHeader title={UTILITY_SCREENS[utility].label} onBack={() => setUtility(null)} />
+            {utility !== "chat" && <PushHeader title={UTILITY_SCREENS[utility].label} onBack={() => setUtility(null)} />}
             {utility === "atajos" && <AtajosTab toast={toast} />}
             {utility === "timer" && <TimerTab />}
             {utility === "guia" && (
@@ -32125,7 +32203,7 @@ const App = () => {
               <CalendarTab plan={plan} history={history} onGoTrain={() => { setUtility(null); setTab("entrenar"); }}
                 bookings={bookings.slots} sid={sid} onCancelBooking={(id) => saveBookings(bookings.slots.map((x) => (x.id === id ? { ...x, status: "cancelada" } : x)))} />
             ))}
-            {utility === "chat" && <ChatTab sid={sid} role="alumno" />}
+            {utility === "chat" && <ChatTab sid={sid} role="alumno" onBack={() => setUtility(null)} />}
           </div>
         )}
 
