@@ -23,8 +23,17 @@ import { mapear, firmaWebhook, igualesSeguro } from "./map.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const CLIENT_ID = Deno.env.get("WHOOP_CLIENT_ID") || "fd5751f8-f83b-466a-a0ca-9cc248ce65f4";
-// .trim(): al pegar el secreto en Supabase suele colarse un espacio o salto de línea al final.
-const CLIENT_SECRET = (Deno.env.get("WHOOP_CLIENT_SECRET") || "").trim();
+// Al pegar el secreto en Supabase suelen colarse espacios, saltos de línea o comillas. Se prueban
+// variantes limpias, en este orden: tal cual (sin espacios), sin comillas envolventes y el primer
+// bloque de 64 caracteres hexadecimales (el formato de los secretos de WHOOP).
+const SECRETO_CRUDO = Deno.env.get("WHOOP_CLIENT_SECRET") || "";
+const CANDIDATOS: string[] = [...new Set([
+  SECRETO_CRUDO.trim(),
+  SECRETO_CRUDO.trim().replace(/^["'`]+|["'`]+$/g, "").trim(),
+  (SECRETO_CRUDO.match(/[0-9a-fA-F]{64}/) || [""])[0],
+].filter(Boolean))];
+const CLIENT_SECRET = CANDIDATOS[0] || "";
+let secretoActivo = 0; // el que ya funcionó, para probarlo primero la próxima vez
 const REDIRECT_URI = Deno.env.get("WHOOP_REDIRECT_URI") || "https://forjabodybuilding.com/whoop";
 
 const AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth";
@@ -51,24 +60,24 @@ type Cuenta = {
 
 // ---------- tokens ----------
 async function pedirToken(params: Record<string, string>) {
-  // Dos formas válidas de autenticar al cliente en OAuth2: credenciales en el
-  // cuerpo (client_secret_post) o cabecera Basic (client_secret_basic). Cada app
-  // de WHOOP queda registrada con una de ellas; se prueba una y, si el servidor
-  // contesta invalid_client, la otra.
   const form = { "Content-Type": "application/x-www-form-urlencoded" };
-  const intentos: { headers: Record<string, string>; body: URLSearchParams }[] = [
-    { headers: form, body: new URLSearchParams({ ...params, client_id: CLIENT_ID, client_secret: CLIENT_SECRET }) },
-    { headers: { ...form, Authorization: "Basic " + btoa(`${encodeURIComponent(CLIENT_ID)}:${encodeURIComponent(CLIENT_SECRET)}`) }, body: new URLSearchParams(params) },
-  ];
   const fallos: string[] = [];
-  for (const [i, m] of intentos.entries()) {
-    const res = await fetch(TOKEN_URL, { method: "POST", headers: m.headers, body: m.body });
-    if (res.ok) return await res.json() as { access_token: string; refresh_token?: string; expires_in: number; scope?: string };
-    fallos.push(`[${i === 0 ? "cuerpo" : "basic"} ${res.status}] ${(await res.text()).slice(0, 420)}`);
-    if (res.status !== 401) break;
+  // 1) Credenciales en el cuerpo (client_secret_post), con cada variante del secreto.
+  const orden = CANDIDATOS.map((_, i) => i).sort((x, y) => (x === secretoActivo ? -1 : y === secretoActivo ? 1 : x - y));
+  for (const i of orden) {
+    const res = await fetch(TOKEN_URL, { method: "POST", headers: form,
+      body: new URLSearchParams({ ...params, client_id: CLIENT_ID, client_secret: CANDIDATOS[i] }) });
+    if (res.ok) { secretoActivo = i; return await res.json() as { access_token: string; refresh_token?: string; expires_in: number; scope?: string }; }
+    fallos.push(`[cuerpo#${i} largo ${CANDIDATOS[i].length} → ${res.status}] ${(await res.text()).slice(0, 160)}`);
+    if (res.status !== 401) throw new Error(fallos.join(" || "));
   }
-  // El largo del secreto guardado (no el secreto) ayuda a detectar pegados incompletos o con comillas.
-  throw new Error(`${fallos.join(" || ")} (largo del secreto: ${CLIENT_SECRET.length})`);
+  // 2) Cabecera Basic (client_secret_basic), por si la app estuviera registrada así.
+  const res = await fetch(TOKEN_URL, { method: "POST",
+    headers: { ...form, Authorization: "Basic " + btoa(`${encodeURIComponent(CLIENT_ID)}:${encodeURIComponent(CLIENT_SECRET)}`) },
+    body: new URLSearchParams(params) });
+  if (res.ok) return await res.json() as { access_token: string; refresh_token?: string; expires_in: number; scope?: string };
+  fallos.push(`[basic → ${res.status}] ${(await res.text()).slice(0, 160)}`);
+  throw new Error(fallos.join(" || "));
 }
 
 // WHOOP rota el refresh token en cada uso: el nuevo se guarda ANTES de seguir.
@@ -166,8 +175,9 @@ async function webhook(req: Request) {
   const firma = req.headers.get("x-whoop-signature") || "";
   // Repetir un mensaje viejo no sirve: se rechaza todo lo que tenga más de 5 minutos.
   if (!ts || Math.abs(Date.now() - Number(ts)) > 300000) return json({ error: "timestamp" }, 401);
-  const esperada = await firmaWebhook(ts, cuerpo, CLIENT_SECRET);
-  if (!firma || !igualesSeguro(esperada, firma)) return json({ error: "firma" }, 401);
+  let valida = false;
+  for (const sec of CANDIDATOS) { if (firma && igualesSeguro(await firmaWebhook(ts, cuerpo, sec), firma)) { valida = true; break; } }
+  if (!valida) return json({ error: "firma" }, 401);
 
   let ev: any; try { ev = JSON.parse(cuerpo); } catch { return json({ error: "json" }, 400); }
   const whoopId = ev?.user_id != null ? String(ev.user_id) : "";
