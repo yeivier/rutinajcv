@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v388";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v389";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5416,6 +5416,78 @@ function volStatusColor(status) {
 /* ============================================================
    Átomos de interfaz
    ============================================================ */
+
+/* ---- Formas sobrias (estilo iOS) ----
+   Las pantallas traen cientos de radios escritos a mano (cápsulas, tarjetas de
+   24-28 px…). En vez de tocar cada uno, un observador los normaliza apenas
+   aparecen en pantalla: los círculos (botones redondos, avatares) y las
+   etiquetas/barras finas se dejan como están; las cápsulas de botón y los
+   campos pasan a esquinas de 12 px y las tarjetas grandes a 16-20 px. */
+function instalarFormasIOS() {
+  if (typeof window === "undefined" || window.__fjFormas) return;
+  window.__fjFormas = true;
+  const px = (v) => parseFloat(v) || 0;
+  const procesa = (raiz) => {
+    if (!raiz || raiz.nodeType !== 1) return;
+    const lista = raiz.matches && raiz.matches('[style*="border-radius"]') ? [raiz] : [];
+    raiz.querySelectorAll && lista.push(...raiz.querySelectorAll('[style*="border-radius"]'));
+    for (const e of lista) {
+      if (e.dataset && e.dataset.fjr) continue;
+      if (!e.closest(".fj") && !e.classList.contains("fj")) continue;
+      const cs = getComputedStyle(e);
+      const tl = px(cs.borderTopLeftRadius), tr = px(cs.borderTopRightRadius), br = px(cs.borderBottomRightRadius), bl = px(cs.borderBottomLeftRadius);
+      if (tl < 12 || Math.abs(tl - tr) > .5 || Math.abs(tl - br) > .5 || Math.abs(tl - bl) > .5) continue;
+      const r = e.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const w = r.width, h = r.height, m = Math.min(w, h);
+      if (Math.abs(w - h) <= 3 && tl >= m / 2 - 2) continue;     // círculo
+      if (tl >= m / 2 - 2 && h < 34) continue;                     // etiqueta / barra fina
+      const t = m >= 90 ? 16 : m >= 56 ? 14 : 12;
+      if (tl > t) e.style.setProperty("border-radius", `${t}px`, "important");
+      e.dataset.fjr = "1";
+    }
+  };
+  try {
+    const obs = new MutationObserver((muts) => { for (const mu of muts) mu.addedNodes.forEach((n) => procesa(n)); });
+    obs.observe(document.body, { childList: true, subtree: true });
+    procesa(document.body);
+  } catch (e) { /* sin observador no pasa nada: queda el diseño de siempre */ }
+}
+
+/* Título compacto de iOS: cuando el título grande de la pantalla sale por
+   arriba, aparece una barra fina y translúcida con su nombre al centro. */
+const NavTituloCompacto = ({ clave }) => {
+  const [txt, setTxt] = useState("");
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    let io = null;
+    const t = setTimeout(() => {
+      const h = document.querySelector(".fj h1");
+      if (!h) { setOn(false); return; }
+      setTxt((h.textContent || "").trim());
+      const p = document.createElement("div");
+      p.style.cssText = "position:fixed;visibility:hidden;padding-top:env(safe-area-inset-top)";
+      document.body.appendChild(p);
+      const safe = parseFloat(getComputedStyle(p).paddingTop) || 0;
+      p.remove();
+      io = new IntersectionObserver(([e]) => setOn(!e.isIntersecting && e.boundingClientRect.bottom < 80), { rootMargin: `-${Math.round(safe + 44)}px 0px 0px 0px`, threshold: 0 });
+      io.observe(h);
+    }, 400);
+    return () => { clearTimeout(t); if (io) io.disconnect(); setOn(false); };
+  }, [clave]);
+  return (
+    <div aria-hidden="true" style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 40, pointerEvents: "none",
+      opacity: on ? 1 : 0, transition: `opacity ${DUR_ROW}ms ${EASE_STD}` }}>
+      <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto", height: "calc(44px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: `${P.bg}EB`, backdropFilter: "saturate(180%) blur(20px)", WebkitBackdropFilter: "saturate(180%) blur(20px)",
+        borderBottom: `0.5px solid ${P.separatorStrong || P.line}` }}>
+        <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-.01em", color: P.text, maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{txt}</span>
+      </div>
+    </div>
+  );
+};
+
 const GlobalStyle = () => {
   // Flecha de los <select>: se recalcula en cada render leyendo P.faint,
   // así sigue el color correcto tanto en tema oscuro como claro (P es un
@@ -5511,7 +5583,7 @@ const GlobalStyle = () => {
     .fj .mono { font-family: inherit; font-size: 12.5px; font-weight: 600; letter-spacing: .01em; text-transform: none; color: ${P.faint}; }
     .fj input, .fj textarea, .fj select {
       background: ${P.s3}; border: 1.5px solid transparent; color: ${P.text};
-      border-radius: 18px; font-family: inherit; font-size: 16px; outline: none;
+      border-radius: 12px; font-family: inherit; font-size: 16px; outline: none;
       transition: border-color ${DUR_MICRO}ms ${EASE_STD}, background ${DUR_MICRO}ms ${EASE_STD};
     }
     .fj input:focus, .fj textarea:focus, .fj select:focus { border-color: ${P.ember}; }
@@ -8609,11 +8681,11 @@ const ProgressSummaryPanel = ({ history }) => {
 
           {/* Ejercicios: una fila cada uno, nombre completo a la izquierda y
               a la derecha el último peso con su variación. */}
-          <div style={{ marginTop: 22 }}>
+          <div style={{ marginTop: 18, background: P.s1, borderRadius: 14, padding: "0 16px" }}>
             {porEjercicio.length === 0 ? (
-              <div style={{ fontSize: 14, color: P.faint, padding: "4px 2px" }}>Sin ejercicios con peso registrado.</div>
+              <div style={{ fontSize: 14, color: P.faint, padding: "14px 0" }}>Sin ejercicios con peso registrado.</div>
             ) : porEjercicio.map((x, i) => (
-              <div key={x.exId} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 2px", borderTop: `1px solid ${P.fillTertiary}` }}>
+              <div key={x.exId} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderTop: i ? `0.5px solid ${P.separatorStrong || P.fillTertiary}` : "none" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 16.5, fontWeight: 700, letterSpacing: "-.01em", lineHeight: 1.25, overflowWrap: "anywhere" }}>{x.name}</div>
                   <div style={{ fontSize: 13, color: P.faint, marginTop: 2, fontWeight: 600 }}>{x.n} {x.n === 1 ? "registro" : "registros"}</div>
@@ -12234,25 +12306,27 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
                   </button>
                   {open && (
                     <div className="deployIn" style={{ paddingBottom: 6 }}>
+                      <div style={{ background: P.s1, borderRadius: 14, padding: "0 0 0 16px", overflow: "hidden" }}>
                       {g.days.map((d, i) => {
                         const lastDone = [...history.sessions].reverse().find((s) => s.dayId === d.id);
                         const ne = d.exs.length, ns = d.exs.reduce((t, e) => t + e.sets.length, 0);
                         return (
                           <button key={d.id} onClick={() => (active ? setConfirmSwitch(d) : setPreviewDay(d))}
-                            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14, padding: "16px 16px",
-                              marginBottom: 10, borderRadius: 24, background: P.s1 }}>
-                            <span style={{ width: 40, height: 40, borderRadius: 20, background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 800,
+                            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "12px 12px 12px 0",
+                              borderTop: i ? `0.5px solid ${P.separatorStrong || P.fillTertiary}` : "none" }}>
+                            <span style={{ width: 30, height: 30, borderRadius: 15, background: P.s3, color: P.text, fontSize: 14, fontWeight: 600,
                               display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
                             <span style={{ flex: 1, minWidth: 0 }}>
-                              <span style={{ display: "block", fontSize: 17, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.25, overflowWrap: "anywhere" }}>{d.name}</span>
-                              <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: P.faint, marginTop: 3 }}>
+                              <span style={{ display: "block", fontSize: 16.5, fontWeight: 400, lineHeight: 1.25, overflowWrap: "anywhere" }}>{d.name}</span>
+                              <span style={{ display: "block", fontSize: 13, fontWeight: 400, color: P.faint, marginTop: 2 }}>
                                 {ne} ej · {ns} series{lastDone ? ` · ${fmtDate(lastDone.date)}` : ""}
                               </span>
                             </span>
-                            <ChevronRight size={20} color={P.chevron} style={{ flexShrink: 0 }} />
+                            <ChevronRight size={16} color={P.chevron} style={{ flexShrink: 0 }} />
                           </button>
                         );
                       })}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -16177,7 +16251,7 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
         )}
       </div>
 
-      <div>
+      <div style={n.meals.length ? { background: P.s1, borderRadius: 14, padding: "0 16px" } : undefined}>
         {n.meals.length === 0 ? (
           <div style={{ padding: "18px 0" }}>
             <Empty icon={Utensils} title="Sin plan de comidas" body="Tu coach aún no carga las comidas del plan." />
@@ -16200,7 +16274,7 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
               const choice = mealChoices[m.id];
               const hasDetail = items.length > 0 || !!note;
               return (
-                <div key={m.id} style={{ borderTop: i ? `1px solid ${P.fillTertiary}` : "none", padding: "16px 0" }}>
+                <div key={m.id} style={{ borderTop: i ? `0.5px solid ${P.separatorStrong}` : "none", padding: "14px 0" }}>
                   <button onClick={() => toggleMeal(m.id)} aria-pressed={done}
                     aria-label={`${done ? "Desmarcar" : "Marcar como hecha"} ${m.name}`}
                     style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14 }}>
@@ -19199,9 +19273,9 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
         // tiene dos acciones explícitas y separadas: "Gestionar" (entra
         // como este atleta — su Rutina, Mensajes, etc.) y "Actividad"
         // (el mismo vistazo de siempre, sin salir de esta lista).
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {filtered.map((r) => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 4px", borderBottom: `1px solid ${P.fillTertiary}` }}>
+        <div style={{ display: "flex", flexDirection: "column", background: P.s1, borderRadius: 14, padding: "0 12px 0 16px" }}>
+          {filtered.map((r, ri) => (
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderTop: ri ? `0.5px solid ${P.separatorStrong || P.fillTertiary}` : "none" }}>
               <button onClick={() => onManage(r.id)} aria-label={`Gestionar a ${r.name}`}
                 style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 14, textAlign: "left" }}>
                 <span style={{ width: 48, height: 48, borderRadius: 24, background: P.s3,
@@ -31091,6 +31165,7 @@ const App = () => {
     await enterDelegate(prof); maybeOfferFaceId(prof.id, prof.name);
   };
 
+  useEffect(() => { instalarFormasIOS(); }, []);
   useEffect(() => {
     // Red de seguridad del arranque: si CUALQUIER cosa inesperada truena acá
     // adentro (una forma de dato que el código no esperaba, una promesa que
@@ -31692,6 +31767,7 @@ const App = () => {
   return (
     <div className={(easyMode ? "fj fj-easy" : "fj") + (appEntrada ? " appEnter" : "")} onAnimationEnd={(e) => { if (e.target === e.currentTarget) setAppEntrada(false); }} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
+      {!enSesion && <NavTituloCompacto clave={`${mode}|${tab}|${sub || ""}|${utility || ""}`} />}
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
         paddingBottom: enSesion ? 0 : "calc(96px + env(safe-area-inset-bottom))" }}>
         {/* Cabecera: identidad como texto a la izquierda (solo informativa —
