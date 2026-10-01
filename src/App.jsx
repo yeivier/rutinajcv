@@ -9,7 +9,7 @@ import {
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText, Volume2,
   UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, Pill,
-  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette, Crosshair, List, ShoppingCart, BellOff
+  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette, Crosshair, List, ShoppingCart, BellOff, RefreshCw, Link2, Unlink, Activity
 } from "lucide-react";
 
 /* ============================================================
@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v390";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v391";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -25703,6 +25703,40 @@ function buildWatchPayload(plan, history, nombre) {
     })),
   };
 }
+/* ---------- WHOOP (API oficial) ----------
+   La conexión y la sincronización las hace la Edge Function `whoop` (guarda
+   los tokens donde la clave anónima no llega). Deja lo traído en
+   `forja-whoop:<id>` y acá se mezcla en el historial como cualquier import:
+   recuperación/HRV/esfuerzo → physio, sueño → sleep, entrenos → activities. */
+async function whoopLlamar(action, extra) {
+  try {
+    const r = await fetchWithTimeout(`${SB_PROJECT}/functions/v1/whoop`, { method: "POST", headers: SB_H, body: JSON.stringify({ action, ...extra }) }, 40000);
+    const j = await r.json().catch(() => ({}));
+    return r.ok ? j : { error: j.error || `Error ${r.status}` };
+  } catch { return { error: "Sin conexión con el servidor." }; }
+}
+const whoopFlag = (id) => `forja-whoop-on:${id}`;
+const whoopOn = (id) => { try { return localStorage.getItem(whoopFlag(id)) === "1"; } catch { return false; } };
+// Mezcla lo sincronizado en el historial. Por día los campos nuevos pisan a los
+// viejos (WHOOP corrige la recuperación del día cuando termina de procesarla);
+// los entrenos se identifican por instante + nombre. `whoopU` evita reaplicar
+// lo mismo en cada apertura.
+function aplicarWhoop(h0, w) {
+  if (!w || !h0 || w.u === h0.whoopU) return { h: h0, n: 0 };
+  const h = structuredClone(h0); let n = 0;
+  const unir = (store, clave) => {
+    const nuevos = Array.isArray(w[store]) ? w[store] : [];
+    if (!nuevos.length) return;
+    const m = new Map((h[store] || []).map((x) => [clave(x), x]));
+    nuevos.forEach((x) => { const k = clave(x); const antes = m.get(k); if (!antes || JSON.stringify({ ...antes, ...x }) !== JSON.stringify(antes)) n++; m.set(k, { ...(antes || {}), ...x }); });
+    h[store] = [...m.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
+  };
+  unir("physio", (x) => (x.date || "").slice(0, 10));
+  unir("sleep", (x) => (x.date || "").slice(0, 10));
+  unir("activities", (x) => `${x.date}|${x.name || ""}`);
+  h.whoopU = w.u;
+  return { h, n };
+}
 // Mete al historial las sesiones que dejó el reloj. Cada una trae un id
 // propio (`w-…`): importar dos veces la misma no la duplica.
 function aplicarLogsReloj(h0, logs) {
@@ -25810,8 +25844,42 @@ const BleIosHelp = ({ toast }) => {
   );
 };
 
-const DevicesSheet = ({ open, onClose, toast, history, saveHistory, sid, onPublishWatch }) => {
+const DevicesSheet = ({ open, onClose, toast, history, saveHistory, sid, onPublishWatch, onSyncWhoop }) => {
   const [detail, setDetail] = useState(null);
+  // WHOOP: null = consultando; si no, { connected, lastSyncAt }.
+  const [whoop, setWhoop] = useState(null);
+  const [whoopBusy, setWhoopBusy] = useState(false);
+  useEffect(() => {
+    if (!open || !sid) return;
+    let vivo = true;
+    setWhoop(null);
+    whoopLlamar("status", { studentId: sid }).then((r) => {
+      if (!vivo) return;
+      if (r && !r.error) { setWhoop({ connected: !!r.connected, lastSyncAt: r.lastSyncAt || null }); try { if (r.connected) localStorage.setItem(whoopFlag(sid), "1"); else localStorage.removeItem(whoopFlag(sid)); } catch {} }
+      else setWhoop({ connected: false, error: (r && r.error) || "" });
+    });
+    return () => { vivo = false; };
+  }, [open, sid]);
+  const conectarWhoop = async () => {
+    setWhoopBusy(true);
+    const r = await whoopLlamar("start", { studentId: sid });
+    if (r && r.url) { window.location.href = r.url; return; }
+    setWhoopBusy(false);
+    toast && toast((r && r.error) || "No se pudo iniciar la conexión con WHOOP");
+  };
+  const sincronizarWhoop = async () => {
+    setWhoopBusy(true);
+    try { if (onSyncWhoop) await onSyncWhoop(); setWhoop((w) => ({ ...(w || {}), connected: true, lastSyncAt: new Date().toISOString() })); toast && toast("WHOOP sincronizado"); }
+    finally { setWhoopBusy(false); }
+  };
+  const desconectarWhoop = async () => {
+    if (!window.confirm("¿Desconectar WHOOP? Lo ya importado se queda en tu historial.")) return;
+    setWhoopBusy(true);
+    const r = await whoopLlamar("disconnect", { studentId: sid });
+    setWhoopBusy(false);
+    if (r && r.ok) { try { localStorage.removeItem(whoopFlag(sid)); } catch {} setWhoop({ connected: false }); toast && toast("WHOOP desconectado"); }
+    else toast && toast((r && r.error) || "No se pudo desconectar");
+  };
   const [pane, setPane] = useState(null);      // "import"
   const [texto, setTexto] = useState("");
   const [previo, setPrevio] = useState(null);
@@ -25933,6 +26001,39 @@ const DevicesSheet = ({ open, onClose, toast, history, saveHistory, sid, onPubli
                     style={{ width: 40, height: 40, borderRadius: 20, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Copy size={17} /></button>
                   <button aria-label="Enviar la rutina al reloj" title="Enviar la rutina al reloj" onClick={async () => { const ok = onPublishWatch ? await onPublishWatch() : false; toast && toast(ok ? "Rutina enviada al reloj" : "No pude enviarla"); }}
                     style={{ width: 40, height: 40, borderRadius: 20, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Send size={17} /></button>
+                </div>
+              </Card>
+            )}
+            {/* WHOOP por su API oficial: recuperación, HRV, sueño, esfuerzo y
+                entrenos llegan solos (webhook + sincronización al abrir). */}
+            {sid && (
+              <Card style={{ padding: "14px 16px", marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: whoop && whoop.connected ? PLATE_GRAD : P.s3, color: whoop && whoop.connected ? PLATE_FG : P.text }}>
+                    <Activity size={19} />
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15.5, fontWeight: 600, color: P.text }}>WHOOP</div>
+                    <div style={{ fontSize: 13, color: P.faint2, marginTop: 1 }}>
+                      {whoop == null ? "Consultando…"
+                        : whoop.connected ? (whoop.lastSyncAt ? `Conectado · ${haceDias(whoop.lastSyncAt)}` : "Conectado")
+                        : whoop.error ? "No disponible por ahora" : "Sin conectar"}
+                    </div>
+                  </div>
+                  {whoop && whoop.connected ? (
+                    <>
+                      <button aria-label="Sincronizar WHOOP ahora" title="Sincronizar" disabled={whoopBusy} onClick={sincronizarWhoop}
+                        style={{ width: 40, height: 40, borderRadius: 20, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: whoopBusy ? 0.6 : 1 }}>
+                        <RefreshCw size={17} className={whoopBusy ? "fj-spin" : undefined} /></button>
+                      <button aria-label="Desconectar WHOOP" title="Desconectar" disabled={whoopBusy} onClick={desconectarWhoop}
+                        style={{ width: 40, height: 40, borderRadius: 20, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Unlink size={17} /></button>
+                    </>
+                  ) : (
+                    <button aria-label="Conectar WHOOP" title="Conectar WHOOP" disabled={whoopBusy || whoop == null} onClick={conectarWhoop}
+                      style={{ width: 40, height: 40, borderRadius: 20, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: whoopBusy || whoop == null ? 0.6 : 1 }}>
+                      <Link2 size={17} /></button>
+                  )}
                 </div>
               </Card>
             )}
@@ -31680,6 +31781,54 @@ const App = () => {
     return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
   }, [sid, traerLogsReloj]);
 
+  // WHOOP: si el alumno lo conectó, pide una sincronización fresca (como mucho
+  // cada 20 min) y mezcla lo traído en el historial.
+  const [whoopTick, setWhoopTick] = useState(0);
+  const traerWhoop = useCallback(async (forzar) => {
+    const id = sidRef.current;
+    if (!id || !(forzar || whoopOn(id))) return;
+    const kSync = `forja-whoop-sync:${id}`;
+    let ultimo = 0; try { ultimo = +localStorage.getItem(kSync) || 0; } catch {}
+    if (forzar || Date.now() - ultimo > 20 * 60000) {
+      try { localStorage.setItem(kSync, String(Date.now())); } catch {}
+      const r = await whoopLlamar("sync", { studentId: id, days: forzar ? 30 : 7 });
+      if (r && r.connected === false) { try { localStorage.removeItem(whoopFlag(id)); } catch {} return; }
+    }
+    const w = await sGetFresh(`forja-whoop:${id}`);
+    if (!w || sidRef.current !== id) return;
+    const res = aplicarWhoop(historyRef.current, w);
+    if (res.h !== historyRef.current) {
+      setHistory(res.h);
+      await sSet(`forja-history:${id}`, res.h);
+      if (res.n) toast(`✓ WHOOP: ${res.n} ${res.n === 1 ? "dato nuevo" : "datos nuevos"}`);
+    }
+  }, []);
+  useEffect(() => {
+    if (!sid) return;
+    const t = setTimeout(() => traerWhoop(false), 5000);
+    const onVis = () => { if (document.visibilityState === "visible") traerWhoop(false); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
+  }, [sid, traerWhoop, whoopTick]);
+  // Regreso de WHOOP tras autorizar: la app se abre en /whoop?code=…&state=…
+  useEffect(() => {
+    let u; try { u = new URL(window.location.href); } catch { return; }
+    if (u.pathname.replace(/\/+$/, "") !== "/whoop") return;
+    const limpiar = () => { try { window.history.replaceState({}, "", "/"); } catch {} };
+    const code = u.searchParams.get("code"), state = u.searchParams.get("state"), err = u.searchParams.get("error");
+    if (err) { limpiar(); toast(`WHOOP no se conectó (${u.searchParams.get("error_description") || err})`); return; }
+    if (!code || !state) { limpiar(); return; }
+    (async () => {
+      const r = await whoopLlamar("callback", { code, state });
+      limpiar();
+      if (r && r.ok) {
+        try { localStorage.setItem(whoopFlag(r.studentId), "1"); localStorage.setItem(`forja-whoop-sync:${r.studentId}`, "0"); } catch {}
+        toast("✓ WHOOP conectado");
+        setWhoopTick((n) => n + 1);
+      } else toast((r && r.error) || "No se pudo conectar WHOOP");
+    })();
+  }, []);
+
   const discardSession = useCallback(() => {
     clearTimeout(activeTimer.current);
     activeRef.current = null; setActive(null); setSavedAt("");
@@ -32205,7 +32354,7 @@ const App = () => {
       <FichaSheet open={fichaOpen} onClose={() => setFichaOpen(false)} plan={plan} savePlan={savePlan}
         history={history} currentStudent={currentStudent} toast={toast} />
       <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast}
-        history={history} saveHistory={saveHistory} sid={sid} onPublishWatch={() => publicarReloj(true)} />
+        history={history} saveHistory={saveHistory} sid={sid} onPublishWatch={() => publicarReloj(true)} onSyncWhoop={() => traerWhoop(true)} />
       <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} roster={roster} sid={sid}
         onEnter={(m, id) => { setRosterOpen(false); openIdentity(m, id, roster, myTeamId); }}
         onAdd={() => addStudent(false)} onRename={renameStudent} onRemove={(s) => setConfirmDel(s)} />
