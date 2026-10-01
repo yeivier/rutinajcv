@@ -7,7 +7,7 @@ import {
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, SlidersHorizontal, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
-  Ruler, HeartPulse, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText, Volume2,
+  Ruler, HeartPulse, Footprints, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText, Volume2,
   UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, Pill,
   FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette, Crosshair, List, ShoppingCart, BellOff, RefreshCw, Link2, Unlink, Activity
 } from "lucide-react";
@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v395";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v396";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8359,6 +8359,7 @@ const ExerciseProgress = ({ entries, sessions }) => {
   // con cada carga y cuándo — es lo que dice si conviene subir el peso o
   // buscar una rep más con el mismo.
   const [pesoSel, setPesoSel] = useState(null);
+  const [verPesoReps, setVerPesoReps] = useState(false);
   const [mesAbierto, setMesAbierto] = useState(null);
   const [sesAbierta, setSesAbierta] = useState(null);
   const [pesoAbierto, setPesoAbierto] = useState(null);
@@ -8500,7 +8501,22 @@ const ExerciseProgress = ({ entries, sessions }) => {
         </div>
       )}
 
-      {/* 1 · Veredicto de la última sesión */}
+      {/* 1 · Evolución: el gráfico va primero y se recorre con el dedo */}
+      <div style={grupo}>
+        <div style={{ marginBottom: 10 }}>
+          <SectionSwitch value={metric} onChange={setMetric} items={EX_METRICS.map((m) => ({ id: m.id, label: m.label }))} />
+        </div>
+        {chartData.length ? (
+          <>
+            <ScrubChart data={chartData} unit={metricDef.unit} dec={metricDef.unit === "kg" ? 1 : 0} height={200} color={P.text} badge={deltaR(rangeProgress)} />
+            {metric === "e1rm" && <div style={{ fontSize: 12, color: P.faint, marginTop: 6 }}>Fuerza = 1RM estimado de tu mejor serie de cada sesión.</div>}
+          </>
+        ) : (
+          <div style={{ fontSize: 14, color: P.faint, padding: "6px 2px" }}>Sin sesiones en este rango.</div>
+        )}
+      </div>
+
+      {/* 2 · Veredicto de la última sesión */}
       {veredicto && (
         <div style={grupo}>
           <div style={cap}>Última sesión · {fmtDate(veredicto.fU)}</div>
@@ -8540,10 +8556,16 @@ const ExerciseProgress = ({ entries, sessions }) => {
         </div>
       )}
 
-      {/* 2 · Peso ↔ repeticiones */}
+      {/* 3 · Peso ↔ repeticiones (se abre al tocar) */}
       {sesionesPR.length > 0 && (
         <div style={grupo}>
-          <div style={cap}>Peso y repeticiones</div>
+          <button onClick={() => setVerPesoReps((x) => !x)} aria-expanded={verPesoReps}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, textAlign: "left", color: P.text }}>
+            <span style={{ flex: 1, fontSize: 15, fontWeight: 700 }}>Peso y repeticiones</span>
+            <ChevronDown size={18} color={P.chevron} style={{ transform: verPesoReps ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}` }} />
+          </button>
+          {verPesoReps && (<>
+          <div style={{ height: 8 }} />
           <PesoRepsChart series={sesionesPR} mejorE1={mejorE1} />
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: P.faint, marginTop: 6 }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 9, height: 9, borderRadius: "50%", background: P.text, display: "inline-block" }} />Última</span>
@@ -8551,30 +8573,9 @@ const ExerciseProgress = ({ entries, sessions }) => {
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 16, borderTop: `1.5px dashed ${P.faint}`, display: "inline-block" }} />Tu marca ({mejorE1} kg est.)</span>
           </div>
           <div style={{ fontSize: 12, color: P.faint, marginTop: 4, lineHeight: 1.35 }}>Sobre la línea = récord nuevo. Bajo la línea = por debajo de tu mejor nivel.</div>
+          </>)}
         </div>
       )}
-
-      {/* 3 · Evolución con ejes */}
-      <div style={grupo}>
-        <div style={{ marginBottom: 10 }}>
-          <SectionSwitch value={metric} onChange={setMetric} items={EX_METRICS.map((m) => ({ id: m.id, label: m.label }))} />
-        </div>
-        {chartData.length ? (
-          <>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-              <span className="num" style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1 }}>
-                {metricDef.unit === "kg" ? kg(ultimoV) : Math.round(ultimoV).toLocaleString("es-CL")}
-              </span>
-              <span style={{ fontSize: 14, fontWeight: 500, color: P.faint }}>{metricDef.unit}</span>
-              <span style={{ marginLeft: "auto", fontSize: 14 }}>{deltaR(rangeProgress)}</span>
-            </div>
-            <div style={{ marginTop: 6 }}><EvolucionChart data={chartData} unit={metricDef.unit} /></div>
-            {metric === "e1rm" && <div style={{ fontSize: 12, color: P.faint, marginTop: 2 }}>Fuerza = 1RM estimado de tu mejor serie de cada sesión.</div>}
-          </>
-        ) : (
-          <div style={{ fontSize: 14, color: P.faint, padding: "6px 2px" }}>Sin sesiones en este rango.</div>
-        )}
-      </div>
 
       {/* 4 · Reps por peso */}
       {porPeso.length > 0 && (
@@ -13919,21 +13920,28 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
       ) : emptyCard}
 
-      <Card style={{ display: "flex", padding: "4px 6px" }}>
-        {[
-          { Icon: Scale, label: "Peso", value: d.lastBw ? `${kg(d.lastBw.kg)} kg` : "—", on: () => setCheckinOpen(true) },
-          { Icon: Moon, label: "Sueño", value: d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—", on: () => setCheckinOpen(true) },
-          { Icon: Utensils, label: "Comidas de hoy", value: mealsTotal ? `${mealsDoneCount}/${mealsTotal}` : "—", on: onOpenNutrition },
-          { Icon: Flame, label: "Racha semanal", value: `${d.streak || 0} sem`, on: () => setStatDetail("racha") },
-        ].map((x, i) => (
-          <button key={x.label} onClick={x.on} aria-label={x.label} title={x.label}
-            style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 7, padding: "16px 2px 15px",
-              borderLeft: i ? `0.5px solid ${P.separatorStrong || P.line}` : "none" }}>
-            <x.Icon size={20} color={P.faint} strokeWidth={1.8} />
-            <span style={{ fontSize: 17, fontWeight: 650, letterSpacing: "-.02em", color: x.value === "—" ? P.textQuaternary : P.text, whiteSpace: "nowrap" }}>{x.value}</span>
-          </button>
-        ))}
-      </Card>
+      {(() => {
+        const rec = serieDe(history.physio, "recovery").filter((x) => x.v > 0);
+        const last = (a) => (a && a.length ? a[a.length - 1] : null);
+        const bw = serieDe(history.bodyweight, "kg"), sl = serieDe(history.sleep, "hours"), st = serieDe(history.steps, "count");
+        const vs = volumenSemanal(history.sessions, 8), ss = sesionesSemanales(history.sessions, 8);
+        const hm = (h) => `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
+        const dBw = bw.length > 1 ? bw[bw.length - 1].v - bw[bw.length - 2].v : null;
+        const tiles = [
+          { k: "peso", Icon: Scale, label: "Peso", value: last(bw) ? kg(last(bw).v) : "—", unit: "kg", spark: bw.slice(-14).map((x) => x.v), sub: dBw != null && dBw !== 0 ? `${dBw > 0 ? "+" : "−"}${kg(Math.abs(Math.round(dBw * 10) / 10))} kg` : "" , on: () => setStatDetail("peso") },
+          { k: "sueno", Icon: Moon, label: "Sueño", value: last(sl) ? hm(last(sl).v) : "—", unit: "h", spark: sl.slice(-14).map((x) => x.v), sparkKind: "bar", on: () => setStatDetail("sueno") },
+          { k: "pasos", Icon: Footprints, label: "Pasos", value: last(st) ? Math.round(last(st).v).toLocaleString("es-CL") : "—", spark: st.slice(-14).map((x) => x.v), sparkKind: "bar", on: () => setStatDetail("pasos") },
+          rec.length > 0 && { k: "recup", Icon: HeartPulse, label: "Recuperación", value: String(Math.round(last(rec).v)), unit: "%", spark: rec.slice(-14).map((x) => x.v), sparkKind: "bar", on: () => setStatDetail("recup") },
+          { k: "volumen", Icon: Dumbbell, label: "Volumen semanal", value: String(vs[vs.length - 1].v).replace(".", ","), unit: "t", spark: vs.map((x) => x.v), sparkKind: "bar", on: () => setStatDetail("volumen") },
+          { k: "racha", Icon: Flame, label: "Constancia", value: String(d.streak || 0), unit: "sem", spark: ss.map((x) => x.v), sparkKind: "bar", ring: d.adherence == null ? undefined : d.adherence, on: () => setStatDetail("racha") },
+          mealsTotal > 0 && { k: "comidas", Icon: Utensils, label: "Comidas de hoy", value: `${mealsDoneCount}/${mealsTotal}`, ring: (mealsDoneCount / mealsTotal) * 100, sub: hasMacros ? `${Math.round(+macros.kcal || 0)} kcal · ${Math.round(+macros.p || 0)} g proteína` : "", on: onOpenNutrition },
+        ].filter(Boolean);
+        return (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {tiles.map((t, i) => <MetricCard key={t.k} {...t} onClick={t.on} wide={tiles.length % 2 === 1 && i === tiles.length - 1} />)}
+          </div>
+        );
+      })()}
 
       {/* Solo cuando hay algo que atender: el check-in del día y la nota del coach. */}
       {ciDoneCount === 0 && (
@@ -13985,53 +13993,24 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           que al tocar se explica qué significa y, cuando existe un lugar
           con más profundidad (el gráfico de Progreso), se ofrece saltar
           ahí en vez de duplicar ese gráfico acá. */}
-      <Sheet open={!!statDetail} onClose={() => setStatDetail(null)}
-        title={{ adherencia: "Adherencia", racha: "Racha", peso: "Peso corporal", volumen: "Volumen semanal", pasos: "Pasos", sueno: "Sueño" }[statDetail] || ""}>
-        {statDetail === "adherencia" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.adherence == null ? "—" : `${Math.round(d.adherence)}%`}</div>
-            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Porcentaje de sesiones programadas en tu horario que efectivamente entrenaste este mes.</div>
-          </div>
-        )}
-        {statDetail === "racha" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.streak} semana{d.streak !== 1 ? "s" : ""}</div>
-            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Semanas seguidas con al menos una sesión entrenada, sin cortar.</div>
-          </div>
-        )}
-        {statDetail === "peso" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastBw ? `${d.lastBw.kg} kg` : "Sin registros"}</div>
-            {d.lastBw && d.prevBw && (
-              <div style={{ fontSize: 14.5, color: P.dim }}>
-                {d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}{Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} kg desde el registro anterior
-              </div>
-            )}
-            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Ver gráfico completo</Btn>
-          </div>
-        )}
-        {statDetail === "volumen" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</div>
-            <div style={{ fontSize: 14.5, color: P.dim }}>{d.weekSessions.length} {d.weekSessions.length === 1 ? "sesión" : "sesiones"} esta semana.</div>
-            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("volumen"); setStatDetail(null); }} style={{ width: "100%" }}>Ver progreso completo</Btn>
-          </div>
-        )}
-        {statDetail === "pasos" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "Sin registros"}</div>
-            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>Meta de referencia: 12.000 pasos al día.</div>
-            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Registrar de hoy</Btn>
-          </div>
-        )}
-        {statDetail === "sueno" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-.02em" }}>{d.lastSleep ? `${kg(d.lastSleep.hours)} h` : "Sin registros"}</div>
-            <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>{d.lastSleep ? sleepQuality(d.lastSleep.hours) : "Registra tus horas de sueño para ver cómo viene tu recuperación."}</div>
-            <Btn kind="line" onClick={() => { onOpenProgress && onOpenProgress("cuerpo"); setStatDetail(null); }} style={{ width: "100%" }}>Registrar de hoy</Btn>
-          </div>
-        )}
-      </Sheet>
+      {(() => {
+        const irCuerpo = (sub) => () => { onOpenProgress && onOpenProgress(sub); setStatDetail(null); };
+        const registrar = { label: "Registrar hoy", Icon: Plus, onClick: () => { setStatDetail(null); setCheckinOpen(true); } };
+        const M = {
+          peso: { title: "Peso corporal", serie: serieDe(history.bodyweight, "kg"), unit: "kg", dec: 1, acciones: [registrar, { label: "Ver en Progreso", Icon: BarChart3, onClick: irCuerpo("cuerpo") }] },
+          sueno: { title: "Sueño", serie: serieDe(history.sleep, "hours"), unit: "h", dec: 1, kind: "bar", goal: 8, goalLabel: "8 h",
+            nota: d.lastSleep ? sleepQuality(d.lastSleep.hours) : "Registra tus horas de sueño para ver cómo viene tu recuperación.", acciones: [registrar] },
+          pasos: { title: "Pasos", serie: serieDe(history.steps, "count"), unit: "pasos", dec: 0, kind: "bar", goal: 12000, goalLabel: "12.000", acciones: [registrar] },
+          recup: { title: "Recuperación", serie: serieDe(history.physio, "recovery").filter((x) => x.v > 0), unit: "%", dec: 0, kind: "bar", acciones: [{ label: "Ver más en Progreso", Icon: BarChart3, onClick: irCuerpo("cuerpo") }] },
+          volumen: { title: "Volumen semanal", serie: volumenSemanal(history.sessions), unit: "t", dec: 1, kind: "bar",
+            nota: `${d.weekSessions.length} ${d.weekSessions.length === 1 ? "sesión" : "sesiones"} esta semana.`, acciones: [{ label: "Ver progreso completo", Icon: BarChart3, onClick: irCuerpo("volumen") }] },
+          racha: { title: "Constancia", serie: sesionesSemanales(history.sessions), unit: "ses", dec: 0, kind: "bar",
+            nota: `Racha: ${d.streak} semana${d.streak !== 1 ? "s" : ""} seguidas con al menos una sesión.${d.adherence == null ? "" : ` Adherencia del mes: ${Math.round(d.adherence)}% de las sesiones programadas.`}`,
+            acciones: [{ label: "Ver historial", Icon: History, onClick: irCuerpo("historial") }] },
+        }[statDetail];
+        return <MetricSheet open={!!M} onClose={() => setStatDetail(null)} title={M ? M.title : ""} serie={M ? M.serie : []} unit={M ? M.unit : ""}
+          kind={M ? M.kind : "line"} dec={M ? M.dec : 1} goal={M ? M.goal : undefined} goalLabel={M ? M.goalLabel : undefined} nota={M ? M.nota : undefined} acciones={M ? M.acciones : []} />;
+      })()}
 
       {/* Cada sección es UNA fila resumen (título + detalle + estado a la
           derecha) que abre su propia hoja — no todo el contenido expandido
@@ -14294,84 +14273,245 @@ const cargarRecharts = () => _rechartsProm || (_rechartsProm = import("recharts"
 // el número importante que es, no como una nota al pie.
 const chartTooltipStyle = { background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12, fontSize: 13,
   padding: "8px 12px", boxShadow: "0 6px 20px rgba(0,0,0,.12)" };
-const ChartBox = ({ data, unit, accent, height = 210 }) => {
-  const [R, setR] = useState(null);
-  useEffect(() => { let on = true; cargarRecharts().then((m) => { if (on) setR(m); }).catch(() => {}); return () => { on = false; }; }, []);
-  if (!R) {
-    return (
-      <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Loader2 size={22} color={P.faint} className="fj-spin" />
-      </div>
-    );
-  }
-  const c = accent || P.ember;
-  // Id único por instancia: dos ChartBox en la misma pantalla (p. ej. el
-  // dashboard de salud, con siete seguidos) no pueden compartir el mismo
-  // <linearGradient id="…">, o el segundo pisa el relleno del primero.
-  const gid = `fjChartGrad-${Math.random().toString(36).slice(2, 9)}`;
+/* Gráfico propio, táctil y sin librerías: se desliza el dedo (o el mouse)
+   sobre la curva y arriba aparece el valor exacto con su fecha y el cambio
+   contra el punto anterior. Debajo, mínimo · promedio · máximo del tramo.
+   Sirve para línea (evolución) y barras (valores día a día). */
+const ScrubChart = ({ data, unit = "", color, height = 190, kind = "line", dec = 1, meta, badge }) => {
+  const pts = (data || []).filter((x) => x && isFinite(+x.v));
+  const boxRef = useRef(null);
+  const [w, setW] = useState(320);
+  const [sel, setSel] = useState(null);
+  useEffect(() => {
+    const el = boxRef.current; if (!el) return;
+    const upd = () => setW(Math.max(160, Math.round(el.getBoundingClientRect().width)));
+    upd();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(upd); ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const c = color || P.ember;
+  const n = pts.length;
+  if (n === 0) return <div style={{ height: 80, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: P.faint2 }}>Sin datos todavía</div>;
+  const vals = pts.map((x) => +x.v);
+  const rawMin = Math.min(...vals), rawMax = Math.max(...vals);
+  const bar = kind === "bar";
+  let lo = bar ? 0 : rawMin, hi = rawMax;
+  if (!bar) { const pad = (hi - lo || Math.abs(hi) * .1 || 1) * .18; lo -= pad; hi += pad; }
+  if (hi === lo) hi = lo + 1;
+  const padL = 6, padR = 6, padT = 10, padB = 22;
+  const iw = w - padL - padR, ih = height - padT - padB;
+  const X = (i) => padL + (n === 1 ? iw / 2 : (i / (n - 1)) * iw);
+  const slot = iw / n;
+  const XB = (i) => padL + slot * i + slot / 2;
+  const Y = (v) => padT + (1 - (v - lo) / (hi - lo)) * ih;
+  const xs = bar ? XB : X;
+  const idx = sel == null ? n - 1 : Math.min(n - 1, Math.max(0, sel));
+  const fmtV = (v) => { const r = Math.round(v * Math.pow(10, dec)) / Math.pow(10, dec); return Number.isInteger(r) ? String(r) : String(r).replace(".", ","); };
+  const cur = pts[idx], prev = idx > 0 ? pts[idx - 1] : null;
+  const diff = prev ? +cur.v - +prev.v : null;
+  const avg = vals.reduce((a, v) => a + v, 0) / n;
+  const pick = (ev) => {
+    const r = boxRef.current.getBoundingClientRect();
+    const x = ev.clientX - r.left;
+    setSel(Math.round(bar ? (x - padL - slot / 2) / slot : ((x - padL) / (iw || 1)) * (n - 1)));
+  };
+  const line = pts.map((x, i) => `${i ? "L" : "M"}${xs(i).toFixed(1)},${Y(+x.v).toFixed(1)}`).join(" ");
+  const area = n > 1 ? `${line} L${xs(n - 1).toFixed(1)},${padT + ih} L${xs(0).toFixed(1)},${padT + ih} Z` : "";
+  const gid = useMemo(() => `fjsc-${Math.random().toString(36).slice(2, 8)}`, []);
+  const ticks = n <= 3 ? pts.map((_, i) => i) : [0, Math.round((n - 1) / 2), n - 1];
   return (
-    <div style={{ width: "100%", height }}>
-      <R.ResponsiveContainer>
-        <R.ComposedChart data={data} margin={{ top: 12, right: 12, left: 12, bottom: 0 }}>
+    <div style={{ width: "100%" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "0 4px 6px", minHeight: 40 }}>
+        <span className="num" style={{ fontSize: 30, fontWeight: 800, letterSpacing: "-.03em", color: P.text, lineHeight: 1 }}>{fmtV(+cur.v)}</span>
+        {unit && <span style={{ fontSize: 14, color: P.faint2, fontWeight: 600 }}>{unit}</span>}
+        {badge && <span style={{ marginLeft: 6, fontSize: 13, fontWeight: 700, color: P.dim, alignSelf: "center" }}>{badge}</span>}
+        <span style={{ flex: 1 }} />
+        {diff != null && diff !== 0 && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 13, fontWeight: 700, color: P.text }}>
+            {diff > 0 ? <ArrowUp size={13} strokeWidth={3} /> : <ArrowDown size={13} strokeWidth={3} />}{fmtV(Math.abs(diff))}
+          </span>
+        )}
+        <span style={{ fontSize: 12.5, color: P.faint2, fontWeight: 600 }}>{cur.d}</span>
+      </div>
+      <div ref={boxRef} style={{ width: "100%", height, touchAction: "pan-y", userSelect: "none", WebkitUserSelect: "none", cursor: "crosshair" }}
+        onPointerDown={pick} onPointerMove={(ev) => { if (ev.buttons || ev.pointerType === "touch") pick(ev); }}
+        onPointerLeave={(ev) => { if (ev.pointerType === "mouse") setSel(null); }}>
+        <svg width={w} height={height} style={{ display: "block", overflow: "visible" }} role="img" aria-label={`Gráfico de ${n} registros, último ${fmtV(vals[n - 1])} ${unit}`}>
           <defs>
             <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={c} stopOpacity={0.32} />
-              <stop offset="95%" stopColor={c} stopOpacity={0.02} />
+              <stop offset="0%" stopColor={c} stopOpacity=".20" /><stop offset="100%" stopColor={c} stopOpacity="0" />
             </linearGradient>
           </defs>
-          <R.XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 11.5 }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={28} />
-          <R.YAxis hide domain={["dataMin - 5%", "dataMax + 5%"]} />
-          <R.Tooltip contentStyle={chartTooltipStyle}
-            labelStyle={{ color: P.dim, fontWeight: 700, marginBottom: 2 }} itemStyle={{ color: c, fontWeight: 700 }}
-            formatter={(v) => [`${v} ${unit}`, ""]} cursor={{ stroke: P.line, strokeDasharray: "3 3" }} />
-          <R.Area type="linear" dataKey="v" stroke="none" fill={`url(#${gid})`} tooltipType="none" isAnimationActive animationDuration={700} animationEasing="ease-out" />
-          <R.Line type="linear" dataKey="v" stroke={c} strokeWidth={2.5}
-            dot={(p) => (p.index === data.length - 1
-              ? <circle key={p.key || p.index} cx={p.cx} cy={p.cy} r={5} fill={c} stroke={P.s1} strokeWidth={2.5} />
-              : <circle key={p.key || p.index} cx={p.cx} cy={p.cy} r={data.length <= 14 ? 3 : 0} fill={c} />)}
-            activeDot={{ r: 6, fill: c, stroke: P.bg, strokeWidth: 2 }}
-            isAnimationActive animationDuration={700} animationEasing="ease-out" />
-        </R.ComposedChart>
-      </R.ResponsiveContainer>
+          {[0, 1, 2].map((k) => <line key={k} x1={padL} x2={w - padR} y1={padT + (ih * k) / 2} y2={padT + (ih * k) / 2} stroke={P.line} strokeWidth="1" strokeDasharray={k === 2 ? "" : "2 4"} />)}
+          {meta && meta.goal != null && meta.goal >= lo && meta.goal <= hi && (
+            <g><line x1={padL} x2={w - padR} y1={Y(meta.goal)} y2={Y(meta.goal)} stroke={c} strokeWidth="1.2" strokeDasharray="5 4" opacity=".55" />
+              <text x={w - padR} y={Y(meta.goal) - 4} textAnchor="end" fontSize="10.5" fontWeight="700" fill={P.faint2}>{meta.goalLabel || "objetivo"}</text></g>
+          )}
+          {bar ? pts.map((x, i) => {
+            const bw = Math.max(3, Math.min(26, slot * .62));
+            const y = Y(+x.v), act = i === idx;
+            return <rect key={i} x={XB(i) - bw / 2} y={y} width={bw} height={Math.max(2, padT + ih - y)} rx={Math.min(7, bw / 2)} fill={c} opacity={sel == null || act ? 1 : .28} style={{ transition: "opacity .15s" }} />;
+          }) : (
+            <>
+              {area && <path d={area} fill={`url(#${gid})`} />}
+              <path d={line} fill="none" stroke={c} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+              {n <= 24 && pts.map((x, i) => <circle key={i} cx={xs(i)} cy={Y(+x.v)} r="2.6" fill={c} />)}
+              <line x1={xs(idx)} x2={xs(idx)} y1={padT} y2={padT + ih} stroke={c} strokeWidth="1" opacity={sel == null ? 0 : .5} />
+              <circle cx={xs(idx)} cy={Y(+cur.v)} r="6.5" fill={P.s1} stroke={c} strokeWidth="3" />
+            </>
+          )}
+          {ticks.map((i, k) => <text key={i} x={xs(i)} y={height - 5} textAnchor={k === 0 && ticks.length > 1 ? "start" : k === ticks.length - 1 && ticks.length > 1 ? "end" : "middle"} fontSize="11" fill={P.faint} fontWeight="600">{pts[i].d}</text>)}
+        </svg>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px 0", fontSize: 12, color: P.faint2, fontWeight: 600 }}>
+        <span>mín <b style={{ color: P.text }}>{fmtV(rawMin)}</b></span>
+        <span>prom <b style={{ color: P.text }}>{fmtV(avg)}</b></span>
+        <span>máx <b style={{ color: P.text }}>{fmtV(rawMax)}</b></span>
+      </div>
     </div>
   );
 };
-// Mismo chunk de recharts que ChartBox (cargarRecharts ya lo cachea, así
-// que abrir un gráfico de barras después de uno de línea no vuelve a
-// bajar nada) — de barras en vez de línea, para series día a día como
-// pasos, agua o sueño donde no importa tanto la curva como cuánto hubo
-// cada día puntual.
-const BarChartBox = ({ data, unit, color, height = 170 }) => {
-  const [R, setR] = useState(null);
-  useEffect(() => { let on = true; cargarRecharts().then((m) => { if (on) setR(m); }).catch(() => {}); return () => { on = false; }; }, []);
-  if (!R) {
+const ChartBox = ({ data, unit, accent, height = 190 }) => <ScrubChart data={data} unit={unit} color={accent} height={height} kind="line" />;
+// Barras (pasos, agua, sueño…): un valor por día; tocar una barra la destaca.
+const BarChartBox = ({ data, unit, color, height = 170 }) => <ScrubChart data={data} unit={unit} color={color || P.text} height={height} kind="bar" dec={unit === "h" || unit === "%" ? 1 : 0} />;
+/* ============================================================
+   Tablero táctil: cada dato es una ficha con su mini-curva; al tocarla
+   se abre la hoja de detalle con el gráfico para recorrer con el dedo,
+   el rango a elegir y los últimos registros. Es la misma pieza para el
+   alumno (Hoy) y el coach (Panel, atletas).
+   ============================================================ */
+// Mini-curva sin interacción para dentro de una ficha.
+const Spark = ({ values, kind = "line", height = 30, color }) => {
+  const v = (values || []).filter((x) => isFinite(+x)).map(Number);
+  if (v.length < 2) return <div style={{ height }} />;
+  const c = color || P.text, W = 120, lo = Math.min(...v, kind === "bar" ? 0 : Infinity), hi = Math.max(...v);
+  const span = hi - lo || 1, n = v.length;
+  if (kind === "bar") {
+    const bw = Math.max(2, W / n - 3);
     return (
-      <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Loader2 size={20} color={P.faint} className="fj-spin" />
-      </div>
+      <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none" style={{ width: "100%", height, display: "block" }} aria-hidden="true">
+        {v.map((x, i) => { const h = Math.max(2, ((x - lo) / span) * (height - 2)); return <rect key={i} x={(i / n) * W + 1} y={height - h} width={bw} height={h} rx="1.6" fill={c} opacity={i === n - 1 ? 1 : .32} />; })}
+      </svg>
     );
   }
-  const c = color || P.text;
-  const gid = `fjBarGrad-${Math.random().toString(36).slice(2, 9)}`;
+  const pts = v.map((x, i) => `${(i / (n - 1)) * W},${3 + (1 - (x - lo) / span) * (height - 8)}`);
   return (
-    <div style={{ width: "100%", height }}>
-      <R.ResponsiveContainer>
-        <R.BarChart data={data} margin={{ top: 10, right: 6, left: 6, bottom: 0 }}>
-          <defs>
-            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={c} stopOpacity={1} />
-              <stop offset="100%" stopColor={c} stopOpacity={0.55} />
-            </linearGradient>
-          </defs>
-          <R.XAxis dataKey="d" tick={{ fill: P.faint, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={24} />
-          <R.YAxis hide domain={[0, "dataMax"]} />
-          <R.Tooltip contentStyle={chartTooltipStyle}
-            labelStyle={{ color: P.dim, fontWeight: 700 }} itemStyle={{ color: c, fontWeight: 700 }}
-            cursor={{ fill: P.s3, radius: 4 }} formatter={(v) => [`${v} ${unit}`, ""]} />
-          <R.Bar dataKey="v" fill={`url(#${gid})`} radius={[8, 8, 3, 3]} maxBarSize={22} isAnimationActive animationDuration={650} animationEasing="ease-out" />
-        </R.BarChart>
-      </R.ResponsiveContainer>
-    </div>
+    <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none" style={{ width: "100%", height, display: "block", overflow: "visible" }} aria-hidden="true">
+      <polyline points={pts.join(" ")} fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" opacity=".9" />
+      <circle cx={W} cy={pts[n - 1].split(",")[1]} r="3" fill={c} />
+    </svg>
+  );
+};
+// Anillo de progreso 0–100.
+const Anillo = ({ pct, size = 44, stroke = 5, color, children }) => {
+  const c = color || P.text, r = (size - stroke) / 2, L = 2 * Math.PI * r, f = Math.max(0, Math.min(100, pct || 0)) / 100;
+  return (
+    <span style={{ position: "relative", width: size, height: size, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ position: "absolute", transform: "rotate(-90deg)" }} aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={P.line} strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${L * f} ${L}`} style={{ transition: "stroke-dasharray .6s ease" }} />
+      </svg>
+      {children}
+    </span>
+  );
+};
+// Ficha del tablero: rótulo, dato grande y su mini-gráfico. Entera es un botón.
+const MetricCard = ({ Icon, label, value, unit, sub, spark, sparkKind, ring, onClick, wide }) => (
+  <button onClick={onClick} aria-label={`${label}: ${value}${unit ? " " + unit : ""}. Ver detalle`}
+    style={{ gridColumn: wide ? "1 / -1" : undefined, textAlign: "left", width: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 8,
+      padding: "15px 16px 13px", borderRadius: R_CARD, background: P.s1, boxShadow: CARD_SHADOW, color: P.text, minHeight: 124 }}>
+    <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 600, color: P.faint2 }}>
+      {Icon && <Icon size={15} strokeWidth={2} />}{label}
+      <span style={{ flex: 1 }} /><ChevronRight size={14} color={P.chevron || P.faint} />
+    </span>
+    <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      {ring != null && <Anillo pct={ring} size={46} />}
+      <span style={{ display: "flex", alignItems: "baseline", gap: 4, minWidth: 0 }}>
+        <span className="num" style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1, color: value === "—" ? P.textQuaternary : P.text }}>{value}</span>
+        {unit && value !== "—" && <span style={{ fontSize: 13.5, fontWeight: 600, color: P.faint2 }}>{unit}</span>}
+      </span>
+    </span>
+    <span style={{ marginTop: "auto" }}>
+      {spark && spark.length > 1 ? <Spark values={spark} kind={sparkKind} /> : <span style={{ display: "block", fontSize: 12, color: P.faint, minHeight: 30, lineHeight: "30px" }}>{sub || ""}</span>}
+    </span>
+    {spark && spark.length > 1 && sub ? <span style={{ fontSize: 12, color: P.faint2, marginTop: -2 }}>{sub}</span> : null}
+  </button>
+);
+// Datos diarios {date, <campo>} → serie {d, v, date} para los gráficos.
+const serieDe = (arr, campo) => (arr || [])
+  .map((x) => ({ date: x.date, d: fmtDate(x.date), v: typeof campo === "function" ? campo(x) : +x[campo] }))
+  .filter((x) => x.date && isFinite(x.v));
+// Volumen por semana (lunes→domingo), últimas `n` semanas, a toneladas.
+const volumenSemanal = (sessions, n = 10) => {
+  const m = new Map();
+  (sessions || []).forEach((s) => { const k = weekKey(s.date); m.set(k, (m.get(k) || 0) + (+s.volume || 0)); });
+  const cur = weekKey(todayISO()), out = [];
+  for (let i = n - 1; i >= 0; i--) { const k = cur - i * 7 * 864e5; out.push({ date: new Date(k).toISOString(), d: fmtDate(new Date(k)), v: Math.round(((m.get(k) || 0) / 1000) * 10) / 10 }); }
+  return out;
+};
+const sesionesSemanales = (sessions, n = 10) => {
+  const m = new Map();
+  (sessions || []).forEach((s) => { const k = weekKey(s.date); m.set(k, (m.get(k) || 0) + 1); });
+  const cur = weekKey(todayISO()), out = [];
+  for (let i = n - 1; i >= 0; i--) { const k = cur - i * 7 * 864e5; out.push({ date: new Date(k).toISOString(), d: fmtDate(new Date(k)), v: m.get(k) || 0 }); }
+  return out;
+};
+const RANGOS_METRICA = [{ id: 7, label: "7D" }, { id: 30, label: "30D" }, { id: 90, label: "90D" }, { id: 0, label: "Todo" }];
+/* Hoja de detalle de una métrica. `serie` = [{d, v, date}] en orden cronológico.
+   Muestra el gráfico táctil, el selector de rango (si hay suficientes
+   registros), una nota y los últimos registros con su variación. `acciones`
+   = [{label, Icon, onClick}] — lo que se puede hacer desde acá. */
+const MetricSheet = ({ open, onClose, title, serie, unit = "", kind = "line", dec = 1, goal, goalLabel, nota, acciones, extra, vacio }) => {
+  const [rango, setRango] = useState(0);
+  useEffect(() => { if (open) setRango(0); }, [open]);
+  const all = serie || [];
+  const cut = rango ? Date.now() - rango * 864e5 : 0;
+  const vista = rango ? all.filter((x) => new Date(x.date).getTime() >= cut) : all;
+  const datos = vista.length >= 2 || !rango ? vista : all.slice(-2);
+  const fmt = (v) => { const r = Math.round(v * Math.pow(10, dec)) / Math.pow(10, dec); return String(r).replace(".", ","); };
+  const recientes = [...all].reverse().slice(0, 8);
+  return (
+    <Sheet open={open} onClose={onClose} title={title} tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {all.length >= 8 && (
+          <div style={{ display: "flex", gap: 6 }}>
+            {RANGOS_METRICA.map((r) => (
+              <button key={r.id} onClick={() => setRango(r.id)} aria-pressed={rango === r.id}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 999, fontSize: 13, fontWeight: 700,
+                  background: rango === r.id ? P.text : P.s3, color: rango === r.id ? P.bg : P.dim }}>{r.label}</button>
+            ))}
+          </div>
+        )}
+        <Card style={{ padding: "16px 14px 12px" }}>
+          {datos.length ? <ScrubChart data={datos} unit={unit} kind={kind} dec={dec} height={200} color={P.text} meta={{ goal, goalLabel }} />
+            : <div style={{ padding: "26px 0", textAlign: "center", fontSize: 14, color: P.faint2 }}>{vacio || "Todavía no hay registros."}</div>}
+        </Card>
+        {nota && <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.5, padding: "0 4px" }}>{nota}</div>}
+        {extra}
+        {recientes.length > 0 && (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, padding: "0 4px 6px" }}>Últimos registros</div>
+            <Card style={{ overflow: "hidden" }}>
+              {recientes.map((x, i) => {
+                const prev = recientes[i + 1];
+                const df = prev ? x.v - prev.v : null;
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderTop: i ? `0.5px solid ${P.separatorStrong || P.line}` : "none" }}>
+                    <span style={{ flex: 1, fontSize: 14.5, color: P.dim }}>{fmtDateFull(x.date)}</span>
+                    {df != null && df !== 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 12.5, color: P.faint2, fontWeight: 600 }}>{df > 0 ? <ArrowUp size={12} strokeWidth={3} /> : <ArrowDown size={12} strokeWidth={3} />}{fmt(Math.abs(df))}</span>}
+                    <span className="num" style={{ fontSize: 16, fontWeight: 700 }}>{fmt(x.v)}<span style={{ fontSize: 12.5, color: P.faint2, fontWeight: 600 }}> {unit}</span></span>
+                  </div>
+                );
+              })}
+            </Card>
+          </div>
+        )}
+        {(acciones || []).map((a, i) => (
+          <Btn key={i} kind={i === 0 ? "ember" : "line"} onClick={a.onClick} style={{ width: "100%" }}>{a.Icon && <a.Icon size={16} />} {a.label}</Btn>
+        ))}
+      </div>
+    </Sheet>
   );
 };
 // Gráfico circular (dona) — para composiciones donde importa la
@@ -14699,44 +14839,28 @@ const AchievementGrid = ({ history }) => {
   );
 };
 
-const MiniLineChart = ({ points, height = 110 }) => {
-  if (points.length < 2) return (
-    <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: MONO.inkFaint }}>Necesitas al menos 2 registros</div>
-  );
-  const vals = points.map((p) => p.v);
-  const min = Math.min(...vals), max = Math.max(...vals);
-  const span = max - min || 1;
-  const W = 300;
-  const xy = points.map((p, i) => [Math.round((i / (points.length - 1)) * (W - 16) + 8), Math.round(18 + (1 - (p.v - min) / span) * 72)]);
-  return (
-    <svg viewBox={`0 0 ${W} ${height}`} style={{ width: "100%", height }}>
-      <line x1="0" y1="20" x2={W} y2="20" stroke={MONO.lineFaint} strokeWidth="1" />
-      <line x1="0" y1="55" x2={W} y2="55" stroke={MONO.lineFaint} strokeWidth="1" />
-      <line x1="0" y1="90" x2={W} y2="90" stroke={MONO.lineFaint} strokeWidth="1" />
-      <polyline points={xy.map((p) => p.join(",")).join(" ")} fill="none" stroke={MONO.ink} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={xy[xy.length - 1][0]} cy={xy[xy.length - 1][1]} r="5" fill={MONO.ink} />
-    </svg>
-  );
-};
+const MiniLineChart = ({ points, height = 110, unit = "" }) => (
+  (points || []).length < 2
+    ? <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: MONO.inkFaint }}>Necesitas al menos 2 registros</div>
+    : <ScrubChart data={points.map((p, i) => ({ d: p.d || `#${i + 1}`, v: p.v }))} unit={unit} color={P.text} height={height} kind="line" />
+);
 // Cabecera de tendencia: rótulo, dato grande, variación del periodo y
 // la curva. Es lo primero que se ve en cada segmento de Progreso, en vez
 // de un párrafo explicando qué se está mirando.
 const TrendCard = ({ label, value, unit, delta, deltaUnit = "", points }) => (
-  <Card style={{ padding: "15px 15px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
-    <span style={{ fontSize: 13, color: P.faint2 }}>{label}</span>
-    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-      <span className="num" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{value}</span>
-      {unit && <span style={{ fontSize: 15, color: P.faint2 }}>{unit}</span>}
+  <Card style={{ padding: "15px 15px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span style={{ fontSize: 13, color: P.faint2, fontWeight: 600 }}>{label}</span>
       <span style={{ flex: 1 }} />
       {delta != null && (
-        <span style={{ fontSize: 14, fontWeight: 600, color: P.faint2 }}>
-          {delta >= 0 ? "+" : "−"}{kg(Math.abs(delta))}{deltaUnit}
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: P.text, padding: "3px 9px", borderRadius: 999, background: P.s3 }}>
+          {delta >= 0 ? "+" : "−"}{kg(Math.abs(delta))}{deltaUnit} en el periodo
         </span>
       )}
     </div>
     {(points || []).length >= 2
-      ? <MiniLineChart points={points} height={96} />
-      : <div style={{ fontSize: 13.5, color: P.faint2, padding: "12px 0 10px" }}>Con dos registros aparece la curva.</div>}
+      ? <MiniLineChart points={points} unit={unit} height={150} />
+      : <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.02em" }}>{value}<span style={{ fontSize: 14, color: P.faint2, fontWeight: 600 }}> {unit}</span></div>}
   </Card>
 );
 
@@ -15806,7 +15930,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
   })).slice(0, 5);
 
   const bwEntries = history.bodyweight || [];
-  const bwPoints = bwEntries.map((b) => ({ v: b.kg }));
+  const bwPoints = bwEntries.map((b) => ({ v: b.kg, d: fmtDate(b.date) }));
   // Variación entre el primer y el último registro: es lo que la
   // cabecera muestra a la derecha del peso de hoy.
   const bwDelta = bwEntries.length >= 2 ? bwEntries[bwEntries.length - 1].kg - bwEntries[0].kg : null;
@@ -20398,6 +20522,7 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, sessions, chat, pay }
   const [staleOpen, setStaleOpen] = useState(false);
+  const [detalle, setDetalle] = useState(null);   // "equipo" | "semana": hoja con gráfico y atletas
   // Reordenar los paneles del Panel del coach con mantener-pulsado (misma
   // pieza que el Inicio del alumno y el Centro de Control).
   const [modoOrden, setModoOrden] = useState(null);
@@ -20496,6 +20621,25 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
   });
 
   const initialsOf = (name) => (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+  const todasSes = rows.flatMap((r) => r.sessions);
+  const teamSes = sesionesSemanales(todasSes, 8);
+  const teamVol = volumenSemanal(todasSes, 8);
+  const ultimoDe = (r) => { const dd = r.sessions.map((x) => daysSince(x.date)).filter((x) => x != null); return dd.length ? Math.min(...dd) : null; };
+  const filaAtleta = (r, i) => {
+    const dd = ultimoDe(r);
+    return (
+      <button key={r.id} onClick={onOpenAtletas} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", textAlign: "left", borderTop: i ? `0.5px solid ${P.separatorStrong || P.line}` : "none" }}>
+        <span style={{ width: 36, height: 36, borderRadius: 18, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, color: P.dim, flexShrink: 0 }}>{initialsOf(r.name)}</span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 15.5, fontWeight: 600 }}>{r.name}</span>
+          <span style={{ display: "block", fontSize: 12.5, color: P.faint2 }}>{dd == null ? "Sin sesiones" : dd === 0 ? "Entrenó hoy" : `Entrenó hace ${dd} ${dd === 1 ? "día" : "días"}`}</span>
+        </span>
+        <span style={{ width: 70, flexShrink: 0 }}><Spark kind="bar" height={22} values={sesionesSemanales(r.sessions, 6).map((x) => x.v)} /></span>
+        <ChevronRight size={15} color={P.chevron || P.faint} />
+      </button>
+    );
+  };
+  const listaAtletas = <Card style={{ overflow: "hidden" }}>{rows.map(filaAtleta)}</Card>;
   const dueCount = rows.filter((r) => { const st = paymentStatus(r.pay.nextDue); return st.key === "vencido" || st.key === "por_vencer"; }).length;
 
   if (loading) {
@@ -20516,21 +20660,14 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
       {/* Panel, a lo esencial: cuatro cifras, lo que hay que atender y lo que
           pasó hoy. Los accesos y las listas largas viven en sus pestañas. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 4 }}>
-        <Card style={{ display: "flex", padding: "4px 6px" }}>
-          {[
-            { Icon: Users, label: "Atletas", value: String(activeCount), on: onOpenAtletas },
-            { Icon: Check, label: "Check-in de los últimos 7 días", value: `${checkinPct}%`, on: onOpenAtletas },
-            { Icon: MessageSquare, label: "Mensajes sin leer", value: String(pendCount), on: onOpenMensajes, hot: pendCount > 0 },
-            { Icon: DollarSign, label: "Cuotas por cobrar", value: String(dueCount), on: onOpenCobros, hot: dueCount > 0 },
-          ].map((x, i) => (
-            <button key={x.label} onClick={x.on} aria-label={x.label} title={x.label}
-              style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 7, padding: "16px 2px 15px",
-                borderLeft: i ? `0.5px solid ${P.separatorStrong || P.line}` : "none" }}>
-              <x.Icon size={20} color={x.hot ? P.ember2 : P.faint} strokeWidth={1.8} />
-              <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{x.value}</span>
-            </button>
-          ))}
-        </Card>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <MetricCard Icon={Users} label="Atletas" value={String(activeCount)} sub="sesiones por semana"
+            spark={teamSes.map((x) => x.v)} sparkKind="bar" onClick={() => setDetalle("equipo")} />
+          <MetricCard Icon={Check} label="Esta semana" value={`${withCheckin}/${activeCount}`} ring={checkinPct}
+            sub={checkinPct === 100 ? "todos entrenaron" : "entrenaron"} onClick={() => setDetalle("semana")} />
+          <MetricCard Icon={MessageSquare} label="Mensajes" value={String(pendCount)} sub={pendCount ? "sin responder" : "al día"} onClick={onOpenMensajes} />
+          <MetricCard Icon={DollarSign} label="Cuotas" value={String(dueCount)} sub={dueCount ? "por cobrar" : "al día"} onClick={onOpenCobros} />
+        </div>
 
         <RowGroup label="Por atender" rows={[
           stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
@@ -20558,6 +20695,13 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           </div>
         )}
 
+        {rows.length > 0 && (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Atletas</div>
+            {listaAtletas}
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={onNewRoutine} style={{ flex: 1, height: 52, borderRadius: 14, background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 650,
             display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><ClipboardList size={19} /> Nueva rutina</button>
@@ -20567,6 +20711,13 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
       </div>
       <OrderDoneBar show={modoOrden === "home-coach"} onDone={() => setModoOrden(null)} />
 
+      <MetricSheet open={detalle === "equipo"} onClose={() => setDetalle(null)} title="Sesiones del equipo" serie={teamSes} unit="ses" dec={0} kind="bar"
+        nota={`${teamSes[teamSes.length - 1].v} ${teamSes[teamSes.length - 1].v === 1 ? "sesión" : "sesiones"} esta semana entre ${activeCount} atleta${activeCount !== 1 ? "s" : ""}.`} extra={listaAtletas}
+        acciones={[{ label: "Ver atletas", Icon: Users, onClick: () => { setDetalle(null); onOpenAtletas && onOpenAtletas(); } }]} />
+      <MetricSheet open={detalle === "semana"} onClose={() => setDetalle(null)} title="Volumen del equipo" serie={teamVol} unit="t" dec={1} kind="bar"
+        nota={`${withCheckin} de ${activeCount} entrenaron en los últimos 7 días.`}
+        extra={stale.length > 0 ? <RowGroup label="Sin entrenar hace 5 días o más" rows={stale.map((r) => ({ label: r.name, value: r.lastDays == null ? "—" : `${r.lastDays} d`, onClick: onOpenAtletas }))} /> : null}
+        acciones={[{ label: "Ver progresión", Icon: TrendingUp, onClick: () => { setDetalle(null); onOpenProgresion && onOpenProgresion(); } }]} />
       <Sheet open={staleOpen} onClose={() => setStaleOpen(false)} title="Sin entrenar" tall>
         {stale.map((s) => (
           <Card key={s.id} style={{ padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 11 }}>
@@ -27777,7 +27928,7 @@ const LabMarkerSheet = ({ open, onClose, marker, labs }) => {
             {marker.unit && <span style={{ fontSize: 15, color: P.faint2 }}>{marker.unit}</span>}
           </div>
           {series.length >= 2
-            ? <MiniLineChart points={series.map((x) => ({ v: x.v }))} height={96} />
+            ? <MiniLineChart points={series.map((x) => ({ v: x.v, d: fmtDate(x.date) }))} unit={marker.unit || ""} height={150} />
             : <div style={{ fontSize: 13.5, color: P.faint2, padding: "12px 0 10px" }}>Con dos controles aparece la curva.</div>}
         </Card>
         <RowGroup label="Controles" rows={[...series].reverse().map((x) => {
