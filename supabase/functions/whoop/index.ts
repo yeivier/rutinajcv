@@ -60,14 +60,15 @@ async function pedirToken(params: Record<string, string>) {
     { headers: form, body: new URLSearchParams({ ...params, client_id: CLIENT_ID, client_secret: CLIENT_SECRET }) },
     { headers: { ...form, Authorization: "Basic " + btoa(`${encodeURIComponent(CLIENT_ID)}:${encodeURIComponent(CLIENT_SECRET)}`) }, body: new URLSearchParams(params) },
   ];
-  let ultimo = "";
-  for (const m of intentos) {
+  const fallos: string[] = [];
+  for (const [i, m] of intentos.entries()) {
     const res = await fetch(TOKEN_URL, { method: "POST", headers: m.headers, body: m.body });
     if (res.ok) return await res.json() as { access_token: string; refresh_token?: string; expires_in: number; scope?: string };
-    ultimo = `token ${res.status}: ${(await res.text()).slice(0, 200)}`;
+    fallos.push(`[${i === 0 ? "cuerpo" : "basic"} ${res.status}] ${(await res.text()).slice(0, 420)}`);
     if (res.status !== 401) break;
   }
-  throw new Error(ultimo);
+  // El largo del secreto guardado (no el secreto) ayuda a detectar pegados incompletos o con comillas.
+  throw new Error(`${fallos.join(" || ")} (largo del secreto: ${CLIENT_SECRET.length})`);
 }
 
 // WHOOP rota el refresh token en cada uso: el nuevo se guarda ANTES de seguir.
@@ -247,6 +248,6 @@ Deno.serve(async (req) => {
     return json({ error: "acción desconocida" }, 400);
   } catch (e) {
     console.error(e);
-    return json({ error: String((e as Error)?.message || e).slice(0, 300) }, 500);
+    return json({ error: String((e as Error)?.message || e).slice(0, 1200) }, 500);
   }
 });
