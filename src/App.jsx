@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v393";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v394";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -996,7 +996,7 @@ function avisarFinDescanso(texto) {
   }
 }
 
-const TAB_BOTTOM_PAD = "calc(108px + env(safe-area-inset-bottom))";
+const TAB_BOTTOM_PAD = "calc(116px + env(safe-area-inset-bottom))";
 
 // Cada tipo de serie con su propio color fuerte y distinto, para que se
 // reconozcan de un vistazo durante el entrenamiento (el resto de la app
@@ -5558,7 +5558,7 @@ const GlobalStyle = () => {
        de una pantalla negra. Una sola variable controla el shell principal,
        la barra de pestañas y las hojas modales, así los tres quedan
        siempre alineados al mismo ancho. */
-    :root { --fj-w: 520px; --fj-tabbar-h: calc(72px + env(safe-area-inset-bottom)); }
+    :root { --fj-w: 520px; --fj-tabbar-h: calc(80px + env(safe-area-inset-bottom)); }
     @media (min-width: 720px) { :root { --fj-w: 640px; } }
     @media (min-width: 1024px) { :root { --fj-w: 800px; } }
     /* Grillas de tarjetas (stats del Dashboard, etc.): 2 columnas en
@@ -12455,16 +12455,12 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
             registrar una sesión pasada, empezar un programa conocido y crear
             una rutina propia. Cada una lleva su nombre en aria-label/title. */}
         {!active && (
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr", gap: 10, marginBottom: 28 }}>
-            <button onClick={() => setPidiendoGym({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true })}
-              aria-label="Entrenamiento libre" title="Entrenamiento libre"
-              style={{ height: 52, borderRadius: 26, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Plus size={26} strokeWidth={2.6} />
-            </button>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 26 }}>
             {[
-              { k: "hist", Icon: History, label: "Historial de sesiones", on: () => setHistOpen(true) },
-              { k: "prog", Icon: Trophy, label: "Empezar con un programa conocido", on: () => setProgramasOpen(true) },
-              { k: "crear", Icon: ClipboardList, label: "Crear mi rutina", on: () => {
+              { k: "libre", Icon: Plus, label: "Libre", primary: true, on: () => setPidiendoGym({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true }) },
+              { k: "hist", Icon: History, label: "Historial", on: () => setHistOpen(true) },
+              { k: "prog", Icon: Trophy, label: "Programas", on: () => setProgramasOpen(true) },
+              { k: "crear", Icon: ClipboardList, label: "Mi rutina", on: () => {
                 const nombre = (prompt("Nombre de tu rutina\n(por ejemplo: «Pecho y hombro» o «Día de pierna»)", "") || "").trim();
                 if (!nombre) return;
                 const np = structuredClone(plan);
@@ -12475,10 +12471,14 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
                 savePlan(np);
                 toast && toast(`✓ «${nombre}» creada — entrénala y agrégale ejercicios`);
               } },
-            ].filter(Boolean).map((x) => (
+            ].map((x) => (
               <button key={x.k} onClick={x.on} aria-label={x.label} title={x.label}
-                style={{ height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <x.Icon size={22} strokeWidth={2} />
+                style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7, padding: 0 }}>
+                <span style={{ width: 54, height: 54, borderRadius: 27, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: x.primary ? PLATE_GRAD : P.s1, color: x.primary ? PLATE_FG : P.text, boxShadow: x.primary ? "none" : CARD_SHADOW }}>
+                  <x.Icon size={x.primary ? 26 : 22} strokeWidth={x.primary ? 2.4 : 1.9} />
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: P.dim }}>{x.label}</span>
               </button>
             ))}
           </div>
@@ -13890,8 +13890,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
     <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Sin avatar acá: ya está en la cabecera de la app (arriba de todo),
           repetirlo en cada pestaña era ruido sin función — no abría nada. */}
-      <ScreenTitle title="Hoy"
-        right={d.weekNum ? <span style={{ fontSize: 12.5, color: P.faint, fontWeight: 600 }}>Semana {d.weekNum}/{d.weekTotal}</span> : null} />
+      <ScreenTitle title="Hoy" />
       <EventReminderBanner events={plan.events} />
       <NextBookingBanner bookings={bookings} sid={sid} />
       {/* La franja semanal (L M X J V S D) se relocaliza a Agenda · Semana
@@ -13905,130 +13904,41 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           las dos columnas (span "full"); los mosaicos, media. El `.ord-group`
           evita que al mantener pulsado se seleccione el texto (el resaltado
           azul) en vez de arrastrar. Título, banners y hojas quedan fijos. */}
-      {(() => {
-        const kpiEstado = {
-          peso: <KpiTile top="Peso" onClick={() => setCheckinOpen(true)}
-            value={d.lastBw ? kg(d.lastBw.kg) : "—"}
-            sub={d.lastBw ? `kg${d.prevBw ? ` · ${d.lastBw.kg - d.prevBw.kg >= 0 ? "+" : "−"}${Math.abs(Math.round((d.lastBw.kg - d.prevBw.kg) * 10) / 10)} esta sem.` : ""}` : "sin registro"} />,
-          pasos: <KpiTile top="Pasos" onClick={() => setCheckinOpen(true)}
-            value={d.lastSteps ? d.lastSteps.count.toLocaleString("es-CL") : "—"}
-            sub={d.lastSteps ? "meta 12.000" : "sin registro"} />,
-          sueno: <KpiTile top="Sueño" onClick={() => setCheckinOpen(true)}
-            value={d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—"}
-            sub={d.lastSleep ? (d.lastSleep.hours >= 7 ? "recuperación buena" : "recuperación baja") : "sin registro"} />,
-          comidas: <KpiTile top="Comidas" onClick={onOpenNutrition}
-            value={mealsTotal ? `${mealsDoneCount}/${mealsTotal}` : "—"}
-            sub={mealsTotal ? "hechas hoy" : "sin plan cargado"} />,
-        };
-        const panels = [
-          { key: "workout", span: "full", node: workout ? (
-            /* En columna, no en fila: antes el nombre del día competía por
-               el ancho con el botón y se cortaba ("Lunes — Femoral /…").
-               Ahora el título ocupa el ancho completo y la acción del día
-               es una barra al pie — el destino táctil más grande de la
-               pantalla, que es lo que corresponde a la acción principal. */
-            <HeroCard Icon={active ? Play : Zap} eyebrow={workout.eyebrow} title={workout.title}
-              label={active ? "Continuar sesión" : "Entrenar ahora"}
-              meta={workout.exs ? `${workout.exs.length} ${workout.exs.length === 1 ? "ejercicio" : "ejercicios"} · ${workout.sets} ${workout.sets === 1 ? "serie" : "series"} · ${estimateSessionMin(workout.sets)} min` : (workout.sub || "")}
-              onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
-          ) : emptyCard },
+      {/* Inicio, a lo esencial: el entreno de hoy y una fila con los cuatro datos
+          que se miran a diario. Todo lo demás (comidas, mensajes, Coach IA,
+          check-in, racha, volumen…) ya tiene su pestaña o su botón de arriba;
+          repetirlo acá era lo que volvía la pantalla un enredo. */}
+      {workout ? (
+        <HeroCard Icon={active ? Play : Zap} eyebrow={workout.eyebrow} title={workout.title}
+          label={active ? "Continuar sesión" : "Entrenar ahora"}
+          meta={workout.exs ? `${workout.exs.length} ej · ${workout.sets} series · ${estimateSessionMin(workout.sets)} min` : ""}
+          onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
+      ) : emptyCard}
 
-          d.adherence != null && { key: "adherencia", span: "full", node: (
-            <Card onClick={() => setStatDetail("adherencia")} style={{ padding: 18, display: "flex", alignItems: "center", gap: 20, cursor: "pointer" }}>
-              <Ring pct={d.adherence} />
-              <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 0 }}>
-                <span style={{ fontSize: 15, fontWeight: 600, color: P.text }}>Adherencia semanal</span>
-                <span style={{ fontSize: 13.5, color: P.faint, lineHeight: 1.4 }}>{d.weekSessions.length} de {d.week.filter((w) => w.planned).length || d.week.length} sesiones completadas</span>
-                <span style={{ fontSize: 13, color: P.faint2 }}>Objetivo 100 %</span>
-              </div>
-            </Card>
-          ) },
+      <Card style={{ display: "flex", padding: "4px 6px" }}>
+        {[
+          { Icon: Scale, label: "Peso", value: d.lastBw ? `${kg(d.lastBw.kg)} kg` : "—", on: () => setCheckinOpen(true) },
+          { Icon: Moon, label: "Sueño", value: d.lastSleep ? `${Math.floor(d.lastSleep.hours)}:${String(Math.round((d.lastSleep.hours % 1) * 60)).padStart(2, "0")}` : "—", on: () => setCheckinOpen(true) },
+          { Icon: Utensils, label: "Comidas de hoy", value: mealsTotal ? `${mealsDoneCount}/${mealsTotal}` : "—", on: onOpenNutrition },
+          { Icon: Flame, label: "Racha semanal", value: `${d.streak || 0} sem`, on: () => setStatDetail("racha") },
+        ].map((x, i) => (
+          <button key={x.label} onClick={x.on} aria-label={x.label} title={x.label}
+            style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 7, padding: "16px 2px 15px",
+              borderLeft: i ? `0.5px solid ${P.separatorStrong || P.line}` : "none" }}>
+            <x.Icon size={20} color={P.faint} strokeWidth={1.8} />
+            <span style={{ fontSize: 17, fontWeight: 650, letterSpacing: "-.02em", color: x.value === "—" ? P.textQuaternary : P.text, whiteSpace: "nowrap" }}>{x.value}</span>
+          </button>
+        ))}
+      </Card>
 
-          { key: "kpi-peso", node: kpiEstado.peso },
-          { key: "kpi-pasos", node: kpiEstado.pasos },
-          { key: "kpi-sueno", node: kpiEstado.sueno },
-          { key: "kpi-comidas", node: kpiEstado.comidas },
-
-          { key: "act-entrenar", node: <Tile compact Icon={Dumbbell} label="Entrenar" onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} /> },
-          { key: "act-ia", node: <Tile compact Icon={Sparkles} label="Coach IA" value="Preguntar" onClick={onOpenAIChat} /> },
-          { key: "act-checkin", node: <Tile compact Icon={Flame} label="Check-in" onClick={() => setCheckinOpen(true)}
-            value={ciDoneCount === 0 ? "Pendiente" : ciDoneCount >= 4 ? "Hecho" : `${ciDoneCount}/4`} /> },
-          { key: "act-mensajes", node: <Tile compact Icon={MessageSquare} label="Mensajes" onClick={onOpenCoach} badge={unread > 0 ? unread : null} /> },
-          { key: "act-nutricion", span: "full", node: <Tile compact Icon={Utensils} label="Nutrición" onClick={onOpenNutrition}
-            value={mealsTotal ? `${mealsDoneCount} de ${mealsTotal} comidas` : "Ver y registrar"} /> },
-
-          { key: "semana", span: "full", node: (
-            <Card style={{ overflow: "hidden" }}>
-              <button onClick={() => setStatDetail("racha")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-                <span style={{ flex: 1, fontSize: 16 }}>Racha</span>
-                <span style={{ fontSize: 15, color: P.faint2 }}>{d.streak} semana{d.streak !== 1 ? "s" : ""}</span>
-                <ChevronRight size={16} color={P.chevron} />
-              </button>
-              <button onClick={() => setStatDetail("volumen")} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: `1px solid ${P.line}` }}>
-                <span style={{ flex: 1, fontSize: 16 }}>Volumen</span>
-                <span style={{ fontSize: 15, color: P.faint2 }}>{Math.round((d.weekVol / 1000) * 10) / 10} t</span>
-                <ChevronRight size={16} color={P.chevron} />
-              </button>
-              <button onClick={onOpenNutrition} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
-                <span style={{ flex: 1, fontSize: 16 }}>Comidas de hoy</span>
-                <span style={{ fontSize: 15, color: P.faint2 }}>{mealsTotal ? `${mealsDoneCount} de ${mealsTotal}` : "—"}</span>
-                <ChevronRight size={16} color={P.chevron} />
-              </button>
-            </Card>
-          ) },
-
-          { key: "racha-reminder", span: "full", node: <RachaReminderToggle plan={plan} savePlan={savePlan} sid={sid} /> },
-
-          hasMacros && { key: "macros", span: "full", node: (
-            <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span className="mono" style={{ letterSpacing: ".08em" }}>Objetivo de hoy</span>
-                <button onClick={onOpenNutrition} style={{ fontSize: 13, fontWeight: 700, color: P.ember2 }}>Ver comida</button>
-              </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <span style={{ fontSize: 24, fontWeight: 700 }}>{(macros.kcal || 0).toLocaleString("es-CL")}</span>
-                <span style={{ fontSize: 13, color: P.faint }}>kcal objetivo</span>
-              </div>
-              <MacroBar v={macros} />
-            </Card>
-          ) },
-
-          instrCount > 0 && { key: "nota", span: "full", node: (
-            <TodayRow Icon={MessageSquare} title="Nota del coach"
-              detail={plan.instructions[0].title || `${instrCount} indicaciones del plan`}
-              dot onClick={() => setShowInstr(true)} />
-          ) },
-
-          d.lastSession && { key: "ultima", span: "full", node: (
-            <Card style={{ padding: "15px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
-              <span className="mono" style={{ letterSpacing: ".08em" }}>Última sesión</span>
-              <span style={{ fontWeight: 600, fontSize: 15.5 }}>{d.lastSession.dayName}</span>
-              <span style={{ fontSize: 13, color: P.faint }}>
-                {fmtDateFull(d.lastSession.date)} · {d.lastSession.durationMin} min · {Math.round(d.lastSession.volume).toLocaleString("es-CL")} kg
-                {(d.lastSession.prs || []).length > 0 && <span style={{ color: P.text, fontWeight: 700 }}> · {d.lastSession.prs.length} PR</span>}
-              </span>
-            </Card>
-          ) },
-        ].filter(Boolean);
-        return (
-          <div className="ord-group">
-            <OrderableGrid clave={claveHome} items={panels} cols={2} gap={10}
-              modoOrden={modoOrden} setModoOrden={setModoOrden}
-              render={(it) => it.node} />
-            {/* Antes el "Listo" era un botón suelto DEBAJO de la grilla: con
-                muchas fichas quedaba fuera de pantalla y reordenar se sentía
-                trabado (se entra en modo edición pero no hay forma visible
-                de salir sin hacer scroll). OrderDoneBar es fijo — siempre
-                a la vista, como en Más, donde este mismo patrón ya funciona
-                bien. */}
-            {modoOrden !== claveHome && (
-              <div style={{ textAlign: "center", marginTop: 14, fontSize: 12.5, color: P.faint }}>
-                Mantén presionada una ficha para reordenar
-              </div>
-            )}
-          </div>
-        );
-      })()}
+      {/* Solo cuando hay algo que atender: el check-in del día y la nota del coach. */}
+      {ciDoneCount === 0 && (
+        <TodayRow Icon={Flame} title="Check-in de hoy" detail="Pendiente" dot onClick={() => setCheckinOpen(true)} />
+      )}
+      {instrCount > 0 && (
+        <TodayRow Icon={MessageSquare} title="Nota del coach"
+          detail={plan.instructions[0].title || `${instrCount} indicaciones`} dot onClick={() => setShowInstr(true)} />
+      )}
       <OrderDoneBar show={modoOrden === claveHome} onDone={() => setModoOrden(null)} />
       {instrSheet}
 
@@ -18205,6 +18115,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
   const [editEx, setEditEx] = useState(null); // {dayId, ex}
   const [del, setDel] = useState(null); // {type:'day'|'ex', dayId, exId, name}
   const [importOpen, setImportOpen] = useState(false);
+  const [accionesOpen, setAccionesOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [catalogoDia, setCatalogoDia] = useState(null);   // día al que se le añade desde el catálogo
   const [copiedEx, setCopiedEx] = useState(null);
@@ -18515,34 +18426,37 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                     { id: "biblioteca", label: "Biblioteca", Icon: Library }]} />
         ) : null}
         actions={(
-        /* Una sola fila de botones redondos, solo ícono (mismo lenguaje
-           que Entrenar del alumno). */
+        /* Dos acciones con nombre y un "⋯" con el resto (imágenes, MRV,
+           exportar): cinco íconos sueltos obligaban a adivinar qué hacía cada
+           uno. */
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <button onClick={() => setImportOpen(true)} aria-label="Importar rutina con IA" title="Importar rutina con IA"
-            style={{ width: 44, height: 44, borderRadius: 22, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Sparkles size={20} />
+            style={{ flex: 1, minWidth: 0, height: 46, borderRadius: 14, background: PLATE_GRAD, color: PLATE_FG, fontSize: 15.5, fontWeight: 650,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <Sparkles size={18} /> Importar con IA
           </button>
           {onOpenCompare && (groupDaysByRoutine(plan.days, plan.routineNames).length >= 2 || (plan.days || []).length >= 2) ? (
             <button onClick={onOpenCompare} aria-label="Comparar rutinas" title="Comparar rutinas"
-              style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Columns2 size={20} />
+              style={{ flex: 1, minWidth: 0, height: 46, borderRadius: 14, background: P.s1, color: P.text, fontSize: 15.5, fontWeight: 650, boxShadow: CARD_SHADOW,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <Columns2 size={18} /> Comparar
             </button>
           ) : null}
           {plan.days.length > 0 ? (
-            <>
-              <button onClick={() => setBulkOpen(true)} aria-label="Poner imágenes a los ejercicios" title="Imágenes"
-                style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Camera size={20} />
-              </button>
-              <button onClick={() => setMrvRutina(true)} aria-label="Llevar una rutina al MRV exacto" title="Llevar al MRV exacto"
-                style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <TrendingUp size={20} />
-              </button>
-              <RoutinesExportButton plan={plan} who={student?.name} toast={toast} iconOnly />
-            </>
+            <button onClick={() => setAccionesOpen(true)} aria-label="Más acciones" title="Más acciones"
+              style={{ width: 46, height: 46, borderRadius: 14, background: P.s1, color: P.text, boxShadow: CARD_SHADOW, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <MoreHorizontal size={22} />
+            </button>
           ) : null}
         </div>
         )} />
+      <Sheet open={accionesOpen} onClose={() => setAccionesOpen(false)} title="Acciones">
+        <Card style={{ overflow: "hidden" }}>
+          <SettingRow Icon={Camera} label="Poner imágenes a los ejercicios" onClick={() => { setAccionesOpen(false); setBulkOpen(true); }} />
+          <SettingRow Icon={TrendingUp} label="Llevar una rutina al MRV exacto" onClick={() => { setAccionesOpen(false); setMrvRutina(true); }} />
+          <div style={{ padding: "6px 8px" }}><RoutinesExportButton plan={plan} who={student?.name} toast={toast} /></div>
+        </Card>
+      </Sheet>
       {/* Traer un ejercicio del catálogo a un día: llega con nombre, músculo,
           equipo y su imagen ya enlazada, listo para ajustarle las series. */}
       <CatalogAddSheet open={!!catalogoDia} onClose={() => setCatalogoDia(null)}
@@ -20595,107 +20509,58 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           diferencia de aquel, no hacía nada al tocarlo. */}
       <ScreenTitle title="Panel" />
 
-      {/* Los paneles del Panel se reordenan con mantener-pulsado (misma pieza
-          que el Inicio del alumno y el Centro de Control). El título y la hoja
-          quedan fijos. */}
-      {(() => {
-        const panels = [
-          { key: "kpi-atletas", node: <KpiTile top="Atletas" value={String(activeCount)} onClick={onOpenAtletas} /> },
-          { key: "kpi-checkin", node: <KpiTile top="Check-in" value={`${checkinPct}%`} sub="últimos 7 días" onClick={onOpenAtletas} /> },
-          { key: "kpi-sinleer", node: <KpiTile top="Sin leer" value={String(pendCount)} onClick={onOpenMensajes} /> },
-          { key: "kpi-cobrar", node: <KpiTile top="Por cobrar" value={String(dueCount)} onClick={onOpenCobros} /> },
-          { key: "atencion", span: "full", node: (
-            <RowGroup label="Requiere atención" rows={[
-              stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
-              avisos.length > 0 && { label: `${avisos.length} con el entrenamiento trabado`, onClick: onOpenProgresion },
-              dueCount > 0 && { label: `${dueCount} cuota${dueCount !== 1 ? "s" : ""} por vencer`, onClick: onOpenCobros },
-              pendCount > 0 && { label: `${pendCount} mensaje${pendCount !== 1 ? "s" : ""} sin leer`, onClick: onOpenMensajes },
-            ]} />
-          ) },
-          { key: "trabados", span: "full", node: avisos.length === 0 ? null : (
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>
-                Entrenamiento trabado
-              </div>
-              <Card style={{ overflow: "hidden" }}>
-                {avisos.slice(0, 6).map((a, i) => (
-                  <button key={`${a.id}-${i}`} onClick={onOpenProgresion}
-                    style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 13, padding: "13px 14px",
-                      borderBottom: i === Math.min(avisos.length, 6) - 1 ? "none" : `1px solid ${P.line}` }}>
-                    <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center",
-                      justifyContent: "center", background: P.s3, color: a.sev === 2 ? P.red : P.faint2 }}>
-                      {a.sev === 2 ? <ArrowDown size={16} strokeWidth={2.4} /> : <Minus size={16} strokeWidth={2.4} />}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</div>
-                      <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.txt}</div>
-                    </div>
-                    <ChevronRight size={17} color={P.chevron} style={{ flexShrink: 0 }} />
-                  </button>
-                ))}
-              </Card>
-              {avisos.length > 6 && (
-                <button onClick={onOpenProgresion} style={{ width: "100%", marginTop: 8, fontSize: 13, fontWeight: 600, color: P.blue }}>
-                  Ver los {avisos.length} en Progresión
-                </button>
-              )}
-            </div>
-          ) },
-          { key: "hoy", span: "full", node: (
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: P.faint, textTransform: "uppercase", letterSpacing: ".04em", margin: "0 2px 8px" }}>Hoy</div>
-              {activity.length === 0 ? (
-                <Card style={{ padding: 22, textAlign: "center" }}><div style={{ fontSize: 14, color: P.dim }}>Nada todavía hoy.</div></Card>
-              ) : (
-                <Card style={{ overflow: "hidden" }}>
-                  {activity.map((a, i) => (
-                    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 13, padding: "13px 14px", borderBottom: i === activity.length - 1 ? "none" : `1px solid ${P.line}` }}>
-                      <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: P.text }}>
-                        {a.kind === "pr" ? <Award size={16} /> : a.kind === "chat" ? <MessageSquare size={16} /> : a.kind === "pago" ? <DollarSign size={16} /> : <Check size={16} />}
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{a.name}</div>
-                      </div>
-                      <div style={{ fontSize: 13.5, color: P.faint, flexShrink: 0, maxWidth: 140, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.text}</div>
-                    </div>
-                  ))}
-                </Card>
-              )}
-            </div>
-          ) },
-          { key: "accesos", span: "full", node: (
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              {[
-                [ClipboardList, "Nueva rutina", onNewRoutine, true],
-                [UserPlus, "Agregar atleta", onAddStudent, false],
-                [DollarSign, "Cobrar cuota", onOpenCobros, false],
-                onOpenTeam ? [Award, `Equipo y roles${teamSize != null ? ` (${teamSize})` : ""}`, onOpenTeam, false] : null,
-              ].filter(Boolean).map(([Icon, label, fn, primary]) => (
-                <button key={label} onClick={fn} aria-label={label} title={label}
-                  style={{ flex: 1, height: 56, borderRadius: 28, display: "flex", alignItems: "center", justifyContent: "center",
-                    background: primary ? PLATE_GRAD : P.s2, color: primary ? PLATE_FG : P.text }}>
-                  <Icon size={22} />
-                </button>
+      {/* Panel, a lo esencial: cuatro cifras, lo que hay que atender y lo que
+          pasó hoy. Los accesos y las listas largas viven en sus pestañas. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 4 }}>
+        <Card style={{ display: "flex", padding: "4px 6px" }}>
+          {[
+            { Icon: Users, label: "Atletas", value: String(activeCount), on: onOpenAtletas },
+            { Icon: Check, label: "Check-in de los últimos 7 días", value: `${checkinPct}%`, on: onOpenAtletas },
+            { Icon: MessageSquare, label: "Mensajes sin leer", value: String(pendCount), on: onOpenMensajes, hot: pendCount > 0 },
+            { Icon: DollarSign, label: "Cuotas por cobrar", value: String(dueCount), on: onOpenCobros, hot: dueCount > 0 },
+          ].map((x, i) => (
+            <button key={x.label} onClick={x.on} aria-label={x.label} title={x.label}
+              style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 7, padding: "16px 2px 15px",
+                borderLeft: i ? `0.5px solid ${P.separatorStrong || P.line}` : "none" }}>
+              <x.Icon size={20} color={x.hot ? P.ember2 : P.faint} strokeWidth={1.8} />
+              <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.02em", color: P.text }}>{x.value}</span>
+            </button>
+          ))}
+        </Card>
+
+        <RowGroup label="Por atender" rows={[
+          stale.length > 0 && { label: `${stale.length} sin entrenar hace 5 días o más`, onClick: () => setStaleOpen(true) },
+          avisos.length > 0 && { label: `${avisos.length} con el entrenamiento trabado`, onClick: onOpenProgresion },
+          dueCount > 0 && { label: `${dueCount} cuota${dueCount !== 1 ? "s" : ""} por vencer`, onClick: onOpenCobros },
+          pendCount > 0 && { label: `${pendCount} mensaje${pendCount !== 1 ? "s" : ""} sin leer`, onClick: onOpenMensajes },
+        ]} />
+
+        {activity.length > 0 && (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Hoy</div>
+            <Card style={{ overflow: "hidden" }}>
+              {activity.map((a, i) => (
+                <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 13, padding: "13px 14px", borderBottom: i === activity.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: P.text }}>
+                    {a.kind === "pr" ? <Award size={16} /> : a.kind === "chat" ? <MessageSquare size={16} /> : a.kind === "pago" ? <DollarSign size={16} /> : <Check size={16} />}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{a.name}</div>
+                  </div>
+                  <div style={{ fontSize: 13.5, color: P.faint, flexShrink: 0, maxWidth: 140, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.text}</div>
+                </div>
               ))}
-            </div>
-          ) },
-        ].filter((pn) => pn && pn.node);   // un panel sin contenido no ocupa celda
-        return (
-          <div className="ord-group" style={{ marginTop: 14 }}>
-            <OrderableGrid clave="home-coach" items={panels} cols={2} gap={10}
-              modoOrden={modoOrden} setModoOrden={setModoOrden}
-              render={(it) => it.node} />
-            {/* Mismo arreglo que el Inicio del alumno: el "Listo" fijo
-                (OrderDoneBar) reemplaza al botón suelto debajo de la
-                grilla, que con varias fichas quedaba fuera de pantalla. */}
-            {modoOrden !== "home-coach" && (
-              <div style={{ textAlign: "center", marginTop: 16, fontSize: 12.5, color: P.faint }}>
-                Mantén presionada una ficha para reordenar
-              </div>
-            )}
+            </Card>
           </div>
-        );
-      })()}
+        )}
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onNewRoutine} style={{ flex: 1, height: 52, borderRadius: 14, background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 650,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><ClipboardList size={19} /> Nueva rutina</button>
+          <button onClick={onAddStudent} style={{ flex: 1, height: 52, borderRadius: 14, background: P.s1, color: P.text, fontSize: 16, fontWeight: 650, boxShadow: CARD_SHADOW,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><UserPlus size={19} /> Atleta</button>
+        </div>
+      </div>
       <OrderDoneBar show={modoOrden === "home-coach"} onDone={() => setModoOrden(null)} />
 
       <Sheet open={staleOpen} onClose={() => setStaleOpen(false)} title="Sin entrenar" tall>
@@ -26688,7 +26553,7 @@ const TABS = {
   // viviendo también en el botón de la cabecera, sin que se pierda ese
   // acceso rápido.
   alumno: [
-    { id: "hoy", label: "Inicio", Icon: Home },
+    { id: "hoy", label: "Hoy", Icon: Home },
     { id: "progreso", label: "Progreso", Icon: BarChart3 },
     // "Entrenar" al medio (es lo que más se toca).
     { id: "entrenar", label: "Entrenar", Icon: Dumbbell },
@@ -29243,160 +29108,107 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
 // `access` es el mapa de permisos del rol (coachTabsForRole): una ficha
 // cuyo destino el rol no puede ni ver, no se dibuja. No se “desactiva”
 // con un candado: si no hay acceso, no existe.
-const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpenTeam, onOpenSettings, onSwitchMode, onOpenCompPrep, onOpenAtlas, onOpenCompare }) => {
-  const [q, setQ] = useState("");
-  const can = (k) => !!access[k];
-  const groups = [
-    { label: "Agenda y equipo", rows: [
-      can("agenda") && { key: "agenda", Icon: Calendar, label: "Agenda", kw: "turnos disponibilidad calendario", onClick: () => onOpenUtility("agenda") },
-      canManageTeam && { key: "equipo", Icon: Award, label: "Equipo y roles", kw: "coaches permisos nutricionista", onClick: onOpenTeam },
-      can("cobros") && { key: "cobros", Icon: DollarSign, label: "Cobros", kw: "cuotas pagos vencidas", onClick: () => onGoSection("atletas", "cobros") },
-    ] },
-    { label: "Atletas", rows: [
-      can("rankings") && { key: "rankings", Icon: Trophy, label: "Rankings", kw: "tonelaje adherencia tabla", onClick: () => onGoSection("atletas", "rankings") },
-      can("leads") && { key: "leads", Icon: UserPlus, label: "Leads", kw: "prospectos altas nuevos", onClick: () => onGoSection("atletas", "leads") },
-      can("indicaciones") && { key: "indic", Icon: FileText, label: "Indicaciones", kw: "instrucciones generales plan", onClick: () => onGoSection("indicaciones", "indicaciones") },
-    ] },
-    { label: "Herramientas", rows: [
-      can("ia") && { key: "ia", Icon: Sparkles, label: "Coach IA", kw: "asistente progresión volumen", onClick: () => onGoSection("rutina", "ia") },
-      { key: "atlas", Icon: Library, label: "Ejercicios", kw: "atlas biblioteca buscar catálogo movimientos", onClick: onOpenAtlas },
-      { key: "comparar", Icon: Columns2, label: "Comparar rutinas o sesiones", kw: "versus volumen series grupo muscular diferencia dia entrenamiento", onClick: onOpenCompare },
-      { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva", onClick: () => onOpenUtility("timer") },
-      { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "etiquetas top drop rir", onClick: () => onOpenUtility("guia") },
-      can("borradores") && { key: "borradores", Icon: ClipboardList, label: "Borradores", kw: "plantillas rutinas guardadas", onClick: () => onGoSection("rutina", "borradores") },
-      { key: "prep", Icon: Medal, label: "Competition Prep", kw: "fase categoría peak week", onClick: onOpenCompPrep },
-    ] },
-    { label: "Cuenta", rows: [
-      { key: "config", Icon: Sun, label: "Configuración", kw: "tema apariencia unidades", onClick: onOpenSettings },
-      { key: "cambiar", Icon: Users, label: "Cambiar a Atleta", kw: "modo alumno", onClick: () => onSwitchMode("alumno") },
-    ] },
-  ].map((g) => ({ ...g, rows: g.rows.filter(Boolean) })).filter((g) => g.rows.length > 0);
-
-  const query = q.trim().toLowerCase();
-  const filtered = query
-    ? groups.map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.kw.includes(query)) })).filter((g) => g.rows.length > 0)
-    : groups;
-  const [modoOrden, setModoOrden] = useState(null);
-  const orderable = !query;
-  useExitEditOnOutside(orderable && !!modoOrden, () => setModoOrden(null));
-
+// "Más" para alumno y coach: grupos plegados (uno abierto a la vez) en lugar de
+// una lista larga con cuatro o cinco secciones a la vista.
+const MasAcordeon = ({ groups, onOpenSearch }) => {
+  // "Cuenta" (ajustes, centro de control, cambiar de modo) es lo que más se busca: arranca abierta.
+  const [abierto, setAbierto] = useState("Cuenta");
   return (
-    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 14 }}>
       <ScreenTitle title="Más" />
-      <div style={{ position: "relative" }}>
-        <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
-        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar en FORJA"
-          aria-label="Buscar en FORJA" style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15,
-            background: P.s4, borderRadius: R_TILE, border: "none" }} />
-        {q && (
-          <button onClick={() => setQ("")} aria-label="Borrar búsqueda"
-            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: P.faint2, padding: 4 }}>
-            <X size={15} />
-          </button>
-        )}
-      </div>
-      {filtered.length === 0 && (
-        <div style={{ textAlign: "center", color: P.faint2, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
-      )}
-      {filtered.map((g) => (
-        <div key={g.label} className="ord-group" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
-          <Card style={{ overflow: "hidden" }}>
-            <OrderableGrid clave={"mas-coach-" + g.label} items={g.rows} cols={1} gap={0} orderable={orderable}
-              modoOrden={modoOrden} setModoOrden={setModoOrden}
-              render={(r, ed, i, total) => (
-                <SettingRow Icon={r.Icon} label={r.label} onClick={ed ? undefined : r.onClick} last={i === total - 1} />
-              )} />
+      <button onClick={onOpenSearch} aria-label="Buscar en toda la app" title="Buscar"
+        style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", fontSize: 16, color: P.faint2,
+          background: P.s4, borderRadius: R_TILE }}>
+        <Search size={17} color={P.faint2} /> Buscar
+      </button>
+      {groups.map((g) => {
+        const open = abierto === g.label;
+        return (
+          <Card key={g.label} style={{ overflow: "hidden" }}>
+            <button onClick={() => setAbierto(open ? null : g.label)} aria-expanded={open}
+              style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14, padding: "15px 16px" }}>
+              <span style={{ width: 36, height: 36, borderRadius: 11, background: hexRgba(P.ember, 0.1), color: P.ember2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <g.Icon size={19} strokeWidth={2} />
+              </span>
+              <span style={{ flex: 1, fontSize: 17.5, fontWeight: 650, letterSpacing: "-.02em" }}>{g.label}</span>
+              <ChevronDown size={19} color={P.faint} style={{ transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_PUSH}ms ${EASE_STD}` }} />
+            </button>
+            {open && (
+              <div className="deployIn" style={{ borderTop: `0.5px solid ${P.separatorStrong || P.line}` }}>
+                {g.rows.map((r, i) => <SettingRow key={r.key} Icon={r.Icon} label={r.label} onClick={r.onClick} last={i === g.rows.length - 1} />)}
+              </div>
+            )}
           </Card>
-        </div>
-      ))}
-      <OrderDoneBar show={orderable && !!modoOrden} onDone={() => setModoOrden(null)} />
+        );
+      })}
     </div>
   );
 };
 
-const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams }) => {
-  const [q, setQ] = useState("");
-  const unread = useUnreadChatCount(sid, "alumno");
+const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpenTeam, onOpenSettings, onSwitchMode, onOpenCompPrep, onOpenAtlas, onOpenCompare, onOpenSearch, onOpenControlCenter, onResetPlan }) => {
+  const can = (k) => !!access[k];
+  // Cuatro grupos plegados. Coach IA vive en la cabecera.
   const groups = [
-    { label: "Comunicación", rows: [
-      { key: "mensajes", Icon: MessageSquare, label: "Mensajes", kw: "habla coach chat", onClick: () => onOpenUtility("chat"), badge: unread > 0 ? unread : null },
-      { key: "nutricion", Icon: Utensils, label: "Nutrición", kw: "comidas dieta macros calorías agua suplementos", onClick: onOpenNutrition },
+    { label: "Atletas", Icon: Users, rows: [
+      can("cobros") && { key: "cobros", Icon: DollarSign, label: "Cobros", onClick: () => onGoSection("atletas", "cobros") },
+      can("rankings") && { key: "rankings", Icon: Trophy, label: "Rankings", onClick: () => onGoSection("atletas", "rankings") },
+      can("leads") && { key: "leads", Icon: UserPlus, label: "Leads", onClick: () => onGoSection("atletas", "leads") },
+      can("agenda") && { key: "agenda", Icon: Calendar, label: "Agenda", onClick: () => onOpenUtility("agenda") },
+      canManageTeam && { key: "equipo", Icon: Award, label: "Equipo y roles", onClick: onOpenTeam },
     ] },
-    { label: "Culturismo", rows: [
-      { key: "checkin", Icon: Camera, label: "Check-in", kw: "peso recuperación fotos video", onClick: onOpenCheckin },
-      { key: "posing", Icon: PersonStanding, label: "Posing", kw: "categoría poses", onClick: onOpenPosing },
-      { key: "prep", Icon: Trophy, label: "Competition Prep", kw: "fase categoría peak week", onClick: onOpenCompPrep },
-      { key: "fotos", Icon: Camera, label: "Comparar fotos", kw: "progreso antes después", onClick: onOpenPhotos },
-      { key: "supp", Icon: Droplet, label: "Suplementación", kw: "creatina proteína adherencia tomas", onClick: onOpenSupplements },
-      { key: "labs", Icon: Ruler, label: "Analítica", kw: "laboratorio sangre marcadores control médico", onClick: onOpenLabs },
-      { key: "examenes", Icon: FileText, label: "Exámenes con IA", kw: "inbody dexa composición corporal pdf informe leer indicadores", onClick: onOpenExams },
+    { label: "Planes", Icon: ClipboardList, rows: [
+      can("indicaciones") && { key: "indic", Icon: FileText, label: "Indicaciones", onClick: () => onGoSection("indicaciones", "indicaciones") },
+      can("borradores") && { key: "borradores", Icon: ClipboardList, label: "Borradores", onClick: () => onGoSection("rutina", "borradores") },
+      { key: "comparar", Icon: Columns2, label: "Comparar rutinas o sesiones", onClick: onOpenCompare },
+      { key: "prep", Icon: Medal, label: "Competition Prep", onClick: onOpenCompPrep },
+      onResetPlan && { key: "vaciar", Icon: Trash2, label: "Vaciar el plan y empezar de cero", onClick: onResetPlan },
     ] },
-    { label: "Herramientas", rows: [
-      { key: "atajos", Icon: Smartphone, label: "Atajos de iPhone", kw: "siri shortcuts atajo pantalla de inicio registrar rapido widget", onClick: () => onOpenUtility("atajos") },
-      { key: "timer", Icon: Timer, label: "Temporizador", kw: "intervalos cuenta regresiva cronómetro", onClick: () => onOpenUtility("timer") },
-      { key: "guia", Icon: BookOpen, label: "Guía de términos", kw: "qué significa etiqueta rutina", onClick: () => onOpenUtility("guia") },
-      { key: "atlas", Icon: Library, label: "Ejercicios", kw: "atlas biblioteca buscar catálogo movimientos", onClick: onOpenAtlas },
-      { key: "ia", Icon: Sparkles, label: "Coach IA", kw: "asistente entrenamiento", onClick: onOpenAIChat },
-      { key: "dispositivos", Icon: Watch, label: "Dispositivos", kw: "relojes básculas salud", onClick: onOpenDevices },
-      { key: "agenda", Icon: Calendar, label: "Agenda", kw: "turnos reservas", onClick: () => onOpenUtility("agenda") },
+    { label: "Herramientas", Icon: Timer, rows: [
+      { key: "atlas", Icon: Library, label: "Ejercicios", onClick: onOpenAtlas },
+      { key: "timer", Icon: Timer, label: "Temporizador", onClick: () => onOpenUtility("timer") },
+      { key: "guia", Icon: BookOpen, label: "Guía de términos", onClick: () => onOpenUtility("guia") },
     ] },
-    { label: "Cuenta", rows: [
-      { key: "config", Icon: Sun, label: "Configuración", kw: "apariencia vista interfaz tema", onClick: onOpenSettings },
+    { label: "Cuenta", Icon: Sun, rows: [
+      { key: "config", Icon: Sun, label: "Configuración", onClick: onOpenSettings },
+      { key: "centro", Icon: LayoutGrid, label: "Centro de control", onClick: onOpenControlCenter },
+      { key: "cambiar", Icon: Users, label: "Cambiar a Atleta", onClick: () => onSwitchMode("alumno") },
+    ] },
+  ].map((g) => ({ ...g, rows: g.rows.filter(Boolean) })).filter((g) => g.rows.length > 0);
+  return <MasAcordeon groups={groups} onOpenSearch={onOpenSearch} />;
+};
+
+const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams, onOpenSearch, onOpenControlCenter }) => {
+  // Cuatro grupos plegados. Mensajes, Nutrición y Coach IA ya tienen su sitio
+  // (barra de pestañas y cabecera), así que no se repiten acá.
+  const groups = [
+    { label: "Seguimiento", Icon: Camera, rows: [
+      { key: "checkin", Icon: Camera, label: "Check-in", onClick: onOpenCheckin },
+      { key: "fotos", Icon: Camera, label: "Comparar fotos", onClick: onOpenPhotos },
+      { key: "supp", Icon: Droplet, label: "Suplementación", onClick: onOpenSupplements },
+      { key: "labs", Icon: Ruler, label: "Analítica", onClick: onOpenLabs },
+      { key: "examenes", Icon: FileText, label: "Exámenes con IA", onClick: onOpenExams },
+    ] },
+    { label: "Culturismo", Icon: Trophy, rows: [
+      { key: "posing", Icon: PersonStanding, label: "Posing", onClick: onOpenPosing },
+      { key: "prep", Icon: Trophy, label: "Competition Prep", onClick: onOpenCompPrep },
+    ] },
+    { label: "Herramientas", Icon: Timer, rows: [
+      { key: "atlas", Icon: Library, label: "Ejercicios", onClick: onOpenAtlas },
+      { key: "agenda", Icon: Calendar, label: "Agenda", onClick: () => onOpenUtility("agenda") },
+      { key: "dispositivos", Icon: Watch, label: "Dispositivos", onClick: onOpenDevices },
+      { key: "timer", Icon: Timer, label: "Temporizador", onClick: () => onOpenUtility("timer") },
+      { key: "atajos", Icon: Smartphone, label: "Atajos de iPhone", onClick: () => onOpenUtility("atajos") },
+      { key: "guia", Icon: BookOpen, label: "Guía de términos", onClick: () => onOpenUtility("guia") },
+    ] },
+    { label: "Cuenta", Icon: Sun, rows: [
+      { key: "config", Icon: Sun, label: "Configuración", onClick: onOpenSettings },
+      { key: "centro", Icon: LayoutGrid, label: "Centro de control", onClick: onOpenControlCenter },
       // Un perfil de acceso (alumno) NO puede pasar a modo coach: su cuenta
       // es solo-alumno. Solo el dueño ve "Cambiar a Coach".
-      !isDelegate && { key: "cambiar", Icon: Users, label: "Cambiar a Coach", kw: "entrar modo coach", onClick: () => onSwitchMode("coach") },
+      !isDelegate && { key: "cambiar", Icon: Users, label: "Cambiar a Coach", onClick: () => onSwitchMode("coach") },
     ].filter(Boolean) },
   ];
-  const query = q.trim().toLowerCase();
-  const filtered = query
-    ? groups
-        .map((g) => ({ ...g, rows: g.rows.filter((r) => r.label.toLowerCase().includes(query) || r.kw.includes(query)) }))
-        .filter((g) => g.rows.length > 0)
-    : groups;
-  const [modoOrden, setModoOrden] = useState(null);
-  const orderable = !query;
-  useExitEditOnOutside(orderable && !!modoOrden, () => setModoOrden(null));
-  return (
-    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 20 }}>
-      <ScreenTitle title="Más" />
-      <div style={{ position: "relative" }}>
-        <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
-        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar en FORJA"
-          aria-label="Buscar en FORJA" style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15,
-            background: P.s4, borderRadius: R_TILE, border: "none" }} />
-        {q && (
-          <button onClick={() => setQ("")} aria-label="Borrar búsqueda"
-            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: P.faint2, padding: 4 }}>
-            <X size={15} />
-          </button>
-        )}
-      </div>
-      {filtered.length === 0 && (
-        <div style={{ textAlign: "center", color: P.faint2, fontSize: 14, padding: "24px 0" }}>Sin resultados para "{q}"</div>
-      )}
-      {filtered.map((g) => (
-        <div key={g.label} className="ord-group" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>{g.label}</div>
-          <Card style={{ overflow: "hidden" }}>
-            <OrderableGrid clave={"mas-alumno-" + g.label} items={g.rows} cols={1} gap={0} orderable={orderable}
-              modoOrden={modoOrden} setModoOrden={setModoOrden}
-              render={(r, ed, i, total) => (
-                <SettingRow Icon={r.Icon} label={r.label} onClick={ed ? undefined : r.onClick} last={i === total - 1}
-                  right={r.badge != null ? (
-                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9, background: PLATE_GRAD, color: PLATE_FG,
-                        fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{r.badge}</span>
-                      {!ed && r.onClick && <ChevronRight size={17} color={P.faint} strokeWidth={2.4} />}
-                    </span>
-                  ) : undefined} />
-              )} />
-          </Card>
-        </div>
-      ))}
-      <OrderDoneBar show={orderable && !!modoOrden} onDone={() => setModoOrden(null)} />
-    </div>
-  );
+  return <MasAcordeon groups={groups} onOpenSearch={onOpenSearch} />;
 };
 
 /* ============================================================
@@ -29496,7 +29308,9 @@ const SectionSwitch = ({ items, value, onChange, style, compact }) => {
   const tight = n >= 5;
   // Con ícono en todas las opciones el segmentado es solo íconos (como la
   // barra de abajo); el nombre queda en aria-label/title.
-  const iconOnly = items.every((it) => it.Icon);
+  // v394: con nombre siempre que lo haya — un segmentado de cinco íconos sueltos
+  // obligaba a adivinar qué hacía cada uno.
+  const iconOnly = items.every((it) => it.Icon) && items.some((it) => !it.label);
   // Segmentado de iOS: pista gris, pastilla blanca (gris medio en oscuro) con
   // una sombra finita; el texto no cambia de color, solo de peso.
   const oscuro = String(P.bg).toLowerCase() < "#808080";
@@ -29511,7 +29325,7 @@ const SectionSwitch = ({ items, value, onChange, style, compact }) => {
               display: "flex", alignItems: "center", justifyContent: "center",
               background: on ? (oscuro ? "#636366" : "#FFFFFF") : "transparent", color: on ? P.text : (iconOnly ? P.faint : P.text),
               boxShadow: on ? "0 1px 3px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.04)" : "none",
-              fontSize: tight ? 12 : many ? 13 : 13.5, fontWeight: on ? 600 : 500,
+              fontSize: tight ? 11.5 : many ? 13 : 13.5, fontWeight: on ? 600 : 500,
               transition: `background ${DUR_ROW}ms ${EASE_STD}, color ${DUR_ROW}ms ${EASE_STD}`,
               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {iconOnly ? <Icon size={19} strokeWidth={on ? 2.2 : 1.8} /> : label}
@@ -29663,6 +29477,30 @@ const StatTile = ({ label, value, unit, note, bar, onClick }) => (
 // (#A0A0AA contra #5A5A63): así la activa destaca por contraste puro, sin
 // necesidad de un color de acento.
 const TAB_INACTIVE = "#A0A0AA";
+// Cabecera mínima: arriba a la derecha solo lo que se usa todo el tiempo —
+// Coach IA, mensajes (en modo alumno; el coach los tiene en su barra de abajo)
+// y el perfil. Reemplaza al texto de identidad, a los botones de buscar y de
+// centro de control y al botón flotante, que se repetían en cada pantalla.
+const HeaderActions = ({ mode, sid, initial, onAI, onChat, onProfile }) => {
+  const unread = useUnreadChatCount(mode === "alumno" ? sid : null, "alumno");
+  const btn = { position: "relative", width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: P.text, flexShrink: 0 };
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, padding: "calc(2px + env(safe-area-inset-top)) 12px 0" }}>
+      <button onClick={onAI} aria-label="Coach IA" title="Coach IA" style={btn}><Sparkles size={22} strokeWidth={1.8} /></button>
+      {mode === "alumno" && (
+        <button onClick={onChat} aria-label="Mensajes" title="Mensajes" style={btn}>
+          <MessageSquare size={22} strokeWidth={1.8} />
+          {unread > 0 && <span style={{ position: "absolute", top: 8, right: 7, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, background: PLATE_GRAD, color: PLATE_FG,
+            fontSize: 10.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{unread}</span>}
+        </button>
+      )}
+      <button onClick={onProfile} aria-label="Perfil y ajustes" title="Perfil"
+        style={{ width: 36, height: 36, borderRadius: 18, margin: "0 4px 0 6px", background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 14,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initial}</button>
+    </div>
+  );
+};
+
 const TabBar = ({ tabs, tab, setTab }) => {
   const n = tabs.length;
   const idx = Math.max(0, tabs.findIndex((t) => t.id === tab));
@@ -29683,9 +29521,10 @@ const TabBar = ({ tabs, tab, setTab }) => {
           const on = tab === id;
           return (
             <button key={id} onClick={() => setTab(id)} aria-current={on ? "page" : undefined} aria-label={label} title={label}
-              style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 4px", minWidth: 0, minHeight: 46,
+              style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "7px 2px 6px", minWidth: 0, minHeight: 54,
                 color: on ? PLATE_FG : TAB_INACTIVE, transition: `color ${DUR_ROW}ms ${EASE_STD}` }}>
-              <Icon size={24} strokeWidth={on ? 2.3 : 1.8} color={on ? PLATE_FG : TAB_INACTIVE} />
+              <Icon size={22} strokeWidth={on ? 2.2 : 1.7} color={on ? PLATE_FG : TAB_INACTIVE} />
+              <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".01em", lineHeight: 1, whiteSpace: "nowrap" }}>{label}</span>
             </button>
           );
         })}
@@ -32139,7 +31978,7 @@ const App = () => {
       <GlobalStyle />
       {!enSesion && utility !== "chat" && <NavTituloCompacto clave={`${mode}|${tab}|${sub || ""}|${utility || ""}`} />}
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
-        paddingBottom: enSesion ? 0 : "calc(116px + env(safe-area-inset-bottom))" }}>
+        paddingBottom: enSesion ? 0 : "calc(124px + env(safe-area-inset-bottom))" }}>
         {/* Cabecera: identidad como texto a la izquierda (solo informativa —
             quién está usando la app ahora) y el avatar a la derecha, que es
             el único que abre algo (la hoja "Más"). Antes el texto de la
@@ -32147,31 +31986,8 @@ const App = () => {
             de verdad por error. Cerrar sesión ahora vive solo dentro de
             "Más", como su propio botón con confirmación. */}
         {!enSesion && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "calc(8px + env(safe-area-inset-top)) 16px 4px" }}>
-            <div style={{ textAlign: "left", minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>{identityName}</div>
-              <div style={{ fontSize: 12, color: P.faint, whiteSpace: "nowrap" }}>{delegate ? "perfil con acceso" : `modo ${mode}`}</div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              <button onClick={() => setSearchOpen(true)} aria-label="Buscar en toda la app"
-                title="Buscar"
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
-                  background: P.s3, border: `1px solid ${P.line}`, color: P.dim, flexShrink: 0 }}>
-                <Search size={17} />
-              </button>
-              <button onClick={() => setControlCenterOpen(true)} aria-label="Centro de control"
-                title="Centro de control"
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
-                  background: P.s3, border: `1px solid ${P.line}`, color: P.dim, flexShrink: 0 }}>
-                <LayoutGrid size={17} />
-              </button>
-              <button onClick={() => setMoreOpen(true)} aria-label="Perfil y más opciones"
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 12,
-                  background: PLATE_GRAD, color: PLATE_FG, fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
-                {(identityName || "?").slice(0, 1).toUpperCase()}
-              </button>
-            </div>
-          </div>
+          <HeaderActions mode={mode} sid={sid} initial={(identityName || "?").slice(0, 1).toUpperCase()}
+            onAI={() => setAiChatOpenSignal((n) => n + 1)} onChat={() => setUtility("chat")} onProfile={() => setMoreOpen(true)} />
         )}
         {!enSesion && <StorageBanner />}
 
@@ -32254,6 +32070,7 @@ const App = () => {
         )}
         {mode === "alumno" && tab === "mas" && (
           <MasTab toast={toast} sid={sid} isDelegate={!!delegate} onOpenUtility={(id) => setUtility(id)} onOpenDevices={() => setDevicesOpen(true)}
+            onOpenSearch={() => setSearchOpen(true)} onOpenControlCenter={() => setControlCenterOpen(true)}
             onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             onOpenPosing={() => { setTab("hoy"); setAutoOpenPosing(true); }}
@@ -32276,7 +32093,8 @@ const App = () => {
             sistema) y "Vaciar" es la destructiva, así que va en contorno,
             no en placa negra. Antes las tres eran placa: la acción más
             peligrosa de la pantalla era también la más llamativa. */}
-        {mode === "coach" && (sub === "rutina" || sub === "nutricion" || sub === "indicaciones" || sub === "agenda") && roleTabAccess[sub] === "edit" && (
+        {mode === "coach" && (sub === "rutina" || sub === "nutricion" || sub === "indicaciones" || sub === "agenda") && roleTabAccess[sub] === "edit"
+          && (planHistoryRef.current.past.length > 0 || planHistoryRef.current.future.length > 0) && (
           /* Barra de edición del plan. Antes eran tres botones con texto de
              anchos distintos ("Deshacer"/"Rehacer" largos contra un "Vaciar"
              corto) ocupando un renglón entero ENCIMA del título de la
@@ -32289,7 +32107,6 @@ const App = () => {
             {[
               { k: "undo", Icon: Undo2, label: "Deshacer", onClick: undoPlan, off: planHistoryRef.current.past.length === 0 },
               { k: "redo", Icon: Redo2, label: "Rehacer", onClick: redoPlan, off: planHistoryRef.current.future.length === 0 },
-              { k: "reset", Icon: Trash2, label: "Vaciar el plan y volver a empezar", onClick: () => setConfirmReset(true), danger: true },
             ].map(({ k, Icon, label, onClick, off, danger }) => (
               <button key={k} onClick={onClick} disabled={!!off} aria-label={label} title={label}
                 style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0,
@@ -32384,6 +32201,8 @@ const App = () => {
             onGoSection={(t, sec) => { setTab(t); setSection((o) => ({ ...o, [t]: sec })); }}
             onOpenUtility={setUtility} onOpenTeam={() => setEquipoOpen(true)}
             onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
+            onOpenSearch={() => setSearchOpen(true)} onOpenControlCenter={() => setControlCenterOpen(true)}
+            onResetPlan={roleTabAccess.rutina === "edit" ? () => setConfirmReset(true) : null}
             onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => { setAtlasInitialQuery(""); setAtlasOpen(true); }}
             onOpenCompare={() => setCompareOpen(true)} />
         )}
@@ -32461,7 +32280,7 @@ const App = () => {
           vivo para que la estrella "Coach IA" de la sesión pueda abrir el
           chat (openChatSignal). */}
       <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
-        hideFab={mode === "alumno" && tab === "entrenar" && !!active}
+        hideFab
         onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
         openChatSignal={aiChatOpenSignal} toast={toast} />
       <Toast msg={toastMsg} />
