@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v391";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v392";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -79,8 +79,8 @@ const BRAND = { name: "FORJA", tagline: "The Ultimate Bodybuilding App" };
 // etiquetar eventos en la Agenda.
 const LIGHT_THEME = {
   P: {
-    bg: "#F6F3F0", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#F1EEEB", s4: "#E9E5E1",
-    line: "#E9E4DF", text: "#101012", dim: "#2B2B30",
+    bg: "#F2F2F7", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#EFEFF4", s4: "#E8E8EE",
+    line: "#E5E5EA", text: "#101012", dim: "#2B2B30",
     // Secundario y terciario, un punto más oscuros que el gris de sistema
     // original (#5A5A63/#6B6B75): a pedido explícito, para que la
     // descripción de cada pantalla y los metadatos no se sientan
@@ -89,14 +89,14 @@ const LIGHT_THEME = {
     faint: "#494950", faint2: "#55555D",
     // Acento = tinta. ember2 es la variante para texto chico e iconografía
     // secundaria; en claro coincide con la tinta porque ya pasa AA de sobra.
-    ember: "#F04E1F", ember2: "#D93F12", glow: "#F04E1F",
+    ember: "#101012", ember2: "#101012", glow: "#101012",
     // Neutros, no colores: "óptimo"/"informativo" se leen por la palabra y
     // por la forma del indicador, no porque el bloque sea verde o azul.
     // El rojo del sistema iOS se conserva SOLO para lo destructivo.
     green: "#101012", blue: "#5A5A63", red: "#D70015",
     // Color de anillos y barras de progreso (neutro en claro, como hasta
     // ahora; en el tema Rosa es un rosa vivo, no negro).
-    prog: "#F04E1F",
+    prog: "#101012",
     // Segundo acento — SOLO para cuando un gráfico necesita distinguir dos
     // series a la vez (p. ej. "Rutina A" vs "Rutina B" en el comparador):
     // el resto de la interfaz sigue monocromática a propósito, pero un
@@ -105,28 +105,25 @@ const LIGHT_THEME = {
     accent2: "#2E6FF2",
     // Borde de tarjeta: hairline, no marco. Las tarjetas se separan del
     // fondo gris por el blanco y la línea de 1px, no por elevación.
-    frame: "#E9E4DF",
-    // Atmósfera: dos resplandores cálidos muy suaves arriba (naranja forja a
-    // la derecha, rosa a la izquierda) que mueren antes de la mitad. Da
-    // profundidad sin ensuciar la lectura: el contenido va sobre tarjetas
-    // blancas y el resto es aire.
-    bgGrad: "radial-gradient(90% 34% at 92% -4%, rgba(255,138,43,.20), transparent 72%), radial-gradient(70% 28% at -4% 6%, rgba(219,47,91,.09), transparent 70%), #F6F3F0",
+    frame: "#E5E5EA",
+    // Fondo plano, blanco y negro: el color lo pone el acento que elija cada uno.
+    bgGrad: "#F2F2F7",
     // Tokens del handoff de rediseño (MVP): s3 ya cubre "fill-secondary"
     // del spec (botón secundario, − +, chip) y s4 ya cubre
     // "fill-quaternary" (pista del segmentado) — estos cuatro son los
     // que faltaban y no tenían dónde vivir en la paleta existente.
-    fillTertiary: "#EFEBE7",   // separador dentro de tarjeta, pista de barra, placeholder de video
-    separatorStrong: "#E2DCD6", // borde de campo, segmento de progreso vacío
+    fillTertiary: "#EDEDF2",   // separador dentro de tarjeta, pista de barra, placeholder de video
+    separatorStrong: "#D9D9DE", // borde de campo, segmento de progreso vacío
     textQuaternary: "#A0A0AA",  // pestaña inactiva, acción deshabilitada, placeholder
     chevron: "#C4C4CB",         // chevron de fila
     dotInactive: "#DEDEE4",     // punto de día futuro
   },
   // Las "placas" (botón primario, pestaña activa, chip de estado) son tinta
   // plena con texto blanco.
-  plateGrad: "linear-gradient(135deg, #FF8A2B 0%, #F2491F 52%, #DB2F5B 100%)",
+  plateGrad: "#101012",
   plateFg: "#FFFFFF",
-  plateDim: "#FFC7A6",
-  plateBorder: "#F2491F",
+  plateDim: "#A8A8B0",
+  plateBorder: "#101012",
 };
 const DARK_THEME = {
   P: {
@@ -137,9 +134,9 @@ const DARK_THEME = {
     // plataforma es fondo claro y tinta (blanco/negro), no verde. El
     // verde de la pantalla de sesión (`teColors`, más abajo) es aparte y
     // no se toca: ahí sigue siendo la única marca de color, a propósito.
-    ember: "#FF7A3D", ember2: "#FF8F57", glow: "#FF7A3D",
+    ember: "#FFFFFF", ember2: "#FFFFFF", glow: "#FFFFFF",
     green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
-    prog: "#FF7A3D",
+    prog: "#FFFFFF",
     accent2: "#5B9CFF",
     frame: "#35353C", bgGrad: "#0F0F11",
     // Mismos 5 tokens nuevos, invertidos para el tema oscuro siguiendo el
@@ -149,10 +146,10 @@ const DARK_THEME = {
   },
   // Placas monocromas, igual criterio que LIGHT_THEME pero invertido:
   // tinta blanca (la del tema oscuro) con texto negro encima.
-  plateGrad: "linear-gradient(135deg, #FF8A2B 0%, #F2491F 52%, #DB2F5B 100%)",
-  plateFg: "#FFFFFF",
+  plateGrad: "#FFFFFF",
+  plateFg: "#101012",
   plateDim: "#8A8A94",
-  plateBorder: "#F2491F",
+  plateBorder: "#FFFFFF",
 };
 // Tercer tema, a pedido (blanco y rosado): mismas tarjetas blancas que
 // LIGHT_THEME —el contenido sigue leyéndose igual de limpio— pero el
@@ -5751,7 +5748,7 @@ const GlobalStyle = () => {
     @keyframes splashFadeIn { from { opacity: 0; } to { opacity: 1; } }
     .fj .splashFadeIn { animation: splashFadeIn .3s ease both; }
     @keyframes splashIcon { 0% { opacity: 0; transform: scale(.4) rotate(-14deg); } 55% { opacity: 1; transform: scale(1.12) rotate(2deg); } 100% { opacity: 1; transform: scale(1) rotate(0); } }
-    .fj .splashIcon { animation: splashIcon .9s cubic-bezier(.16,1,.3,1) both, splashPulse 1.8s ease-out .8s both; --fj-pulse: rgba(255,255,255,.5); }
+    .fj .splashIcon { animation: splashIcon .9s cubic-bezier(.16,1,.3,1) both, splashPulse 1.8s ease-out .8s both; --fj-pulse: rgba(128,128,128,.35); }
     @keyframes splashPulse { 0% { box-shadow: 0 0 0 0 var(--fj-pulse, rgba(255,255,255,.35)); } 100% { box-shadow: 0 0 0 46px rgba(0,0,0,0); } }
     @keyframes splashLetter { from { opacity: 0; transform: translateY(26px) scale(.86); filter: blur(10px); } to { opacity: 1; transform: none; filter: blur(0); } }
     .fj .splashLetter { display: inline-block; animation: splashLetter .7s cubic-bezier(.16,1,.3,1) both; }
@@ -5764,7 +5761,7 @@ const GlobalStyle = () => {
     @keyframes splashRing { 0% { transform: scale(.4); opacity: .9; } 100% { transform: scale(7); opacity: 0; } }
     .fj .splashRing { animation: splashRing 2.1s cubic-bezier(.16,1,.3,1) both; }
     @keyframes splashSparkUp { 0% { transform: translate(0, 0) scale(1); opacity: 0; } 12% { opacity: .95; } 100% { transform: translate(var(--dx), -92vh) scale(.2); opacity: 0; } }
-    .fj .splashSpark { position: absolute; bottom: -12px; border-radius: 50%; background: #fff; box-shadow: 0 0 10px 2px rgba(255,255,255,.7);
+    .fj .splashSpark { position: absolute; bottom: -12px; border-radius: 50%;
       animation: splashSparkUp var(--t) cubic-bezier(.2,.6,.3,1) var(--d) both; }
     @keyframes splashSweep { from { left: -45%; } to { left: 115%; } }
     .fj .splashSweep { animation: splashSweep 1.3s cubic-bezier(.4,0,.2,1) .3s both; }
@@ -5878,7 +5875,7 @@ const GlobalStyle = () => {
 // hace que una app se vea "de plantilla" en vez de de sistema.
 const CARD_LIFT = "none";
 // Relieve suave y difuso (en vez de marco): el aire alrededor separa las tarjetas.
-const CARD_SHADOW = "0 1px 2px rgba(70,35,10,.045), 0 12px 30px -14px rgba(70,35,10,.18)";
+const CARD_SHADOW = "0 1px 2px rgba(16,16,18,.04), 0 12px 30px -14px rgba(16,16,18,.16)";
 // Radios del sistema: tarjeta / control / fila.
 const R_CARD = 28;
 const R_TILE = 22;
@@ -6885,48 +6882,47 @@ const SPLASH_SPARKS = Array.from({ length: 26 }, (_, i) => ({
 }));
 const SplashScreen = ({ exiting }) => (
   <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", position: "relative", overflow: "hidden",
-    display: "flex", alignItems: "center", justifyContent: "center", color: "#fff",
-    background: "linear-gradient(168deg, #FFA24A 0%, #F2491F 46%, #C61E5C 100%)",
+    display: "flex", alignItems: "center", justifyContent: "center", color: P.text, background: P.bg,
     opacity: exiting ? 0 : 1, transform: exiting ? "scale(1.18)" : "scale(1)", filter: exiting ? "blur(10px)" : "none",
     transition: `opacity ${DUR_ROW * 2.5}ms ${EASE_STD}, transform ${DUR_ROW * 2.5}ms ${EASE_STD}, filter ${DUR_ROW * 2.5}ms ${EASE_STD}` }}>
     <GlobalStyle />
-    {/* Escenario: resplandor blanco que nace en el centro, anillos de onda
-        expansiva, chispas que suben y un destello que barre la pantalla. */}
+    {/* Escenario: resplandor del color de acento que nace en el centro, anillos
+        de onda expansiva, chispas que suben y un destello que barre la pantalla.
+        Todo sale de la paleta activa: blanco y negro por defecto, o el acento
+        y el modo (claro/oscuro) que haya elegido cada uno. */}
     <div aria-hidden="true" className="splashGlow" style={{ position: "absolute", left: "50%", top: "46%", width: "130vmax", height: "130vmax",
       marginLeft: "-65vmax", marginTop: "-65vmax", borderRadius: "50%",
-      background: "radial-gradient(closest-side, rgba(255,255,255,.34), rgba(255,255,255,.10) 40%, transparent 70%)" }} />
+      background: `radial-gradient(closest-side, ${hexRgba(P.ember, 0.16)}, ${hexRgba(P.ember, 0.05)} 40%, transparent 70%)` }} />
     {[0, 0.5].map((d, i) => (
       <div key={i} aria-hidden="true" className="splashRing" style={{ position: "absolute", left: "50%", top: "46%", width: 120, height: 120,
-        marginLeft: -60, marginTop: -60, borderRadius: "50%", border: "2px solid rgba(255,255,255,.7)", animationDelay: `${0.35 + d}s` }} />
+        marginLeft: -60, marginTop: -60, borderRadius: "50%", border: `2px solid ${hexRgba(P.ember, 0.35)}`, animationDelay: `${0.35 + d}s` }} />
     ))}
     {SPLASH_SPARKS.map((k, i) => (
-      <span key={i} aria-hidden="true" className="splashSpark" style={{ left: `${k.x}%`, width: k.s, height: k.s, "--dx": `${k.dx}vw`, "--t": `${k.t}s`, "--d": `${k.d}s` }} />
+      <span key={i} aria-hidden="true" className="splashSpark" style={{ left: `${k.x}%`, width: k.s, height: k.s, "--dx": `${k.dx}vw`, "--t": `${k.t}s`, "--d": `${k.d}s`,
+        background: P.ember, boxShadow: `0 0 10px 2px ${hexRgba(P.ember, 0.4)}` }} />
     ))}
     <div aria-hidden="true" className="splashSweep" style={{ position: "absolute", top: 0, bottom: 0, width: "34%",
-      background: "linear-gradient(90deg, transparent, rgba(255,255,255,.2) 50%, transparent)" }} />
+      background: `linear-gradient(90deg, transparent, ${hexRgba(P.ember, 0.09)} 50%, transparent)` }} />
     <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 30, marginTop: "-4vh" }}>
       <div data-fjkeep className="splashIcon" style={{ width: 112, height: 112, borderRadius: 34,
-        display: "flex", alignItems: "center", justifyContent: "center", background: "#fff",
-        boxShadow: "0 24px 60px -12px rgba(120,20,30,.55), 0 0 0 0 rgba(255,255,255,.5)" }}>
-        <svg viewBox="0 0 24 24" width={64} height={64} aria-hidden="true">
-          <defs><linearGradient id="spg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#FF8A2B" /><stop offset=".55" stopColor="#F2491F" /><stop offset="1" stopColor="#DB2F5B" /></linearGradient></defs>
-          <g fill="url(#spg)">
-            <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
-            <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
-            <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
-            <rect x="16.5" y="6.6" width="2.5" height="10.8" rx="0.9" />
-            <rect x="19.5" y="8.2" width="2" height="7.6" rx="0.7" />
-          </g>
+        display: "flex", alignItems: "center", justifyContent: "center", background: PLATE_GRAD,
+        boxShadow: `0 24px 60px -14px ${hexRgba(P.ember, 0.55)}, 0 0 0 0 ${hexRgba(P.ember, 0.4)}` }}>
+        <svg viewBox="0 0 24 24" width={64} height={64} aria-hidden="true" fill={PLATE_FG}>
+          <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
+          <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
+          <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
+          <rect x="16.5" y="6.6" width="2.5" height="10.8" rx="0.9" />
+          <rect x="19.5" y="8.2" width="2" height="7.6" rx="0.7" />
         </svg>
       </div>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-        <div style={{ fontSize: 58, fontWeight: 800, letterSpacing: ".16em", paddingLeft: ".16em", lineHeight: 1, textShadow: "0 6px 30px rgba(120,20,30,.35)" }}>
+        <div style={{ fontSize: 58, fontWeight: 800, letterSpacing: ".16em", paddingLeft: ".16em", lineHeight: 1 }}>
           {BRAND.name.split("").map((ch, i) => (
             <span key={i} className="splashLetter" style={{ animationDelay: `${.5 + i * .09}s` }}>{ch}</span>
           ))}
         </div>
-        <div className="splashRule" style={{ height: 2, borderRadius: 2, background: "rgba(255,255,255,.9)" }} />
-        <div className="splashTag" style={{ fontSize: 12.5, color: "rgba(255,255,255,.88)", fontWeight: 600,
+        <div className="splashRule" style={{ height: 2, borderRadius: 2, background: P.ember }} />
+        <div className="splashTag" style={{ fontSize: 12.5, color: P.faint, fontWeight: 600,
           fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
           textTransform: "uppercase", letterSpacing: ".22em" }}>{BRAND.tagline}</div>
       </div>
@@ -12090,9 +12086,9 @@ const HeroCard = ({ Icon, eyebrow, title, meta, label, onClick, play = true }) =
     style={{ position: "relative", overflow: "hidden", width: "100%", textAlign: "left", display: "block", borderRadius: 28, padding: "22px 22px 20px",
       background: PLATE_GRAD, color: PLATE_FG, boxShadow: `0 22px 44px -18px ${hexRgba(P.ember, 0.75)}` }}>
     <svg aria-hidden="true" className="fj-float" viewBox="0 0 200 200" width={230} height={230} style={{ position: "absolute", right: -64, top: -70, opacity: 0.2 }}>
-      {[28, 52, 76, 100].map((r) => <circle key={r} cx="100" cy="100" r={r} fill="none" stroke="#fff" strokeWidth="1.6" />)}
+      {[28, 52, 76, 100].map((r) => <circle key={r} cx="100" cy="100" r={r} fill="none" stroke="currentColor" strokeWidth="1.6" />)}
     </svg>
-    <span aria-hidden="true" className="fj-shine" style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "22%", background: "linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent)" }} />
+    <span aria-hidden="true" className="fj-shine" style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "22%", background: `linear-gradient(90deg, transparent, ${hexRgba(PLATE_FG, 0.2)}, transparent)` }} />
     <span style={{ position: "relative", display: "flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: 600, opacity: 0.88, letterSpacing: ".01em" }}>
       {Icon && <Icon size={15} fill="currentColor" strokeWidth={0} />}{eyebrow}
     </span>
@@ -12101,9 +12097,9 @@ const HeroCard = ({ Icon, eyebrow, title, meta, label, onClick, play = true }) =
       <span style={{ fontSize: 14, fontWeight: 600, opacity: 0.9 }}>{meta}</span>
       {play && (
         <span style={{ position: "relative", width: 58, height: 58, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <span aria-hidden="true" className="fj-ping" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "rgba(255,255,255,.5)" }} />
-          <span style={{ position: "relative", width: 58, height: 58, borderRadius: 29, background: "#fff", color: P.ember2, display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 10px 24px -6px rgba(90,20,10,.45)" }}>
+          <span aria-hidden="true" className="fj-ping" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: hexRgba(PLATE_FG, 0.45) }} />
+          <span style={{ position: "relative", width: 58, height: 58, borderRadius: 29, background: PLATE_FG, color: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 10px 24px -6px rgba(0,0,0,.35)" }}>
             <Play size={24} fill="currentColor" style={{ marginLeft: 3 }} />
           </span>
         </span>
@@ -29601,7 +29597,7 @@ const TabBar = ({ tabs, tab, setTab }) => {
       <div data-fjkeep style={{ position: "relative", display: "grid", gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, width: "100%",
         maxWidth: "calc(var(--fj-w) - 28px)", padding: 6, pointerEvents: "auto", borderRadius: 32,
         background: `${P.s1}D6`, backdropFilter: "saturate(190%) blur(26px)", WebkitBackdropFilter: "saturate(190%) blur(26px)",
-        boxShadow: `0 16px 40px -10px rgba(60,28,8,.30), 0 0 0 .5px ${P.separatorStrong || P.line}` }}>
+        boxShadow: `0 16px 40px -10px rgba(16,16,18,.28), 0 0 0 .5px ${P.separatorStrong || P.line}` }}>
         <span aria-hidden="true" style={{ position: "absolute", top: 6, bottom: 6, left: 6, width: `calc((100% - 12px) / ${n})`, borderRadius: 26,
           background: PLATE_GRAD, boxShadow: `0 8px 18px -6px ${hexRgba(P.ember, 0.65)}`,
           transform: `translateX(${idx * 100}%)`, transition: "transform 560ms cubic-bezier(.34,1.42,.5,1)" }} />
