@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v403";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v404";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -11429,10 +11429,9 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
       })()}
 
       {focusUno && flatSets.length > 0 ? (() => {
-        // Focus Mode: UNA serie a la vez. Se ve solo la serie que toca —con
-        // todos sus controles (peso/reps/RIR, tipo, comentario, discos,
-        // conversor kg⇄lb)— y con «Siguiente» se pasa a la próxima. La última
-        // «Siguiente» termina la sesión.
+        // Modo Focus (diseño del prototipo): una serie a la vez, con − / + para
+        // peso y reps, RIR en botones y un solo botón grande «Serie hecha».
+        // Al marcarla arranca el descanso a pantalla completa.
         const idx = Math.min(Math.max(0, curFlat), flatSets.length - 1);
         const { bi, ri } = flatSets[idx];
         const b = blocks[bi];
@@ -11440,141 +11439,164 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
         const st = exs[r.ei] && exs[r.ei].sets[r.si];
         const last = idx === flatSets.length - 1;
         const irA = (j) => { setCurFlat(Math.min(Math.max(0, j), flatSets.length - 1)); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {} };
-        const siguiente = () => {
-          // Registrar la serie (marca hecha, rellena lo que falte y arranca el
-          // descanso) y pasar a la siguiente. En la última, abre el cierre.
+        const hecha = () => {
           if (st && !st.done) onToggleDone(r.ei, r.si);
           if (last) setSalida(true); else irA(idx + 1);
         };
-        return (
-          // flex:1 + justifyContent:center — la tarjeta usa toda la altura
-          // que sobra bajo la cabecera y queda centrada ahí, en vez de
-          // quedar pegada arriba con un vacío grande abajo (pantallas con
-          // pocas series o nombres cortos lo dejaban muy descompensado).
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, justifyContent: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <button onClick={() => irA(idx - 1)} disabled={idx === 0} aria-label="Serie anterior"
-                style={{ width: 40, height: 40, borderRadius: 12, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink,
-                  display: "flex", alignItems: "center", justifyContent: "center", opacity: idx === 0 ? 0.4 : 1, flexShrink: 0 }}>
-                <ChevronLeft size={20} strokeWidth={2.6} />
-              </button>
-              <div className="mono" style={{ fontSize: 12, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint }}>
-                Serie {idx + 1} / {flatSets.length}
-              </div>
-              <button onClick={() => irA(idx + 1)} disabled={last} aria-label="Serie siguiente"
-                style={{ width: 40, height: 40, borderRadius: 12, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink,
-                  display: "flex", alignItems: "center", justifyContent: "center", opacity: last ? 0.4 : 1, flexShrink: 0 }}>
-                <ChevronRight size={20} strokeWidth={2.6} />
-              </button>
+        const u = unitDeSerie(st, r.ei);
+        const isWarm = st && st.type === "warmup";
+        let warmN = 0, workN = 0;
+        const exSets = exs[r.ei].sets;
+        for (let k2 = 0; k2 <= r.si; k2++) { if (exSets[k2].type === "warmup") warmN++; else workN++; }
+        const label = b.group ? `Serie ${ri + 1}` : isWarm ? `Aprox. ${warmN}` : `Serie ${workN}`;
+        const tipoLargo = String((SET_TYPES[st.type] || SET_TYPES.normal).label).split(" (")[0];
+        const meta = isWarm
+          ? (st.pctT || (st.repsT ? `${st.repsT} reps` : ""))
+          : [st.repsT ? `${String(st.repsT).replace(/-/g, "–")} reps` : null, st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null].filter(Boolean).join(" · ");
+        // «Anterior»: la misma serie de trabajo la última vez que se hizo.
+        let ant = null;
+        if (!isWarm && !b.group) {
+          const en = exEntries(history, exs[r.ei]);
+          const le = en.length ? en[en.length - 1] : null;
+          const pv = le ? seriesDeTrabajo(le.sets)[workN - 1] : null;
+          if (pv && pv.weight !== "" && pv.weight != null) ant = `${kg(pesoMostrado(pv.weight, u))} ${u} × ${pv.reps ?? "—"}`;
+        }
+        const wNum = st.weight === "" || st.weight == null ? 0 : +pesoMostrado(st.weight, u);
+        const rNum = st.reps === "" || st.reps == null ? 0 : +st.reps;
+        const pasoW = u === "lb" ? 5 : 2.5;
+        const setW = (v) => setVal(r.ei, r.si, "weight", String(pesoAKg(Math.max(0, Math.round(v * 100) / 100), u)));
+        const setR = (v) => setVal(r.ei, r.si, "reps", String(Math.max(0, Math.round(v))));
+        const llave = restKey(r.ei, r.si);
+        const mono = { fontFamily: "'Geist Mono', ui-monospace, Menlo, monospace" };
+        const miniBtn = { width: 44, height: 44, borderRadius: 12, border: `1px solid ${SES.line}`, background: SES.bg, color: SES.ink, fontSize: 22, lineHeight: 1, flexShrink: 0 };
+        const caja = (lab, valor, texto, bajar, subir, campo) => (
+          <div style={{ flex: 1, minWidth: 0, background: SES.campo, borderRadius: 18, padding: "12px 8px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <span className="mono" style={{ fontSize: 10, color: SES.faint }}>{lab}</span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+              <button onClick={bajar} aria-label={`Bajar ${lab}`} style={miniBtn}>−</button>
+              <button onClick={() => setWheelEn({ key: llave, field: campo })} aria-label={`${lab}: ${texto}. Tocar para escribir`}
+                style={{ fontSize: 30, fontWeight: 700, color: valor ? SES.ink : SES.faint, fontVariantNumeric: "tabular-nums", padding: 0, minWidth: 0 }}>{texto}</button>
+              <button onClick={subir} aria-label={`Subir ${lab}`} style={miniBtn}>+</button>
             </div>
-            {(() => {
-              // Tarjeta minimalista de la serie: solo lo justo para registrar
-              // rápido — nombre, la serie, los tres campos, kg⇄lb y comentar.
-              const u = unitDeSerie(st, r.ei);
-              const isWarm = st && st.type === "warmup";
-              // Número de la serie DENTRO del ejercicio (aprox. aparte del trabajo).
-              let warmN = 0, workN = 0;
-              const exSets = exs[r.ei].sets;
-              for (let k2 = 0; k2 <= r.si; k2++) { if (exSets[k2].type === "warmup") warmN++; else workN++; }
-              const label = b.group ? `Ronda ${ri + 1}` : isWarm ? `Aprox. ${warmN}` : `Serie ${workN}`;
-              const meta = isWarm
-                ? (st.pctT || (st.repsT ? `${st.repsT} reps` : ""))
-                : [st.repsT ? `${st.repsT} reps` : null, st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null].filter(Boolean).join(" · ");
-              // Última vez en esta misma serie de trabajo, en una línea.
-              let ult = null;
-              if (!isWarm && !b.group) {
-                const en = exEntries(history, exs[r.ei]);
-                const le = en.length ? en[en.length - 1] : null;
-                const pt = le ? seriesDeTrabajo(le.sets) : [];
-                const pv = pt[workN - 1];
-                if (pv && pv.weight !== "" && pv.weight != null) ult = `Última vez: ${kg(pesoMostrado(pv.weight, u))} ${u} × ${pv.reps ?? "—"}`;
-              }
-              // Igual que en Lista: la celda ES la rueda por defecto, no un
-              // campo de texto — tocarla abre el picker en el menor número
-              // de toques posible (el objetivo explícito de Focus).
-              const campo = (lab, val, onCommit, ph, field) => (
-                <div style={{ flex: 1, minWidth: 0, textAlign: "center" }}>
-                  <div className="mono" style={{ fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", color: SES.faint, marginBottom: 6 }}>{lab}</div>
-                  <NumCell aria={`${lab} de la ${label}`} placeholder={ph} valor={val} onCommit={onCommit} ancho={72}
-                    onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field })} />
-                </div>
-              );
-              return (
-                <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: R_CARD, padding: 18 }}>
-                  <div style={{ fontSize: 19, fontWeight: 800, color: SES.ink, lineHeight: 1.15 }}>{exs[r.ei].name}</div>
-                  <div style={{ fontSize: 13, color: SES.faint, marginTop: 3 }}>
-                    {label}{meta ? ` · meta ${meta}` : ""}
-                  </div>
-                  {ult && <div style={{ fontSize: 12.5, color: SES.faint, marginTop: 2 }}>{ult}</div>}
-                  {/* Los tres campos, grandes y centrados: peso, reps y RIR. */}
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, margin: "16px 0 4px" }}>
-                    {campo(`Peso ${u}`, st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, u)).replace(".", ","),
-                      (v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, u)))), u, "weight")}
-                    {campo("Reps", st.reps == null ? "" : String(st.reps), (v) => setVal(r.ei, r.si, "reps", v), "reps", "reps")}
-                    {campo("RIR", st.rir == null ? "" : String(st.rir), (v) => setVal(r.ei, r.si, "rir", v), "RIR", "rir")}
-                  </div>
-                  {/* Drop set / rest-pause / cluster: las partes siguientes
-                      de esta serie (ver MULTI_LEG_TYPES). */}
-                  {renderLegs(st, r.ei, r.si, `${label} de ${exs[r.ei].name}`)}
-                  {/* Cuatro accesos chicos: historial del ejercicio, cambiar
-                      la unidad de esta serie, comentarla y adjuntarle algo —
-                      solo ícono (con las cuatro etiquetas de texto, "Adjuntar"
-                      se salía de la tarjeta en pantallas angostas). */}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
-                    <button onClick={() => setHistEx(b.group ? b.members[0] : r.ei)}
-                      aria-label={`Historial de ${exs[r.ei].name}`}
-                      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
-                        width: 30, height: 30, color: SES.faint, background: "none", border: "none" }}>
-                      <History size={15} />
-                    </button>
-                    <button onClick={() => setVal(r.ei, r.si, "unit", u === "lb" ? "kg" : "lb")}
-                      aria-label={`Anotar esta serie en ${u === "lb" ? "kilos" : "libras"} (ahora ${u})`}
-                      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 3,
-                        fontSize: 12, fontWeight: 700, color: SES.faint, background: "none", border: "none" }}>
-                      <ArrowUpDown size={13} /> {u}
-                    </button>
-                    <button onClick={() => openCmt(restKey(r.ei, r.si))}
-                      aria-label={`${st.comment ? "Editar comentario de" : "Comentar"} la serie`}
-                      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
-                        width: 30, height: 30, color: st.comment ? SES.acc : SES.faint, background: "none", border: "none" }}>
-                      <MessageSquare size={15} />
-                    </button>
-                    <button onClick={() => setAttachKey(restKey(r.ei, r.si))}
-                      aria-label={`Adjuntar foto, video o archivo a la serie${(st.attachIds || []).length ? ` (${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"})` : ""}`}
-                      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
-                        width: 30, height: 30, color: (st.attachIds || []).length ? SES.acc : SES.faint, background: "none", border: "none" }}>
-                      <Paperclip size={15} />
-                    </button>
-                  </div>
-                  {renderCommentBlock(r.ei, r.si)}
-                  {renderAttachBlock(r.ei, r.si)}
-                  <NumberWheelSheet open={!!wheelEn && wheelEn.key === restKey(r.ei, r.si)}
-                    field={wheelEn && wheelEn.key === restKey(r.ei, r.si) ? wheelEn.field : "weight"}
-                    value={wheelEn && wheelEn.field === "reps" ? st.reps : wheelEn && wheelEn.field === "rir" ? st.rir : st.weight}
-                    onClose={() => setWheelEn(null)}
-                    onPick={(v) => setVal(r.ei, r.si, wheelEn ? wheelEn.field : "weight", v)} />
-                </div>
-              );
-            })()}
-            {/* Puntos de progreso: una serie por punto; la actual resaltada,
-                las hechas llenas. Un toque salta a esa serie. */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", padding: "2px 0" }}>
+          </div>
+        );
+        const falta = (bj) => { const k = flatSets.findIndex((f) => f.bi === bj && !exs[blocks[bj].rows[f.ri].ei].sets[blocks[bj].rows[f.ri].si].done); return k >= 0 ? k : flatSets.findIndex((f) => f.bi === bj); };
+        // Descanso a pantalla completa
+        const restante = timer ? Math.max(0, Math.ceil((timer.endsAt - now) / 1000)) : 0;
+        const fraccion = timer && timer.total ? Math.min(1, restante / timer.total) : 0;
+        const nombreSig = exs[r.ei].name;
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", gap: 3 }}>
               {flatSets.map((f, k) => {
                 const sr = blocks[f.bi].rows[f.ri]; const ss = exs[sr.ei].sets[sr.si];
-                const act = k === idx;
-                return <button key={k} onClick={() => irA(k)} aria-label={`Ir a la serie ${k + 1}`}
-                  style={{ width: act ? 22 : 9, height: 9, borderRadius: 5, flexShrink: 0, border: "none",
-                    background: act ? SES.acc : (ss && ss.done ? SES.acc : SES.line),
-                    opacity: act ? 1 : (ss && ss.done ? 0.55 : 1), transition: `width ${DUR_MICRO}ms ease` }} />;
+                return (
+                  <button key={k} onClick={() => irA(k)} aria-label={`Ir a la serie ${k + 1} de ${flatSets.length}`} style={{ flex: 1, padding: "8px 0" }}>
+                    <span style={{ display: "block", height: 4, borderRadius: 2, background: ss && ss.done ? SES.acc : (k === idx ? SES.faint : SES.line) }} />
+                  </button>
+                );
               })}
             </div>
-            {/* «Siguiente»: registra esta serie y pasa a la próxima. */}
-            <button onClick={siguiente}
-              style={{ width: "100%", padding: "15px 6px", borderRadius: R_TILE, fontSize: 16, fontWeight: 700,
-                background: SES.acc, color: SES.accInk, border: `1px solid ${SES.acc}`,
-                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              {last ? <>Terminar sesión <Check size={17} strokeWidth={3} /></> : <>Siguiente <ChevronRight size={18} strokeWidth={2.6} /></>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span className="mono" style={{ fontSize: 11, color: SES.faint }}>Ejercicio {bi + 1} de {blocks.length}{exs[r.ei].muscle ? ` · ${exs[r.ei].muscle}` : ""}</span>
+              <span style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.08, color: SES.ink, overflowWrap: "anywhere" }}>{b.group ? b.members.map((m) => exs[m].name).join(" + ") : exs[r.ei].name}</span>
+              {exs[r.ei].notes ? <span style={{ fontSize: 14, color: SES.faint, lineHeight: 1.4 }}>{exs[r.ei].notes}</span> : null}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {b.rows.map((rr, j) => {
+                const s2 = exs[rr.ei].sets[rr.si]; const k = flatSets.findIndex((f) => f.bi === bi && f.ri === j);
+                const cur = k === idx, hecho = !!s2.done;
+                let wn = 0, an = 0; for (let q = 0; q <= rr.si; q++) { if (exs[rr.ei].sets[q].type === "warmup") wn++; else an++; }
+                const rot = b.group ? `R${j + 1}` : s2.type === "warmup" ? `A${wn}` : `S${an}`;
+                return (
+                  <button key={j} onClick={() => irA(k)} aria-label={`Ir a la serie ${rot}`}
+                    style={{ flex: 1, minWidth: 0, height: 52, borderRadius: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+                      background: hecho ? SES.ink : "transparent", color: hecho ? SES.card : SES.ink, border: `1.5px solid ${cur ? SES.ink : (hecho ? SES.ink : SES.line)}` }}>
+                    <span className="mono" style={{ fontSize: 10, color: "inherit", opacity: .75 }}>{rot}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>{hecho ? `${s2.weight !== "" && s2.weight != null ? kg(pesoMostrado(s2.weight, unitDeSerie(s2, rr.ei))) : "—"}×${s2.reps ?? ""}` : String(s2.repsT || "—").replace(/-/g, "–")}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: 24, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <button onClick={puedeEditar && !b.group ? () => setTipoEn({ ei: r.ei, si: r.si }) : undefined}
+                  aria-label={`${label} · ${tipoLargo}${puedeEditar && !b.group ? ". Cambiar el tipo" : ""}`}
+                  style={{ fontSize: 15, fontWeight: 700, color: SES.ink, textAlign: "left", padding: 0 }}>{label} · {tipoLargo}</button>
+                <span style={{ ...mono, fontSize: 12, color: SES.faint, textAlign: "right" }}>{meta}</span>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {caja(`Peso · ${u}`, wNum > 0, wNum > 0 ? String(kg(wNum)) : "—", () => setW(wNum - pasoW), () => setW(wNum + pasoW), "weight")}
+                {caja("Reps", rNum > 0, rNum > 0 ? String(rNum) : "—", () => setR(rNum - 1), () => setR(rNum + 1), "reps")}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="mono" style={{ fontSize: 10, color: SES.faint, width: 64 }}>RIR real</span>
+                {[0, 1, 2, 3, 4].map((v) => {
+                  const on = st.rir !== "" && st.rir != null && +st.rir === v;
+                  return (
+                    <button key={v} onClick={() => setVal(r.ei, r.si, "rir", on ? "" : String(v))} aria-pressed={on} aria-label={`RIR ${v}`}
+                      style={{ flex: 1, height: 36, borderRadius: 10, fontSize: 14, fontWeight: 600, background: on ? SES.ink : "transparent", color: on ? SES.card : SES.ink, border: `1px solid ${on ? SES.ink : SES.line}` }}>{v}</button>
+                  );
+                })}
+              </div>
+              {renderLegs(st, r.ei, r.si, `${label} de ${exs[r.ei].name}`)}
+              <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                <span style={{ flex: 1, fontSize: 13, color: SES.faint }}>{ant ? `Anterior: ${ant}` : ""}</span>
+                <button onClick={() => setHistEx(b.group ? b.members[0] : r.ei)} aria-label={`Historial de ${exs[r.ei].name}`}
+                  style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><History size={17} /></button>
+                <button onClick={() => setVal(r.ei, r.si, "unit", u === "lb" ? "kg" : "lb")} aria-label={`Anotar esta serie en ${u === "lb" ? "kilos" : "libras"} (ahora ${u})`}
+                  style={{ height: 36, padding: "0 6px", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 13, fontWeight: 700, color: SES.faint }}><ArrowUpDown size={15} />{u}</button>
+                <button onClick={() => openCmt(llave)} aria-label={`${st.comment ? "Editar comentario de" : "Comentar"} la serie`}
+                  style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: st.comment ? SES.ink : SES.faint }}><MessageSquare size={17} fill={st.comment ? "currentColor" : "none"} /></button>
+                <button onClick={() => setAttachKey(llave)}
+                  aria-label={`Adjuntar foto, video o archivo a la serie${(st.attachIds || []).length ? ` (${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"})` : ""}`}
+                  style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: (st.attachIds || []).length ? SES.ink : SES.faint }}><Paperclip size={17} /></button>
+              </div>
+              {renderCommentBlock(r.ei, r.si)}
+              {renderAttachBlock(r.ei, r.si)}
+              <NumberWheelSheet open={!!wheelEn && wheelEn.key === llave}
+                field={wheelEn && wheelEn.key === llave ? wheelEn.field : "weight"}
+                value={wheelEn && wheelEn.field === "reps" ? st.reps : wheelEn && wheelEn.field === "rir" ? st.rir : st.weight}
+                onClose={() => setWheelEn(null)}
+                onPick={(v) => setVal(r.ei, r.si, wheelEn ? wheelEn.field : "weight", v)} />
+            </div>
+            <button onClick={hecha}
+              style={{ height: 64, borderRadius: 20, background: SES.acc, color: SES.accInk, fontSize: 18, fontWeight: 800,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+              <Check size={22} strokeWidth={2.6} /> {last ? "Terminar sesión" : "Serie hecha"}
             </button>
+            <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+              {blocks.map((bl, j) => {
+                const hechas = bl.rows.filter((q) => exs[q.ei].sets[q.si].done).length; const todo = hechas === bl.rows.length; const act = j === bi;
+                return (
+                  <button key={j} onClick={() => irA(falta(j))} aria-label={`Ir a ${bl.group ? bl.members.map((m) => exs[m].name).join(" + ") : exs[bl.ei].name}`}
+                    style={{ height: 32, minWidth: 44, padding: "0 10px", borderRadius: 999, fontSize: 12, fontWeight: 600, ...mono,
+                      background: todo ? SES.ink : "transparent", color: todo ? SES.card : SES.ink, border: `1px solid ${act ? SES.ink : (todo ? SES.ink : SES.line)}` }}>{todo ? "✓" : j + 1}</button>
+                );
+              })}
+            </div>
+            {timer && (
+              <div role="dialog" aria-label="Descanso" style={{ position: "fixed", inset: 0, zIndex: 45, background: SES.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 28,
+                padding: "40px 28px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
+                <span className="mono" style={{ fontSize: 12, letterSpacing: ".14em", color: SES.faint }}>Descanso</span>
+                <div style={{ position: "relative", width: 240, height: 240 }}>
+                  <svg width="240" height="240" viewBox="0 0 240 240" style={{ transform: "rotate(-90deg)" }} aria-hidden="true">
+                    <circle cx="120" cy="120" r="108" fill="none" stroke={SES.line} strokeWidth="10" />
+                    <circle cx="120" cy="120" r="108" fill="none" stroke={SES.acc} strokeWidth="10" strokeLinecap="round" strokeDasharray="678.6" strokeDashoffset={678.6 * (1 - fraccion)} style={{ transition: "stroke-dashoffset 1s linear" }} />
+                  </svg>
+                  <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 64, fontWeight: 800, letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums", color: SES.ink }}>{fmtClock(restante)}</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, textAlign: "center" }}>
+                  <span style={{ fontSize: 13, color: SES.faint }}>{doneSets >= totalSets ? "Última serie hecha" : "Siguiente"}</span>
+                  <span style={{ fontSize: 18, fontWeight: 700, color: SES.ink }}>{nombreSig}</span>
+                  <span style={{ fontSize: 14, color: SES.faint }}>{label}{wNum > 0 ? ` · ${kg(wNum)} ${u}` : ""}{rNum > 0 ? ` × ${rNum}` : ""}</span>
+                </div>
+                <div style={{ display: "flex", gap: 10, width: "100%", maxWidth: 420 }}>
+                  <button onClick={() => onAdjustRest(15)} style={{ flex: 1, height: 58, borderRadius: 18, border: `1px solid ${SES.line}`, background: SES.card, color: SES.ink, fontSize: 16, fontWeight: 700 }}>+15 s</button>
+                  <button onClick={onDismissRest} style={{ flex: 1, height: 58, borderRadius: 18, background: SES.acc, color: SES.accInk, fontSize: 16, fontWeight: 700 }}>Saltar</button>
+                </div>
+              </div>
+            )}
           </div>
         );
       })() : (
@@ -12421,6 +12443,27 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
         )}
         <ProgramasSheet open={programasOpen} onClose={() => setProgramasOpen(false)}
           onCopiar={copiarPrograma} />
+        {(() => {
+          const ms = currentMesociclo(plan);
+          if (!ms || !(ms.weeks || []).length) return null;
+          const act = Math.min(ms.current || 0, ms.weeks.length - 1);
+          return (
+            <div style={{ border: `1px solid ${P.line}`, borderRadius: R_CARD, background: P.s1, padding: 18, marginBottom: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span className="mono" style={{ fontSize: 11 }}>Mesociclo · {ms.name || "Bloque"}</span>
+                <span className="mono" style={{ fontSize: 11 }}>S{act + 1}/{ms.weeks.length}</span>
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                {ms.weeks.map((w, k) => (
+                  <div key={w.id || k} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ height: 6, borderRadius: 3, background: k < act ? P.text : (k === act ? P.dim : P.line) }} />
+                    <span style={{ fontSize: 11, color: P.faint }}>{`S${k + 1}`}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         {/* Lo siguiente, a un toque: el día que toca, con su botón de empezar. */}
         {!active && proximo && (
           <Card style={{ padding: "18px 18px 16px", marginBottom: 16 }}>
@@ -29262,36 +29305,32 @@ const RoutineCompareScreen = ({ onClose, plan }) => {
 // "Más" para alumno y coach: grupos plegados (uno abierto a la vez) en lugar de
 // una lista larga con cuatro o cinco secciones a la vista.
 const MasAcordeon = ({ groups, onOpenSearch }) => {
-  // "Cuenta" (ajustes, centro de control, cambiar de modo) es lo que más se busca: arranca abierta.
-  const [abierto, setAbierto] = useState("Cuenta");
+  // Más, como en el prototipo: grupos con rótulo y filas (ícono · nombre · ›),
+  // todo a la vista — sin acordeones.
   return (
-    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 18 }}>
       <ScreenTitle title="Más" />
       <button onClick={onOpenSearch} aria-label="Buscar en toda la app" title="Buscar"
         style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", fontSize: 16, color: P.faint2,
-          background: P.s4, borderRadius: R_TILE }}>
+          background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_TILE }}>
         <Search size={17} color={P.faint2} /> Buscar
       </button>
-      {groups.map((g) => {
-        const open = abierto === g.label;
-        return (
-          <Card key={g.label} style={{ overflow: "hidden" }}>
-            <button onClick={() => setAbierto(open ? null : g.label)} aria-expanded={open}
-              style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14, padding: "15px 16px" }}>
-              <span style={{ width: 36, height: 36, borderRadius: 11, background: hexRgba(P.ember, 0.1), color: P.ember2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <g.Icon size={19} strokeWidth={2} />
-              </span>
-              <span style={{ flex: 1, fontSize: 17.5, fontWeight: 650, letterSpacing: "-.02em" }}>{g.label}</span>
-              <ChevronDown size={19} color={P.faint} style={{ transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_PUSH}ms ${EASE_STD}` }} />
-            </button>
-            {open && (
-              <div className="deployIn" style={{ borderTop: `0.5px solid ${P.separatorStrong || P.line}` }}>
-                {g.rows.map((r, i) => <SettingRow key={r.key} Icon={r.Icon} label={r.label} onClick={r.onClick} last={i === g.rows.length - 1} />)}
-              </div>
-            )}
-          </Card>
-        );
-      })}
+      {groups.map((g) => (
+        <div key={g.label} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <span className="mono" style={{ fontSize: 11, color: P.faint }}>{g.label}</span>
+          <div style={{ display: "flex", flexDirection: "column", border: `1px solid ${P.line}`, borderRadius: R_TILE, overflow: "hidden" }}>
+            {g.rows.map((r, i) => (
+              <button key={r.key} onClick={r.onClick}
+                style={{ display: "flex", alignItems: "center", gap: 14, padding: "0 16px", height: 54, background: P.s1, textAlign: "left", fontSize: 15, fontWeight: 500, color: P.text,
+                  borderBottom: i === g.rows.length - 1 ? "none" : `1px solid ${P.line}` }}>
+                <r.Icon size={19} strokeWidth={1.8} color={P.faint} />
+                <span style={{ flex: 1 }}>{r.label}</span>
+                <ChevronRight size={16} color={P.chevron || P.faint} />
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 };
