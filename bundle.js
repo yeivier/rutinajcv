@@ -285,9 +285,9 @@ OJO: en tu A_V3 ning\xFAn ejercicio tiene m\xFAsculos secundarios marcados, as\x
        desliz\xE1ndose igual que subi\xF3; EASE_OUT ("algo que se va") en vez de
        EASE_STD porque ac\xE1 el movimiento es de salida, no de navegaci\xF3n. */
     @keyframes fjSheetDown { from { transform: translateY(0); } to { transform: translateY(100%); } }
-    .fj .sheetOut { animation: fjSheetDown ${lp}ms ${Fg} forwards; will-change: transform; pointer-events: none; }
+    .fj .sheetOut { animation: fjSheetDown ${ip}ms ${Og} forwards; will-change: transform; pointer-events: none; }
     @keyframes fjScrimOut { from { opacity: 1; } to { opacity: 0; } }
-    .fj .scrimOut { animation: fjScrimOut ${lp}ms ${Fg} forwards; pointer-events: none; }
+    .fj .scrimOut { animation: fjScrimOut ${ip}ms ${Og} forwards; pointer-events: none; }
     /* Mismo gap en los di\xE1logos chicos (Confirm): entraban y sal\xEDan de
        golpe. Entrada con una leve escala (como un modal real, no una
        hoja) y salida sim\xE9trica. */
@@ -318,7 +318,7 @@ OJO: en tu A_V3 ning\xFAn ejercicio tiene m\xFAsculos secundarios marcados, as\x
     @keyframes fjShine { from { transform: translateX(-130%) skewX(-18deg); } to { transform: translateX(330%) skewX(-18deg); } }
     .fj .fj-shine { animation: fjShine 3.4s ${ut} 1.1s infinite; }
     @keyframes fjPing { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(1.9); opacity: 0; } }
-    .fj .fj-ping { animation: fjPing 2.2s ${Fg} infinite; }
+    .fj .fj-ping { animation: fjPing 2.2s ${Og} infinite; }
     @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 
     /* Creador de rutinas: las tarjetas entran con el mismo fjUp de
@@ -653,7 +653,7 @@ Cuando el coach te pida agregar un ejercicio a la biblioteca (cat\xE1logo reutil
 \`\`\`forja-biblioteca
 {"name":"Nombre del ejercicio","muscle":"Pecho","equipment":"Mancuernas","rest":90,"notes":"Indicaci\xF3n t\xE9cnica breve","sets":[{"type":"normal","repsT":"8-12","rirT":"2"}]}
 \`\`\`
-Reglas iguales a forja-rutina para "muscle" y "type"; "equipment" debe ser uno de ${Pp.join(", ")} (o vac\xEDo). Un solo ejercicio por bloque; si son varios, repite el bloque forja-biblioteca una vez por cada uno.
+Reglas iguales a forja-rutina para "muscle" y "type"; "equipment" debe ser uno de ${$p.join(", ")} (o vac\xEDo). Un solo ejercicio por bloque; si son varios, repite el bloque forja-biblioteca una vez por cada uno.
 
 No uses estos bloques si el coach solo pregunta algo te\xF3rico: son para cambios que quiere aplicar.
 
