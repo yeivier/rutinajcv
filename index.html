@@ -18,7 +18,7 @@
     // caches.delete() actúan directo, no esperan su ciclo propio.
     (function () {
       try {
-        var V = "238";
+        var V = "401";
         var visto = window.localStorage.getItem("forja-shell-v");
         if (visto === V) return; // ya está al día, nada que limpiar
         window.localStorage.setItem("forja-shell-v", V);
@@ -104,7 +104,7 @@
   <!-- v206: type="module" para poder partir el bundle en trozos (recharts,
        ~320 KB, ahora va aparte y solo se baja al abrir un gráfico). Un
        módulo se ejecuta como defer y respeta el orden con config.js. -->
-  <script type="module" src="/bundle.js?v=400"></script>
+  <script type="module" src="/bundle.js?v=401"></script>
   <script>
     // Registra el service worker que permite abrir la app sin internet
     // (sirve la última copia guardada de index.html/bundle.js cuando no
