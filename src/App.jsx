@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v398";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v399";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10400,8 +10400,12 @@ const objetivoEj = (ex) => {
   const arr = w.length ? w : all;
   if (!arr.length) return "";
   const uniq = (k) => [...new Set(arr.map((x) => String(x[k] == null ? "" : x[k]).trim()).filter(Boolean))];
-  const reps = uniq("repsT").map((x) => x.replace(/-/g, "–")).join(" / ");
-  const rir = uniq("rirT").join(" / ");
+  // Varias series con reps distintas (12–15 / 10–12 / 8–10) se resumen en un
+  // solo rango: 8–15.
+  const nums = uniq("repsT").flatMap((t) => (t.match(/\d+/g) || []).map(Number));
+  const reps = nums.length ? (Math.min(...nums) === Math.max(...nums) ? String(nums[0]) : `${Math.min(...nums)}–${Math.max(...nums)}`) : uniq("repsT").join(" / ");
+  const rirs = uniq("rirT").map(Number).filter((x) => isFinite(x));
+  const rir = rirs.length ? (Math.min(...rirs) === Math.max(...rirs) ? String(rirs[0]) : `${Math.min(...rirs)}–${Math.max(...rirs)}`) : uniq("rirT").join(" / ");
   return `${arr.length}${reps ? ` × ${reps}` : " series"}${rir ? ` · RIR ${rir}` : ""}`;
 };
 const RetoSerie = ({ actual, previa, unidad, compacto }) => {
@@ -12332,6 +12336,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
   const [pastOpen, setPastOpen] = useState(false);      // hoja "Registrar sesión pasada" (retroactiva)
   const [confirmSwitch, setConfirmSwitch] = useState(null);
   const [openRoutines, setOpenRoutines] = useState([]);   // rutinas desplegadas (arranca todo colapsado)
+  const [diaAbierto, setDiaAbierto] = useState(null);       // día con su lista de ejercicios desplegada
   const [, tick] = useState(0);
   useEffect(() => { const iv = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(iv); }, []);
 
@@ -12487,48 +12492,84 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
         )}
         <ProgramasSheet open={programasOpen} onClose={() => setProgramasOpen(false)}
           onCopiar={copiarPrograma} />
+        {/* Lo siguiente, a un toque: el día que toca, con su botón de empezar. */}
+        {!active && proximo && (
+          <Card style={{ padding: "18px 18px 16px", marginBottom: 16 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint2 }}>Siguiente · {proximo._rutina}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", lineHeight: 1.15, marginTop: 6, overflowWrap: "anywhere" }}>{proximo.name}</div>
+            <div style={{ fontSize: 14, color: P.faint2, marginTop: 4 }}>
+              {proximo.exs.length} ejercicio{proximo.exs.length !== 1 ? "s" : ""} · {proximo.exs.reduce((t, e) => t + e.sets.length, 0)} series
+            </div>
+            <button onClick={() => empezarDia(proximo)} aria-label={`Empezar ${proximo.name}`}
+              style={{ width: "100%", height: 52, marginTop: 14, borderRadius: 26, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                fontSize: 16.5, fontWeight: 700, background: PLATE_GRAD, color: PLATE_FG }}>
+              <Play size={17} fill="currentColor" /> Empezar
+            </button>
+          </Card>
+        )}
         {plan.days.length === 0 ? (
           <Empty icon={Dumbbell} title="Aún no hay rutina" body="Tu coach todavía no carga días de entrenamiento. Pídele que entre en modo Coach y arme el plan." />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {routineGroups.map((g) => (
-              <React.Fragment key={g.key}>
-                {routineGroups.length > 1 && (
-                  <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint2, padding: "8px 4px 0" }}>{g.label} · {g.days.length} {g.days.length === 1 ? "día" : "días"}</div>
-                )}
-                {g.days.map((d) => {
-                  const lastDone = [...history.sessions].reverse().find((x) => x.dayId === d.id);
-                  const ns = d.exs.reduce((t, e) => t + e.sets.length, 0);
-                  const esProx = !!proximo && proximo.id === d.id;
-                  return (
-                    <Card key={d.id} style={{ padding: "18px 18px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", lineHeight: 1.15, overflowWrap: "anywhere" }}>{d.name}</span>
-                        {esProx && <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".06em", padding: "4px 10px", borderRadius: 999, background: PLATE_GRAD, color: PLATE_FG }}>SIGUIENTE</span>}
-                      </div>
-                      <div style={{ fontSize: 14, color: P.faint2, marginTop: 4 }}>
-                        {d.exs.length} ejercicio{d.exs.length !== 1 ? "s" : ""} · {ns} series{lastDone ? ` · ${haceDias(lastDone.date)}` : ""}
-                      </div>
-                      {d.exs.length > 0 && (
-                        <div style={{ marginTop: 12 }}>
-                          {d.exs.map((e, i) => (
-                            <div key={e.id || i} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "11px 0", borderTop: `0.5px solid ${P.separatorStrong || P.line}` }}>
-                              <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 600, letterSpacing: "-.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name || "Ejercicio sin nombre"}</span>
-                              <span style={{ fontSize: 14, color: P.faint2, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{objetivoEj(e)}</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {routineGroups.map((g) => {
+              const open = openRoutines.includes(g.key);
+              return (
+                <Card key={g.key} style={{ overflow: "hidden" }}>
+                  <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
+                    style={{ width: "100%", textAlign: "left", padding: "16px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontWeight: 750, fontSize: 18, letterSpacing: "-.025em", lineHeight: 1.2, overflowWrap: "anywhere" }}>{g.label}</span>
+                      <span style={{ display: "block", fontSize: 13, color: P.faint2, marginTop: 3 }}>{g.days.length} {g.days.length === 1 ? "día" : "días"}</span>
+                    </span>
+                    <ChevronDown size={20} color={P.faint2} style={{ transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_PUSH}ms ${EASE_STD}`, flexShrink: 0 }} />
+                  </button>
+                  {open && (
+                    <div style={{ padding: "0 8px 10px" }}>
+                      {g.days.map((d) => {
+                        const lastDone = [...history.sessions].reverse().find((x) => x.dayId === d.id);
+                        const ns = d.exs.reduce((t, e) => t + e.sets.length, 0);
+                        const esProx = !!proximo && proximo.id === d.id;
+                        const abierto = diaAbierto === d.id;
+                        return (
+                          <div key={d.id} style={{ borderTop: `0.5px solid ${P.separatorStrong || P.line}` }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <button onClick={() => setDiaAbierto(abierto ? null : d.id)} aria-expanded={abierto}
+                                style={{ flex: 1, minWidth: 0, textAlign: "left", padding: "13px 10px" }}>
+                                <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 16.5, fontWeight: 650, letterSpacing: "-.015em", lineHeight: 1.25, overflowWrap: "anywhere" }}>{d.name}</span>
+                                  {esProx && <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".06em", padding: "3px 8px", borderRadius: 999, background: PLATE_GRAD, color: PLATE_FG }}>SIGUIENTE</span>}
+                                </span>
+                                <span style={{ display: "block", fontSize: 13, color: P.faint2, marginTop: 2 }}>
+                                  {d.exs.length} ej · {ns} series{lastDone ? ` · ${haceDias(lastDone.date)}` : ""}
+                                </span>
+                              </button>
+                              <button onClick={() => empezarDia(d)} aria-label={`Empezar ${d.name}`} title="Empezar"
+                                style={{ width: 40, height: 40, borderRadius: 20, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: P.s3, color: P.text }}>
+                                <Play size={15} fill="currentColor" />
+                              </button>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                      <button onClick={() => empezarDia(d)} aria-label={`Empezar ${d.name}`}
-                        style={{ width: "100%", height: 52, marginTop: 14, borderRadius: 26, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                          fontSize: 16.5, fontWeight: 700, background: esProx ? PLATE_GRAD : P.s3, color: esProx ? PLATE_FG : P.text }}>
-                        Empezar {d.name}
-                      </button>
-                    </Card>
-                  );
-                })}
-              </React.Fragment>
-            ))}
+                            {abierto && (
+                              <div className="deployIn" style={{ padding: "0 10px 12px" }}>
+                                {d.exs.map((e, i) => (
+                                  <div key={e.id || i} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "8px 0" }}>
+                                    <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 500, overflowWrap: "anywhere" }}>{e.name || "Ejercicio sin nombre"}</span>
+                                    <span style={{ fontSize: 13.5, color: P.faint2, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{objetivoEj(e)}</span>
+                                  </div>
+                                ))}
+                                <button onClick={() => empezarDia(d)}
+                                  style={{ width: "100%", height: 48, marginTop: 8, borderRadius: 24, fontSize: 16, fontWeight: 700, background: PLATE_GRAD, color: PLATE_FG }}>
+                                  Empezar
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
           </div>
         )}
 
