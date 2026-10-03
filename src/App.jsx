@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v401";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v402";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -11305,7 +11305,7 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
           "ejercicio 2 de 7" porque no hay una página actual: están todos
           abajo, en orden. */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0 6px" }}>
-        <button onClick={() => setSalida(true)} aria-label="Salir de la sesión"
+        <button onClick={() => onLeave && onLeave()} aria-label="Volver (la sesión sigue en curso)"
           style={{ width: 40, height: 44, flexShrink: 0, color: SES.ink, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
           <ChevronLeft size={26} strokeWidth={2} />
         </button>
@@ -29643,6 +29643,33 @@ const HeaderActions = ({ mode, sid, initial, onAI, onChat, onProfile }) => {
   );
 };
 
+/* «Entreno en curso»: mientras hay una sesión abierta y no estás dentro de
+   ella, esta barra negra queda sobre la barra de pestañas, en cualquier
+   pantalla. Un toque vuelve a la sesión. */
+const MiniSesion = ({ active, onOpen }) => {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
+  const sets = (active.exs || []).flatMap((e) => e.sets || []);
+  const hechas = sets.filter((x) => x.done).length;
+  const seg = Math.max(0, Math.floor((now - new Date(active.startedAt).getTime()) / 1000));
+  return (
+    <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(var(--fj-tabbar-h, 92px) + 4px)", zIndex: 49, display: "flex", justifyContent: "center", padding: "0 14px", pointerEvents: "none" }}>
+      <button onClick={onOpen} aria-label={`Volver al entreno en curso: ${active.dayName}`}
+        style={{ pointerEvents: "auto", width: "100%", maxWidth: "calc(var(--fj-w) - 28px)", display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", borderRadius: 24,
+          background: PLATE_GRAD, color: PLATE_FG, textAlign: "left", boxShadow: "0 12px 28px -8px rgba(16,16,18,.45)" }}>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 14, opacity: .7 }}>Entreno en curso</span>
+          <span style={{ display: "block", fontSize: 17, fontWeight: 650, letterSpacing: "-.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</span>
+        </span>
+        <span style={{ textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+          <span style={{ display: "block", fontSize: 17, fontWeight: 600 }}>{sessionClock(seg)}</span>
+          <span style={{ display: "block", fontSize: 14, opacity: .7 }}>{hechas}/{sets.length} series</span>
+        </span>
+      </button>
+    </div>
+  );
+};
+
 const TabBar = ({ tabs, tab, setTab }) => {
   const n = tabs.length;
   const idx = Math.max(0, tabs.findIndex((t) => t.id === tab));
@@ -32120,7 +32147,7 @@ const App = () => {
       <GlobalStyle />
       {!enSesion && utility !== "chat" && <NavTituloCompacto clave={`${mode}|${tab}|${sub || ""}|${utility || ""}`} />}
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
-        paddingBottom: enSesion ? 0 : "calc(124px + env(safe-area-inset-bottom))" }}>
+        paddingBottom: enSesion ? 0 : (mode === "alumno" && active ? "calc(196px + env(safe-area-inset-bottom))" : "calc(124px + env(safe-area-inset-bottom))") }}>
         {/* Cabecera: identidad como texto a la izquierda (solo informativa —
             quién está usando la app ahora) y el avatar a la derecha, que es
             el único que abre algo (la hoja "Más"). Antes el texto de la
@@ -32354,6 +32381,7 @@ const App = () => {
       {compareOpen && <RoutineCompareScreen onClose={() => setCompareOpen(false)} plan={plan} />}
       {mode === "alumno" && plan && <ReminderScheduler plan={plan} />}
       {mode === "alumno" && history && <AchievementUnlockWatcher history={history} saveHistory={saveHistory} />}
+      {mode === "alumno" && active && !enSesion && <MiniSesion active={active} onOpen={() => setTab("entrenar")} />}
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <GlobalSearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} items={searchItems} />
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)}
