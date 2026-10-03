@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v405";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v406";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -11330,6 +11330,10 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
             <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><HeartPulse size={14} /> {hr.bpm}</span>
           )}
         </div>
+        <button onClick={() => setHerrOpen(true)} aria-label="Herramientas de la sesión" title="Herramientas"
+          style={{ width: 44, height: 44, borderRadius: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink }}>
+          <SlidersHorizontal size={22} strokeWidth={1.8} />
+        </button>
         {flatSets.length > 1 && (
           <button onClick={() => setFocusUno(!focusUno)} aria-pressed={focusUno}
             aria-label={focusUno ? "Ver todo en tabla" : "Modo Focus: una serie a la vez"} title={focusUno ? "Ver todo en tabla" : "Modo Focus"}
@@ -11851,7 +11855,6 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
           const hrTap = hr.connected ? onOpenDevices : (hr.supported ? hr.connect : onOpenDevices);
           return (
             <div>
-              {flatSets.length > 1 && fila(focusUno ? List : Crosshair, focusUno ? "Ver todo en lista" : "Una serie a la vez (Focus)", () => { setFocusUno(!focusUno); setHerrOpen(false); }, focusUno ? "Focus" : "Lista")}
               {fila(HeartPulse, "Pulsómetro", () => { setHerrOpen(false); hrTap(); }, hr.connected ? (hr.bpm != null ? `${hr.bpm} lpm` : "conectado") : null, hr.connected)}
               {fila(isLight ? Moon : Sun, isLight ? "Modo oscuro" : "Modo claro", () => setThemeMode(isLight ? "dark" : "light"))}
               {fila(Timer, "Descanso a mano (2 min)", () => { onStartRest && onStartRest(120, 0, 0); setHerrOpen(false); }, null, !!timer)}
@@ -11874,8 +11877,6 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
             onClick={() => { setSalida(false); onLeave(); }} />
           <SalidaRow icon={Check} title="Finalizar sesión" body="Se guarda en el historial con lo que lleves registrado."
             onClick={() => { setSalida(false); onFinish(); }} />
-          <SalidaRow icon={SlidersHorizontal} title="Herramientas" body="Pulsómetro, unidad, deshacer, fotos de la sesión y más."
-            onClick={() => { setSalida(false); setHerrOpen(true); }} />
           <div style={{ height: 1, background: P.line, margin: "4px 0" }} />
           <SalidaRow icon={Trash2} danger title="Descartar la sesión" body="Se borra todo lo de esta sesión. No queda en el historial."
             onClick={() => { setSalida(false); setConfirmDiscard(true); }} />
