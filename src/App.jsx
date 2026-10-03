@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v402";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v403";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -79,24 +79,26 @@ const BRAND = { name: "FORJA", tagline: "The Ultimate Bodybuilding App" };
 // etiquetar eventos en la Agenda.
 const LIGHT_THEME = {
   P: {
-    bg: "#F2F2F7", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#EFEFF4", s4: "#E8E8EE",
-    line: "#E5E5EA", text: "#101012", dim: "#2B2B30",
+    // Tokens del prototipo de rediseño: fondo blanco plano, tarjetas gris
+    // muy claro con borde fino, tinta negra pura.
+    bg: "#FFFFFF", s1: "#F5F5F5", s2: "#F5F5F5", s3: "#E9E9E9", s4: "#DEDEDE",
+    line: "#E2E2E2", text: "#000000", dim: "#2E2E2E",
     // Secundario y terciario, un punto más oscuros que el gris de sistema
     // original (#5A5A63/#6B6B75): a pedido explícito, para que la
     // descripción de cada pantalla y los metadatos no se sientan
     // "lavados" junto a la tinta casi negra del texto principal — sigue
     // siendo gris, no negro, pero un gris con más cuerpo.
-    faint: "#494950", faint2: "#55555D",
+    faint: "#4A4A4A", faint2: "#5C5C5C",
     // Acento = tinta. ember2 es la variante para texto chico e iconografía
     // secundaria; en claro coincide con la tinta porque ya pasa AA de sobra.
-    ember: "#101012", ember2: "#101012", glow: "#101012",
+    ember: "#000000", ember2: "#000000", glow: "#000000",
     // Neutros, no colores: "óptimo"/"informativo" se leen por la palabra y
     // por la forma del indicador, no porque el bloque sea verde o azul.
     // El rojo del sistema iOS se conserva SOLO para lo destructivo.
-    green: "#101012", blue: "#5A5A63", red: "#D70015",
+    green: "#000000", blue: "#5C5C5C", red: "#D70015",
     // Color de anillos y barras de progreso (neutro en claro, como hasta
     // ahora; en el tema Rosa es un rosa vivo, no negro).
-    prog: "#101012",
+    prog: "#000000",
     // Segundo acento — SOLO para cuando un gráfico necesita distinguir dos
     // series a la vez (p. ej. "Rutina A" vs "Rutina B" en el comparador):
     // el resto de la interfaz sigue monocromática a propósito, pero un
@@ -105,30 +107,30 @@ const LIGHT_THEME = {
     accent2: "#2E6FF2",
     // Borde de tarjeta: hairline, no marco. Las tarjetas se separan del
     // fondo gris por el blanco y la línea de 1px, no por elevación.
-    frame: "#E5E5EA",
+    frame: "#E2E2E2",
     // Fondo plano, blanco y negro: el color lo pone el acento que elija cada uno.
-    bgGrad: "#F2F2F7",
+    bgGrad: "#FFFFFF",
     // Tokens del handoff de rediseño (MVP): s3 ya cubre "fill-secondary"
     // del spec (botón secundario, − +, chip) y s4 ya cubre
     // "fill-quaternary" (pista del segmentado) — estos cuatro son los
     // que faltaban y no tenían dónde vivir en la paleta existente.
-    fillTertiary: "#EDEDF2",   // separador dentro de tarjeta, pista de barra, placeholder de video
-    separatorStrong: "#D9D9DE", // borde de campo, segmento de progreso vacío
-    textQuaternary: "#A0A0AA",  // pestaña inactiva, acción deshabilitada, placeholder
-    chevron: "#C4C4CB",         // chevron de fila
-    dotInactive: "#DEDEE4",     // punto de día futuro
+    fillTertiary: "#EDEDED",   // separador dentro de tarjeta, pista de barra, placeholder de video
+    separatorStrong: "#D6D6D6", // borde de campo, segmento de progreso vacío
+    textQuaternary: "#9A9A9A",  // pestaña inactiva, acción deshabilitada, placeholder
+    chevron: "#B5B5B5",         // chevron de fila
+    dotInactive: "#E2E2E2",     // punto de día futuro
   },
   // Las "placas" (botón primario, pestaña activa, chip de estado) son tinta
   // plena con texto blanco.
-  plateGrad: "#101012",
+  plateGrad: "#000000",
   plateFg: "#FFFFFF",
-  plateDim: "#A8A8B0",
-  plateBorder: "#101012",
+  plateDim: "#A8A8A8",
+  plateBorder: "#000000",
 };
 const DARK_THEME = {
   P: {
-    bg: "#0F0F11", s1: "#18181B", s2: "#1F1F23", s3: "#27272B", s4: "#33333A",
-    line: "#35353C", text: "#FFFFFF", dim: "#E4E4E7", faint: "#A1A1AA", faint2: "#8A8A94",
+    bg: "#000000", s1: "#0F0F0F", s2: "#141414", s3: "#1C1C1C", s4: "#262626",
+    line: "#262626", text: "#FFFFFF", dim: "#D4D4D4", faint: "#A3A3A3", faint2: "#8C8C8C",
     // Acento de vuelta a monocromo (blanco sobre oscuro) — el verde que
     // había acá antes se sacó a pedido: el color por defecto de la
     // plataforma es fondo claro y tinta (blanco/negro), no verde. El
@@ -138,11 +140,11 @@ const DARK_THEME = {
     green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
     prog: "#FFFFFF",
     accent2: "#5B9CFF",
-    frame: "#35353C", bgGrad: "#0F0F11",
+    frame: "#262626", bgGrad: "#000000",
     // Mismos 5 tokens nuevos, invertidos para el tema oscuro siguiendo el
     // mismo criterio que el resto de la paleta (s3/s4/line de arriba).
-    fillTertiary: "#2C2C31", separatorStrong: "#48484F",
-    textQuaternary: "#7A7A83", chevron: "#5A5A63", dotInactive: "#3A3A41",
+    fillTertiary: "#1C1C1C", separatorStrong: "#333333",
+    textQuaternary: "#6B6B6B", chevron: "#5A5A5A", dotInactive: "#2A2A2A",
   },
   // Placas monocromas, igual criterio que LIGHT_THEME pero invertido:
   // tinta blanca (la del tema oscuro) con texto negro encima.
@@ -199,14 +201,14 @@ let PLATE_BORDER = LIGHT_THEME.plateBorder;
 // aunque quien elija un acento de color desde Configuración sigue
 // viéndolo acá también (applyAccent lo pisa encima cuando hay override).
 const teColors = (isLight) => (isLight ? {
-  bg: "#FAFAF8", card: "#FFFFFF", campo: "#F4F4F2", line: "#E4E2DC",
-  ink: "#111214", dim: "#5C6067", faint: "#8B8F96",
-  acc: "#101012", accInk: "#FFFFFF",
-  accLine: "rgba(16,16,18,.30)", accSoft: "#ECECEE",
+  bg: "#FFFFFF", card: "#FFFFFF", campo: "#F5F5F5", line: "#E2E2E2",
+  ink: "#000000", dim: "#4A4A4A", faint: "#8E8E8E",
+  acc: "#000000", accInk: "#FFFFFF",
+  accLine: "rgba(0,0,0,.30)", accSoft: "#EDEDED",
 } : {
-  bg: "#0F1012", card: "#191B1E", campo: "#1E2023", line: "#2B2E33",
-  ink: "#F2F2F0", dim: "#AFB4BB", faint: "#7A7F86",
-  acc: "#FFFFFF", accInk: "#101012",
+  bg: "#000000", card: "#0F0F0F", campo: "#1C1C1C", line: "#262626",
+  ink: "#FFFFFF", dim: "#A3A3A3", faint: "#6B6B6B",
+  acc: "#FFFFFF", accInk: "#000000",
   accLine: "rgba(255,255,255,.34)", accSoft: "rgba(255,255,255,.12)",
 });
 // Objeto MUTABLE, mismo patrón que `P`: `applyTheme()` le pisa las
@@ -5558,7 +5560,7 @@ const GlobalStyle = () => {
        de una pantalla negra. Una sola variable controla el shell principal,
        la barra de pestañas y las hojas modales, así los tres quedan
        siempre alineados al mismo ancho. */
-    :root { --fj-w: 520px; --fj-tabbar-h: calc(80px + env(safe-area-inset-bottom)); }
+    :root { --fj-w: 520px; --fj-tabbar-h: calc(66px + env(safe-area-inset-bottom)); --fj-line: ${P.line}; }
     @media (min-width: 720px) { :root { --fj-w: 640px; } }
     @media (min-width: 1024px) { :root { --fj-w: 800px; } }
     /* Grillas de tarjetas (stats del Dashboard, etc.): 2 columnas en
@@ -5581,7 +5583,7 @@ const GlobalStyle = () => {
     @keyframes fjSpin { to { transform: rotate(360deg); } }
     .fj-spin { animation: fjSpin .85s linear infinite; }
     .fj { min-height: 100vh; min-height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+      font-family: 'Archivo', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
       color: ${P.text}; font-variant-numeric: tabular-nums;
       line-height: 1.42; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
     /* Los títulos ya no cambian de familia — solo de tamaño, peso y
@@ -5597,10 +5599,8 @@ const GlobalStyle = () => {
     /* Escala de pesos de iOS: negrita (700) solo para títulos grandes, semibold
        (600) para lo que se destaca y regular/medium para el resto. Los 800 y
        700 que traían las pantallas se suavizan acá, de una sola vez. */
-    .fj [style*="font-weight: 800"] { font-weight: 700 !important; }
-    .fj [style*="font-weight: 750"] { font-weight: 650 !important; }
-    .fj [style*="font-weight: 700"]:not(h1):not(h2) { font-weight: 600 !important; }
-    .fj [style*="font-weight: 600"]:not(h1):not(h2) { font-weight: 500 !important; }
+    .fj [style*="font-weight: 750"] { font-weight: 700 !important; }
+    .fj [style*="font-weight: 650"] { font-weight: 600 !important; }
     /* Íconos de trazo fino, como los SF Symbols. */
     .fj svg[stroke-width="2"] { stroke-width: 1.75px; }
     /* Capa de forma global: todo lo que tenía esquinas chicas (fichas, chips,
@@ -5618,7 +5618,7 @@ const GlobalStyle = () => {
        tener que meter otro color. */
     /* Rótulos de sección: ya no gritan en mayúsculas espaciadas — texto normal,
        chico y apagado. Menos ruido, misma jerarquía. */
-    .fj .mono { font-family: inherit; font-size: 12.5px; font-weight: 600; letter-spacing: .01em; text-transform: none; color: ${P.faint}; }
+    .fj .mono { font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: ${P.faint}; }
     .fj input, .fj textarea, .fj select {
       background: ${P.s3}; border: 1.5px solid transparent; color: ${P.text};
       border-radius: 12px; font-family: inherit; font-size: 16px; outline: none;
@@ -5875,11 +5875,11 @@ const GlobalStyle = () => {
 // hace que una app se vea "de plantilla" en vez de de sistema.
 const CARD_LIFT = "none";
 // Relieve suave y difuso (en vez de marco): el aire alrededor separa las tarjetas.
-const CARD_SHADOW = "0 1px 2px rgba(16,16,18,.04), 0 12px 30px -14px rgba(16,16,18,.16)";
+const CARD_SHADOW = "0 0 0 1px var(--fj-line, #E2E2E2)";   // borde fino como sombra: sirve en cualquier superficie
 // Radios del sistema: tarjeta / control / fila.
-const R_CARD = 28;
-const R_TILE = 22;
-const R_ROW = 18;
+const R_CARD = 24;
+const R_TILE = 18;
+const R_ROW = 16;
 
 /* ═══════════════════════════════════════════════════════════════════════
    ESCALA DEL SISTEMA — el rediseño "a la Apple" no sale de elegir colores
@@ -5944,7 +5944,7 @@ const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
 // que las placas blanco pastel que suele contener.
 const Card = ({ children, style, onClick, ...rest }) => (
   <div {...rest} onClick={onClick} className={"fj-card" + (rest.className ? " " + rest.className : "")}
-    style={{ background: P.s1, border: "1px solid transparent", borderRadius: R_CARD, boxShadow: CARD_SHADOW, ...style }}>{children}</div>
+    style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_CARD, boxShadow: "none", ...style }}>{children}</div>
 );
 
 // Anillo cónico (logros de A6, cuenta atrás de Competition Prep): SVG en
@@ -12115,28 +12115,19 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
    la cruza y un botón de play que late. Es la misma en Inicio y en Entrenar. */
 const HeroCard = ({ Icon, eyebrow, title, meta, label, onClick, play = true }) => (
   <button data-fjkeep onClick={onClick} aria-label={label} title={label} className="fj-hero"
-    style={{ position: "relative", overflow: "hidden", width: "100%", textAlign: "left", display: "block", borderRadius: 28, padding: "22px 22px 20px",
-      background: PLATE_GRAD, color: PLATE_FG, boxShadow: `0 22px 44px -18px ${hexRgba(P.ember, 0.75)}` }}>
-    <svg aria-hidden="true" className="fj-float" viewBox="0 0 200 200" width={230} height={230} style={{ position: "absolute", right: -64, top: -70, opacity: 0.2 }}>
-      {[28, 52, 76, 100].map((r) => <circle key={r} cx="100" cy="100" r={r} fill="none" stroke="currentColor" strokeWidth="1.6" />)}
-    </svg>
-    <span aria-hidden="true" className="fj-shine" style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "22%", background: `linear-gradient(90deg, transparent, ${hexRgba(PLATE_FG, 0.2)}, transparent)` }} />
-    <span style={{ position: "relative", display: "flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: 600, opacity: 0.88, letterSpacing: ".01em" }}>
-      {Icon && <Icon size={15} fill="currentColor" strokeWidth={0} />}{eyebrow}
+    style={{ width: "100%", textAlign: "left", display: "flex", flexDirection: "column", gap: 16, borderRadius: 24, padding: 20,
+      background: P.s1, border: `1px solid ${P.line}`, color: P.text }}>
+    <span className="mono" style={{ display: "block", color: P.faint }}>{eyebrow}</span>
+    <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={{ display: "block", fontSize: 34, fontWeight: 800, letterSpacing: "-.03em", lineHeight: 1, overflowWrap: "anywhere" }}>{title}</span>
+      {meta ? <span style={{ display: "block", fontSize: 14, color: P.faint }}>{meta}</span> : null}
     </span>
-    <span style={{ position: "relative", display: "block", fontSize: 31, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.08, marginTop: 10, maxWidth: "78%", overflowWrap: "anywhere" }}>{title}</span>
-    <span style={{ position: "relative", display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginTop: 20 }}>
-      <span style={{ fontSize: 14, fontWeight: 600, opacity: 0.9 }}>{meta}</span>
-      {play && (
-        <span style={{ position: "relative", width: 58, height: 58, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <span aria-hidden="true" className="fj-ping" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: hexRgba(PLATE_FG, 0.45) }} />
-          <span style={{ position: "relative", width: 58, height: 58, borderRadius: 29, background: PLATE_FG, color: PLATE_GRAD, display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 10px 24px -6px rgba(0,0,0,.35)" }}>
-            <Play size={24} fill="currentColor" style={{ marginLeft: 3 }} />
-          </span>
-        </span>
-      )}
-    </span>
+    {play && (
+      <span style={{ height: 58, borderRadius: 18, background: PLATE_GRAD, color: PLATE_FG, fontSize: 17, fontWeight: 700,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+        <Play size={18} fill="currentColor" strokeWidth={0} /> {label}
+      </span>
+    )}
   </button>
 );
 
@@ -13907,6 +13898,24 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
       ) : emptyCard}
 
+      {/* Semana: un círculo por día. Lleno = entrenado, aro negro = hoy, aro gris = programado. */}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+        {computeWeekStrip(plan, history, 0).map((dd) => {
+          const programado = !!dd.day;
+          return (
+            <button key={dd.dateIso} onClick={() => setDayDetail(dd)} aria-label={`${fmtDateFull(dd.dateIso)}${dd.done ? " — entrenado" : programado ? ` — ${dd.day.name}` : " — descanso"}`}
+              style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: 0 }}>
+              <span className="mono" style={{ fontSize: 11, letterSpacing: ".04em", color: dd.isToday ? P.text : P.faint }}>{dd.letter}</span>
+              <span style={{ width: 38, height: 38, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600,
+                background: dd.done ? P.text : "transparent", color: dd.done ? P.bg : P.text,
+                border: `1.5px solid ${dd.done || dd.isToday ? P.text : (programado ? P.separatorStrong || P.line : P.line)}` }}>
+                {dd.done ? <Check size={16} strokeWidth={3} /> : new Date(dd.dateIso + "T12:00:00").getDate()}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {(() => {
         const rec = serieDe(history.physio, "recovery").filter((x) => x.v > 0);
         const last = (a) => (a && a.length ? a[a.length - 1] : null);
@@ -14408,7 +14417,7 @@ const MetricCard = ({ Icon, label, value, unit, sub, spark, sparkKind, ring, onC
   <button onClick={onClick} aria-label={`${label}: ${value}${unit ? " " + unit : ""}. Ver detalle`}
     style={{ gridColumn: wide ? "1 / -1" : undefined, textAlign: "left", width: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 8,
       padding: "15px 16px 13px", borderRadius: R_CARD, background: P.s1, boxShadow: CARD_SHADOW, color: P.text, minHeight: 124 }}>
-    <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 600, color: P.faint2 }}>
+    <span className="mono" style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 10.5, color: P.faint }}>
       {Icon && <Icon size={15} strokeWidth={2} />}{label}
       <span style={{ flex: 1 }} /><ChevronRight size={14} color={P.chevron || P.faint} />
     </span>
@@ -29672,28 +29681,18 @@ const MiniSesion = ({ active, onOpen }) => {
 
 const TabBar = ({ tabs, tab, setTab }) => {
   const n = tabs.length;
-  const idx = Math.max(0, tabs.findIndex((t) => t.id === tab));
   return (
     <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
-      padding: "0 14px calc(10px + env(safe-area-inset-bottom))", pointerEvents: "none" }}>
-      {/* Barra flotante de cristal: una cápsula translúcida suspendida sobre el
-          contenido, con una pastilla de color que se desliza hasta la pestaña
-          activa (resorte con un pequeño rebote). Solo íconos. */}
-      <div data-fjkeep style={{ position: "relative", display: "grid", gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, width: "100%",
-        maxWidth: "calc(var(--fj-w) - 28px)", padding: 6, pointerEvents: "auto", borderRadius: 32,
-        background: `${P.s1}D6`, backdropFilter: "saturate(190%) blur(26px)", WebkitBackdropFilter: "saturate(190%) blur(26px)",
-        boxShadow: `0 16px 40px -10px rgba(16,16,18,.28), 0 0 0 .5px ${P.separatorStrong || P.line}` }}>
-        <span aria-hidden="true" style={{ position: "absolute", top: 6, bottom: 6, left: 6, width: `calc((100% - 12px) / ${n})`, borderRadius: 26,
-          background: PLATE_GRAD, boxShadow: `0 8px 18px -6px ${hexRgba(P.ember, 0.65)}`,
-          transform: `translateX(${idx * 100}%)`, transition: "transform 560ms cubic-bezier(.34,1.42,.5,1)" }} />
+      background: P.bg, borderTop: `1px solid ${P.line}`, paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <div data-fjkeep style={{ display: "grid", gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, width: "100%", maxWidth: "var(--fj-w)", padding: "6px 8px 4px" }}>
         {tabs.map(({ id, label, Icon }) => {
           const on = tab === id;
           return (
             <button key={id} onClick={() => setTab(id)} aria-current={on ? "page" : undefined} aria-label={label} title={label}
-              style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "7px 2px 6px", minWidth: 0, minHeight: 54,
-                color: on ? PLATE_FG : TAB_INACTIVE, transition: `color ${DUR_ROW}ms ${EASE_STD}` }}>
-              <Icon size={22} strokeWidth={on ? 2.2 : 1.7} color={on ? PLATE_FG : TAB_INACTIVE} />
-              <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".01em", lineHeight: 1, whiteSpace: "nowrap" }}>{label}</span>
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, padding: "6px 2px", minWidth: 0, minHeight: 54,
+                color: on ? P.text : P.textQuaternary, transition: `color ${DUR_ROW}ms ${EASE_STD}` }}>
+              <Icon size={23} strokeWidth={on ? 2.2 : 1.7} />
+              <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1, whiteSpace: "nowrap" }}>{label}</span>
             </button>
           );
         })}
