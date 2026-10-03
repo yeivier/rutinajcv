@@ -272,7 +272,7 @@ OJO: en tu A_V3 ning\xFAn ejercicio tiene m\xFAsculos secundarios marcados, as\x
        saber si hab\xEDa pasado algo. Reusa fjUp (definida arriba) para que
        entren con un fundido + deslizamiento breve \u2014 igual de sutil que
        el resto de la app, pero suficiente para que se note el cambio. */
-    .fj .deployIn { animation: fjUp ${Kc}ms ${Zf}; }
+    .fj .deployIn { animation: fjUp ${Qc}ms ${Zf}; }
     /* Hojas: suben desde el borde de abajo, como las de sistema. Antes
        era un salto de 14px en 220ms \u2014se le\xEDa como un parpadeo, no como
        una hoja\u2014 y el fondo oscuro aparec\xEDa de golpe. */
@@ -298,7 +298,7 @@ OJO: en tu A_V3 ning\xFAn ejercicio tiene m\xFAsculos secundarios marcados, as\x
     /* Pantalla dentro de una hoja (las fichas del check-in): entra desde
        la derecha, como un push, y vuelve igual. */
     @keyframes fjPaneIn { from { transform: translateX(12px); opacity: 0; } to { transform: none; opacity: 1; } }
-    .fj .paneIn { animation: fjPaneIn ${Kc}ms ${ct}; }
+    .fj .paneIn { animation: fjPaneIn ${Qc}ms ${ct}; }
     /* Cambio de pesta\xF1a (6 \xB7 Movimiento): "sin deslizamiento, opacidad
        0\u21921 en 200ms" \u2014 antes usaba la misma sheetIn (con traslado) que
        las hojas de verdad. Las hojas siguen con sheetIn/fjUp sin tocar;
@@ -325,13 +325,13 @@ OJO: en tu A_V3 ning\xFAn ejercicio tiene m\xFAsculos secundarios marcados, as\x
        siempre, pero escalonadas por \xEDndice (--i, puesto inline en cada
        tarjeta) \u2014 que aparezcan una tras otra, no todas de golpe, es lo
        que hace que una grilla se sienta viva en vez de solo "cargada". */
-    .fj .fj-studio-card { animation: fjUp ${Kc}ms ${ct} backwards;
+    .fj .fj-studio-card { animation: fjUp ${Qc}ms ${ct} backwards;
       animation-delay: calc(var(--i, 0) * 45ms); }
     /* Barras de volumen del creador: crecen desde 0 en vez de aparecer ya
        llenas \u2014 el ancho final lo sigue poniendo React (inline style),
        esto solo anima DESDE cero hasta ese ancho. */
     @keyframes fjBarGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-    .fj .fj-studio-bar { transform-origin: left; animation: fjBarGrow ${Kc+200}ms ${ct} backwards; }
+    .fj .fj-studio-bar { transform-origin: left; animation: fjBarGrow ${Qc+200}ms ${ct} backwards; }
 
     /* Sesi\xF3n: pasar de serie o de ejercicio tiene que VERSE. Antes el
        contenido se reemplazaba de golpe, con los mismos n\xFAmeros
@@ -616,7 +616,7 @@ DOMINIO T\xC9CNICO QUE MANEJAS
 5. T\xE9cnicas de intensidad: top set + back-off, drop sets, rest-pause, series mioreps, parciales en estiramiento y superseries. Todas suben fatiga por unidad de est\xEDmulo: se dosifican, casi siempre en aislamientos y al final del ejercicio.
 6. Periodizaci\xF3n: mesociclos de 4 a 8 semanas con acumulaci\xF3n progresiva y deload; bloques de especializaci\xF3n para puntos d\xE9biles reduciendo el volumen del resto; transici\xF3n ordenada entre volumen, mantenci\xF3n y definici\xF3n.
 7. Biomec\xE1nica y selecci\xF3n de ejercicios: curvas de resistencia, \xE1ngulos, torque articular, criterios para elegir entre libre, m\xE1quina o polea, y sustituciones equivalentes cuando hay dolor o falta de material.
-8. Nutrici\xF3n de culturismo: ${mu.map(l=>`${l.label} \u2192 ${l.kcal}, ritmo ${l.rate}, prote\xEDna ${l.prot}`).join(" | ")}. Reparto de comidas, distribuci\xF3n proteica, timing perientrenamiento, refeeds y diet breaks, manejo del hambre y la adherencia.
+8. Nutrici\xF3n de culturismo: ${gu.map(l=>`${l.label} \u2192 ${l.kcal}, ritmo ${l.rate}, prote\xEDna ${l.prot}`).join(" | ")}. Reparto de comidas, distribuci\xF3n proteica, timing perientrenamiento, refeeds y diet breaks, manejo del hambre y la adherencia.
 9. Suplementaci\xF3n por evidencia: creatina monohidrato 3-5 g/d\xEDa, cafe\xEDna 3-6 mg/kg, prote\xEDna en polvo como herramienta, beta-alanina 3-6 g/d\xEDa, citrulina 6-8 g. Evidencia pobre: BCAA con prote\xEDna suficiente, boosters de testosterona, quemadores.
 10. Recuperaci\xF3n: sue\xF1o de 7-9 h como variable cr\xEDtica, manejo de estr\xE9s, se\xF1ales de fatiga sist\xE9mica y local, cu\xE1ndo un deload es obligatorio.
 11. Competencia: categor\xEDas (${ds.map(l=>l.label).join(", ")}), timeline de prep de 16 a 24 semanas seg\xFAn punto de partida, control semanal de condici\xF3n, peak week, posing y presentaci\xF3n.
