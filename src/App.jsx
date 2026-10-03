@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v406";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v407";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10479,7 +10479,7 @@ const FinDescansoAviso = ({ marca }) => {
   );
 };
 
-const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRenameEx, onRemoveEx }) => {
+const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, saveHistory, active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRenameEx, onRemoveEx }) => {
   const [weightUnit, setWeightUnit] = useWeightUnit();
   const [themeMode, setThemeMode] = useTheme();
   const pendingWrites = usePendingWrites();
@@ -10526,6 +10526,7 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
   // del "···" — y durante el descanso, donde el "···" no se dibuja, no
   // había ninguna. Ahora la "✕" siempre ofrece las cuatro salidas.
   const [salida, setSalida] = useState(false);
+  useEffect(() => { if (pedirSalida) { setSalida(true); onSalidaConsumida && onSalidaConsumida(); } }, [pedirSalida]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [histEx, setHistEx] = useState(null);
   const [vincularOpen, setVincularOpen] = useState(false);
   const [herrOpen, setHerrOpen] = useState(false);
@@ -12173,7 +12174,7 @@ const HeroCard = ({ Icon, eyebrow, title, meta, label, onClick, play = true }) =
   </button>
 );
 
-const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, fxRestSeg, onOpenAIChat, onLeave, onOpenDevices, sid }) => {
+const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, pedirSalida, onSalidaConsumida, fxRestSeg, onOpenAIChat, onLeave, onOpenDevices, sid }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
   // Marca de tiempo del último fin de descanso: dispara el destello en
@@ -12741,7 +12742,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
       <GymPickerSheet open={!!pidiendoGym} dayName={pidiendoGym ? pidiendoGym.name : ""}
         onClose={() => setPidiendoGym(null)}
         onElegir={(g) => { const d = pidiendoGym; setPidiendoGym(null); if (d) startSession(d, g, d._fecha); }} />
-      <FocusModeMono saveHistory={saveHistory} active={active} history={history} plan={plan} patch={patch} onOpenDevices={onOpenDevices} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
+      <FocusModeMono pedirSalida={pedirSalida} onSalidaConsumida={onSalidaConsumida} saveHistory={saveHistory} active={active} history={history} plan={plan} patch={patch} onOpenDevices={onOpenDevices} patchSet={patchSet} patchEx={patchEx} onError={toast} storageOK={storageOK} savedAt={savedAt}
         restSel={restSel} onPickRest={pickRest} timer={timer} finDescanso={finDescanso} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
         onStartRest={(seg, ei, si) => { setTimer({ exIdx: ei || 0, setIdx: si || 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
@@ -29714,7 +29715,7 @@ const HeaderActions = ({ mode, sid, initial, onAI, onChat, onProfile }) => {
 /* «Entreno en curso»: mientras hay una sesión abierta y no estás dentro de
    ella, esta barra negra queda sobre la barra de pestañas, en cualquier
    pantalla. Un toque vuelve a la sesión. */
-const MiniSesion = ({ active, onOpen }) => {
+const MiniSesion = ({ active, onOpen, onClose }) => {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
   const sets = (active.exs || []).flatMap((e) => e.sets || []);
@@ -29722,18 +29723,24 @@ const MiniSesion = ({ active, onOpen }) => {
   const seg = Math.max(0, Math.floor((now - new Date(active.startedAt).getTime()) / 1000));
   return (
     <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(var(--fj-tabbar-h, 92px) + 4px)", zIndex: 49, display: "flex", justifyContent: "center", padding: "0 14px", pointerEvents: "none" }}>
-      <button onClick={onOpen} aria-label={`Volver al entreno en curso: ${active.dayName}`}
-        style={{ pointerEvents: "auto", width: "100%", maxWidth: "calc(var(--fj-w) - 28px)", display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", borderRadius: 24,
-          background: PLATE_GRAD, color: PLATE_FG, textAlign: "left", boxShadow: "0 12px 28px -8px rgba(16,16,18,.45)" }}>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: "block", fontSize: 14, opacity: .7 }}>Entreno en curso</span>
-          <span style={{ display: "block", fontSize: 17, fontWeight: 650, letterSpacing: "-.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</span>
-        </span>
-        <span style={{ textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
-          <span style={{ display: "block", fontSize: 17, fontWeight: 600 }}>{sessionClock(seg)}</span>
-          <span style={{ display: "block", fontSize: 14, opacity: .7 }}>{hechas}/{sets.length} series</span>
-        </span>
-      </button>
+      <div style={{ pointerEvents: "auto", width: "100%", maxWidth: "calc(var(--fj-w) - 28px)", display: "flex", alignItems: "center", gap: 6, padding: "8px 10px 8px 20px", borderRadius: 24,
+        background: PLATE_GRAD, color: PLATE_FG, boxShadow: "0 12px 28px -8px rgba(16,16,18,.45)" }}>
+        <button onClick={onOpen} aria-label={`Volver al entreno en curso: ${active.dayName}`}
+          style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "4px 0", color: "inherit" }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, opacity: .7 }}>Entreno en curso</span>
+            <span style={{ display: "block", fontSize: 17, fontWeight: 650, letterSpacing: "-.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</span>
+          </span>
+          <span style={{ textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+            <span style={{ display: "block", fontSize: 17, fontWeight: 600 }}>{sessionClock(seg)}</span>
+            <span style={{ display: "block", fontSize: 14, opacity: .7 }}>{hechas}/{sets.length} series</span>
+          </span>
+        </button>
+        <button onClick={onClose} aria-label="Cerrar el entreno en curso" title="Cerrar"
+          style={{ width: 40, height: 40, borderRadius: 20, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "inherit", background: hexRgba(PLATE_FG, 0.16) }}>
+          <X size={18} strokeWidth={2.4} />
+        </button>
+      </div>
     </div>
   );
 };
@@ -31161,6 +31168,8 @@ const App = () => {
   // vuelva a null (si no, reabrir la pestaña Entrenar más tarde
   // arrancaría la sesión de nuevo sin que nadie lo pidiera).
   const [abrirDiaId, setAbrirDiaId] = useState(null);
+  // La ✕ de la barra «Entreno en curso» pide abrir directo las opciones de salida de la sesión.
+  const [pedirSalida, setPedirSalida] = useState(false);
   /* Atajos de iPhone: resultado de la acción que vino en la URL (?fx=…) y
      la señal de "arrancá un descanso de N segundos" que TrainTab consume
      —el cronómetro vive allá, no acá, igual que `abrirDiaId`. */
@@ -32276,7 +32285,7 @@ const App = () => {
           <TrainTab saveHistory={saveHistory} plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive} savePlan={savePlan}
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
-            abrirDiaId={abrirDiaId} onAutoStartConsumed={() => setAbrirDiaId(null)} fxRestSeg={fxRestSeg}
+            abrirDiaId={abrirDiaId} onAutoStartConsumed={() => setAbrirDiaId(null)} pedirSalida={pedirSalida} onSalidaConsumida={() => setPedirSalida(false)} fxRestSeg={fxRestSeg}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
             onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} sid={sid} />
         )}
@@ -32439,7 +32448,7 @@ const App = () => {
       {compareOpen && <RoutineCompareScreen onClose={() => setCompareOpen(false)} plan={plan} />}
       {mode === "alumno" && plan && <ReminderScheduler plan={plan} />}
       {mode === "alumno" && history && <AchievementUnlockWatcher history={history} saveHistory={saveHistory} />}
-      {mode === "alumno" && active && !enSesion && <MiniSesion active={active} onOpen={() => setTab("entrenar")} />}
+      {mode === "alumno" && active && !enSesion && <MiniSesion active={active} onOpen={() => setTab("entrenar")} onClose={() => { setPedirSalida(true); setTab("entrenar"); }} />}
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <GlobalSearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} items={searchItems} />
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)}
