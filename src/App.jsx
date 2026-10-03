@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v397";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v398";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6014,12 +6014,12 @@ const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals 
 /* Celda numérica de la tabla de series. Guarda su propio texto mientras
    tiene el foco: si se leyera siempre del dato, escribir "12," se
    convertiría en "12" a mitad de tecleo y la coma se perdería. */
-const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 48, onTap, fondo, flex, alto, sufijo, vacio }) => {
+const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 48, onTap, fondo, flex, alto, sufijo, vacio, radio, altoMin }) => {
   const [txt, setTxt] = useState(valor);
   const foco = useRef(false);
   useEffect(() => { if (!foco.current) setTxt(valor); }, [valor]);
   const estilo = { width: flex ? "auto" : ancho, flex: flex ? 1 : undefined, padding: alto ? `${alto}px 4px` : "11px 4px", textAlign: "center", fontSize: 15, fontWeight: 700,
-    color: txt ? SES.ink : SES.faint, background: fondo || SES.campo, border: `1px solid ${SES.line}`, borderRadius: 999, minHeight: 44,
+    color: txt ? SES.ink : SES.faint, background: fondo || SES.campo, border: `1px solid ${SES.line}`, borderRadius: radio != null ? radio : 999, minHeight: altoMin || 44,
     fontFamily: "inherit", outline: "none", boxSizing: "border-box", minWidth: 0 };
   // Con onTap la celda es un botón, no un campo de texto: abre la rueda
   // directo al tocarla — es la forma predeterminada de cargar el dato,
@@ -10471,6 +10471,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
   // Qué serie tiene abierto el panel de "adjuntar foto/video/archivo".
   const [attachKey, setAttachKey] = useState(null);
   // Qué serie tiene abierta la rueda de peso/reps/RIR (clave "ei-si"), o null.
+  const [filaAbierta, setFilaAbierta] = useState(null); // serie con su fila de acciones desplegada
   const [wheelEn, setWheelEn] = useState(null); // { key: restKey, field: "weight"|"reps"|"rir" } | null
   // Qué tarjetas (por índice de bloque) tienen el detalle desplegado —
   // indicaciones, tempo, última vez, el reto y el detalle de cada serie.
@@ -10700,8 +10701,6 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
         // ejercicio) se arranca del objetivo que puso el coach, no de
         // vacío: si no, la serie se registraba como "— kg × —" y no
         // servía ni para el historial ni para precargar la próxima.
-        if (s.reps === "") { const n = repsTargetNum(s.repsT); if (n != null) { s.reps = String(n); any = true; } }
-        if (s.rir === "" && s.rirT !== "" && s.rirT != null) { s.rir = String(s.rirT); any = true; }
       });
     });
     if (any) patch(() => clone);
@@ -11002,7 +11001,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
     const abierta = true; // todo el detalle a la vista, sin chevron
 
     return (
-      <div style={{ background: SES.card, border: "none", borderRadius: 24, padding: "18px 16px 10px" }}>
+      <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: 28, padding: "22px 18px 14px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* El nombre se puede editar EN VIVO (renombrar o poner nombre a un
@@ -11017,7 +11016,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
                   background: SES.campo, border: `1px solid ${SES.acc}`, borderRadius: 8, padding: "6px 9px", outline: "none", fontFamily: "inherit" }} />
             ) : (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ fontSize: 19, fontWeight: 800, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.03em", overflowWrap: "anywhere" }}>{titulo || "Ejercicio sin nombre"}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.045em", overflowWrap: "anywhere" }}>{titulo || "Ejercicio sin nombre"}</div>
                 {puedeEditar && !block.group && (
                   <button onClick={() => setRenameId(exs[block.ei].id)} aria-label={`Renombrar ${titulo || "ejercicio"}`}
                     style={{ background: "transparent", border: "none", color: SES.faint, display: "inline-flex", padding: 2, flexShrink: 0 }}>
@@ -11041,28 +11040,26 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
             )}
           </div>
           <button onClick={() => setFicha(block.group ? block.members[0] : block.ei)} aria-label={`Ver la técnica de ${titulo}`}
-            style={{ width: 26, height: 26, borderRadius: 13, flexShrink: 0, background: SES.campo, border: "none",
-              color: SES.dim, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            style={{ width: 28, height: 28, flexShrink: 0, background: "transparent", border: "none",
+              color: SES.faint, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Play size={11} fill="currentColor" />
           </button>
         </div>
 
-        {(!block.group || indicaciones || tempo || ultimaVez || (retoEx && retoEx.anotadas > 0)) && (
+        {(!block.group || indicaciones || tempo) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
-            {!block.group && objetivoEj(exs[block.ei]) && <div style={{ fontSize: 14, color: SES.faint, fontWeight: 600 }}>Objetivo {objetivoEj(exs[block.ei])}</div>}
-            {ultimaVez && <div style={{ fontSize: 13, color: SES.faint }}>{ultimaVez}</div>}
+            {!block.group && objetivoEj(exs[block.ei]) && <div style={{ fontSize: 16, color: SES.faint, fontWeight: 500 }}>Objetivo {objetivoEj(exs[block.ei])}</div>}
             {indicaciones && <div style={{ fontSize: 13, color: SES.dim, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{indicaciones}</div>}
             {tempo && <div><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
-            {retoEx && retoEx.anotadas > 0 && <RetoEjercicio reto={retoEx} />}
           </div>
         )}
 
-        <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "12px 10px 4px", fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", color: SES.faint }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "20px 0 8px", fontSize: 15, fontWeight: 500, color: SES.faint }}>
           <span style={{ width: 34, flexShrink: 0, textAlign: "center" }}>#</span>
           <span style={{ flex: 1, textAlign: "center" }}>{unitFor(block.group ? block.members[0] : block.ei).toUpperCase()}</span>
           <span style={{ flex: 1, textAlign: "center" }}>REPS</span>
           <span style={{ flex: 1, textAlign: "center" }}>RIR</span>
-          <span style={{ width: 42, flexShrink: 0 }} />
+          <span style={{ width: 52, flexShrink: 0 }} />
         </div>
 
         {block.rows.map((r, i) => {
@@ -11086,99 +11083,95 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
           // nombre accesible lleva el ejercicio, si no son todas iguales
           // para quien navega por voz o lector de pantalla.
           const dónde = `${block.group ? `ronda ${(r.round || 0) + 1}` : isWarm ? `aproximación ${meta.no}` : `serie ${meta.no}`} de ${exx.name}`;
+          const abierta2 = filaAbierta === restKey(r.ei, r.si);
+          const celda = { flex: true, alto: 12, altoMin: 56, radio: 18, fondo: "transparent" };
           return (
             <React.Fragment key={`${r.ei}-${r.si}`}>
             <div data-set-row data-set-ei={r.ei} data-set-si={r.si}
               onClickCapture={(ev) => { if (Date.now() < (setDragRef.current.blockUntil || 0)) { ev.stopPropagation(); ev.preventDefault(); } }}
-              style={{ padding: "7px 10px 4px", marginTop: isWarm && i > 0 ? 0 : (!isWarm && i > 0 && rowMeta[i - 1].warm ? 8 : 0), marginBottom: 4, borderRadius: 20,
-                background: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? SES.campo
-                  : st.done ? SES.accSoft : (i === idxActiva && !st.done) ? SES.campo : "transparent",
-                border: "1.5px solid transparent",
+              style={{ marginTop: isWarm && i > 0 ? 0 : (!isWarm && i > 0 && rowMeta[i - 1].warm ? 6 : 0), marginBottom: 10, borderRadius: 18,
+                background: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? SES.campo : "transparent",
                 boxShadow: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_SHADOW : "none",
                 transform: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_TRANSFORM
                   : (setDragOver && setDragOver.ei === r.ei && setDragOver.si === r.si && setDragging && setDragging.si !== r.si ? "scale(.98)" : "none"),
                 transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
-            {/* Una sola fila por serie: número (círculo punteado si es de
-                aproximación), peso · reps · RIR y el visto. Debajo, en chico,
-                la consigna y la comparación con la vez pasada. */}
-            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <button onClick={puedeEditar && !block.group ? () => setTipoEn({ ei: r.ei, si: r.si }) : undefined}
-                aria-label={puedeEditar && !block.group ? `Cambiar el tipo de la ${dónde} (ahora ${(SET_TYPES[st.type] || SET_TYPES.normal).label})` : dónde}
-                style={{ width: 34, height: 34, borderRadius: 17, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 14, fontWeight: 800, cursor: puedeEditar && !block.group ? "pointer" : "default",
-                  background: st.done ? SES.acc : isWarm ? "transparent" : SES.ink,
-                  color: st.done ? SES.accInk : isWarm ? SES.faint : SES.card,
-                  border: isWarm && !st.done ? `1.5px dashed ${SES.faint}` : "none" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={() => setFilaAbierta(abierta2 ? null : restKey(r.ei, r.si))} aria-expanded={abierta2}
+                aria-label={`Más opciones de la ${dónde}: comentar, foto, unidad, tipo`}
+                style={{ width: 34, flexShrink: 0, textAlign: "center", fontSize: 18, fontWeight: 500, color: abierta2 ? SES.ink : SES.dim, padding: 0 }}>
                 {block.group ? (r.round || 0) + 1 : isWarm ? "A" : meta.no}
               </button>
-              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)} sufijo="" vacio=""
+              <NumCell {...celda} aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)} sufijo="" vacio=""
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitDeSerie(st, r.ei))).replace(".", ",")}
                 onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitDeSerie(st, r.ei)))))}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "weight" })} />
-              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`Repeticiones de la ${dónde}`} placeholder="reps" sufijo="" vacio={String(st.repsT || "").replace(/-/g, "–")}
+              <NumCell {...celda} aria={`Repeticiones de la ${dónde}`} placeholder="reps" sufijo="" vacio={String(st.repsT || "").replace(/-/g, "–")}
                 valor={st.reps == null ? "" : String(st.reps)}
                 onCommit={(v) => setVal(r.ei, r.si, "reps", v)}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "reps" })} />
-              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`RIR de la ${dónde}`} placeholder="RIR" sufijo="" vacio={st.rirT !== "" && st.rirT != null ? String(st.rirT) : ""}
+              <NumCell {...celda} aria={`RIR de la ${dónde}`} placeholder="RIR" sufijo="" vacio={st.rirT !== "" && st.rirT != null ? String(st.rirT) : ""}
                 valor={st.rir == null ? "" : String(st.rir)}
                 onCommit={(v) => setVal(r.ei, r.si, "rir", v)}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "rir" })} />
               <button onClick={() => onToggleDone(r.ei, r.si)}
                 aria-label={st.done ? `Desmarcar la ${dónde}` : `Marcar la ${dónde} como hecha`}
                 aria-pressed={st.done}
-                style={{ width: 42, height: 42, borderRadius: 21, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: st.done ? SES.acc : SES.card, color: st.done ? SES.accInk : SES.faint, border: `1px solid ${st.done ? "transparent" : SES.line}`,
+                style={{ width: 52, height: 56, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: st.done ? SES.ink : "transparent", color: st.done ? SES.card : SES.faint, border: `1px solid ${st.done ? SES.ink : SES.line}`,
                   transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
-                <Check size={18} strokeWidth={3} />
+                <Check size={22} strokeWidth={2.2} />
               </button>
             </div>
             {renderLegs(st, r.ei, r.si, dónde)}
-            {/* Segunda línea, siempre a la vista en CADA serie: lo que se
-                pedía (reps · RIR), la comparación con la vez pasada y, a la
-                derecha, comentar / adjuntar foto / unidad / borrar / mover. */}
-            <div style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 2, minHeight: 32 }}>
-              <div style={{ flex: 1, minWidth: 0, paddingLeft: 3, fontSize: 11.5, color: SES.faint, fontWeight: 600, lineHeight: 1.3, overflow: "hidden" }}>
-                <div>
-                  {!isWarm && st.type !== "normal" && tipo && <span style={{ color: SES.acc, fontWeight: 700 }}>{tipo} · </span>}
-                  {detalle ? detalle : (isWarm ? `Aprox. ${meta.no}` : "")}{block.group ? ` · ${exx.name}` : ""}
+            {consigna && <div style={{ fontSize: 13, color: SES.faint, padding: "6px 0 0 44px", lineHeight: 1.35 }}>{consigna}</div>}
+            {/* Opciones de ESTA serie, detrás del número: tipo, comentar,
+                foto o archivo, unidad, borrar y mover. Se abren al tocar el
+                número; si la serie ya tiene comentario o adjunto, estos se
+                muestran siempre debajo. */}
+            {abierta2 && (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2, marginTop: 6, padding: "4px 0 2px 44px" }}>
+                <div style={{ width: "100%", fontSize: 12.5, color: SES.faint, fontWeight: 600, paddingBottom: 2 }}>
+                  {!isWarm && st.type !== "normal" && tipo ? `${tipo} · ` : ""}{detalle || (isWarm ? `Aprox. ${meta.no}` : "")}{block.group ? ` · ${exx.name}` : ""}
+                  {!isWarm && !block.group && <RetoSerie compacto actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitDeSerie(st, r.ei)} />}
                 </div>
-                {abierta && !isWarm && !block.group && (
-                  <RetoSerie compacto actual={st} previa={prevTrabajo[meta.no - 1]} unidad={unitDeSerie(st, r.ei)} />
+                {puedeEditar && !block.group && (
+                  <button onClick={() => setTipoEn({ ei: r.ei, si: r.si })} aria-label={`Cambiar el tipo de la ${dónde} (ahora ${(SET_TYPES[st.type] || SET_TYPES.normal).label})`}
+                    style={{ height: 36, padding: "0 10px", borderRadius: 18, background: SES.campo, color: SES.dim, fontSize: 13, fontWeight: 650, marginRight: 4 }}>{(SET_TYPES[st.type] || SET_TYPES.normal).short || "Tipo"}</button>
+                )}
+                {cmtKey !== restKey(r.ei, r.si) && (
+                  <button onClick={() => openCmt(restKey(r.ei, r.si))} aria-label={`Comentar la ${dónde}`}
+                    style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: st.comment ? SES.ink : SES.faint, flexShrink: 0 }}>
+                    <MessageSquare size={18} fill={st.comment ? "currentColor" : "none"} />
+                  </button>
+                )}
+                {attachKey !== restKey(r.ei, r.si) && (
+                  <button onClick={() => setAttachKey(restKey(r.ei, r.si))}
+                    aria-label={`Adjuntar foto, video o archivo a la ${dónde}${(st.attachIds || []).length ? ` (${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"})` : ""}`}
+                    style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: (st.attachIds || []).length ? SES.ink : SES.faint, flexShrink: 0 }}>
+                    <Paperclip size={18} />
+                  </button>
+                )}
+                <button onClick={() => setVal(r.ei, r.si, "unit", unitDeSerie(st, r.ei) === "lb" ? "kg" : "lb")}
+                  aria-label={`Anotar esta serie en ${unitDeSerie(st, r.ei) === "lb" ? "kilos" : "libras"} (ahora ${unitDeSerie(st, r.ei)})`}
+                  title={unitDeSerie(st, r.ei)} style={{ height: 36, padding: "0 8px", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 13, fontWeight: 700, color: SES.faint, flexShrink: 0 }}>
+                  <ArrowUpDown size={15} />{unitDeSerie(st, r.ei)}
+                </button>
+                {((st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null)) && (
+                  <button onClick={() => clearSet(r.ei, r.si)} aria-label={`Borrar los datos de la ${dónde}`} title="Borrar datos"
+                    style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: SES.faint, flexShrink: 0 }}>
+                    <Trash2 size={16} />
+                  </button>
+                )}
+                {puedeEditar && !block.group && (
+                  <DragHandle active={!!(setDragging && setDragging.ei === r.ei && setDragging.si === r.si)}
+                    label={`Mantén pulsado y arrastra para mover la ${dónde}`}
+                    onActivate={() => startSetDrag(r.ei, r.si)}
+                    onDragMove={setDragMove}
+                    onDragEnd={endSetDrag}
+                    style={{ margin: "0 0 0 auto", minWidth: 34, minHeight: 34, padding: 4 }} />
                 )}
               </div>
-              {cmtKey !== restKey(r.ei, r.si) && (
-                <button onClick={() => openCmt(restKey(r.ei, r.si))} aria-label={`Comentar la ${dónde}`}
-                  style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", color: st.comment ? SES.acc : SES.faint, background: "none", border: "none", flexShrink: 0 }}>
-                  <MessageSquare size={16} fill={st.comment ? "currentColor" : "none"} />
-                </button>
-              )}
-              {attachKey !== restKey(r.ei, r.si) && (
-                <button onClick={() => setAttachKey(restKey(r.ei, r.si))}
-                  aria-label={`Adjuntar foto, video o archivo a la ${dónde}${(st.attachIds || []).length ? ` (${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"})` : ""}`}
-                  style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", color: (st.attachIds || []).length ? SES.acc : SES.faint, background: "none", border: "none", flexShrink: 0 }}>
-                  <Paperclip size={16} />
-                </button>
-              )}
-              <button onClick={() => setVal(r.ei, r.si, "unit", unitDeSerie(st, r.ei) === "lb" ? "kg" : "lb")}
-                aria-label={`Anotar esta serie en ${unitDeSerie(st, r.ei) === "lb" ? "kilos" : "libras"} (ahora ${unitDeSerie(st, r.ei)})`}
-                title={unitDeSerie(st, r.ei)} style={{ height: 32, padding: "0 6px", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11.5, fontWeight: 700, color: SES.faint, background: "none", border: "none", flexShrink: 0 }}>
-                <ArrowUpDown size={13} />{unitDeSerie(st, r.ei)}
-              </button>
-              {!st.comment && ((st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null)) ? (
-                <button onClick={() => clearSet(r.ei, r.si)} aria-label={`Borrar los datos de la ${dónde}`} title="Borrar datos"
-                  style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", color: SES.faint, background: "none", border: "none", flexShrink: 0 }}>
-                  <Trash2 size={14} />
-                </button>
-              ) : null}
-              {puedeEditar && !block.group && (
-                <DragHandle active={!!(setDragging && setDragging.ei === r.ei && setDragging.si === r.si)}
-                  label={`Mantén pulsado y arrastra para mover la ${dónde}`}
-                  onActivate={() => startSetDrag(r.ei, r.si)}
-                  onDragMove={setDragMove}
-                  onDragEnd={endSetDrag}
-                  style={{ margin: 0, minWidth: 30, minHeight: 30, padding: 4 }} />
-              )}
-            </div>
+            )}
             <NumberWheelSheet open={!!wheelEn && wheelEn.key === restKey(r.ei, r.si)}
               field={wheelEn && wheelEn.key === restKey(r.ei, r.si) ? wheelEn.field : "weight"}
               value={wheelEn && wheelEn.field === "reps" ? st.reps : wheelEn && wheelEn.field === "rir" ? st.rir : st.weight}
@@ -11193,20 +11186,20 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
         {/* Editar en vivo: sumar o quitar series a este ejercicio, y quitarlo
             de la sesión. Solo en ejercicios simples (no superserie). */}
         {puedeEditar && !block.group && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingTop: 8, marginTop: 2, borderTop: `1px solid ${SES.campo}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 2 }}>
             <button onClick={() => onAddSet(block.ei)} aria-label="Añadir serie" title="Añadir serie"
-              style={{ width: 38, height: 38, borderRadius: 19, display: "flex", alignItems: "center", justifyContent: "center", color: SES.acc, background: "none", border: "none" }}>
-              <Plus size={19} strokeWidth={2.4} />
+              style={{ display: "inline-flex", alignItems: "center", gap: 10, height: 48, padding: "0 12px", color: SES.ink, fontSize: 18, fontWeight: 500 }}>
+              <Plus size={22} strokeWidth={1.8} /> Serie
             </button>
+            <div style={{ flex: 1 }} />
             {block.rows.length > 1 && (
               <button onClick={() => onRemoveSet(block.ei)} aria-label="Quitar serie" title="Quitar serie"
-                style={{ width: 38, height: 38, borderRadius: 19, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint, background: "none", border: "none" }}>
-                <Minus size={19} strokeWidth={2.4} />
+                style={{ width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint }}>
+                <Minus size={19} strokeWidth={2} />
               </button>
             )}
-            <div style={{ flex: 1 }} />
             <button onClick={() => onRemoveEx(block.ei)} aria-label="Eliminar ejercicio de la sesión" title="Eliminar ejercicio"
-              style={{ width: 38, height: 38, borderRadius: 19, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint, background: "none", border: "none" }}>
+              style={{ width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint }}>
               <Trash2 size={17} />
             </button>
           </div>
@@ -11411,7 +11404,6 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
           por espacio con la serie que se está anotando ahora mismo, arriba
           de todo lo demás. En Focus alcanza con la línea de "Última vez"
           que ya trae cada serie. */}
-      {!focusUno && <RetoSesion exs={exs} history={history} />}
 
       {/* Calentamiento GENERAL de la sesión (cardio · movilidad · activación):
           antes vivía siempre desplegado arriba de todo — con un texto largo
