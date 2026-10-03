@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v396";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v397";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6014,12 +6014,12 @@ const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals 
 /* Celda numérica de la tabla de series. Guarda su propio texto mientras
    tiene el foco: si se leyera siempre del dato, escribir "12," se
    convertiría en "12" a mitad de tecleo y la coma se perdería. */
-const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 48, onTap, fondo, flex, alto }) => {
+const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 48, onTap, fondo, flex, alto, sufijo, vacio }) => {
   const [txt, setTxt] = useState(valor);
   const foco = useRef(false);
   useEffect(() => { if (!foco.current) setTxt(valor); }, [valor]);
   const estilo = { width: flex ? "auto" : ancho, flex: flex ? 1 : undefined, padding: alto ? `${alto}px 4px` : "11px 4px", textAlign: "center", fontSize: 15, fontWeight: 700,
-    color: txt ? SES.ink : SES.faint, background: fondo || SES.campo, border: `1px solid ${SES.line}`, borderRadius: 999,
+    color: txt ? SES.ink : SES.faint, background: fondo || SES.campo, border: `1px solid ${SES.line}`, borderRadius: 999, minHeight: 44,
     fontFamily: "inherit", outline: "none", boxSizing: "border-box", minWidth: 0 };
   // Con onTap la celda es un botón, no un campo de texto: abre la rueda
   // directo al tocarla — es la forma predeterminada de cargar el dato,
@@ -6027,7 +6027,7 @@ const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 48, onTap, fondo,
   if (onTap) {
     return (
       <button type="button" onClick={onTap} aria-label={aria} style={estilo}>
-        {txt ? <>{txt}<span style={{ fontSize: 11.5, fontWeight: 600, color: SES.faint, marginLeft: 4 }}>{placeholder}</span></> : placeholder}
+        {txt ? <>{txt}{(sufijo != null ? sufijo : placeholder) !== "" && <span style={{ fontSize: 11.5, fontWeight: 600, color: SES.faint, marginLeft: 4 }}>{sufijo != null ? sufijo : placeholder}</span>}</> : (vacio != null ? vacio : placeholder)}
       </button>
     );
   }
@@ -10393,6 +10393,17 @@ const RetoEjercicio = ({ reto }) => {
    reps, aparece el veredicto y se actualiza con cada tecla.
    El color sale de la paleta de la sesión: el acento es "lo lograste",
    igual que el tilde de serie hecha. */
+// "3 × 6–10 · RIR 1": lo que pide el plan para un ejercicio, en una línea.
+const objetivoEj = (ex) => {
+  const all = (ex && ex.sets) || [];
+  const w = all.filter((x) => x.type !== "warmup");
+  const arr = w.length ? w : all;
+  if (!arr.length) return "";
+  const uniq = (k) => [...new Set(arr.map((x) => String(x[k] == null ? "" : x[k]).trim()).filter(Boolean))];
+  const reps = uniq("repsT").map((x) => x.replace(/-/g, "–")).join(" / ");
+  const rir = uniq("rirT").join(" / ");
+  return `${arr.length}${reps ? ` × ${reps}` : " series"}${rir ? ` · RIR ${rir}` : ""}`;
+};
 const RetoSerie = ({ actual, previa, unidad, compacto }) => {
   const r = retoDeSerie(actual, previa);
   if (r.estado === "nuevo") return null;   // primera vez: no hay contra qué medir
@@ -10400,7 +10411,7 @@ const RetoSerie = ({ actual, previa, unidad, compacto }) => {
   const refTxt = (() => {
     const b = r.estado === "pendiente" ? r.previa : r.previa;
     if (!b) return null;
-    return b.tipo === "vol" ? `${String(b.w).replace(".", ",")} ${unidad} × ${b.r}` : `${b.r} reps`;
+    return b.tipo === "vol" ? `${String(b.w).replace(".", ",")}${compacto ? "" : " " + unidad} × ${b.r}` : `${b.r} reps`;
   })();
   const meta = {
     mejor:     { txt: "vas mejor", col: SES.acc,   Icon: ArrowUp },
@@ -10409,7 +10420,7 @@ const RetoSerie = ({ actual, previa, unidad, compacto }) => {
     pendiente: null,
   }[r.estado];
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: compacto ? 0 : 4 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: compacto ? "nowrap" : "wrap", whiteSpace: "nowrap", marginTop: compacto ? 0 : 4 }}>
       {refTxt && <span style={{ fontSize: compacto ? 11.5 : 12.5, color: SES.faint }}>antes {refTxt}</span>}
       {meta && (
         <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: meta.col }}>
@@ -10993,8 +11004,6 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
     return (
       <div style={{ background: SES.card, border: "none", borderRadius: 24, padding: "18px 16px 10px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-          <span style={{ width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-            background: SES.campo, fontSize: 13.5, fontWeight: 800, color: SES.dim, marginTop: 1 }}>{bi + 1}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* El nombre se puede editar EN VIVO (renombrar o poner nombre a un
                 ejercicio recién agregado en un entrenamiento libre). En
@@ -11038,8 +11047,9 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
           </button>
         </div>
 
-        {(indicaciones || tempo || ultimaVez || (retoEx && retoEx.anotadas > 0)) && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10, paddingLeft: 42 }}>
+        {(!block.group || indicaciones || tempo || ultimaVez || (retoEx && retoEx.anotadas > 0)) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+            {!block.group && objetivoEj(exs[block.ei]) && <div style={{ fontSize: 14, color: SES.faint, fontWeight: 600 }}>Objetivo {objetivoEj(exs[block.ei])}</div>}
             {ultimaVez && <div style={{ fontSize: 13, color: SES.faint }}>{ultimaVez}</div>}
             {indicaciones && <div style={{ fontSize: 13, color: SES.dim, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{indicaciones}</div>}
             {tempo && <div><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
@@ -11048,7 +11058,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
         )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "12px 10px 4px", fontSize: 10.5, fontWeight: 700, letterSpacing: ".08em", color: SES.faint }}>
-          <span style={{ width: 34, flexShrink: 0, textAlign: "center" }}>{block.group ? "RONDA" : "SERIE"}</span>
+          <span style={{ width: 34, flexShrink: 0, textAlign: "center" }}>#</span>
           <span style={{ flex: 1, textAlign: "center" }}>{unitFor(block.group ? block.members[0] : block.ei).toUpperCase()}</span>
           <span style={{ flex: 1, textAlign: "center" }}>REPS</span>
           <span style={{ flex: 1, textAlign: "center" }}>RIR</span>
@@ -11101,15 +11111,15 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
                   border: isWarm && !st.done ? `1.5px dashed ${SES.faint}` : "none" }}>
                 {block.group ? (r.round || 0) + 1 : isWarm ? "A" : meta.no}
               </button>
-              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)}
+              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)} sufijo="" vacio=""
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitDeSerie(st, r.ei))).replace(".", ",")}
                 onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitDeSerie(st, r.ei)))))}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "weight" })} />
-              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`Repeticiones de la ${dónde}`} placeholder="reps"
+              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`Repeticiones de la ${dónde}`} placeholder="reps" sufijo="" vacio={String(st.repsT || "").replace(/-/g, "–")}
                 valor={st.reps == null ? "" : String(st.reps)}
                 onCommit={(v) => setVal(r.ei, r.si, "reps", v)}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "reps" })} />
-              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`RIR de la ${dónde}`} placeholder="RIR"
+              <NumCell flex alto={10} fondo={(i === idxActiva && !st.done) || st.done ? SES.card : SES.campo} aria={`RIR de la ${dónde}`} placeholder="RIR" sufijo="" vacio={st.rirT !== "" && st.rirT != null ? String(st.rirT) : ""}
                 valor={st.rir == null ? "" : String(st.rir)}
                 onCommit={(v) => setVal(r.ei, r.si, "rir", v)}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "rir" })} />
@@ -11294,37 +11304,34 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
       {/* Cabecera: cuánto llevas, cuánto falta y la salida. Ya no dice
           "ejercicio 2 de 7" porque no hay una página actual: están todos
           abajo, en orden. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", color: SES.ink, fontVariantNumeric: "tabular-nums" }}>{sessionClock(elapsed)}</span>
-        <span style={{ fontSize: 15, fontWeight: 600, color: SES.faint, fontVariantNumeric: "tabular-nums" }}>
-          <span style={{ color: SES.acc, fontWeight: 800 }}>{doneSets}</span>/{totalSets}
-        </span>
-        {hr.connected && hr.bpm != null && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 14, fontWeight: 700, color: SES.acc }}>
-            <HeartPulse size={14} /> {hr.bpm}
-          </span>
-        )}
-        <button onClick={() => setHerrOpen(true)} aria-label="Herramientas de la sesión" title="Herramientas"
-          style={{ width: 40, height: 40, borderRadius: 20, marginLeft: "auto", flexShrink: 0, background: SES.campo, color: SES.ink,
-            display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <MoreHorizontal size={20} />
-        </button>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button onClick={() => setSalida(true)} aria-label="Salir de la sesión"
           style={{ width: 40, height: 40, borderRadius: 20, flexShrink: 0, background: SES.campo, color: SES.ink,
             display: "flex", alignItems: "center", justifyContent: "center" }}>
           <X size={19} strokeWidth={2.6} />
         </button>
+        <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${active.dayName} — ver la rutina completa`}
+          style={{ flex: 1, minWidth: 0, textAlign: "left", padding: 0 }}>
+          <span style={{ display: "block", fontSize: 17, fontWeight: 750, letterSpacing: "-.02em", color: SES.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 600, color: SES.faint, fontVariantNumeric: "tabular-nums", marginTop: 1 }}>
+            <span>{sessionClock(elapsed)}</span><span>·</span><span><b style={{ color: SES.ink }}>{doneSets}</b>/{totalSets} series</span>
+            {hr.connected && hr.bpm != null && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: SES.ink }}><HeartPulse size={13} /> {hr.bpm}</span>
+            )}
+          </span>
+        </button>
+        <button onClick={() => setHerrOpen(true)} aria-label="Herramientas de la sesión" title="Herramientas"
+          style={{ width: 40, height: 40, borderRadius: 20, flexShrink: 0, background: SES.campo, color: SES.ink,
+            display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <MoreHorizontal size={20} />
+        </button>
+        <button onClick={() => setSalida(true)} aria-label="Finalizar la sesión"
+          style={{ height: 40, padding: "0 16px", borderRadius: 20, flexShrink: 0, background: SES.ink, color: SES.card, fontSize: 15, fontWeight: 700 }}>
+          Finalizar
+        </button>
       </div>
 
       <div>
-        {/* En Focus se esconde el nombre del día y la barra de progreso:
-            la pantalla queda solo con el selector y la serie que toca. */}
-        {!focusUno && (
-        <button onClick={onBrowseRoutine} disabled={!onBrowseRoutine} aria-label={`${active.dayName} — ver la rutina completa`}
-          style={{ display: "block", textAlign: "left", width: "100%", padding: "4px 0 2px" }}>
-          <span style={{ display: "block", fontSize: 24, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.15, color: SES.ink, overflowWrap: "anywhere" }}>{active.dayName}</span>
-        </button>
-        )}
         {/* Aviso de sesión retroactiva: deja claro que se está registrando un
             día pasado, no hoy — la fecha en la que quedará archivada. */}
         {active.backfilled && active.sessionDate && (
@@ -11699,25 +11706,38 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
       {/* Con la sesión entera desplegada, el descanso que arrancaste se va
           de pantalla en cuanto bajas. Esta barra lo trae contigo mientras
           corre, y desaparece sola al terminar. */}
-      {timer && (
+      {timer ? (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 40,
           padding: `10px 16px calc(10px + env(safe-area-inset-bottom))`,
           background: SES.card, borderTop: `1px solid ${SES.line}`,
           display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="disp" style={{ fontSize: 24, fontWeight: 700, color: SES.acc, fontVariantNumeric: "tabular-nums", minWidth: 66 }}>
+          <Timer size={20} color={SES.ink} strokeWidth={2} className="pulse" />
+          <span className="disp" style={{ fontSize: 26, fontWeight: 800, color: SES.ink, fontVariantNumeric: "tabular-nums", minWidth: 70, letterSpacing: "-.02em" }}>
             {fmtClock(Math.max(0, Math.ceil((timer.endsAt - now) / 1000)))}
           </span>
-          <span className="mono" style={{ fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase", color: SES.faint, flex: 1, minWidth: 0 }}>descanso</span>
-          <button className="mono" aria-label="Quitar 15 segundos al descanso en curso" onClick={() => onAdjustRest(-15)}
-            style={{ padding: "9px 12px", borderRadius: 10, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 13, fontWeight: 700 }}>−15</button>
-          <button className="mono" aria-label="Sumar 15 segundos al descanso en curso" onClick={() => onAdjustRest(15)}
-            style={{ padding: "9px 12px", borderRadius: 10, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontSize: 13, fontWeight: 700 }}>+15</button>
-          <button className="mono" aria-label="Detener el descanso en curso" onClick={onDismissRest}
-            style={{ padding: "9px 14px", borderRadius: 10, background: SES.acc, color: SES.accInk, fontSize: 13, fontWeight: 700 }}>Detener</button>
+          <span style={{ flex: 1 }} />
+          <button aria-label="Quitar 15 segundos al descanso en curso" onClick={() => onAdjustRest(-15)}
+            style={{ padding: "10px 12px", borderRadius: 999, background: SES.campo, color: SES.ink, fontSize: 14, fontWeight: 700 }}>−15</button>
+          <button aria-label="Sumar 15 segundos al descanso en curso" onClick={() => onAdjustRest(15)}
+            style={{ padding: "10px 12px", borderRadius: 999, background: SES.campo, color: SES.ink, fontSize: 14, fontWeight: 700 }}>+15</button>
+          <button aria-label="Detener el descanso en curso" onClick={onDismissRest}
+            style={{ padding: "10px 16px", borderRadius: 999, background: SES.ink, color: SES.card, fontSize: 14, fontWeight: 700 }}>Detener</button>
+        </div>
+      ) : (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 40,
+          padding: `8px 16px calc(8px + env(safe-area-inset-bottom))`,
+          background: SES.card, borderTop: `1px solid ${SES.line}`,
+          display: "flex", alignItems: "center", gap: 4 }}>
+          <Timer size={20} color={SES.faint} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 15, fontWeight: 600, color: SES.faint, marginLeft: 8, flex: 1 }}>Descanso</span>
+          {[[60, "60s"], [90, "90s"], [120, "2m"], [180, "3m"]].map(([seg, lab]) => (
+            <button key={seg} onClick={() => onStartRest && onStartRest(seg, 0, 0)} aria-label={`Descansar ${lab}`}
+              style={{ padding: "10px 12px", borderRadius: 999, fontSize: 15, fontWeight: 650, color: SES.ink, background: "transparent" }}>{lab}</button>
+          ))}
         </div>
       )}
       {/* Que la barra del descanso no tape el final de la lista. */}
-      {timer && <div aria-hidden style={{ height: 56 }} />}
+      <div aria-hidden style={{ height: 56 }} />
 
       {/* Volver arriba: aparece pasado cierto scroll, se corre por encima
           de la barra de descanso cuando está sonando para no taparla. */}
@@ -11725,7 +11745,7 @@ const FocusModeMono = ({ saveHistory, active, history, plan, patch, patchSet, pa
         <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           aria-label="Subir al inicio de la sesión"
           style={{ position: "fixed", right: 16,
-            bottom: timer ? `calc(66px + env(safe-area-inset-bottom))` : `calc(16px + env(safe-area-inset-bottom))`,
+            bottom: `calc(72px + env(safe-area-inset-bottom))`,
             width: 44, height: 44, borderRadius: 22, zIndex: 39,
             background: SES.card, border: `1px solid ${SES.line}`, color: SES.ink,
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -12310,6 +12330,11 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
   // Día esperando a que se elija gimnasio. La sesión no se crea hasta que
   // se elige: así el registro nunca queda sin sede.
   const [pidiendoGym, setPidiendoGym] = useState(null);
+  // Sede por defecto: la última usada. Empezar entra directo con ella; el chip
+  // de arriba la cambia sin pasar por una hoja por cada sesión.
+  const [gymDef, setGymDef] = useState("");
+  const [cambiandoGym, setCambiandoGym] = useState(false);
+  useEffect(() => { let vivo = true; listaDeGimnasios().then((r) => { if (vivo) setGymDef(r.ultimo || ""); }).catch(() => {}); return () => { vivo = false; }; }, []);
   const [previewDay, setPreviewDay] = useState(null);   // día cuya lista de ejercicios se previsualiza antes del gimnasio
   const [histOpen, setHistOpen] = useState(false);       // hoja "Historial" (mes → semana → sesiones)
   const [pastOpen, setPastOpen] = useState(false);      // hoja "Registrar sesión pasada" (retroactiva)
@@ -12430,6 +12455,11 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
     </Sheet>
   );
 
+  const empezarDia = (d) => {
+    if (active) { setConfirmSwitch(d); return; }
+    if (gymDef) { recordarGimnasio(gymDef); startSession(d, gymDef, d._fecha); }
+    else setPidiendoGym(d);
+  };
   if (listMode) {
     // Día que toca: el siguiente al último que se entrenó dentro de su misma
     // rutina (cíclico); sin historial, el primero de la primera rutina.
@@ -12449,17 +12479,71 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
       <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}>
         <ScreenTitle title="Entrenar" right={plan.days.length > 0 ? <RoutinesExportButton plan={plan} toast={toast} iconOnly /> : null} />
 
-        {!active && proximo && (
-          <div style={{ marginBottom: 14 }}><HeroCard Icon={Zap} eyebrow={proximo._rutina} title={proximo.name} label={`Empezar ${proximo.name}`}
-            meta={`${proximo.exs.length} ej · ${proximo.exs.reduce((t, e) => t + e.sets.length, 0)} series`}
-            onClick={() => setPreviewDay(proximo)} /></div>
+        {active && (
+          <button onClick={() => setBrowsing(false)} aria-label="Volver a mi sesión" title="Volver a mi sesión"
+            style={{ width: "100%", height: 52, borderRadius: 26, marginBottom: 18, background: PLATE_GRAD, color: PLATE_FG,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 16, fontWeight: 700 }}>
+            <Play size={20} /> {active.dayName}
+          </button>
+        )}
+        {!active && plan.days.length > 0 && (
+          <button onClick={() => setCambiandoGym(true)} aria-label="Cambiar de gimnasio" title="Cambiar de gimnasio"
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 14px", borderRadius: 999, marginBottom: 16,
+              background: P.s1, boxShadow: CARD_SHADOW, color: P.text, fontSize: 14.5, fontWeight: 600 }}>
+            <Home size={16} strokeWidth={2} /> {gymDef || "Elegir gimnasio"} <ChevronDown size={15} color={P.faint2} />
+          </button>
+        )}
+        <ProgramasSheet open={programasOpen} onClose={() => setProgramasOpen(false)}
+          onCopiar={copiarPrograma} />
+        {plan.days.length === 0 ? (
+          <Empty icon={Dumbbell} title="Aún no hay rutina" body="Tu coach todavía no carga días de entrenamiento. Pídele que entre en modo Coach y arme el plan." />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {routineGroups.map((g) => (
+              <React.Fragment key={g.key}>
+                {routineGroups.length > 1 && (
+                  <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint2, padding: "8px 4px 0" }}>{g.label} · {g.days.length} {g.days.length === 1 ? "día" : "días"}</div>
+                )}
+                {g.days.map((d) => {
+                  const lastDone = [...history.sessions].reverse().find((x) => x.dayId === d.id);
+                  const ns = d.exs.reduce((t, e) => t + e.sets.length, 0);
+                  const esProx = !!proximo && proximo.id === d.id;
+                  return (
+                    <Card key={d.id} style={{ padding: "18px 18px 16px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", lineHeight: 1.15, overflowWrap: "anywhere" }}>{d.name}</span>
+                        {esProx && <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".06em", padding: "4px 10px", borderRadius: 999, background: PLATE_GRAD, color: PLATE_FG }}>SIGUIENTE</span>}
+                      </div>
+                      <div style={{ fontSize: 14, color: P.faint2, marginTop: 4 }}>
+                        {d.exs.length} ejercicio{d.exs.length !== 1 ? "s" : ""} · {ns} series{lastDone ? ` · ${haceDias(lastDone.date)}` : ""}
+                      </div>
+                      {d.exs.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                          {d.exs.map((e, i) => (
+                            <div key={e.id || i} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "11px 0", borderTop: `0.5px solid ${P.separatorStrong || P.line}` }}>
+                              <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 600, letterSpacing: "-.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name || "Ejercicio sin nombre"}</span>
+                              <span style={{ fontSize: 14, color: P.faint2, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{objetivoEj(e)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button onClick={() => empezarDia(d)} aria-label={`Empezar ${d.name}`}
+                        style={{ width: "100%", height: 52, marginTop: 14, borderRadius: 26, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                          fontSize: 16.5, fontWeight: 700, background: esProx ? PLATE_GRAD : P.s3, color: esProx ? PLATE_FG : P.text }}>
+                        Empezar {d.name}
+                      </button>
+                    </Card>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
         )}
 
-        {/* Acciones: solo íconos, en una fila. Entrenamiento libre (principal),
-            registrar una sesión pasada, empezar un programa conocido y crear
-            una rutina propia. Cada una lleva su nombre en aria-label/title. */}
+        {/* Acciones: entrenamiento libre, registrar una sesión pasada, empezar un
+            programa conocido y crear una rutina propia. */}
         {!active && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 26 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginTop: 26 }}>
             {[
               { k: "libre", Icon: Plus, label: "Libre", primary: true, on: () => setPidiendoGym({ id: "free-" + uid(), name: "Entrenamiento libre", exs: [], free: true }) },
               { k: "hist", Icon: History, label: "Historial", on: () => setHistOpen(true) },
@@ -12487,76 +12571,8 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
             ))}
           </div>
         )}
-        <ProgramasSheet open={programasOpen} onClose={() => setProgramasOpen(false)}
-          onCopiar={copiarPrograma} />
-        {active && (
-          <button onClick={() => setBrowsing(false)} aria-label="Volver a mi sesión" title="Volver a mi sesión"
-            style={{ width: "100%", height: 52, borderRadius: 26, marginBottom: 28, background: PLATE_GRAD, color: PLATE_FG,
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 16, fontWeight: 700 }}>
-            <Play size={20} /> {active.dayName}
-          </button>
-        )}
-        {plan.days.length === 0 ? (
-          <Empty icon={Dumbbell} title="Aún no hay rutina" body="Tu coach todavía no carga días de entrenamiento. Pídele que entre en modo Coach y arme el plan." />
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {routineGroups.map((g) => {
-              const open = openRoutines.includes(g.key);
-              const nEj = g.days.reduce((t, d) => t + d.exs.length, 0);
-              const hechos = g.days.filter((d) => history.sessions.some((x) => x.dayId === d.id)).length;
-              return (
-                <Card key={g.key} style={{ overflow: "hidden" }}>
-                  <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-                    style={{ width: "100%", textAlign: "left", padding: "16px 16px", display: "flex", alignItems: "center", gap: 14 }}>
-                    <span style={{ position: "relative", width: 50, height: 50, borderRadius: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                      background: hexRgba(P.ember, 0.12), color: P.ember2 }}>
-                      <Dumbbell size={23} strokeWidth={2.1} />
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ display: "block", fontWeight: 750, fontSize: 19, letterSpacing: "-.025em", lineHeight: 1.18, overflowWrap: "anywhere" }}>{g.label}</span>
-                      <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
-                        <span style={{ display: "flex", gap: 4 }} aria-label={`${hechos} de ${g.days.length} días hechos`}>
-                          {g.days.slice(0, 8).map((d) => {
-                            const hecho = history.sessions.some((x) => x.dayId === d.id);
-                            return <i key={d.id} style={{ width: 18, height: 5, borderRadius: 3, background: hecho ? PLATE_GRAD : P.s4 }} />;
-                          })}
-                        </span>
-                        <span style={{ fontSize: 12.5, fontWeight: 500, color: P.faint }}>{g.days.length} · {nEj} ej</span>
-                      </span>
-                    </span>
-                    <span style={{ width: 32, height: 32, borderRadius: 16, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <ChevronDown size={18} color={P.dim} style={{ transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_PUSH}ms ${EASE_STD}` }} />
-                    </span>
-                  </button>
-                  {open && (
-                    <div className="deployIn" style={{ padding: "0 8px 8px" }}>
-                      {g.days.map((d, i) => {
-                        const lastDone = [...history.sessions].reverse().find((x) => x.dayId === d.id);
-                        const ne = d.exs.length, ns = d.exs.reduce((t, e) => t + e.sets.length, 0);
-                        const esProx = proximo && proximo.id === d.id;
-                        return (
-                          <button key={d.id} onClick={() => (active ? setConfirmSwitch(d) : setPreviewDay(d))}
-                            style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "11px 10px", marginTop: i ? 2 : 0, borderRadius: 14,
-                              background: esProx ? hexRgba(P.ember, 0.08) : "transparent" }}>
-                            <span style={{ width: 34, height: 34, borderRadius: 17, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                              background: esProx ? PLATE_GRAD : P.s3, color: esProx ? PLATE_FG : P.text, fontSize: 14.5, fontWeight: 700 }}>{i + 1}</span>
-                            <span style={{ flex: 1, minWidth: 0 }}>
-                              <span style={{ display: "block", fontSize: 16.5, fontWeight: 600, letterSpacing: "-.015em", lineHeight: 1.25, overflowWrap: "anywhere" }}>{d.name}</span>
-                              <span style={{ display: "block", fontSize: 13, fontWeight: 400, color: P.faint, marginTop: 2 }}>
-                                {ne} ej · {ns} series{lastDone ? ` · ${haceDias(lastDone.date)}` : ""}
-                              </span>
-                            </span>
-                            <Play size={15} color={esProx ? P.ember2 : P.chevron} fill={esProx ? P.ember2 : "none"} style={{ flexShrink: 0 }} />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </Card>
-              );
-            })}
-          </div>
-        )}
+        <GymPickerSheet open={cambiandoGym} dayName="" onClose={() => setCambiandoGym(false)}
+          onElegir={(g) => { setGymDef(g); setCambiandoGym(false); }} />
         {/* Primero la lista de ejercicios de la sesión; recién desde ahí se
             elige el gimnasio. La ✕ de la hoja permite salir sin empezar. */}
         <DayPreviewSheet open={!!previewDay} day={previewDay} history={history}
