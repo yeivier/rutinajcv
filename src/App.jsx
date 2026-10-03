@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v404";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v405";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6014,6 +6014,21 @@ const Stepper = ({ label, caption, value, onChange, step = 1, min = 0, decimals 
 /* Celda numérica de la tabla de series. Guarda su propio texto mientras
    tiene el foco: si se leyera siempre del dato, escribir "12," se
    convertiría en "12" a mitad de tecleo y la coma se perdería. */
+/* Número grande y editable de la serie en modo Focus: al tocarlo se escribe
+   directo, sin pasar por − / +. */
+const NumBig = ({ valor, onCommit, aria, ph }) => {
+  const [txt, setTxt] = useState(valor);
+  const foco = useRef(false);
+  useEffect(() => { if (!foco.current) setTxt(valor); }, [valor]);
+  return (
+    <input type="text" inputMode="decimal" value={txt} placeholder={ph || "—"} aria-label={aria}
+      onFocus={(e) => { foco.current = true; try { e.target.select(); } catch {} }}
+      onBlur={() => { foco.current = false; setTxt(valor); }}
+      onChange={(e) => { setTxt(e.target.value); onCommit(e.target.value.replace(",", ".")); }}
+      style={{ flex: 1, minWidth: 0, width: "100%", textAlign: "center", fontSize: String(txt).length > 5 ? 19 : String(txt).length > 4 ? 23 : String(txt).length > 3 ? 27 : 30, fontWeight: 700, color: SES.ink, fontVariantNumeric: "tabular-nums",
+        background: "transparent", border: "none", borderRadius: 0, outline: "none", padding: 0, fontFamily: "inherit", boxSizing: "border-box" }} />
+  );
+};
 const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 48, onTap, fondo, flex, alto, sufijo, vacio, radio, altoMin, grande }) => {
   const [txt, setTxt] = useState(valor);
   const foco = useRef(false);
@@ -10492,8 +10507,8 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
   // y se recuerda. En Focus se ve UN ejercicio a la vez —la misma tabla de
   // series, con todos sus controles— para registrar con los menos toques
   // posibles, sin la lista entera compitiendo por la atención.
-  const [focusUno, setFocusUnoState] = useState(() => { try { return localStorage.getItem("forja-focus-uno") === "1"; } catch { return false; } });
-  const setFocusUno = (v) => { setFocusUnoState(v); try { localStorage.setItem("forja-focus-uno", v ? "1" : "0"); } catch {} };
+  const [focusUno, setFocusUnoState] = useState(false);   // siempre arranca en tabla; el ícono de la cabecera lo activa
+  const setFocusUno = (v) => setFocusUnoState(v);
   const [curFlat, setCurFlat] = useState(0); // índice de la SERIE visible en Focus Mode (una a la vez)
   // Ajuste de carga por prontitud: guarda el estado previo para poder
   // deshacerlo. Es una sugerencia que el atleta acepta, no una
@@ -11309,16 +11324,20 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
           style={{ width: 40, height: 44, flexShrink: 0, color: SES.ink, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
           <ChevronLeft size={26} strokeWidth={2} />
         </button>
-        <button onClick={() => setHerrOpen(true)} aria-label={`${active.dayName} — herramientas de la sesión`}
-          style={{ flex: 1, minWidth: 0, textAlign: "left", padding: 0 }}>
-          <span style={{ display: "block", fontSize: 17, fontWeight: 600, letterSpacing: "-.02em", color: SES.ink, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{active.dayName}</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 400, color: SES.faint, fontVariantNumeric: "tabular-nums", marginTop: 1 }}>
-            <span>{sessionClock(elapsed)}</span><span>·</span><span>{doneSets}/{totalSets} series</span>
-            {hr.connected && hr.bpm != null && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: SES.ink }}><HeartPulse size={13} /> {hr.bpm}</span>
-            )}
-          </span>
-        </button>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, fontSize: 17, fontWeight: 500, color: SES.ink, fontVariantNumeric: "tabular-nums" }}>
+          <span>{sessionClock(elapsed)}</span><span style={{ color: SES.faint }}>·</span><span>{doneSets}/{totalSets} series</span>
+          {hr.connected && hr.bpm != null && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><HeartPulse size={14} /> {hr.bpm}</span>
+          )}
+        </div>
+        {flatSets.length > 1 && (
+          <button onClick={() => setFocusUno(!focusUno)} aria-pressed={focusUno}
+            aria-label={focusUno ? "Ver todo en tabla" : "Modo Focus: una serie a la vez"} title={focusUno ? "Ver todo en tabla" : "Modo Focus"}
+            style={{ width: 44, height: 44, borderRadius: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+              color: SES.ink, background: focusUno ? SES.campo : "transparent" }}>
+            {focusUno ? <List size={22} strokeWidth={1.8} /> : <Crosshair size={22} strokeWidth={1.8} />}
+          </button>
+        )}
         <button onClick={() => setSalida(true)} aria-label="Finalizar la sesión"
           style={{ height: 44, padding: "0 22px", borderRadius: 22, flexShrink: 0, background: SES.ink, color: SES.card, fontSize: 17, fontWeight: 500 }}>
           Finalizar
@@ -11468,14 +11487,13 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
         const setR = (v) => setVal(r.ei, r.si, "reps", String(Math.max(0, Math.round(v))));
         const llave = restKey(r.ei, r.si);
         const mono = { fontFamily: "'Geist Mono', ui-monospace, Menlo, monospace" };
-        const miniBtn = { width: 44, height: 44, borderRadius: 12, border: `1px solid ${SES.line}`, background: SES.bg, color: SES.ink, fontSize: 22, lineHeight: 1, flexShrink: 0 };
-        const caja = (lab, valor, texto, bajar, subir, campo) => (
+        const miniBtn = { width: 40, height: 40, borderRadius: 12, border: `1px solid ${SES.line}`, background: SES.bg, color: SES.ink, fontSize: 22, lineHeight: 1, flexShrink: 0 };
+        const caja = (lab, texto, bajar, subir, onCommit) => (
           <div style={{ flex: 1, minWidth: 0, background: SES.campo, borderRadius: 18, padding: "12px 8px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
             <span className="mono" style={{ fontSize: 10, color: SES.faint }}>{lab}</span>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 4 }}>
               <button onClick={bajar} aria-label={`Bajar ${lab}`} style={miniBtn}>−</button>
-              <button onClick={() => setWheelEn({ key: llave, field: campo })} aria-label={`${lab}: ${texto}. Tocar para escribir`}
-                style={{ fontSize: 30, fontWeight: 700, color: valor ? SES.ink : SES.faint, fontVariantNumeric: "tabular-nums", padding: 0, minWidth: 0 }}>{texto}</button>
+              <NumBig valor={texto} onCommit={onCommit} aria={`${lab}: escribir el número`} />
               <button onClick={subir} aria-label={`Subir ${lab}`} style={miniBtn}>+</button>
             </div>
           </div>
@@ -11526,8 +11544,9 @@ const FocusModeMono = ({ restSel, onPickRest, saveHistory, active, history, plan
                 <span style={{ ...mono, fontSize: 12, color: SES.faint, textAlign: "right" }}>{meta}</span>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                {caja(`Peso · ${u}`, wNum > 0, wNum > 0 ? String(kg(wNum)) : "—", () => setW(wNum - pasoW), () => setW(wNum + pasoW), "weight")}
-                {caja("Reps", rNum > 0, rNum > 0 ? String(rNum) : "—", () => setR(rNum - 1), () => setR(rNum + 1), "reps")}
+                {caja(`Peso · ${u}`, wNum > 0 ? String(kg(wNum)) : "", () => setW(wNum - pasoW), () => setW(wNum + pasoW),
+                  (v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, u)))))}
+                {caja("Reps", rNum > 0 ? String(rNum) : "", () => setR(rNum - 1), () => setR(rNum + 1), (v) => setVal(r.ei, r.si, "reps", v))}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span className="mono" style={{ fontSize: 10, color: SES.faint, width: 64 }}>RIR real</span>
