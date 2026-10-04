@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v407";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v408";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -11055,7 +11055,9 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
               </div>
             )}
           </div>
+          {btnComentarioEx(block, bi)}
         </div>
+        {comentarioEx(block, bi)}
 
         {(!block.group || indicaciones || tempo) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
@@ -11094,6 +11096,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           <span style={{ flex: 1, textAlign: "center" }}>REPS</span>
           <span style={{ flex: 1, textAlign: "center" }}>RIR</span>
           <span style={{ width: 46, flexShrink: 0 }} />
+          <span style={{ width: 30, flexShrink: 0 }} />
         </div>
 
         {block.rows.map((r, i) => {
@@ -11154,6 +11157,11 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                   background: st.done ? SES.ink : "transparent", color: st.done ? SES.card : SES.faint, border: `1px solid ${st.done ? SES.ink : SES.campo}`,
                   transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
                 <Check size={22} strokeWidth={2.2} />
+              </button>
+              <button onClick={() => (cmtKey === restKey(r.ei, r.si) ? setCmtKey(null) : openCmt(restKey(r.ei, r.si)))}
+                aria-label={`${st.comment ? "Editar el comentario de" : "Comentar"} la ${dónde}`} title="Comentar esta serie"
+                style={{ width: 30, height: 50, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: st.comment ? SES.ink : SES.faint }}>
+                <MessageSquare size={19} strokeWidth={1.8} fill={st.comment ? "currentColor" : "none"} />
               </button>
             </div>
             {renderLegs(st, r.ei, r.si, dónde)}
@@ -11235,6 +11243,39 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
      era una fila de chips grandes en mono/mayúscula; investigado el
      estándar de la categoría (Strong, Setgraph) esto es soporte, no lo
      principal — se aplana a íconos chicos y planos. */
+  // Comentario GENERAL del ejercicio (sensaciones, molestias, ajustes): se abre
+  // con el ícono de comentario del título y, si ya tiene texto, queda a la vista.
+  const comentarioEx = (block, bi) => {
+    const primero = block.group ? block.members[0] : block.ei;
+    const nombre = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
+    const tiene = !!(exs[primero].comment || "").trim();
+    const abierto = exCmtFor === bi;
+    if (!abierto && !tiene) return null;
+    return abierto ? (
+      <textarea autoFocus rows={2} value={exs[primero].comment || ""}
+        placeholder={`Comentario de ${nombre} (sensaciones, molestias, ajustes…)`}
+        onChange={(e) => patchEx(primero, { comment: e.target.value })}
+        onBlur={() => setExCmtFor(null)}
+        style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "10px 12px", fontSize: 14.5, lineHeight: 1.45, marginTop: 10,
+          resize: "none", borderRadius: 14, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink, fontFamily: "inherit", outline: "none" }} />
+    ) : (
+      <button onClick={() => setExCmtFor(bi)} style={{ display: "block", width: "100%", textAlign: "left", fontSize: 13.5, color: SES.dim, marginTop: 10,
+        lineHeight: 1.4, background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: 14, padding: "9px 12px", boxSizing: "border-box" }}>
+        {exs[primero].comment}
+      </button>
+    );
+  };
+  const btnComentarioEx = (block, bi) => {
+    const primero = block.group ? block.members[0] : block.ei;
+    const tiene = !!(exs[primero].comment || "").trim();
+    return (
+      <button onClick={() => setExCmtFor(exCmtFor === bi ? null : bi)} aria-label={`Comentario general del ejercicio${tiene ? " (con texto)" : ""}`} title="Comentario del ejercicio"
+        style={{ width: 36, height: 36, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: tiene ? SES.ink : SES.faint, marginTop: -4 }}>
+        <MessageSquare size={20} strokeWidth={1.8} fill={tiene ? "currentColor" : "none"} />
+      </button>
+    );
+  };
+
   const accionesDe = (block, bi) => {
     const primero = block.group ? block.members[0] : block.ei;
     const nombre = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
@@ -11267,25 +11308,6 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           <Calculator size={17} />
         </button>
       </div>
-      {/* Comentario general del ejercicio, desplegado inline debajo de sus
-          acciones — sin abrir menús ni el «···». */}
-      {(cmtAbierto || tieneCmt) && (
-        <div style={{ padding: "0 2px" }}>
-          {cmtAbierto ? (
-            <textarea autoFocus rows={2} value={exs[primero].comment || ""}
-              placeholder={`Comentario de ${nombre} (sensaciones, molestias, ajustes…)`}
-              onChange={(e) => patchEx(primero, { comment: e.target.value })}
-              style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "10px 11px", fontSize: 14.5, lineHeight: 1.45,
-                resize: "none", borderRadius: 10, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink,
-                fontFamily: "inherit", outline: "none" }} />
-          ) : (
-            <button onClick={() => setExCmtFor(bi)} style={{ display: "block", width: "100%", textAlign: "left", fontSize: 13, color: SES.dim,
-              lineHeight: 1.4, background: SES.campo, border: `1px solid ${SES.line}`, borderRadius: 10, padding: "8px 11px", boxSizing: "border-box" }}>
-              {exs[primero].comment}
-            </button>
-          )}
-        </div>
-      )}
       </>
     );
   };
@@ -11522,7 +11544,11 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <span className="mono" style={{ fontSize: 11, color: SES.faint }}>Ejercicio {bi + 1} de {blocks.length}{exs[r.ei].muscle ? ` · ${exs[r.ei].muscle}` : ""}</span>
-              <span style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.08, color: SES.ink, overflowWrap: "anywhere" }}>{b.group ? b.members.map((m) => exs[m].name).join(" + ") : exs[r.ei].name}</span>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 28, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.08, color: SES.ink, overflowWrap: "anywhere" }}>{b.group ? b.members.map((m) => exs[m].name).join(" + ") : exs[r.ei].name}</span>
+                {btnComentarioEx(b, bi)}
+              </div>
+              {comentarioEx(b, bi)}
               {exs[r.ei].notes ? <span style={{ fontSize: 14, color: SES.faint, lineHeight: 1.4 }}>{exs[r.ei].notes}</span> : null}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
