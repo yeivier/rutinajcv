@@ -318,7 +318,7 @@ OJO: en tu A_V3 ning\xFAn ejercicio tiene m\xFAsculos secundarios marcados, as\x
     @keyframes fjShine { from { transform: translateX(-130%) skewX(-18deg); } to { transform: translateX(330%) skewX(-18deg); } }
     .fj .fj-shine { animation: fjShine 3.4s ${pt} 1.1s infinite; }
     @keyframes fjPing { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(1.9); opacity: 0; } }
-    .fj .fj-ping { animation: fjPing 2.2s ${Pg} infinite; }
+    .fj .fj-ping { animation: fjPing 2.2s ${Fg} infinite; }
     @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 
     /* Creador de rutinas: las tarjetas entran con el mismo fjUp de
