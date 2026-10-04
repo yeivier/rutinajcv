@@ -545,7 +545,7 @@ DATOS DEL ALUMNO ACTUAL:
 - Plan actual (kcal/prote\xEDna/carbos/grasas): ${e.nutrition.kcal||"?"} / ${e.nutrition.p||"?"}g / ${e.nutrition.c||"?"}g / ${e.nutrition.f||"?"}g
 - Notas del plan: ${e.nutrition.notes||"sin notas"}
 - Comidas configuradas: ${(e.nutrition.meals||[]).length}
-- Rutina: ${e.days.length} d\xEDas de entrenamiento, ${e.days.reduce((C,k)=>C+k.exs.length,0)} ejercicios totales, repartidos en ${So(e.days,e.routineNames).map(C=>`${C.label} (${C.days.length} d\xEDas)`).join(", ")||"ninguna rutina"}.
+- Rutina: ${e.days.length} d\xEDas de entrenamiento, ${e.days.reduce((C,k)=>C+k.exs.length,0)} ejercicios totales, repartidos en ${Co(e.days,e.routineNames).map(C=>`${C.label} (${C.days.length} d\xEDas)`).join(", ")||"ninguna rutina"}.
 
 TU ROL:
 - Ayudar al coach a dise\xF1ar planes nutricionales adaptados al objetivo del alumno (volumen, definici\xF3n, mantenci\xF3n, recomposici\xF3n).
@@ -694,7 +694,7 @@ ${e}`}function _z(e){if(!e)return"";let t=new Date(e);if(isNaN(t.getTime()))retu
       <ul>${o.bullets.map(i=>`<li>${i.url?_L(i):Ca(i.text)}</li>`).join("")}</ul>
       ${o.extra.length?`<div class="notas">${o.extra.map(i=>_L(i)).join("")}</div>`:""}
     </section>`).join(`
-`);return`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Ficha \u2014 ${ka(t?.name||"Atleta")}</title>
+`);return`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Ficha \u2014 ${Ca(t?.name||"Atleta")}</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Segoe UI,Roboto,sans-serif;max-width:720px;margin:0 auto;padding:32px 20px;color:#101012;background:#fff;}
 h1{font-size:26px;margin:0 0 4px;} .sub{color:#8a8a92;font-size:13px;margin-bottom:28px;}
@@ -733,7 +733,7 @@ ${n}
       <div class="rsub">${m.days.length} entrenamiento${m.days.length!==1?"s":""} \xB7 ${m.exCount} ejercicios \xB7 ${m.setCount} series${m.note?` \u2014 ${Ca(m.note)}`:""}</div>
       ${m.days.map((f,h)=>c(f,h)).join("")}
     </section>`).join(`
-`):'<div class="empty">No hay rutinas cargadas en este plan.</div>',p=t?`Rutinas \u2014 ${ka(t)}`:"Rutinas de entrenamiento";return`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${p}</title>
+`):'<div class="empty">No hay rutinas cargadas en este plan.</div>',p=t?`Rutinas \u2014 ${Ca(t)}`:"Rutinas de entrenamiento";return`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${p}</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Segoe UI,Roboto,sans-serif;max-width:820px;margin:0 auto;padding:32px 20px;color:#101012;background:#fff;}
 h1{font-size:26px;margin:0 0 4px;} .sub{color:#8a8a92;font-size:13px;margin-bottom:24px;}
