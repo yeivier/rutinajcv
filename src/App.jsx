@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v408";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v409";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5767,8 +5767,8 @@ const GlobalStyle = () => {
     .fj .splashSweep { animation: splashSweep 1.3s cubic-bezier(.4,0,.2,1) .3s both; }
     /* Entrada de la app: al terminar el splash, todo el contenido sube y se
        enfoca (desde un leve zoom y desenfoque). */
-    @keyframes appEnter { from { opacity: 0; transform: scale(.965) translateY(14px); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
-    .fj.appEnter, .fj .appEnter { animation: appEnter .8s cubic-bezier(.16,1,.3,1) both; }
+    @keyframes appEnter { from { opacity: 0; } to { opacity: 1; } }
+    .fj.appEnter, .fj .appEnter { animation: appEnter .25s ease both; }
     @keyframes splashBarIn { from { opacity: 0; } to { opacity: 1; } }
     .fj .splashBar { animation: splashBarIn .3s ease 1.2s both; }
     /* Reordenar fichas del grid al estilo iOS (mantener pulsado → todo
@@ -5933,7 +5933,7 @@ const DUR_PASO = 150;
 // (DRAG_LIFT_BORDER) es aparte del anillo de sombra para que el borde real
 // de la tarjeta también cambie de color, no solo su halo.
 const DRAG_LIFT_TRANSFORM = "scale(1.03) translateY(-4px)";
-const DRAG_LIFT_SHADOW = "0 12px 28px -12px rgba(0,0,0,.28)";
+const DRAG_LIFT_SHADOW = "none";
 const DRAG_LIFT_BORDER = `1.5px solid ${P.text}`;
 // Transición usada para el desplazamiento "hueco" (translateY) de los
 // elementos vecinos durante un arrastre — ver computeShiftOffsets().
@@ -6153,7 +6153,7 @@ const Toggle = ({ on, onChange, disabled, label }) => (
       background: on ? P.ember : P.separatorStrong, opacity: disabled ? .5 : 1,
       transition: `background ${DUR_MICRO}ms ${EASE_STD}`, display: "flex", alignItems: "center" }}>
     <span style={{ width: 22, height: 22, borderRadius: "50%", background: "#FFFFFF",
-      boxShadow: "0 1px 3px rgba(0,0,0,.25)", transform: on ? "translateX(17px)" : "translateX(0)",
+      boxShadow: "none", transform: on ? "translateX(17px)" : "translateX(0)",
       transition: `transform ${DUR_MICRO}ms ${EASE_STD}` }} />
   </button>
 );
@@ -6476,7 +6476,7 @@ const OrderDoneBar = ({ show, onDone }) => show ? (
   <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(var(--fj-tabbar-h) + 12px)",
     display: "flex", justifyContent: "center", zIndex: 60, pointerEvents: "none" }}>
     <button data-order-done onClick={onDone} style={{ pointerEvents: "auto", background: P.text, color: P.s1,
-      fontWeight: 700, fontSize: 15, padding: "11px 28px", borderRadius: 999, boxShadow: "0 8px 24px rgba(0,0,0,.3)" }}>
+      fontWeight: 700, fontSize: 15, padding: "11px 28px", borderRadius: 999, boxShadow: "none" }}>
       Listo
     </button>
   </div>
@@ -6896,33 +6896,13 @@ const SPLASH_SPARKS = Array.from({ length: 26 }, (_, i) => ({
   d: ((i * 53) % 100) / 100 * 1.5 + 0.2, t: 2.4 + ((i * 11) % 10) / 10 * 1.8,
 }));
 const SplashScreen = ({ exiting }) => (
-  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", position: "relative", overflow: "hidden",
-    display: "flex", alignItems: "center", justifyContent: "center", color: P.text, background: P.bg,
-    opacity: exiting ? 0 : 1, transform: exiting ? "scale(1.18)" : "scale(1)", filter: exiting ? "blur(10px)" : "none",
-    transition: `opacity ${DUR_ROW * 2.5}ms ${EASE_STD}, transform ${DUR_ROW * 2.5}ms ${EASE_STD}, filter ${DUR_ROW * 2.5}ms ${EASE_STD}` }}>
+  <div className="fj splashFadeIn" style={{ minHeight: "100vh", minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center",
+    color: P.text, background: P.bg, opacity: exiting ? 0 : 1, transition: `opacity ${DUR_ROW}ms ${EASE_STD}` }}>
     <GlobalStyle />
-    {/* Escenario: resplandor del color de acento que nace en el centro, anillos
-        de onda expansiva, chispas que suben y un destello que barre la pantalla.
-        Todo sale de la paleta activa: blanco y negro por defecto, o el acento
-        y el modo (claro/oscuro) que haya elegido cada uno. */}
-    <div aria-hidden="true" className="splashGlow" style={{ position: "absolute", left: "50%", top: "46%", width: "130vmax", height: "130vmax",
-      marginLeft: "-65vmax", marginTop: "-65vmax", borderRadius: "50%",
-      background: `radial-gradient(closest-side, ${hexRgba(P.ember, 0.16)}, ${hexRgba(P.ember, 0.05)} 40%, transparent 70%)` }} />
-    {[0, 0.5].map((d, i) => (
-      <div key={i} aria-hidden="true" className="splashRing" style={{ position: "absolute", left: "50%", top: "46%", width: 120, height: 120,
-        marginLeft: -60, marginTop: -60, borderRadius: "50%", border: `2px solid ${hexRgba(P.ember, 0.35)}`, animationDelay: `${0.35 + d}s` }} />
-    ))}
-    {SPLASH_SPARKS.map((k, i) => (
-      <span key={i} aria-hidden="true" className="splashSpark" style={{ left: `${k.x}%`, width: k.s, height: k.s, "--dx": `${k.dx}vw`, "--t": `${k.t}s`, "--d": `${k.d}s`,
-        background: P.ember, boxShadow: `0 0 10px 2px ${hexRgba(P.ember, 0.4)}` }} />
-    ))}
-    <div aria-hidden="true" className="splashSweep" style={{ position: "absolute", top: 0, bottom: 0, width: "34%",
-      background: `linear-gradient(90deg, transparent, ${hexRgba(P.ember, 0.09)} 50%, transparent)` }} />
-    <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 30, marginTop: "-4vh" }}>
-      <div data-fjkeep className="splashIcon" style={{ width: 112, height: 112, borderRadius: 34,
-        display: "flex", alignItems: "center", justifyContent: "center", background: PLATE_GRAD,
-        boxShadow: `0 24px 60px -14px ${hexRgba(P.ember, 0.55)}, 0 0 0 0 ${hexRgba(P.ember, 0.4)}` }}>
-        <svg viewBox="0 0 24 24" width={64} height={64} aria-hidden="true" fill={PLATE_FG}>
+    {/* Sin efectos: marca plana, negra, y el nombre. */}
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 22 }}>
+      <div data-fjkeep style={{ width: 96, height: 96, borderRadius: 28, display: "flex", alignItems: "center", justifyContent: "center", background: PLATE_GRAD }}>
+        <svg viewBox="0 0 24 24" width={56} height={56} aria-hidden="true" fill={PLATE_FG}>
           <rect x="8" y="10.6" width="8" height="2.8" rx="1" />
           <rect x="2.5" y="8.2" width="2" height="7.6" rx="0.7" />
           <rect x="5" y="6.6" width="2.5" height="10.8" rx="0.9" />
@@ -6930,17 +6910,7 @@ const SplashScreen = ({ exiting }) => (
           <rect x="19.5" y="8.2" width="2" height="7.6" rx="0.7" />
         </svg>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-        <div style={{ fontSize: 58, fontWeight: 800, letterSpacing: ".16em", paddingLeft: ".16em", lineHeight: 1 }}>
-          {BRAND.name.split("").map((ch, i) => (
-            <span key={i} className="splashLetter" style={{ animationDelay: `${.5 + i * .09}s` }}>{ch}</span>
-          ))}
-        </div>
-        <div className="splashRule" style={{ height: 2, borderRadius: 2, background: P.ember }} />
-        <div className="splashTag" style={{ fontSize: 12.5, color: P.faint, fontWeight: 600,
-          fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
-          textTransform: "uppercase", letterSpacing: ".22em" }}>{BRAND.tagline}</div>
-      </div>
+      <div style={{ fontSize: 40, fontWeight: 800, letterSpacing: ".14em", paddingLeft: ".14em", lineHeight: 1 }}>{BRAND.name}</div>
     </div>
   </div>
 );
@@ -7731,7 +7701,7 @@ const ChatTab = ({ sid, role, studentName, onBack }) => {
         {lejos && (
           <button onClick={() => alFinal(true)} aria-label="Ir al último mensaje" title="Ir al final"
             style={{ position: "absolute", right: 16, bottom: 82, width: 42, height: 42, borderRadius: 21, background: P.s1, color: P.text,
-              boxShadow: "0 6px 18px rgba(0,0,0,.18), 0 0 0 .5px rgba(0,0,0,.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              boxShadow: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <ChevronDown size={22} strokeWidth={2.2} />
           </button>
         )}
@@ -10472,7 +10442,7 @@ const FinDescansoAviso = ({ marca }) => {
         display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
         padding: "13px 16px", borderRadius: 14, border: "none",
         background: SES.acc, color: SES.accInk, fontSize: 15, fontWeight: 700,
-        boxShadow: "0 10px 30px -12px rgba(0,0,0,.45)",
+        boxShadow: "none",
         animation: `fjSheetUp ${DUR_ROW}ms ${EASE_STD}` }}>
       <Timer size={17} strokeWidth={2.4} /> Descanso terminado
     </button>
@@ -11746,7 +11716,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
             width: 44, height: 44, borderRadius: 22, zIndex: 39,
             background: SES.card, border: `1px solid ${SES.line}`, color: SES.ink,
             display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 4px 14px rgba(0,0,0,.22)",
+            boxShadow: "none",
             transition: `bottom ${DUR_ROW}ms ${EASE_STD}` }}>
           <ArrowUp size={19} strokeWidth={2.4} />
         </button>
@@ -14321,7 +14291,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           background: "#0B0B0D", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div className="modalIn" onClick={(e) => e.stopPropagation()} style={{ textAlign: "center", maxWidth: 320, width: "100%" }}>
             <div style={{ width: 84, height: 84, borderRadius: "50%", margin: "0 auto 22px", display: "flex", alignItems: "center", justifyContent: "center",
-              background: PLATE_GRAD, boxShadow: "0 0 40px rgba(255,255,255,.18)" }}>
+              background: PLATE_GRAD, boxShadow: "none" }}>
               <Flame size={40} color={PLATE_FG} />
             </div>
             <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", letterSpacing: "-.02em" }}>Día {celebra}</div>
@@ -14358,7 +14328,7 @@ const cargarRecharts = () => _rechartsProm || (_rechartsProm = import("recharts"
 // grande — antes era una etiqueta chica sin jerarquía, ahora se lee como
 // el número importante que es, no como una nota al pie.
 const chartTooltipStyle = { background: P.s2, border: `1px solid ${P.line}`, borderRadius: 12, fontSize: 13,
-  padding: "8px 12px", boxShadow: "0 6px 20px rgba(0,0,0,.12)" };
+  padding: "8px 12px", boxShadow: "none" };
 /* Gráfico propio, táctil y sin librerías: se desliza el dedo (o el mouse)
    sobre la curva y arriba aparece el valor exacto con su fecha y el cambio
    contra el punto anterior. Debajo, mínimo · promedio · máximo del tramo.
@@ -14827,7 +14797,7 @@ const LevelCard = ({ history }) => {
   return (
     <Card style={{ padding: "18px 20px", display: "flex", alignItems: "center", gap: 16 }}>
       <div style={{ width: 60, height: 60, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-        background: PLATE_GRAD, boxShadow: CARD_LIFT, flexDirection: "column" }}>
+        background: PLATE_GRAD, boxShadow: "none", flexDirection: "column" }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: PLATE_FG, opacity: .75, lineHeight: 1, textTransform: "uppercase", letterSpacing: ".04em" }}>Nivel</span>
         <span style={{ fontSize: 24, fontWeight: 800, color: PLATE_FG, lineHeight: 1.1 }}>{info.nivel}</span>
       </div>
@@ -18744,7 +18714,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 background: P.s1, borderRadius: 22, boxShadow: CARD_SHADOW }}>
               <span style={{ flexShrink: 0, minWidth: 50, height: 50, borderRadius: 16, padding: "0 4px",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 19, boxShadow: `0 8px 16px -8px ${hexRgba(P.ember, 0.7)}` }}>{g.key}</span>
+                background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 19, boxShadow: "none" }}>{g.key}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", color: P.text, lineHeight: 1.15, overflowWrap: "anywhere" }}>{g.label}</div>
                 <div style={{ fontSize: 14, color: P.faint, marginTop: 3, fontWeight: 600 }}>
@@ -23704,7 +23674,7 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
         <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Volver arriba"
           style={{ position: "fixed", right: 16, bottom: "calc(196px + env(safe-area-inset-bottom))", zIndex: 40, width: 46, height: 46, borderRadius: 23,
             background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 8px 24px -8px rgba(0,0,0,.45)" }}>
+            boxShadow: "none" }}>
           <ChevronUp size={22} strokeWidth={2.6} />
         </button>
       )}
@@ -24318,9 +24288,9 @@ const AchievementUnlockWatcher = ({ history, saveHistory }) => {
     <div onClick={cerrar} className="scrimIn" style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.55)",
       display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div onClick={(e) => e.stopPropagation()} className="modalIn" style={{ background: P.s1, borderRadius: 22, padding: "28px 24px",
-        maxWidth: 320, width: "100%", textAlign: "center", boxShadow: CARD_LIFT }}>
+        maxWidth: 320, width: "100%", textAlign: "center", boxShadow: "none" }}>
         <div style={{ width: 68, height: 68, borderRadius: 20, margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center",
-          background: PLATE_GRAD, boxShadow: CARD_LIFT }}>
+          background: PLATE_GRAD, boxShadow: "none" }}>
           <nuevo.Icon size={32} color={PLATE_FG} />
         </div>
         <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: P.ember2, marginBottom: 6 }}>{nuevo.eyebrow}</div>
@@ -25146,7 +25116,7 @@ const Toast = ({ msg }) => !msg ? null : (
     <div className="sheetIn" style={{ background: P.s2,
       border: `1px solid ${P.ember}`, color: P.text,
       borderRadius: 14, padding: "12px 15px", fontSize: 15.5, lineHeight: 1.4,
-      boxShadow: "0 12px 30px rgba(0,0,0,.55)" }}>{msg}</div>
+      boxShadow: "none" }}>{msg}</div>
   </div>
 );
 
@@ -29561,7 +29531,7 @@ const SectionSwitch = ({ items, value, onChange, style, compact }) => {
             style={{ minWidth: 0, textAlign: "center", padding: iconOnly ? "7px 0" : "7px 2px", borderRadius: 8,
               display: "flex", alignItems: "center", justifyContent: "center",
               background: on ? (oscuro ? "#636366" : "#FFFFFF") : "transparent", color: on ? P.text : (iconOnly ? P.faint : P.text),
-              boxShadow: on ? "0 1px 3px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.04)" : "none",
+              boxShadow: "none",
               fontSize: tight ? 11.5 : many ? 13 : 13.5, fontWeight: on ? 600 : 500,
               transition: `background ${DUR_ROW}ms ${EASE_STD}, color ${DUR_ROW}ms ${EASE_STD}`,
               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -29750,7 +29720,7 @@ const MiniSesion = ({ active, onOpen, onClose }) => {
   return (
     <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(var(--fj-tabbar-h, 92px) + 4px)", zIndex: 49, display: "flex", justifyContent: "center", padding: "0 14px", pointerEvents: "none" }}>
       <div style={{ pointerEvents: "auto", width: "100%", maxWidth: "calc(var(--fj-w) - 28px)", display: "flex", alignItems: "center", gap: 6, padding: "8px 10px 8px 20px", borderRadius: 24,
-        background: PLATE_GRAD, color: PLATE_FG, boxShadow: "0 12px 28px -8px rgba(16,16,18,.45)" }}>
+        background: PLATE_GRAD, color: PLATE_FG, boxShadow: "none" }}>
         <button onClick={onOpen} aria-label={`Volver al entreno en curso: ${active.dayName}`}
           style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "4px 0", color: "inherit" }}>
           <span style={{ flex: 1, minWidth: 0 }}>
@@ -30984,7 +30954,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
           title="Asistente de IA"
           style={{ position: "fixed", right: pos.right, bottom: pos.bottom, width: AI_FAB_SIZE, height: AI_FAB_SIZE, borderRadius: AI_FAB_SIZE / 2,
             zIndex: 55, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: dragging ? DRAG_LIFT_SHADOW : "0 6px 20px -12px rgba(0,0,0,.25)",
+            boxShadow: "none",
             transform: dragging ? "scale(1.06)" : "scale(1)",
             transition: dragging ? "none" : "transform .15s ease, box-shadow .15s ease",
             touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none", cursor: "grab" }}>
@@ -30994,7 +30964,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
         <button onClick={() => setVisible(true)} aria-label="Mostrar asistente de IA" title="Mostrar asistente de IA"
           style={{ position: "fixed", right: 0, bottom: pos.bottom, width: 18, height: 48, borderRadius: "14px 0 0 14px",
             zIndex: 55, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 4px 14px -8px rgba(0,0,0,.3)", opacity: 0.9 }}>
+            boxShadow: "none", opacity: 0.9 }}>
           <Sparkles size={12} strokeWidth={2.4} />
         </button>
       ))}
