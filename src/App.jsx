@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v409";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v410";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10393,6 +10393,31 @@ const objetivoEj = (ex) => {
   const rir = rirs.length ? (Math.min(...rirs) === Math.max(...rirs) ? String(rirs[0]) : `${Math.min(...rirs)}–${Math.max(...rirs)}`) : uniq("rirT").join(" / ");
   return `${arr.length}${reps ? ` × ${reps}` : " series"}${rir ? ` · RIR ${rir}` : ""}`;
 };
+/* Progreso de un ejercicio mirando sus últimas sesiones (de la más antigua a
+   la más nueva): carga total de las series de trabajo (peso × reps, o reps si
+   es a peso corporal). Compara la última contra la anterior y, con 3 o más
+   registros, detecta el estancamiento (ninguna de las dos últimas supera a la
+   tercera desde el final). */
+const cargaTotalSets = (sets) => {
+  const w = seriesDeTrabajo(sets).map(cargaDeSerie).filter(Boolean);
+  if (!w.length) return 0;
+  const vol = w.some((c) => c.tipo === "vol");
+  return w.reduce((a, c) => a + (vol ? (c.tipo === "vol" ? c.valor : 0) : c.valor), 0);
+};
+const progresoEj = (entries) => {
+  const e = (entries || []).filter((x) => cargaTotalSets(x.sets) > 0);
+  if (e.length < 2) return null;
+  const t1 = cargaTotalSets(e[e.length - 1].sets), t2 = cargaTotalSets(e[e.length - 2].sets);
+  const pct = ((t1 - t2) / t2) * 100;
+  if (e.length >= 3) {
+    const t3 = cargaTotalSets(e[e.length - 3].sets);
+    if (Math.max(t1, t2) <= t3 * 1.01) return { estado: "estancado", pct, n: 3 };
+  }
+  if (pct > 1) return { estado: "mejor", pct };
+  if (pct < -1) return { estado: "peor", pct };
+  return { estado: "igual", pct };
+};
+
 const RetoSerie = ({ actual, previa, unidad, compacto }) => {
   const r = retoDeSerie(actual, previa);
   if (r.estado === "nuevo") return null;   // primera vez: no hay contra qué medir
@@ -10498,6 +10523,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
   const [salida, setSalida] = useState(false);
   useEffect(() => { if (pedirSalida) { setSalida(true); onSalidaConsumida && onSalidaConsumida(); } }, [pedirSalida]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [histEx, setHistEx] = useState(null);
+  const [histAbierto, setHistAbierto] = useState(null); // bloque con el historial de sesiones desplegado
   const [vincularOpen, setVincularOpen] = useState(false);
   const [herrOpen, setHerrOpen] = useState(false);
   // Reordenar series con "mantén pulsado y arrastra" — mismo mecanismo que
@@ -10939,6 +10965,79 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
      podía volver a corregir algo sin deshacer el camino. Ahora la sesión
      entera se despliega hacia abajo, en orden, y se rellena donde haga
      falta — no hay «siguiente» que tocar ni sitio donde perderse. */
+  // Lo que se hizo la última vez en una serie: "50 × 12" (o "12" a peso
+  // corporal), con una flecha si lo de hoy ya lo supera, iguala o no alcanza.
+  const antesDe = (r, st) => {
+    const ex = exs[r.ei];
+    const en = lastEntryOf(ex.id);
+    const warm = st.type === "warmup";
+    let ni = 0;
+    for (let k = 0; k < r.si; k++) if ((ex.sets[k].type === "warmup") === warm) ni++;
+    const pv = en ? (en.sets || []).filter((x) => (x.type === "warmup") === warm)[ni] : null;
+    const c = cargaDeSerie(pv);
+    const u = unitDeSerie(st, r.ei);
+    const txt = !c ? "–" : c.tipo === "vol" ? `${kg(pesoMostrado(pv.weight, u))}×${c.r}` : `${c.r}`;
+    const reto = !warm && c && cargaDeSerie(st) ? retoDeSerie(st, pv) : null;
+    const flecha = reto && reto.estado === "mejor" ? ArrowUp : reto && reto.estado === "peor" ? ArrowDown : null;
+    return (
+      <span aria-label={c ? `La última vez: ${txt.replace("×", " por ")}` : "Sin registro anterior"}
+        style={{ width: 58, flexShrink: 0, textAlign: "center", fontSize: 13, fontWeight: 500, color: c ? SES.dim : SES.faint, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
+        {txt}{flecha && React.createElement(flecha, { size: 11, strokeWidth: 3, color: reto.estado === "peor" ? SES.faint : SES.ink })}
+      </span>
+    );
+  };
+  // Encima de la tabla: cómo va este ejercicio frente a las sesiones
+  // pasadas (progresó / igual / bajó / estancado) y, al tocarlo, las
+  // últimas sesiones serie por serie.
+  const franjaHistorial = (block, bi) => {
+    const ex = exs[block.group ? block.members[0] : block.ei];
+    const en = exEntries(history, ex);
+    if (!en.length) return (
+      <div style={{ marginTop: 12, fontSize: 13, color: SES.faint }}>Primera vez que registras este ejercicio</div>
+    );
+    const u = unitFor(block.group ? block.members[0] : block.ei);
+    const last = en[en.length - 1];
+    const pr = progresoEj(en);
+    const abiertoH = histAbierto === bi;
+    const meta = !pr ? null : {
+      mejor: { t: `Subió ${Math.round(pr.pct)}%`, I: ArrowUp, c: SES.ink },
+      igual: { t: "Igual que la vez anterior", I: Minus, c: SES.dim },
+      peor: { t: `Bajó ${Math.abs(Math.round(pr.pct))}%`, I: ArrowDown, c: SES.dim },
+      estancado: { t: "Estancado · 3 sesiones sin subir", I: Minus, c: SES.dim },
+    }[pr.estado];
+    const lineaSets = (sets) => seriesDeTrabajo(sets).map(cargaDeSerie).filter(Boolean)
+      .map((c, i, a) => c.tipo === "vol" ? `${kg(pesoMostrado(seriesDeTrabajo(sets).filter((x) => cargaDeSerie(x))[i].weight, u))}×${c.r}` : `${c.r}`).join(" · ");
+    return (
+      <div style={{ marginTop: 12 }}>
+        <button onClick={() => setHistAbierto(abiertoH ? null : bi)} aria-expanded={abiertoH} aria-label={`Historial de ${ex.name}`}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 14, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink }}>
+          <History size={16} color={SES.faint} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, lineHeight: 1.35 }}>
+            <span style={{ color: SES.faint }}>{fmtDate(last.date)} · </span>
+            <span style={{ fontWeight: 600 }}>{lineaSets(last.sets) || "sin series"}</span>
+          </span>
+          {meta && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 700, color: meta.c, whiteSpace: "nowrap" }}>
+              <meta.I size={12} strokeWidth={3} />{pr.estado === "estancado" ? "Estancado" : pr.estado === "igual" ? "Igual" : meta.t}
+            </span>
+          )}
+          <ChevronDown size={16} color={SES.faint} style={{ flexShrink: 0, transform: abiertoH ? "rotate(180deg)" : "none" }} />
+        </button>
+        {abiertoH && (
+          <div className="deployIn" style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
+            {en.slice(-6).reverse().map((e, i) => (
+              <div key={(e.date || "") + i} style={{ display: "flex", gap: 10, fontSize: 13, padding: "6px 2px", borderTop: `1px solid ${SES.line}` }}>
+                <span style={{ width: 52, flexShrink: 0, color: SES.faint }}>{fmtDate(e.date)}</span>
+                <span style={{ flex: 1, minWidth: 0, color: SES.ink, fontVariantNumeric: "tabular-nums" }}>{lineaSets(e.sets) || "—"}</span>
+              </div>
+            ))}
+            <button onClick={() => setHistEx(block.group ? block.members[0] : block.ei)} style={{ alignSelf: "flex-start", fontSize: 12.5, fontWeight: 650, color: SES.dim, padding: "6px 2px" }}>Ver historial completo</button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const tablaDe = (block, bi, soloRow) => {
     const consignas = block.group ? null : consignasPorSerie(exs[block.ei]);
     const titulo = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
@@ -11060,13 +11159,15 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           </div>
         )}
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 0 6px", fontSize: 14, fontWeight: 400, color: SES.faint }}>
-          <span style={{ width: 34, flexShrink: 0, textAlign: "center" }}>#</span>
+        {franjaHistorial(block, bi)}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "12px 0 6px", fontSize: 13, fontWeight: 400, color: SES.faint }}>
+          <span style={{ width: 24, flexShrink: 0, textAlign: "center" }}>#</span>
+          <span style={{ width: 58, flexShrink: 0, textAlign: "center" }}>ANTES</span>
           <span style={{ flex: 1, textAlign: "center" }}>{unitFor(block.group ? block.members[0] : block.ei).toUpperCase()}</span>
           <span style={{ flex: 1, textAlign: "center" }}>REPS</span>
           <span style={{ flex: 1, textAlign: "center" }}>RIR</span>
-          <span style={{ width: 46, flexShrink: 0 }} />
-          <span style={{ width: 30, flexShrink: 0 }} />
+          <span style={{ width: 42, flexShrink: 0 }} />
+          <span style={{ width: 26, flexShrink: 0 }} />
         </div>
 
         {block.rows.map((r, i) => {
@@ -11091,7 +11192,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           // para quien navega por voz o lector de pantalla.
           const dónde = `${block.group ? `ronda ${(r.round || 0) + 1}` : isWarm ? `aproximación ${meta.no}` : `serie ${meta.no}`} de ${exx.name}`;
           const abierta2 = filaAbierta === restKey(r.ei, r.si);
-          const celda = { flex: true, alto: 10, altoMin: 50, radio: 20, fondo: "transparent", grande: true };
+          const celda = { flex: true, alto: 10, altoMin: 50, radio: 18, fondo: "transparent", grande: true };
           return (
             <React.Fragment key={`${r.ei}-${r.si}`}>
             <div data-set-row data-set-ei={r.ei} data-set-si={r.si}
@@ -11102,12 +11203,13 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                 transform: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_TRANSFORM
                   : (setDragOver && setDragOver.ei === r.ei && setDragOver.si === r.si && setDragging && setDragging.si !== r.si ? "scale(.98)" : "none"),
                 transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <button onClick={() => setFilaAbierta(abierta2 ? null : restKey(r.ei, r.si))} aria-expanded={abierta2}
                 aria-label={`Más opciones de la ${dónde}: comentar, foto, unidad, tipo`}
-                style={{ width: 34, flexShrink: 0, textAlign: "center", fontSize: 19, fontWeight: 400, color: abierta2 ? SES.ink : SES.dim, padding: 0 }}>
+                style={{ width: 24, flexShrink: 0, textAlign: "center", fontSize: 18, fontWeight: 400, color: abierta2 ? SES.ink : SES.dim, padding: 0 }}>
                 {block.group ? (r.round || 0) + 1 : isWarm ? "A" : meta.no}
               </button>
+              {antesDe(r, st)}
               <NumCell {...celda} aria={`Peso de la ${dónde} (${unitDeSerie(st, r.ei)})`} placeholder={unitDeSerie(st, r.ei)} sufijo="" vacio=""
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitDeSerie(st, r.ei))).replace(".", ",")}
                 onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitDeSerie(st, r.ei)))))}
@@ -11123,14 +11225,14 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
               <button onClick={() => onToggleDone(r.ei, r.si)}
                 aria-label={st.done ? `Desmarcar la ${dónde}` : `Marcar la ${dónde} como hecha`}
                 aria-pressed={st.done}
-                style={{ width: 46, height: 50, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                style={{ width: 42, height: 50, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                   background: st.done ? SES.ink : "transparent", color: st.done ? SES.card : SES.faint, border: `1px solid ${st.done ? SES.ink : SES.campo}`,
                   transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
                 <Check size={22} strokeWidth={2.2} />
               </button>
               <button onClick={() => (cmtKey === restKey(r.ei, r.si) ? setCmtKey(null) : openCmt(restKey(r.ei, r.si)))}
                 aria-label={`${st.comment ? "Editar el comentario de" : "Comentar"} la ${dónde}`} title="Comentar esta serie"
-                style={{ width: 30, height: 50, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: st.comment ? SES.ink : SES.faint }}>
+                style={{ width: 26, height: 50, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: st.comment ? SES.ink : SES.faint }}>
                 <MessageSquare size={19} strokeWidth={1.8} fill={st.comment ? "currentColor" : "none"} />
               </button>
             </div>
@@ -27150,13 +27252,13 @@ const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", cmas: "Más", nut
    en vez de inventarla, el segmentado acá organiza el CONTENIDO de la
    hoja (Categoría / Peak week), no un estado. La categoría es de solo
    lectura para el alumno (la define el coach en Ficha del atleta): acá
-   se explica cada una y se marca la elegida, no se puede cambiar.
+   se explica cada una y se marca la elegida; tocar una la elige.
    El % del anillo asume una prep estándar de 16 semanas (el punto medio
    de las 16-24 que ya menciona BB_PHASES.prep) — es una referencia, no
    un dato guardado.
    ============================================================ */
 const COMP_PREP_STANDARD_WEEKS = 16;
-const CompetitionPrepSheet = ({ open, onClose, plan }) => {
+const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast }) => {
   const [sub, setSub] = useState("categoria");
   const a = plan.athlete || {};
   const compDate = a.compDate ? parseDate(a.compDate) : null;
@@ -27165,6 +27267,13 @@ const CompetitionPrepSheet = ({ open, onClose, plan }) => {
   const weeksLeft = daysLeft != null ? Math.max(0, Math.ceil(daysLeft / 7)) : null;
   const pct = daysLeft == null ? 0 : Math.max(0, Math.min(100, Math.round(100 - (daysLeft / (COMP_PREP_STANDARD_WEEKS * 7)) * 100)));
   const cat = BB_CATEGORIES.find((c) => c.id === a.category);
+  // Tocar una categoría la elige; tocar la elegida la quita.
+  const elegir = (id) => {
+    if (!savePlan) return;
+    const nueva = a.category === id ? "" : id;
+    savePlan({ ...plan, athlete: { ...(plan.athlete || {}), category: nueva } });
+    toast && toast(nueva ? "Categoría guardada" : "Categoría quitada");
+  };
   return (
     <Sheet open={open} onClose={onClose} title="Competition Prep" tall>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -27187,7 +27296,8 @@ const CompetitionPrepSheet = ({ open, onClose, plan }) => {
         {sub === "categoria" && (
           <Card style={{ overflow: "hidden" }}>
             {BB_CATEGORIES.map((c, i) => (
-              <div key={c.id} style={{ padding: "13px 14px", borderBottom: i === BB_CATEGORIES.length - 1 ? "none" : `1px solid ${P.line}` }}>
+              <button key={c.id} onClick={() => elegir(c.id)} aria-pressed={!!cat && cat.id === c.id}
+                style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", cursor: "pointer", font: "inherit", color: "inherit", padding: "13px 14px", borderBottom: i === BB_CATEGORIES.length - 1 ? "none" : `1px solid ${P.line}` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Trophy size={15} color={P.faint2} />
@@ -27196,7 +27306,7 @@ const CompetitionPrepSheet = ({ open, onClose, plan }) => {
                   {cat && cat.id === c.id && <span style={{ fontSize: 12.5, fontWeight: 700, color: PLATE_FG, background: PLATE_GRAD, borderRadius: 8, padding: "4px 9px", flexShrink: 0 }}>Elegida</span>}
                 </div>
                 <div style={{ fontSize: 13, color: P.faint2, marginTop: 4, marginLeft: 46, lineHeight: 1.4 }}>{c.focus}</div>
-              </div>
+              </button>
             ))}
           </Card>
         )}
@@ -32312,7 +32422,7 @@ const App = () => {
             onOpenNutrition={() => setTab("nutricion")} onOpenExams={() => setExamsOpen(true)}
             onOpenPhotos={() => setPhotosOpen(true)} />
         )}
-        <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} />
+        <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} savePlan={savePlan} toast={toast} />
         <ExerciseAtlasSheet open={atlasOpen} onClose={() => setAtlasOpen(false)} library={library} plan={plan} initialQuery={atlasInitialQuery} />
         {/* Suplementación abre la analítica sin cerrarse: el seguimiento
             médico es justamente el puente entre las dos. */}
