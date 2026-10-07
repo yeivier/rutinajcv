@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v410";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v411";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8851,7 +8851,7 @@ const ExHistorySheet = ({ open, onClose, exName, entries, sessions, onOpenImg })
     ) : (
       <>
       <ExerciseProgress entries={entries} sessions={sessions} />
-      <HistoryRows entries={entries} onOpenImg={onOpenImg} />
+      <HistoryRows entries={entries} onOpenImg={onOpenImg} sessions={sessions} />
       </>
     )}
   </Sheet>
@@ -10474,7 +10474,7 @@ const FinDescansoAviso = ({ marca }) => {
   );
 };
 
-const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, saveHistory, active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRenameEx, onRemoveEx }) => {
+const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, saveHistory, active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRemoveSetAt, onRenameEx, onRemoveEx }) => {
   const [weightUnit, setWeightUnit] = useWeightUnit();
   const [themeMode, setThemeMode] = useTheme();
   const pendingWrites = usePendingWrites();
@@ -11024,14 +11024,11 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           <ChevronDown size={16} color={SES.faint} style={{ flexShrink: 0, transform: abiertoH ? "rotate(180deg)" : "none" }} />
         </button>
         {abiertoH && (
-          <div className="deployIn" style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
-            {en.slice(-6).reverse().map((e, i) => (
-              <div key={(e.date || "") + i} style={{ display: "flex", gap: 10, fontSize: 13, padding: "6px 2px", borderTop: `1px solid ${SES.line}` }}>
-                <span style={{ width: 52, flexShrink: 0, color: SES.faint }}>{fmtDate(e.date)}</span>
-                <span style={{ flex: 1, minWidth: 0, color: SES.ink, fontVariantNumeric: "tabular-nums" }}>{lineaSets(e.sets) || "—"}</span>
-              </div>
-            ))}
-            <button onClick={() => setHistEx(block.group ? block.members[0] : block.ei)} style={{ alignSelf: "flex-start", fontSize: 12.5, fontWeight: 650, color: SES.dim, padding: "6px 2px" }}>Ver historial completo</button>
+          <div className="deployIn" style={{ marginTop: 6 }}>
+            <HistoryRows entries={en.slice(-3)} onOpenImg={setViewImg} sessions={history.sessions} />
+            {en.length > 3 && (
+              <button onClick={() => setHistEx(block.group ? block.members[0] : block.ei)} style={{ fontSize: 12.5, fontWeight: 650, color: SES.dim, padding: "6px 2px" }}>Ver las {en.length} sesiones</button>
+            )}
           </div>
         )}
       </div>
@@ -11274,6 +11271,12 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                   <button onClick={() => clearSet(r.ei, r.si)} aria-label={`Borrar los datos de la ${dónde}`} title="Borrar datos"
                     style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: SES.faint, flexShrink: 0 }}>
                     <Trash2 size={16} />
+                  </button>
+                )}
+                {puedeEditar && !block.group && exs[r.ei].sets.length > 1 && (
+                  <button onClick={() => { setFilaAbierta(null); setCmtKey(null); setAttachKey(null); onRemoveSetAt(r.ei, r.si); }} aria-label={`Eliminar la ${dónde}`} title="Eliminar esta serie"
+                    style={{ height: 36, padding: "0 8px", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 650, color: SES.faint, flexShrink: 0 }}>
+                    <Minus size={16} /> Serie
                   </button>
                 )}
                 {puedeEditar && !block.group && (
@@ -11673,6 +11676,10 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                 <button onClick={() => setAttachKey(llave)}
                   aria-label={`Adjuntar foto, video o archivo a la serie${(st.attachIds || []).length ? ` (${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"})` : ""}`}
                   style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: (st.attachIds || []).length ? SES.ink : SES.faint }}><Paperclip size={17} /></button>
+                {puedeEditar && !b.group && exs[r.ei].sets.length > 1 && (
+                  <button onClick={() => onRemoveSetAt(r.ei, r.si)} aria-label="Eliminar esta serie" title="Eliminar esta serie"
+                    style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><Trash2 size={17} /></button>
+                )}
               </div>
               {renderCommentBlock(r.ei, r.si)}
               {renderAttachBlock(r.ei, r.si)}
@@ -12026,7 +12033,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
         })()}
       </Sheet>
       <Sheet open={histEx != null} onClose={() => setHistEx(null)} title={histEx != null ? `Historial · ${exs[histEx].name}` : "Historial"} tall>
-        <ExHistorySheetInline entries={histEx != null ? exEntries(history, exs[histEx]) : []} onOpenImg={setViewImg} />
+        <ExHistorySheetInline entries={histEx != null ? exEntries(history, exs[histEx]) : []} onOpenImg={setViewImg} sessions={history.sessions} />
         {histEx != null && saveHistory && (
           <button onClick={() => setVincularOpen(true)}
             style={{ width: "100%", marginTop: 6, padding: "14px 16px", borderRadius: 20, background: P.s2, color: P.dim, fontSize: 14.5, fontWeight: 600, textAlign: "left", display: "flex", alignItems: "center", gap: 10 }}>
@@ -12832,6 +12839,13 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
     ex.sets.pop();
     return a;
   });
+  // Quita UNA serie en particular (no solo la última): sirve para las que se
+  // agregaron de más durante la sesión.
+  const removeSetAt = (ei, si) => patch((a) => {
+    const ex = a.exs[ei]; if (!ex || ex.sets.length <= 1 || !ex.sets[si]) return a;
+    ex.sets.splice(si, 1);
+    return a;
+  });
   const renameEx = (ei, name) => patch((a) => { if (a.exs[ei]) a.exs[ei].name = name; return a; });
   const removeEx = (ei) => patch((a) => { a.exs.splice(ei, 1); return a; });
 
@@ -12844,7 +12858,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
         restSel={restSel} onPickRest={pickRest} timer={timer} finDescanso={finDescanso} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
         onStartRest={(seg, ei, si) => { setTimer({ exIdx: ei || 0, setIdx: si || 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
-        onAddExercise={addExercise} onAddSet={addSet} onRemoveSet={removeSet} onRenameEx={renameEx} onRemoveEx={removeEx}
+        onAddExercise={addExercise} onAddSet={addSet} onRemoveSet={removeSet} onRemoveSetAt={removeSetAt} onRenameEx={renameEx} onRemoveEx={removeEx}
         onGuardarRutina={() => {
           const sug = active.dayName && !/^Entrenamiento libre$/i.test(active.dayName) ? active.dayName : "";
           const nombre = (prompt("Nombre para esta rutina\n(se guarda la estructura: ejercicios, series y objetivos — no los pesos de hoy)", sug) || "").trim();
@@ -16225,52 +16239,74 @@ const ProgressTabRouter = (props) => <ProgressTabMono {...props} />;
 // Historial por ejercicio, en filas ordenadas (sin una tarjeta por registro):
 // fecha y día a la izquierda, la mejor serie a la derecha y debajo las series
 // de trabajo en una sola línea de "kg×reps". El calentamiento se resume.
-const HistoryRows = ({ entries, onOpenImg }) => {
+const HistoryRows = ({ entries, onOpenImg, sessions }) => {
   if (!entries || entries.length === 0) {
     return <Empty icon={History} title="Sin registros todavía" body="Cuando completes este ejercicio en una sesión, acá verás tus pesos, repeticiones y RIR anteriores." />;
   }
+  const vistoVal = (v) => v !== "" && v != null;
+  const tieneDato = (x) => vistoVal(x.weight) || vistoVal(x.reps) || vistoVal(x.rir) || !!x.comment || (x.attachIds || []).length > 0 || (x.drops || []).some((d) => vistoVal(d.weight) || vistoVal(d.reps));
+  const pesoTxt = (w, unit) => { const n = +w; if (!isFinite(n)) return String(w).replace(".", ","); const v = unit === "lb" ? Math.round(kgToLb(n) * 10) / 10 : n; return String(v).replace(".", ","); };
+  const legTxt = (d, unit) => vistoVal(d.weight) && vistoVal(d.reps) ? `${pesoTxt(d.weight, unit)}×${d.reps}` : vistoVal(d.reps) ? `${d.reps} reps` : vistoVal(d.weight) ? pesoTxt(d.weight, unit) : "—";
   return (
     <div>
       {[...entries].reverse().map((en, i) => {
-        const done = (en.sets || []).filter((x) => x.done);
-        const work = done.filter((x) => x.type !== "warmup");
-        const warm = done.length - work.length;
+        const todas = (en.sets || []).filter(tieneDato);
+        const work = todas.filter((x) => x.type !== "warmup");
         const best = work.reduce((m, x) => Math.max(m, +x.weight || 0), 0);
+        const ses = (sessions || []).find((x) => x.id === en.sessionId);
+        const meta = [en.dayName, ses && ses.gym, ses && ses.durationMin ? `${ses.durationMin} min` : null].filter(Boolean).join(" · ");
+        let wn = 0, an = 0;
         return (
           <div key={i} style={{ padding: "16px 0", borderTop: i ? `1px solid ${P.fillTertiary}` : "none" }}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-.02em" }}>{fmtDateFull(en.date)}</div>
-                {en.dayName && <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2, overflowWrap: "anywhere" }}>{en.dayName}</div>}
+                {meta && <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2, overflowWrap: "anywhere" }}>{meta}</div>}
               </div>
               {best > 0 && <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", flexShrink: 0 }}>{kg(best)}<span style={{ fontSize: 12.5, fontWeight: 600, color: P.faint, marginLeft: 3 }}>kg</span></div>}
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-              {work.map((x, j) => (
-                <span key={j} style={{ padding: "6px 11px", borderRadius: 999, background: P.s2, fontSize: 13.5, fontWeight: 600 }}>
-                  {x.weight !== "" && x.weight != null ? `${String(x.weight).replace(".", ",")}×${x.reps || "?"}` : `${x.reps || "?"} reps`}
-                  {x.rir !== "" && x.rir != null && <span style={{ color: P.faint, fontWeight: 500 }}> · RIR {x.rir}</span>}
-                  {x.drops && x.drops.length > 0 && <span style={{ color: P.faint, fontWeight: 500 }}> +{x.drops.length}</span>}
-                </span>
-              ))}
-              {warm > 0 && <span style={{ padding: "6px 4px", fontSize: 12.5, color: P.faint }}>+{warm} calentamiento</span>}
-            </div>
-            {work.some((x) => x.comment) && (
-              <div style={{ marginTop: 8, fontSize: 13.5, color: P.dim }}>“{work.filter((x) => x.comment).map((x) => x.comment).join(" · ")}”</div>
-            )}
-            {en.comment && <div style={{ marginTop: 8, fontSize: 13.5, color: P.dim, display: "flex", gap: 6 }}><MessageSquare size={13} style={{ marginTop: 3, flexShrink: 0 }} /><span>{en.comment}</span></div>}
+            {en.comment && <div style={{ marginTop: 8, fontSize: 13.5, color: P.dim, display: "flex", gap: 6 }}><MessageSquare size={13} style={{ marginTop: 3, flexShrink: 0 }} /><span style={{ whiteSpace: "pre-wrap" }}>{en.comment}</span></div>}
             {en.attachIds && en.attachIds.length > 0 && (
               <div style={{ display: "flex", gap: 7, marginTop: 8, overflowX: "auto" }}>
                 {en.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={52} />)}
               </div>
             )}
+            <div style={{ marginTop: 8 }}>
+              {todas.map((x, j) => {
+                const warm = x.type === "warmup";
+                const etiqueta = warm ? "A" : String(++wn);
+                if (warm) an++;
+                const unit = x.unit || "kg";
+                const t = SET_TYPES[x.type];
+                const drops = (x.drops || []).filter((d) => vistoVal(d.weight) || vistoVal(d.reps));
+                return (
+                  <div key={j} style={{ padding: "7px 0", borderTop: j ? `1px solid ${P.fillTertiary}` : "none" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                      <span style={{ width: 20, flexShrink: 0, textAlign: "center", fontSize: 14, color: P.faint }}>{etiqueta}</span>
+                      <span style={{ fontSize: 15, fontWeight: 650, fontVariantNumeric: "tabular-nums", color: warm ? P.faint : P.text }}>
+                        {vistoVal(x.weight) ? `${pesoTxt(x.weight, unit)} ${unit} × ${vistoVal(x.reps) ? x.reps : "?"}` : `${vistoVal(x.reps) ? x.reps : "?"} reps`}
+                      </span>
+                      {vistoVal(x.rir) && <span style={{ fontSize: 13, color: P.faint }}>RIR {x.rir}</span>}
+                      {!warm && x.type && x.type !== "normal" && t && t.short && <span className="mono" style={{ fontSize: 10.5, color: P.faint }}>{t.short}</span>}
+                    </div>
+                    {drops.length > 0 && <div style={{ marginLeft: 30, marginTop: 2, fontSize: 13, color: P.dim }}>→ {drops.map((d) => legTxt(d, unit)).join(" → ")}</div>}
+                    {x.comment && <div style={{ marginLeft: 30, marginTop: 3, fontSize: 13.5, color: P.dim, display: "flex", gap: 6 }}><MessageSquare size={12} style={{ marginTop: 3, flexShrink: 0 }} /><span style={{ whiteSpace: "pre-wrap" }}>{x.comment}</span></div>}
+                    {x.attachIds && x.attachIds.length > 0 && (
+                      <div style={{ display: "flex", gap: 7, marginTop: 6, marginLeft: 30, overflowX: "auto" }}>
+                        {x.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={48} />)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })}
     </div>
   );
 };
-const ExHistorySheetInline = ({ entries, onOpenImg }) => <HistoryRows entries={entries} onOpenImg={onOpenImg} />;
+const ExHistorySheetInline = ({ entries, onOpenImg, sessions }) => <HistoryRows entries={entries} onOpenImg={onOpenImg} sessions={sessions} />;
 
 /* ============================================================
    Nutrición (vista alumno)
@@ -20015,7 +20051,7 @@ const ActivityTab = ({ plan, history, saveHistory, embedded, onRegistrar }) => {
             : (
               <>
                 <ExerciseProgress entries={exEntries(history, { id: exId, name: (allEx.find((x) => x[0] === exId) || [])[1] })} sessions={history.sessions} />
-                <ExHistorySheetInline entries={exEntries(history, { id: exId, name: (allEx.find((x) => x[0] === exId) || [])[1] })} onOpenImg={setViewImg} />
+                <ExHistorySheetInline entries={exEntries(history, { id: exId, name: (allEx.find((x) => x[0] === exId) || [])[1] })} onOpenImg={setViewImg} sessions={history.sessions} />
               </>
             )}
         </div>
