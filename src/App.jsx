@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v412";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v413";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -14797,6 +14797,19 @@ const RadarChartBox = ({ data, labelA, labelB, colorA, colorB, height = 300 }) =
 // Eliminar. Editar reescribe peso/reps/RIR/comentario de las series YA
 // registradas (no agrega ni saca series: eso es un cambio de plan, no
 // una corrección de un dato mal tipeado, que es lo que se pidió).
+// Ejercicios de una sesión del historial. Normalmente vienen en `session.exs`;
+// si faltan (sesión importada o antigua) se reconstruyen desde byEx, para que
+// el detalle nunca quede en blanco ni rompa la pantalla.
+const exsDeSesion = (session, history) => {
+  if (session && Array.isArray(session.exs) && session.exs.length) return session.exs;
+  const out = [];
+  const byEx = (history && history.byEx) || {};
+  Object.keys(byEx).forEach((exId) => {
+    const en = (byEx[exId] || []).find((x) => x.sessionId === (session && session.id));
+    if (en) out.push({ exId, name: en.exName || "" });
+  });
+  return out;
+};
 const SessionDetailSheet = ({ session, onClose, history, onOpenImg, onCambiarGym, onSaveSets, onDelete }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(null); // { [exId]: sets[] } — copia editable, se descarta si no se guarda
@@ -14808,7 +14821,7 @@ const SessionDetailSheet = ({ session, onClose, history, onOpenImg, onCambiarGym
   const startEdit = () => {
     if (!session) return;
     const d = {};
-    session.exs.forEach((e) => {
+    exsDeSesion(session, history).forEach((e) => {
       const entry = (history.byEx[e.exId] || []).find((en) => en.sessionId === session.id);
       if (entry) d[e.exId] = structuredClone(entry.sets);
     });
@@ -14877,7 +14890,7 @@ const SessionDetailSheet = ({ session, onClose, history, onOpenImg, onCambiarGym
               </div>
             </div>
           )}
-          {session.exs.map((e) => {
+          {exsDeSesion(session, history).map((e) => {
             const entry = (history.byEx[e.exId] || []).find((en) => en.sessionId === session.id);
             if (!entry) return null;
             const sets = editing && draft && draft[e.exId] ? draft[e.exId] : entry.sets;
@@ -14885,13 +14898,21 @@ const SessionDetailSheet = ({ session, onClose, history, onOpenImg, onCambiarGym
               <div key={e.exId} style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 5 }}>{e.name}</div>
                 {sets.map((s, si) => {
-                  if (!s.done) return null;
+                  const conDato = (s.weight !== "" && s.weight != null) || (s.reps !== "" && s.reps != null) || !!s.comment;
+                  if (!s.done && !conDato) return null;
                   if (!editing) return (
-                    <div key={si} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 14.5, padding: "2px 0" }}>
-                      <TypeBadge type={s.type} />
-                      <span style={{ fontWeight: 600 }}>{setSummary(s, "kg")}</span>
-                      {s.rir !== "" && <span style={{ color: P.dim, fontSize: 13 }}>RIR {s.rir}</span>}
-                      {s.comment && <span style={{ color: P.ember2, fontSize: 13 }}>“{s.comment}”</span>}
+                    <div key={si} style={{ padding: "3px 0" }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 14.5, flexWrap: "wrap" }}>
+                        <TypeBadge type={s.type} />
+                        <span style={{ fontWeight: 600 }}>{setSummary(s, s.unit || "kg")}</span>
+                        {s.rir !== "" && s.rir != null && <span style={{ color: P.dim, fontSize: 13 }}>RIR {s.rir}</span>}
+                      </div>
+                      {s.comment && <div style={{ color: P.ember2, fontSize: 13.5, marginTop: 2, whiteSpace: "pre-wrap" }}>💬 {s.comment}</div>}
+                      {s.attachIds && s.attachIds.length > 0 && (
+                        <div style={{ display: "flex", gap: 8, marginTop: 4, overflowX: "auto" }}>
+                          {s.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={48} />)}
+                        </div>
+                      )}
                     </div>
                   );
                   // Fila editable: peso, reps y RIR — los tres datos que de
@@ -14912,7 +14933,7 @@ const SessionDetailSheet = ({ session, onClose, history, onOpenImg, onCambiarGym
                     </div>
                   );
                 })}
-                {entry.comment && !editing && <div style={{ fontSize: 14, color: P.ember2, marginTop: 4 }}>💬 {entry.comment}</div>}
+                {entry.comment && !editing && <div style={{ fontSize: 14, color: P.ember2, marginTop: 4, whiteSpace: "pre-wrap" }}>💬 {entry.comment}</div>}
                 {entry.attachIds && entry.attachIds.length > 0 && (
                   <div style={{ display: "flex", gap: 8, marginTop: 6, overflowX: "auto" }}>
                     {entry.attachIds.map((id) => <AttachThumb key={id} id={id} onOpen={onOpenImg} size={52} />)}
@@ -19752,7 +19773,7 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
         <div style={{ display: "flex", flexDirection: "column", background: P.s1, borderRadius: 14, padding: "0 12px 0 16px" }}>
           {filtered.map((r, ri) => (
             <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderTop: ri ? `0.5px solid ${P.separatorStrong || P.fillTertiary}` : "none" }}>
-              <button onClick={() => onManage(r.id)} aria-label={`Gestionar a ${r.name}`}
+              <button onClick={() => openDetail(r)} aria-label={`Actividad de ${r.name}`}
                 style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 14, textAlign: "left" }}>
                 <span style={{ width: 48, height: 48, borderRadius: 24, background: P.s3,
                   display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 18, fontWeight: 800, color: P.text }}>
@@ -19767,9 +19788,9 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
                     color: r.pct >= 70 ? SES.acc : P.faint }}>{r.pct}%</span>
                 )}
               </button>
-              <button onClick={() => openDetail(r)} aria-label={`Actividad de ${r.name}`} title="Actividad"
+              <button onClick={() => onManage(r.id)} aria-label={`Gestionar a ${r.name}`} title="Gestionar (rutina, mensajes…)"
                 style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <History size={20} />
+                <SlidersHorizontal size={20} />
               </button>
             </div>
           ))}
@@ -19965,7 +19986,7 @@ const ActivityTab = ({ plan, history, saveHistory, embedded, onRegistrar }) => {
     const ses = (h.sessions || []).find((s) => s.id === sessionId);
     if (!ses) return;
     let volume = 0, setsDone = 0;
-    ses.exs.forEach((e) => {
+    exsDeSesion(ses, h).forEach((e) => {
       const arr = h.byEx[e.exId];
       if (!arr) return;
       const i = arr.findIndex((en) => en.sessionId === sessionId);
