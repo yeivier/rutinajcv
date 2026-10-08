@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v411";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v412";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10474,7 +10474,7 @@ const FinDescansoAviso = ({ marca }) => {
   );
 };
 
-const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, saveHistory, active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRemoveSetAt, onRenameEx, onRemoveEx }) => {
+const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, saveHistory, active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRemoveSetAt, onReplaceEx, library, onRenameEx, onRemoveEx }) => {
   const [weightUnit, setWeightUnit] = useWeightUnit();
   const [themeMode, setThemeMode] = useTheme();
   const pendingWrites = usePendingWrites();
@@ -10597,6 +10597,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
   const puedeEditar = !!onAddExercise; // props de edición presentes
   // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
   const [coachNotesOpen, setCoachNotesOpen] = useState(null);
+  const [reemplazoEi, setReemplazoEi] = useState(null); // ejercicio que se está reemplazando
   // Qué ficha de la hoja de sesión está abierta (null = la grilla).
   const [sesPane, setSesPane] = useState(null);
   const [mediaOpen, setMediaOpen] = useState(false);
@@ -11147,6 +11148,10 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
               {puedeEditar && !block.group && block.rows.length > 1 && (
                 <button onClick={() => onRemoveSet(block.ei)} aria-label="Quitar serie" title="Quitar la última serie"
                   style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><Minus size={18} /></button>
+              )}
+              {puedeEditar && !block.group && onReplaceEx && (
+                <button onClick={() => { setExAbierto(null); setReemplazoEi(block.ei); }} aria-label={`Reemplazar ${titulo || "ejercicio"} por otro equivalente`} title="Reemplazar ejercicio"
+                  style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><RefreshCw size={16} /></button>
               )}
               {puedeEditar && !block.group && (
                 <button onClick={() => { setExAbierto(null); onRemoveEx(block.ei); }} aria-label="Eliminar ejercicio de la sesión" title="Eliminar ejercicio"
@@ -12032,6 +12037,13 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           );
         })()}
       </Sheet>
+      <ReemplazarEjSheet open={reemplazoEi != null && !!exs[reemplazoEi]} onClose={() => setReemplazoEi(null)} ex={reemplazoEi != null ? exs[reemplazoEi] : null} plan={plan} library={library}
+        onPick={(pick) => {
+          const ex = exs[reemplazoEi];
+          if (ex && ex.sets.some((x) => x.done) && !window.confirm("Ya hay series hechas en este ejercicio: se borrarán sus datos al reemplazarlo. ¿Continuar?")) return;
+          onReplaceEx(reemplazoEi, pick); setReemplazoEi(null);
+          onError && onError(`Reemplazado por ${pick.name}`);
+        }} />
       <Sheet open={histEx != null} onClose={() => setHistEx(null)} title={histEx != null ? `Historial · ${exs[histEx].name}` : "Historial"} tall>
         <ExHistorySheetInline entries={histEx != null ? exEntries(history, exs[histEx]) : []} onOpenImg={setViewImg} sessions={history.sessions} />
         {histEx != null && saveHistory && (
@@ -12279,7 +12291,7 @@ const HeroCard = ({ Icon, eyebrow, title, meta, label, onClick, play = true }) =
   </button>
 );
 
-const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, pedirSalida, onSalidaConsumida, fxRestSeg, onOpenAIChat, onLeave, onOpenDevices, sid }) => {
+const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, savePlan, finishSession, discardSession, onInfo, toast, savedAt, allowedRoutines, abrirDiaId, onAutoStartConsumed, pedirSalida, onSalidaConsumida, fxRestSeg, onOpenAIChat, onLeave, onOpenDevices, sid, library }) => {
   const [summary, setSummary] = useState(null);
   const [timer, setTimer] = useState(null);
   // Marca de tiempo del último fin de descanso: dispara el destello en
@@ -12846,6 +12858,21 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
     ex.sets.splice(si, 1);
     return a;
   });
+  // Cambia el ejercicio por uno equivalente conservando la estructura: mismas
+  // series, tipos y objetivos (reps/RIR), con los datos en blanco. Si el nuevo
+  // ya está en la rutina se reutiliza su id, para que el historial se junte.
+  const replaceEx = (ei, pick) => patch((a) => {
+    const ex = a.exs[ei]; if (!ex) return a;
+    const enPlan = (plan.days || []).flatMap((d) => d.exs || []).find((e) => norma(e.name) === norma(pick.name));
+    const id = (enPlan && enPlan.id) || pick.id || uid();
+    ex.replacedFrom = ex.replacedFrom || ex.name;
+    ex.id = id; ex.name = pick.name;
+    ex.muscle = pick.muscle || ex.muscle; ex.equipment = pick.equipment || "";
+    if (pick.catId) ex.catId = pick.catId; else delete ex.catId;
+    ex.video = pick.video || ""; ex.comment = ""; ex.attachIds = [];
+    ex.sets = ex.sets.map((st) => ({ ...st, weight: "", reps: "", rir: "", done: false, comment: "", attachIds: [], drops: [] }));
+    return a;
+  });
   const renameEx = (ei, name) => patch((a) => { if (a.exs[ei]) a.exs[ei].name = name; return a; });
   const removeEx = (ei) => patch((a) => { a.exs.splice(ei, 1); return a; });
 
@@ -12858,7 +12885,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
         restSel={restSel} onPickRest={pickRest} timer={timer} finDescanso={finDescanso} onAdjustRest={adjustRest} onDismissRest={() => setTimer(null)} onToggleDone={toggleDone}
         onStartRest={(seg, ei, si) => { setTimer({ exIdx: ei || 0, setIdx: si || 0, endsAt: Date.now() + seg * 1000, total: seg }); }}
         onFinish={doFinish} onDiscard={discardSession} onOpenAIChat={onOpenAIChat} onLeave={onLeave}
-        onAddExercise={addExercise} onAddSet={addSet} onRemoveSet={removeSet} onRemoveSetAt={removeSetAt} onRenameEx={renameEx} onRemoveEx={removeEx}
+        onAddExercise={addExercise} onAddSet={addSet} onRemoveSet={removeSet} onRemoveSetAt={removeSetAt} onReplaceEx={replaceEx} library={library} onRenameEx={renameEx} onRemoveEx={removeEx}
         onGuardarRutina={() => {
           const sug = active.dayName && !/^Entrenamiento libre$/i.test(active.dayName) ? active.dayName : "";
           const nombre = (prompt("Nombre para esta rutina\n(se guarda la estructura: ejercicios, series y objetivos — no los pesos de hoy)", sug) || "").trim();
@@ -27745,6 +27772,61 @@ const CatalogBulkSheet = ({ open, onClose, plan, onAplicar, toast }) => {
   );
 };
 
+/* Reemplazar un ejercicio EN LA SESIÓN (máquina ocupada o mala): sugiere
+   equivalentes del mismo músculo —primero los que ya están en la rutina o
+   la biblioteca, luego el catálogo— y deja buscar o escribir uno propio. */
+const ReemplazarEjSheet = ({ open, onClose, ex, plan, library, onPick }) => {
+  const [q, setQ] = useState("");
+  useEffect(() => { if (open) setQ(""); }, [open]);
+  const { lista } = useCatalogo(open);
+  const palabras = catPalabras(q);
+  const musculo = ex ? ex.muscle : "";
+  const nombreActual = ex ? norma(ex.name) : "";
+  const propios = useMemo(() => {
+    const seen = new Map();
+    (library || []).forEach((e) => { if (e.name) seen.set(norma(e.name), e); });
+    ((plan && plan.days) || []).forEach((d) => (d.exs || []).forEach((e) => { if (e.name && !seen.has(norma(e.name))) seen.set(norma(e.name), e); }));
+    return [...seen.values()].filter((e) => norma(e.name) !== nombreActual);
+  }, [library, plan, nombreActual]);
+  const idx = (e) => catIndicePropio(e, null);
+  const propiosF = propios
+    .filter((e) => palabras.length ? catCoincide(idx(e), palabras) : (musculo && musculo !== "Otro" ? e.muscle === musculo : true))
+    .sort((a, b) => (b.equipment === ex?.equipment ? 1 : 0) - (a.equipment === ex?.equipment ? 1 : 0)).slice(0, 12);
+  const nomPropios = new Set(propiosF.map((e) => norma(e.name)));
+  const catF = (lista || [])
+    .filter((c) => norma(c.n) !== nombreActual && !nomPropios.has(norma(c.n)))
+    .filter((c) => palabras.length ? catCoincide(c._b || "", palabras) : (musculo && musculo !== "Otro" ? c.mu === musculo : true))
+    .sort((a, b) => (b.eq === ex?.equipment ? 1 : 0) - (a.eq === ex?.equipment ? 1 : 0)).slice(0, 40);
+  const fila = (key, nombre, sub, onClick) => (
+    <button key={key} onClick={onClick} aria-label={`Reemplazar por ${nombre}`}
+      style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderBottom: `1px solid ${P.line}` }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: P.text, lineHeight: 1.25 }}>{nombre}</div>
+        {sub && <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2 }}>{sub}</div>}
+      </div>
+      <ChevronRight size={16} color={P.faint} />
+    </button>
+  );
+  return (
+    <Sheet open={open} onClose={onClose} title={ex ? `Reemplazar · ${ex.name || "ejercicio"}` : "Reemplazar"} tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ fontSize: 13, color: P.faint }}>Se mantienen las {ex ? ex.sets.length : 0} series y sus objetivos.</div>
+        <div style={{ position: "relative" }}>
+          <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={musculo && musculo !== "Otro" ? `Buscar (sugeridos de ${musculo})` : "Buscar ejercicio"} aria-label="Buscar ejercicio de reemplazo"
+            style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, border: "none" }} />
+        </div>
+        <Card style={{ overflow: "hidden" }}>
+          {q.trim() && fila("libre", `Usar «${q.trim()}»`, "Nombre propio", () => onPick({ name: q.trim(), muscle: musculo, equipment: ex?.equipment || "" }))}
+          {propiosF.map((e) => fila("p" + norma(e.name), e.name, [e.muscle, e.equipment].filter(Boolean).join(" · ") + " · en tu rutina", () => onPick({ name: e.name, muscle: e.muscle || musculo, equipment: e.equipment || "", id: e.id, catId: e.catId, video: e.video })))}
+          {catF.map((c) => fila("c" + c.i, c.n, [c.mu, c.eq && c.eq !== "Otro" ? c.eq : null].filter(Boolean).join(" · "), () => onPick({ name: c.n, muscle: c.mu || musculo, equipment: c.eq && c.eq !== "Otro" ? c.eq : "", catId: c.i })))}
+          {!q.trim() && propiosF.length === 0 && catF.length === 0 && <div style={{ padding: 16, fontSize: 14, color: P.faint }}>Escribe el nombre del ejercicio para buscarlo.</div>}
+        </Card>
+      </div>
+    </Sheet>
+  );
+};
+
 const ExerciseAtlasSheet = ({ open, onClose, library, plan, initialQuery }) => {
   const [q, setQ] = useState("");
   // Cuando el Atlas se abre desde el buscador universal apuntando a un
@@ -32429,7 +32511,7 @@ const App = () => {
             allowedRoutines={currentStudent && currentStudent.allowedRoutines}
             abrirDiaId={abrirDiaId} onAutoStartConsumed={() => setAbrirDiaId(null)} pedirSalida={pedirSalida} onSalidaConsumida={() => setPedirSalida(false)} fxRestSeg={fxRestSeg}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
-            onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} sid={sid} />
+            onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} sid={sid} library={library} />
         )}
         {mode === "alumno" && tab === "progreso" && (
           <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
