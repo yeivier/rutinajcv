@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v414";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v415";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -32349,6 +32349,18 @@ const App = () => {
   };
 
   const switchMode = (m) => openIdentity(m, sidRef.current, roster, myTeamId);
+  // Avatar de la cabecera: un toque abre "Más"; dos toques seguidos cambian
+  // entre atleta y coach (salvo para delegados, que no tienen modo coach).
+  const avatarTapRef = useRef(null);
+  const onAvatarTap = () => {
+    if (delegate) { setMoreOpen(true); return; }
+    if (avatarTapRef.current) {
+      clearTimeout(avatarTapRef.current); avatarTapRef.current = null;
+      switchMode(mode === "coach" ? "alumno" : "coach");
+      return;
+    }
+    avatarTapRef.current = setTimeout(() => { avatarTapRef.current = null; setMoreOpen(true); }, 280);
+  };
   const currentStudent = roster.students.find((s) => s.id === sid);
   // En modo coach, la cabecera de arriba NO muestra el nombre de un
   // alumno puntual — antes mostraba `currentStudent`, que en realidad
@@ -32505,7 +32517,7 @@ const App = () => {
             "Más", como su propio botón con confirmación. */}
         {!enSesion && (
           <HeaderActions mode={mode} sid={sid} initial={(identityName || "?").slice(0, 1).toUpperCase()}
-            onAI={() => setAiChatOpenSignal((n) => n + 1)} onChat={() => setUtility("chat")} onProfile={() => setMoreOpen(true)} />
+            onAI={() => setAiChatOpenSignal((n) => n + 1)} onChat={() => setUtility("chat")} onProfile={onAvatarTap} />
         )}
         {!enSesion && <StorageBanner />}
 
