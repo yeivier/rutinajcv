@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v413";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v414";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10598,6 +10598,9 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
   // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
   const [coachNotesOpen, setCoachNotesOpen] = useState(null);
   const [reemplazoEi, setReemplazoEi] = useState(null); // ejercicio que se está reemplazando
+  // Deslizar una serie a la izquierda la elimina: { key, dx } mientras se arrastra.
+  const [swipe, setSwipe] = useState(null);
+  const swipeRef = useRef(null);
   // Qué ficha de la hoja de sesión está abierta (null = la grilla).
   const [sesPane, setSesPane] = useState(null);
   const [mediaOpen, setMediaOpen] = useState(false);
@@ -11205,7 +11208,38 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                 transform: setDragging && setDragging.ei === r.ei && setDragging.si === r.si ? DRAG_LIFT_TRANSFORM
                   : (setDragOver && setDragOver.ei === r.ei && setDragOver.si === r.si && setDragging && setDragging.si !== r.si ? "scale(.98)" : "none"),
                 transition: "background .12s ease, box-shadow .14s ease, transform .14s ease" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {(() => {
+              const puedeSwipe = puedeEditar && !block.group && exs[r.ei].sets.length > 1;
+              const k = restKey(r.ei, r.si);
+              const dx = swipe && swipe.key === k ? swipe.dx : 0;
+              const fin = (cancel) => {
+                const sw = swipeRef.current; swipeRef.current = null;
+                if (!sw || !sw.activo) { setSwipe(null); return; }
+                setDragRef.current.blockUntil = Date.now() + 350;
+                if (!cancel && sw.dx < -90) { setSwipe(null); setFilaAbierta(null); setCmtKey(null); setAttachKey(null); onRemoveSetAt(r.ei, r.si); }
+                else setSwipe(null);
+              };
+              return (
+            <div data-swipe-row style={{ position: "relative", overflow: "hidden", borderRadius: 18, touchAction: puedeSwipe ? "pan-y" : undefined }}
+              onTouchStart={puedeSwipe ? (e) => { const t = e.touches[0]; swipeRef.current = { x: t.clientX, y: t.clientY, activo: false, dx: 0 }; } : undefined}
+              onTouchMove={puedeSwipe ? (e) => {
+                const sw = swipeRef.current; if (!sw) return;
+                const t = e.touches[0]; const ddx = t.clientX - sw.x, ddy = t.clientY - sw.y;
+                if (!sw.activo) {
+                  if (Math.abs(ddy) > 12 && Math.abs(ddy) > Math.abs(ddx)) { swipeRef.current = null; return; }
+                  if (ddx < -12 && Math.abs(ddx) > Math.abs(ddy)) sw.activo = true; else return;
+                }
+                sw.dx = Math.max(-160, Math.min(0, ddx));
+                setSwipe({ key: k, dx: sw.dx });
+              } : undefined}
+              onTouchEnd={puedeSwipe ? () => fin(false) : undefined}
+              onTouchCancel={puedeSwipe ? () => fin(true) : undefined}>
+              {dx < 0 && (
+                <div aria-hidden style={{ position: "absolute", inset: 0, background: SES.ink, color: SES.card, display: "flex", alignItems: "center", justifyContent: "flex-end", padding: "0 22px", opacity: Math.min(1, Math.abs(dx) / 90) }}>
+                  <Trash2 size={22} />
+                </div>
+              )}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: SES.card, transform: dx ? `translateX(${dx}px)` : "none", transition: swipe && swipe.key === k ? "none" : "transform .18s ease" }}>
               <button onClick={() => setFilaAbierta(abierta2 ? null : restKey(r.ei, r.si))} aria-expanded={abierta2}
                 aria-label={`Más opciones de la ${dónde}: comentar, foto, unidad, tipo`}
                 style={{ width: 24, flexShrink: 0, textAlign: "center", fontSize: 18, fontWeight: 400, color: abierta2 ? SES.ink : SES.dim, padding: 0 }}>
@@ -11238,6 +11272,9 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                 <MessageSquare size={19} strokeWidth={1.8} fill={st.comment ? "currentColor" : "none"} />
               </button>
             </div>
+            </div>
+              );
+            })()}
             {renderLegs(st, r.ei, r.si, dónde)}
             {consigna && <div style={{ fontSize: 13, color: SES.faint, padding: "6px 0 0 44px", lineHeight: 1.35 }}>{consigna}</div>}
             {/* Opciones de ESTA serie, detrás del número: tipo, comentar,
