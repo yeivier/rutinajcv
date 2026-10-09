@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v417";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v418";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -19944,7 +19944,7 @@ const InstructionsEditor = ({ plan, savePlan }) => {
    ActivityTab de siempre —sesión por sesión, por ejercicio, fotos y
    comentarios— para ese alumno puntual, cargado al vuelo.
    ============================================================ */
-const AtletasActividadTab = ({ roster, toast, onManage }) => {
+const AtletasActividadTab = ({ roster, toast, onManage, onEnterAthlete }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]); // { id, name, lastDays, pct }
   const [q, setQ] = useState("");
@@ -19954,14 +19954,20 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const out = await mapaEnParalelo(roster.students, async (s) => {
+      // Atletas del roster + perfiles con acceso (p. ej. Connie), que viven en
+      // forja-access y no en el roster: antes no aparecían acá y no había forma
+      // de entrar a su espacio desde coach.
+      const acceso = await loadAccess();
+      const perfiles = (acceso.profiles || []).filter((x) => x.role !== "owner" && !roster.students.some((s) => s.id === x.id))
+        .map((x) => ({ id: x.id, name: x.name, createdAt: x.createdAt, perfil: true }));
+      const out = await mapaEnParalelo([...roster.students, ...perfiles], async (s) => {
         const [p, h] = await Promise.all([sGet(`forja-plan:${s.id}`), sGet(`forja-history:${s.id}`)]);
         const plan = p || emptyPlan();
         const hist = h || emptyHistory();
         const sessions = hist.sessions || [];
         const last = sessions[sessions.length - 1];
         const lastDays = last ? Math.max(0, Math.round((Date.now() - new Date(last.date).getTime()) / 86400000)) : null;
-        return { id: s.id, name: s.name, lastDays, pct: adherencePct(plan, hist, monthKeyOf(todayISO())) };
+        return { id: s.id, name: s.name, createdAt: s.createdAt, perfil: !!s.perfil, lastDays, pct: adherencePct(plan, hist, monthKeyOf(todayISO())) };
       });
       if (!cancelled) { setRows(out); setLoading(false); }
     })();
@@ -20019,7 +20025,11 @@ const AtletasActividadTab = ({ roster, toast, onManage }) => {
                     color: r.pct >= 70 ? SES.acc : P.faint }}>{r.pct}%</span>
                 )}
               </button>
-              <button onClick={() => onManage(r.id)} aria-label={`Gestionar a ${r.name}`} title="Gestionar (rutina, mensajes…)"
+              <button onClick={() => onEnterAthlete && onEnterAthlete(r.id, r.perfil ? { name: r.name, createdAt: r.createdAt } : null)} aria-label={`Entrar como atleta: ${r.name}`} title="Entrar como atleta (acceso completo)"
+                style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Dumbbell size={20} />
+              </button>
+              <button onClick={() => onManage(r.id, r.perfil ? { name: r.name, createdAt: r.createdAt } : null)} aria-label={`Gestionar a ${r.name}`} title="Gestionar (rutina, mensajes…)"
                 style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <SlidersHorizontal size={20} />
               </button>
@@ -32695,7 +32705,21 @@ const App = () => {
     await sSet("forja-roster", r); setRoster(r);
   };
 
-  const switchMode = (m) => openIdentity(m, sidRef.current, roster, myTeamId);
+  // Un perfil con acceso (p. ej. Connie) no vive en el roster sino en
+  // forja-access; para entrar a su espacio desde coach se recuerda acá, sin
+  // tocar el roster guardado.
+  const [perfilExtra, setPerfilExtra] = useState(null);
+  const rosterEfectivo = perfilExtra && !roster.students.some((x) => x.id === perfilExtra.id)
+    ? { ...roster, students: [...roster.students, { id: perfilExtra.id, name: perfilExtra.name, createdAt: perfilExtra.createdAt }] } : roster;
+  // Entrar a cualquier atleta (del roster o perfil con acceso) como coach o
+  // como atleta, con acceso completo. `extra` = { id, name } si es un perfil.
+  const entrarComo = (m, id, extra) => {
+    const virt = extra && !roster.students.some((x) => x.id === id)
+      ? { ...roster, students: [...roster.students, { id, name: extra.name, createdAt: extra.createdAt }] } : roster;
+    setPerfilExtra(extra && !roster.students.some((x) => x.id === id) ? { id, name: extra.name, createdAt: extra.createdAt } : null);
+    return openIdentity(m, id, virt, myTeamId);
+  };
+  const switchMode = (m) => openIdentity(m, sidRef.current, rosterEfectivo, myTeamId);
   // Avatar de la cabecera: un toque abre "Más"; dos toques seguidos cambian
   // entre atleta y coach (salvo para delegados, que no tienen modo coach).
   const avatarTapRef = useRef(null);
@@ -32708,7 +32732,7 @@ const App = () => {
     }
     avatarTapRef.current = setTimeout(() => { avatarTapRef.current = null; setMoreOpen(true); }, 280);
   };
-  const currentStudent = roster.students.find((s) => s.id === sid);
+  const currentStudent = roster.students.find((s) => s.id === sid) || (perfilExtra && perfilExtra.id === sid ? perfilExtra : undefined);
   // En modo coach, la cabecera de arriba NO muestra el nombre de un
   // alumno puntual — antes mostraba `currentStudent`, que en realidad
   // es "a quién apunta `sid` ahora mismo" (por defecto el primero del
@@ -32913,7 +32937,7 @@ const App = () => {
         {mode === "alumno" && tab === "hoy" && (
           <TodayTabMono plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory} savePlan={savePlan} toast={toast}
             goTrain={(dayId) => { if (dayId) setAbrirDiaId(dayId); setTab("entrenar"); }}
-            allowedRoutines={currentStudent && currentStudent.allowedRoutines}
+            allowedRoutines={delegate ? (currentStudent && currentStudent.allowedRoutines) : undefined}
             bookings={bookings.slots} sid={sid}
             onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => setTab("nutricion")} onOpenCoach={() => setUtility("chat")}
             onOpenProgress={(jumpSub) => { if (jumpSub) setProgressJumpSub(jumpSub); setTab("progreso"); }}
@@ -32925,7 +32949,7 @@ const App = () => {
         {mode === "alumno" && tab === "entrenar" && (
           <TrainTab saveHistory={saveHistory} plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive} savePlan={savePlan}
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
-            allowedRoutines={currentStudent && currentStudent.allowedRoutines}
+            allowedRoutines={delegate ? (currentStudent && currentStudent.allowedRoutines) : undefined}
             abrirDiaId={abrirDiaId} onAutoStartConsumed={() => setAbrirDiaId(null)} pedirSalida={pedirSalida} onSalidaConsumida={() => setPedirSalida(false)} fxRestSeg={fxRestSeg}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
             onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} sid={sid} library={library} />
@@ -33051,11 +33075,11 @@ const App = () => {
         )}
         {mode === "coach" && sub === "actividad" && (
           <AtletasActividadTab roster={roster} toast={toast}
-            onManage={(id) => openIdentity("coach", id, roster, myTeamId)} />
+            onManage={(id, extra) => entrarComo("coach", id, extra)} onEnterAthlete={(id, extra) => entrarComo("alumno", id, extra)} />
         )}
         {mode === "coach" && sub === "progresion" && (
           <ProgresionTab roster={roster} toast={toast}
-            onManage={(id) => openIdentity("coach", id, roster, myTeamId)} />
+            onManage={(id, extra) => entrarComo("coach", id, extra)} onEnterAthlete={(id, extra) => entrarComo("alumno", id, extra)} />
         )}
         {mode === "coach" && sub === "rankings" && (
           <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
