@@ -48,7 +48,7 @@ Al iniciar una sesión, cada ejercicio con historial recibe el peso y las reps a
 
 ## Pantallas — Modo Coach (barra inferior)
 - **Panel**: tarjetas con métricas del equipo (sesiones, volumen, adherencia) y detalle.
-- **Atletas**: Actividad (tocar al atleta abre su actividad/historial con comentarios; ícono de ajustes = "Gestionar"), Progresión, Rankings, Cobros, Leads.
+- **Atletas**: Actividad (lista el roster **y los perfiles con acceso**, p. ej. Connie; tocar al atleta abre su actividad/historial con comentarios; ícono de pesa = "Entrar como atleta" con acceso completo sin restricción de rutinas; ícono de ajustes = "Gestionar" como coach), Progresión (Estado / Sugerencias), Rankings, Cobros, Leads.
 - **Rutinas**: editor de rutinas/días/ejercicios, biblioteca, periodización/mesociclos.
 - **Mensajes**: chat con atletas.
 - **Más**: equipo y accesos, ajustes, Atlas, comparador, cambiar a Atleta.
