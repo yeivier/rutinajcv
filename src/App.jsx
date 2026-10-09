@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v419";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v420";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -11608,10 +11608,18 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     const primero = block.group ? block.members[0] : block.ei;
     const tiene = !!(exs[primero].comment || "").trim();
     return (
-      <button onClick={() => setExCmtFor(exCmtFor === bi ? null : bi)} aria-label={`Comentario general del ejercicio${tiene ? " (con texto)" : ""}`} title="Comentario del ejercicio"
-        style={{ width: 36, height: 36, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: tiene ? SES.ink : SES.faint, marginTop: -4 }}>
-        <MessageSquare size={20} strokeWidth={1.8} fill={tiene ? "currentColor" : "none"} />
-      </button>
+      <div style={{ display: "flex", flexShrink: 0, marginTop: -4 }}>
+        {onOpenAIChat && (
+          <button onClick={() => onOpenAIChat()} aria-label={`Preguntarle a la IA sobre ${block.group ? "esta superserie" : exs[block.ei].name}`} title="Preguntar a la IA"
+            style={{ width: 36, height: 36, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint }}>
+            <Sparkles size={19} strokeWidth={1.8} />
+          </button>
+        )}
+        <button onClick={() => setExCmtFor(exCmtFor === bi ? null : bi)} aria-label={`Comentario general del ejercicio${tiene ? " (con texto)" : ""}`} title="Comentario del ejercicio"
+          style={{ width: 36, height: 36, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: tiene ? SES.ink : SES.faint }}>
+          <MessageSquare size={20} strokeWidth={1.8} fill={tiene ? "currentColor" : "none"} />
+        </button>
+      </div>
     );
   };
 
@@ -11687,11 +11695,17 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           <ChevronLeft size={26} strokeWidth={2} />
         </button>
         <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, fontSize: 17, fontWeight: 500, color: SES.ink, fontVariantNumeric: "tabular-nums" }}>
-          <span>{sessionClock(elapsed)}</span><span style={{ color: SES.faint }}>·</span><span>{doneSets}/{totalSets} series</span>
+          <span>{sessionClock(elapsed)}</span><span style={{ color: SES.faint }}>·</span><span style={{ whiteSpace: "nowrap" }}>{doneSets}/{totalSets}</span>
           {hr.connected && hr.bpm != null && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><HeartPulse size={14} /> {hr.bpm}</span>
           )}
         </div>
+        {onOpenAIChat && (
+          <button onClick={() => onOpenAIChat()} aria-label="Preguntarle a la IA durante la sesión" title="Preguntar a la IA"
+            style={{ width: 44, height: 44, borderRadius: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink }}>
+            <Sparkles size={22} strokeWidth={1.8} />
+          </button>
+        )}
         <button onClick={() => setHerrOpen(true)} aria-label="Herramientas de la sesión" title="Herramientas"
           style={{ width: 44, height: 44, borderRadius: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink }}>
           <SlidersHorizontal size={22} strokeWidth={1.8} />
@@ -22284,11 +22298,21 @@ const GLOSSARY_KNOWLEDGE = GLOSSARY.map((g) => `- ${g.term}: ${g.def}`).join("\n
 // (si hay una en curso): qué ejercicio/serie ya marcó y cuáles le faltan,
 // para que el asistente pueda responder "qué me toca ahora" sin que el
 // alumno tenga que explicarlo. `null` si no hay sesión activa.
-function buildActiveSessionSummary(active) {
+function buildActiveSessionSummary(active, history) {
   if (!active || !active.exs) return null;
+  const fmtSet = (x) => `${x.weight !== "" && x.weight != null ? `${String(x.weight).replace(".", ",")} kg × ` : ""}${x.reps !== "" && x.reps != null ? x.reps : "?"} reps${x.rir !== "" && x.rir != null ? ` @RIR ${x.rir}` : ""}`;
   const lines = active.exs.map((ex) => {
     const done = ex.sets.filter((s) => s.done).length;
-    return `  · ${ex.name} [${ex.muscle}]: ${done}/${ex.sets.length} series marcadas como hechas`;
+    const tr = seriesDeTrabajo(ex.sets);
+    const tipos = tr.map((s, i) => `S${i + 1} ${(SET_TYPES[s.type || "normal"] || SET_TYPES.normal).short} objetivo ${s.repsT || "?"} reps${s.rirT !== "" && s.rirT != null ? ` RIR ${s.rirT}` : ""}${s.sugW !== "" && s.sugW != null && s.sugReps != null ? ` → hoy ${String(s.sugW).replace(".", ",")} kg × ${s.sugReps}` : s.sugReps != null ? ` → hoy ${s.sugReps} reps` : ""}`).join("; ");
+    let l = `  · ${ex.name} [${ex.muscle}]: ${done}/${ex.sets.length} series hechas. ${tipos}`;
+    if (ex.sug) l += `\n      Sugerencia automática de progresión: ${ex.sug.nota}.`;
+    const en = history ? exEntries(history, ex) : [];
+    const ult = en.length ? en[en.length - 1] : null;
+    if (ult) l += `\n      Última vez (${new Date(ult.date).toISOString().slice(0, 10)}): ${seriesDeTrabajo(ult.sets).filter((x) => x.reps !== "" && x.reps != null).map(fmtSet).join(" | ")}`;
+    const hechas = ex.sets.filter((s) => s.done || (s.reps !== "" && s.reps != null)).map(fmtSet);
+    if (hechas.length) l += `\n      Registrado hoy: ${hechas.join(" | ")}`;
+    return l;
   }).join("\n");
   return `SESIÓN DE HOY EN CURSO: ${active.dayName}\n${lines}`;
 }
@@ -22311,6 +22335,7 @@ QUÉ PUEDES HACER
 ${GLOSSARY_KNOWLEDGE}
 - Explicar CÓMO ejecutar un ejercicio de su rutina, su tempo asignado, o por qué está programado así.
 - Decirle qué le toca hoy o en los próximos días según su cronograma.
+- Explicar POR QUÉ la app le sugiere cierto peso y reps hoy (campo "Sugerencia automática" de la sesión en curso). La regla es doble progresión con RIR: sube la carga (≈2,5 % tren superior, 5 % inferior; el doble si el RIR real superó en 2+ al objetivo) cuando todas las series llegaron al tope del rango de reps; si no, mantiene la carga y busca +1 rep (0 si llegó al fallo con RIR objetivo ≥ 1); baja 5 % tras dos sesiones bajo el piso del rango; baja 5–10 % tras 3–5 semanas sin hacer el ejercicio; −10 % en semana de descarga; −5 % si se estancó 3 sesiones. En back-off conserva la proporción respecto al top set; en drop/rest-pause/cluster las partes extra conservan proporción y reps. Explica la razón concreta con SUS números, y si duda de la carga, que priorice la técnica y el RIR real.
 - Resolver dudas sobre su progreso, nutrición o cualquier pantalla de la app.
 - Dar ánimo y contexto técnico breve cuando lo pida.
 
@@ -24313,7 +24338,7 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
       const data = await callClaudeComplete(apiKey, {
         model: AI_MODEL,
         max_tokens: 8000,
-        system: buildStudentSystemPrompt(ctx, student?.name, buildActiveSessionSummary(active)),
+        system: buildStudentSystemPrompt(ctx, student?.name, buildActiveSessionSummary(active, history)),
         messages: nextMsgs,
       });
       const answer = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n") || "(sin respuesta)";
@@ -24343,7 +24368,9 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
           <div style={{ padding: "18px 2px 6px" }}>
             <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.1, marginBottom: 6 }}>Hola, ¿en qué te ayudo?</div>
             <div style={{ fontSize: 14.5, color: P.faint, lineHeight: 1.5, marginBottom: 16 }}>Pregúntame lo que sea sobre tu entrenamiento, tu volumen o la app.</div>
-            <ChatSuggestions items={["¿Qué me toca entrenar hoy?", "¿Cómo voy con mi volumen esta semana?", "Explícame qué es el RIR y cómo usarlo"]} onPick={(t) => send(t)} />
+            <ChatSuggestions items={active && active.exs
+              ? ["¿Por qué me sugieres este peso y estas reps hoy?", "¿Qué debo buscar en la serie que sigue?", "Explícame cómo hacer esta serie especial", "¿Cómo ajusto si me siento sin fuerza hoy?"]
+              : ["¿Qué me toca entrenar hoy?", "¿Cómo voy con mi volumen esta semana?", "Explícame qué es el RIR y cómo usarlo"]} onPick={(t) => send(t)} />
           </div>
         ) : messages.map((m, i) => (
           m.role === "user"
