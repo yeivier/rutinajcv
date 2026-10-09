@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v415";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v416";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8268,6 +8268,27 @@ const EvolucionChart = ({ data, unit }) => {
   );
 };
 
+// Próxima sesión sugerida de un ejercicio (misma lógica que al iniciar la
+// sesión): sirve al atleta en Progreso y al coach en la actividad del atleta.
+const ProximaSugerida = ({ plan, entries, name }) => {
+  const k = norma(name || "");
+  const ex = ((plan && plan.days) || []).flatMap((d) => d.exs || []).find((e) => norma(e.name) === k);
+  if (!ex || !entries || !entries.length) return null;
+  const sug = sugerirProgresion({ entries, sets: ex.sets || [], deload: false, unit: ex.unit || "kg", muscle: ex.muscle });
+  if (!sug) return null;
+  const s0 = sug.sets[0];
+  const Ic = sug.modo === "subir" ? ArrowUp : sug.modo === "mantener" ? Minus : ArrowDown;
+  return (
+    <Card style={{ padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 10 }}>
+      <Ic size={18} strokeWidth={3} style={{ marginTop: 2, flexShrink: 0 }} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>Próxima sesión: {s0.w !== "" ? `${String(s0.w).replace(".", ",")} kg × ` : ""}{s0.reps} reps</div>
+        <div style={{ fontSize: 13, color: P.faint, marginTop: 2 }}>{sug.nota}</div>
+      </div>
+    </Card>
+  );
+};
+
 const ExerciseProgress = ({ entries, sessions }) => {
   const [range, setRange] = useState("3m");
   // e1RM por defecto: pondera peso Y reps juntos, no el peso solo — dos
@@ -10418,6 +10439,93 @@ const progresoEj = (entries) => {
   return { estado: "igual", pct };
 };
 
+/* ═══════════════════════════════════════════════════════════════════════
+   PROGRESIÓN AUTOMÁTICA — qué peso y cuántas reps buscar HOY
+   ───────────────────────────────────────────────────────────────────────
+   Doble progresión con autorregulación por RIR, calculada con los registros
+   reales del propio ejercicio (sin IA generativa: es determinista, gratis,
+   reproducible y explica cada decisión). Fundamentos:
+   · Doble progresión (se llena el rango de reps y recién ahí sube la carga):
+     método estándar en hipertrofia/fuerza (ACSM 2009, Position Stand on
+     Progression Models in Resistance Training: subir 2–10 % cuando se
+     superan las reps objetivo en 1–2).
+   · RIR como medida de esfuerzo (Zourdos et al. 2016; Helms et al. 2016):
+     si el RIR real fue muy superior al objetivo se sube más; si se llegó al
+     fallo (RIR 0) con un objetivo mayor, no se suman reps.
+   · Reducción por inactividad (>2–3 semanas sin el ejercicio): se retoma
+     con 5–10 % menos (Mujika & Padilla 2000, detraining).
+   · Estancamiento (3 sesiones sin superar a la más antigua): reducción
+     del ~5 % y reconstrucción del rango (reset de carga).
+   · Semana de descarga del mesociclo: –10 % de carga, mismas reps.
+   Reglas, en orden, por ejercicio:
+   1. Todas las series de trabajo llegaron al tope del rango → sube carga
+      (2,5 % tren superior / 5 % tren inferior, mínimo un salto de disco;
+      el doble si el RIR real superó en 2+ al objetivo) y reps = piso del rango.
+   2. Si no, se mantiene la carga de esa serie y se busca +1 rep (+2 si el
+      RIR real superó en 2+ al objetivo; 0 si se llegó al fallo con RIR
+      objetivo ≥ 1), sin pasar del tope.
+   3. Dos sesiones seguidas bajo el piso del rango → –5 % de carga.
+   Todo se redondea al salto de carga real (2,5 kg o 5 lb). */
+const parseRangoReps = (t) => {
+  const n = (String(t == null ? "" : t).match(/\d+/g) || []).map(Number).filter((x) => x > 0);
+  if (!n.length) return null;
+  return { lo: Math.min(...n), hi: Math.max(...n) };
+};
+const PROG_TREN_INFERIOR = new Set(["Cuádriceps", "Femoral", "Glúteo", "Gemelo"]);
+function sugerirProgresion({ entries, sets, deload, unit, muscle, now }) {
+  const work = seriesDeTrabajo(sets);
+  const conDato = (x) => x && x.weight !== "" && x.weight != null && x.reps !== "" && x.reps != null && +x.reps > 0;
+  const hist = (entries || []).map((e) => seriesDeTrabajo(e.sets).filter((x) => x.done !== false && (conDato(x) || (x.reps !== "" && x.reps != null && +x.reps > 0)))).filter((a) => a.length);
+  if (!hist.length || !work.length) return null;
+  const ult = hist[hist.length - 1], pen = hist.length > 1 ? hist[hist.length - 2] : null;
+  const fechaUlt = (entries || []).filter((e) => seriesDeTrabajo(e.sets).some((x) => x.done !== false && x.reps !== "" && x.reps != null))
+    .map((e) => new Date(e.date).getTime()).pop();
+  const dias = fechaUlt ? Math.max(0, Math.round(((now || Date.now()) - fechaUlt) / 86400000)) : 0;
+  const paso = unit === "lb" ? 5 / 2.2046226218 : 2.5;
+  const redondear = (kgv) => Math.max(0, Math.round(kgv / paso) * paso);
+  const num = (v) => (v === "" || v == null || isNaN(+v) ? 0 : +v);
+  const rango = parseRangoReps(work[0].repsT) || (() => { const r = ult.map((x) => +x.reps); return { lo: Math.min(...r), hi: Math.max(...r) }; })();
+  const rirObj = (() => { const m = String(work[0].rirT == null ? "" : work[0].rirT).match(/\d+/); return m ? +m[0] : null; })();
+  const pctBase = PROG_TREN_INFERIOR.has(muscle) ? 0.05 : 0.025;
+  const todasTope = ult.every((x) => +x.reps >= rango.hi);
+  const rirsUlt = ult.map((x) => (x.rir === "" || x.rir == null ? null : +x.rir)).filter((x) => x != null && !isNaN(x));
+  const rirProm = rirsUlt.length ? rirsUlt.reduce((a, b) => a + b, 0) / rirsUlt.length : null;
+  const muyFacil = rirObj != null && rirProm != null && rirProm >= rirObj + 2;
+  const alFallo = rirObj != null && rirObj >= 1 && rirProm != null && rirProm <= 0;
+  const bajoPiso = (a) => a && a.length && a.reduce((s, x) => s + +x.reps, 0) / a.length < rango.lo;
+  const volEj = (a) => a.reduce((s, x) => s + num(x.weight) * +x.reps || s + +x.reps, 0);
+  // Estancamiento: las dos últimas no superan a la tercera desde el final.
+  const estancado = hist.length >= 3 && Math.max(volEj(ult), volEj(pen)) <= volEj(hist[hist.length - 3]) * 1.01;
+  let modo = "mantener", nota = "", factorGlobal = 1;
+  if (deload) { modo = "descarga"; nota = "Semana de descarga: –10 % de carga, mismas reps"; factorGlobal = 0.9; }
+  else if (dias > 35) { modo = "retomar"; nota = `${dias} días sin hacerlo: retoma con –10 %`; factorGlobal = 0.9; }
+  else if (dias > 21) { modo = "retomar"; nota = `${dias} días sin hacerlo: retoma con –5 %`; factorGlobal = 0.95; }
+  else if (bajoPiso(ult) && bajoPiso(pen)) { modo = "bajar"; nota = `Dos sesiones bajo ${rango.lo} reps: –5 % de carga`; factorGlobal = 0.95; }
+  else if (estancado) { modo = "reset"; nota = "Estancado 3 sesiones: –5 % y reconstruye el rango"; factorGlobal = 0.95; }
+  else if (todasTope) { modo = "subir"; nota = muyFacil ? `Todas las series en ${rango.hi}+ y RIR ${rirProm.toFixed(0)} (objetivo ${rirObj}): subida doble` : `Todas las series llegaron a ${rango.hi}: sube la carga`; }
+  else nota = alFallo ? "Llegaste al fallo: misma carga y mismas reps" : muyFacil ? "RIR muy por encima del objetivo: +2 reps" : "Mantén la carga y busca +1 rep";
+  const out = work.map((_, i) => {
+    const ref = ult[Math.min(i, ult.length - 1)];
+    const wRef = num(ref.weight), rRef = +ref.reps;
+    let w = wRef, reps = rRef;
+    if (modo === "subir") {
+      const base = wRef > 0 ? wRef : 0;
+      const salto = Math.max(paso, redondear(base * pctBase * (muyFacil ? 2 : 1)));
+      w = base > 0 ? redondear(base + salto) : paso;
+      reps = rango.lo;
+    } else if (modo === "descarga") { w = redondear(wRef * factorGlobal); reps = Math.min(rRef, rango.hi); }
+    else if (modo === "retomar" || modo === "bajar") { w = redondear(wRef * factorGlobal); reps = Math.max(rango.lo, Math.min(rRef, rango.hi)); }
+    else if (modo === "reset") { w = redondear(wRef * factorGlobal); reps = Math.min(rango.hi, Math.max(rango.lo, rRef + 1)); }
+    else {
+      const ganar = alFallo ? 0 : muyFacil ? 2 : 1;
+      reps = Math.min(rango.hi, Math.max(rango.lo, rRef + ganar));
+      w = wRef;
+    }
+    return { w: w > 0 ? Math.round(w * 100) / 100 : "", reps };
+  });
+  return { sets: out, modo, nota, rango, dias };
+}
+
 const RetoSerie = ({ actual, previa, unidad, compacto }) => {
   const r = retoDeSerie(actual, previa);
   if (r.estado === "nuevo") return null;   // primera vez: no hay contra qué medir
@@ -10705,23 +10813,20 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     let any = false;
     clone.exs.forEach((exx) => {
       const entries = exEntries(history, exx);
-      const lastEntry = entries.length ? entries[entries.length - 1] : null;
-      const prevTrabajo = lastEntry ? seriesDeTrabajo(lastEntry.sets) : [];
-      let nTrabajo = -1;
-      exx.sets.forEach((s, si) => {
-        // Las series de aproximación (calentamiento) no se precargan: el peso
-        // de calentamiento depende del día, no de la sesión anterior.
-        if (s.type === "warmup") return;
-        nTrabajo++;
-        if (s.weight !== "" || s.reps !== "" || s.rir !== "") return;
-        const prev = prevTrabajo[nTrabajo] || null;
-        if (prev) {
-          ["weight", "reps", "rir"].forEach((k) => { if (prev[k] !== "" && prev[k] != null) { s[k] = String(prev[k]); any = true; } });
-        }
-        // Sin sesión anterior de la que copiar (primera vez que se hace el
-        // ejercicio) se arranca del objetivo que puso el coach, no de
-        // vacío: si no, la serie se registraba como "— kg × —" y no
-        // servía ni para el historial ni para precargar la próxima.
+      const trabajoIdx = [];
+      exx.sets.forEach((s, si) => { if (s.type !== "warmup") trabajoIdx.push(si); });
+      const sug = sugerirProgresion({ entries, sets: exx.sets, deload: !!clone.deload, unit: exx.unit || weightUnit, muscle: exx.muscle });
+      if (!sug) return;
+      exx.sug = { modo: sug.modo, nota: sug.nota, lo: sug.rango.lo, hi: sug.rango.hi };
+      trabajoIdx.forEach((si, k) => {
+        const s = exx.sets[si], sg = sug.sets[k];
+        if (!sg) return;
+        s.sugReps = sg.reps; s.sugW = sg.w;
+        // Las series de aproximación no se precargan. El peso sugerido se
+        // precarga (editable) y se marca: si la serie no se toca ni se marca,
+        // al terminar se descarta y no ensucia el historial.
+        if (s.weight === "" && s.reps === "" && s.rir === "" && sg.w !== "") { s.weight = String(sg.w); s.prefilled = true; any = true; }
+        else any = true;
       });
     });
     if (any) patch(() => clone);
@@ -10796,7 +10901,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
   };
 
   const restKey = (ei, si) => `${ei}-${si}`;
-  const setVal = (ei, si, field, v) => patchSet(ei, si, { [field]: v });
+  const setVal = (ei, si, field, v) => patchSet(ei, si, { [field]: v, prefilled: false });
   // Las partes siguientes de un drop set / rest-pause / cluster (ver
   // MULTI_LEG_TYPES): la primera parte ya va en los campos de siempre
   // (peso/reps/RIR de la serie); esto agrega/edita/quita cada parte
@@ -11132,6 +11237,17 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
         {(!block.group || indicaciones || tempo) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
             {!block.group && objetivoEj(exs[block.ei]) && <div style={{ fontSize: 15.5, color: SES.faint, fontWeight: 400 }}>Objetivo {objetivoEj(exs[block.ei])}</div>}
+            {!block.group && exs[block.ei].sug && (() => {
+              const sg = exs[block.ei].sug, ws = seriesDeTrabajo(exs[block.ei].sets).filter((x) => x.sugW !== "" && x.sugW != null);
+              const w0 = ws.length ? pesoMostrado(ws[0].sugW, unitFor(block.ei)) : null;
+              const Ic = sg.modo === "subir" ? ArrowUp : sg.modo === "mantener" ? Minus : ArrowDown;
+              return (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 13.5, color: SES.ink, lineHeight: 1.4 }}>
+                  <Ic size={14} strokeWidth={3} style={{ marginTop: 3, flexShrink: 0 }} />
+                  <span><b>Hoy: {w0 != null ? `${String(w0).replace(".", ",")} ${unitFor(block.ei)} × ` : ""}{seriesDeTrabajo(exs[block.ei].sets)[0].sugReps} reps</b><span style={{ color: SES.dim }}> · {sg.nota}</span></span>
+                </div>
+              );
+            })()}
             {indicaciones && <div style={{ fontSize: 13, color: SES.dim, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{indicaciones}</div>}
             {tempo && <div><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
           </div>
@@ -11250,7 +11366,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                 valor={st.weight === "" || st.weight == null ? "" : String(pesoMostrado(st.weight, unitDeSerie(st, r.ei))).replace(".", ",")}
                 onCommit={(v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, unitDeSerie(st, r.ei)))))}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "weight" })} />
-              <NumCell {...celda} aria={`Repeticiones de la ${dónde}`} placeholder="reps" sufijo="" vacio={String(st.repsT || "").replace(/-/g, "–")}
+              <NumCell {...celda} aria={`Repeticiones de la ${dónde}`} placeholder="reps" sufijo="" vacio={st.sugReps != null && !isWarm ? String(st.sugReps) : String(st.repsT || "").replace(/-/g, "–")}
                 valor={st.reps == null ? "" : String(st.reps)}
                 onCommit={(v) => setVal(r.ei, r.si, "reps", v)}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "reps" })} />
@@ -11615,7 +11731,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
         const tipoLargo = String((SET_TYPES[st.type] || SET_TYPES.normal).label).split(" (")[0];
         const meta = isWarm
           ? (st.pctT || (st.repsT ? `${st.repsT} reps` : ""))
-          : [st.repsT ? `${String(st.repsT).replace(/-/g, "–")} reps` : null, st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null].filter(Boolean).join(" · ");
+          : [st.sugReps != null ? `meta ${st.sugReps} reps` : st.repsT ? `${String(st.repsT).replace(/-/g, "–")} reps` : null, st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : null].filter(Boolean).join(" · ");
         // «Anterior»: la misma serie de trabajo la última vez que se hizo.
         let ant = null;
         if (!isWarm && !b.group) {
@@ -12838,7 +12954,8 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
       // RIR con algo al abrir la sesión; esto cubre lo que se le escape
       // (una serie agregada a mano en plena sesión, por ejemplo).
       if (willDone) {
-        if (st.reps === "" || st.reps == null) { const n = repsTargetNum(st.repsT); if (n != null) st.reps = String(n); }
+        if (st.reps === "" || st.reps == null) { const n = st.sugReps != null ? st.sugReps : repsTargetNum(st.repsT); if (n != null) st.reps = String(n); }
+        st.prefilled = false;
         if ((st.rir === "" || st.rir == null) && st.rirT !== "" && st.rirT != null) st.rir = String(st.rirT);
         st.doneAt = new Date().toISOString();
       } else {
@@ -16239,6 +16356,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
                 style={{ position: "absolute", right: 12, pointerEvents: "none" }} />
             </div>
           )}
+          <ProximaSugerida plan={plan} entries={entries} name={(allEx.find((x) => x[0] === exId) || [])[1]} />
           <ExerciseProgress entries={entries} sessions={history.sessions} />
           {recentPRs.length > 0 && (
             <div style={{ marginTop: 22 }}>
@@ -20135,6 +20253,7 @@ const ActivityTab = ({ plan, history, saveHistory, embedded, onRegistrar }) => {
             ? <Empty icon={History} title="Sin registros" body="Este ejercicio aún no tiene sesiones registradas." />
             : (
               <>
+                <ProximaSugerida plan={plan} entries={exEntries(history, { id: exId, name: (allEx.find((x) => x[0] === exId) || [])[1] })} name={(allEx.find((x) => x[0] === exId) || [])[1]} />
                 <ExerciseProgress entries={exEntries(history, { id: exId, name: (allEx.find((x) => x[0] === exId) || [])[1] })} sessions={history.sessions} />
                 <ExHistorySheetInline entries={exEntries(history, { id: exId, name: (allEx.find((x) => x[0] === exId) || [])[1] })} onOpenImg={setViewImg} sessions={history.sessions} />
               </>
@@ -32125,9 +32244,14 @@ const App = () => {
     const a = structuredClone(aIn);
     // Guardar toda serie con datos aunque el alumno no haya marcado el check
     a.exs.forEach((ex) => ex.sets.forEach((s) => {
+      // El peso que se precargó como sugerencia y nunca se tocó no es un
+      // registro: se descarta en vez de guardarse como serie hecha.
+      if (s.prefilled && !s.done) { s.weight = ""; s.reps = ""; s.rir = ""; }
+      delete s.prefilled; delete s.sugW; delete s.sugReps;
       const hasData = (s.weight !== "" && s.weight != null) || (s.reps !== "" && s.reps != null);
       if (hasData) s.done = true;
     }));
+    a.exs.forEach((ex) => { delete ex.sug; });
     const h = structuredClone(history);
     // Sesión pasada (retroactiva): se archiva en la fecha que el atleta eligió
     // (a.sessionDate), no en hoy — así cae en la semana correspondiente del
