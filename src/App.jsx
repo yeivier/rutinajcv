@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v418";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v419";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10676,7 +10676,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
   const [salida, setSalida] = useState(false);
   useEffect(() => { if (pedirSalida) { setSalida(true); onSalidaConsumida && onSalidaConsumida(); } }, [pedirSalida]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [histEx, setHistEx] = useState(null);
-  const [histAbierto, setHistAbierto] = useState(null); // bloque con el historial de sesiones desplegado
+  const [histCerrados, setHistCerrados] = useState(() => new Set()); // historiales que el atleta plegó (por defecto todos abiertos)
   const [vincularOpen, setVincularOpen] = useState(false);
   const [herrOpen, setHerrOpen] = useState(false);
   // Reordenar series con "mantén pulsado y arrastra" — mismo mecanismo que
@@ -11107,13 +11107,17 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
      falta — no hay «siguiente» que tocar ni sitio donde perderse. */
   // Lo que se hizo la última vez en una serie: "50 × 12" (o "12" a peso
   // corporal), con una flecha si lo de hoy ya lo supera, iguala o no alcanza.
-  const antesDe = (r, st) => {
+  const previaDe = (r, st) => {
     const ex = exs[r.ei];
     const en = lastEntryOf(ex.id);
     const warm = st.type === "warmup";
     let ni = 0;
     for (let k = 0; k < r.si; k++) if ((ex.sets[k].type === "warmup") === warm) ni++;
-    const pv = en ? (en.sets || []).filter((x) => (x.type === "warmup") === warm)[ni] : null;
+    return en ? (en.sets || []).filter((x) => (x.type === "warmup") === warm)[ni] : null;
+  };
+  const antesDe = (r, st) => {
+    const warm = st.type === "warmup";
+    const pv = previaDe(r, st);
     const c = cargaDeSerie(pv);
     const u = unitDeSerie(st, r.ei);
     const txt = !c ? "–" : c.tipo === "vol" ? `${kg(pesoMostrado(pv.weight, u))}×${c.r}` : `${c.r}`;
@@ -11129,16 +11133,16 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
   // Encima de la tabla: cómo va este ejercicio frente a las sesiones
   // pasadas (progresó / igual / bajó / estancado) y, al tocarlo, las
   // últimas sesiones serie por serie.
-  const franjaHistorial = (block, bi) => {
-    const ex = exs[block.group ? block.members[0] : block.ei];
+  const histBlock = (ei, key) => {
+    const ex = exs[ei];
     const en = exEntries(history, ex);
     if (!en.length) return (
-      <div style={{ marginTop: 12, fontSize: 13, color: SES.faint }}>Primera vez que registras este ejercicio</div>
+      <div key={key} style={{ marginTop: 12, fontSize: 13, color: SES.faint }}>{ex.name ? `${ex.name}: ` : ""}Primera vez que registras este ejercicio</div>
     );
-    const u = unitFor(block.group ? block.members[0] : block.ei);
+    const u = unitFor(ei);
     const last = en[en.length - 1];
     const pr = progresoEj(en);
-    const abiertoH = histAbierto === bi;
+    const abiertoH = !histCerrados.has(key);
     const meta = !pr ? null : {
       mejor: { t: `Subió ${Math.round(pr.pct)}%`, I: ArrowUp, c: SES.ink },
       igual: { t: "Igual que la vez anterior", I: Minus, c: SES.dim },
@@ -11148,8 +11152,8 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     const lineaSets = (sets) => seriesDeTrabajo(sets).map(cargaDeSerie).filter(Boolean)
       .map((c, i, a) => c.tipo === "vol" ? `${kg(pesoMostrado(seriesDeTrabajo(sets).filter((x) => cargaDeSerie(x))[i].weight, u))}×${c.r}` : `${c.r}`).join(" · ");
     return (
-      <div style={{ marginTop: 12 }}>
-        <button onClick={() => setHistAbierto(abiertoH ? null : bi)} aria-expanded={abiertoH} aria-label={`Historial de ${ex.name}`}
+      <div key={key} style={{ marginTop: 12 }}>
+        <button onClick={() => setHistCerrados((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; })} aria-expanded={abiertoH} aria-label={`Historial de ${ex.name}`}
           style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 14, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink }}>
           <History size={16} color={SES.faint} style={{ flexShrink: 0 }} />
           <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, lineHeight: 1.35 }}>
@@ -11165,15 +11169,20 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
         </button>
         {abiertoH && (
           <div className="deployIn" style={{ marginTop: 6 }}>
-            <HistoryRows entries={en.slice(-3)} onOpenImg={setViewImg} sessions={history.sessions} />
-            {en.length > 3 && (
-              <button onClick={() => setHistEx(block.group ? block.members[0] : block.ei)} style={{ fontSize: 12.5, fontWeight: 650, color: SES.dim, padding: "6px 2px" }}>Ver las {en.length} sesiones</button>
+            <HistoryRows entries={en.slice(-4)} onOpenImg={setViewImg} sessions={history.sessions} />
+            {en.length > 4 && (
+              <button onClick={() => setHistEx(ei)} style={{ fontSize: 12.5, fontWeight: 650, color: SES.dim, padding: "6px 2px" }}>Ver las {en.length} sesiones</button>
             )}
           </div>
         )}
       </div>
     );
   };
+  // Historial completo del ejercicio (o de cada miembro de una superserie),
+  // siempre a la vista bajo las series.
+  const franjaHistorial = (block, bi) => (block.group
+    ? block.members.map((mi) => histBlock(mi, `${bi}-${mi}`))
+    : histBlock(block.ei, `${bi}`));
 
   // Peso y reps a buscar hoy (progresión automática) o, si el ejercicio no
   // tiene historial, el acceso para anotar la última vez.
@@ -11349,7 +11358,6 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           </div>
         )}
 
-        {franjaHistorial(block, bi)}
         <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "12px 0 6px", fontSize: 13, fontWeight: 400, color: SES.faint }}>
           <span style={{ width: 24, flexShrink: 0, textAlign: "center" }}>#</span>
           <span style={{ width: 58, flexShrink: 0, textAlign: "center" }}>ANTES</span>
@@ -11462,6 +11470,29 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
             })()}
             {renderLegs(st, r.ei, r.si, dónde)}
             {consigna && <div style={{ fontSize: 13, color: SES.faint, padding: "6px 0 0 44px", lineHeight: 1.35 }}>{consigna}</div>}
+            {(() => {
+              // Todo lo de la serie, sin tocar nada: qué tipo es (top, back-off,
+              // drop…) y cómo se hace, el objetivo, lo de la última vez y el
+              // comentario que dejó.
+              const pv = previaDe(r, st);
+              const esEspecial = !isWarm && st.type && st.type !== "normal" && SET_TYPES[st.type];
+              const tl = esEspecial ? String(SET_TYPES[st.type].label).split(" (")[0] : "";
+              const gl = esEspecial ? GLOSSARY.find((g) => g.id === SET_TYPES[st.type].g) : null;
+              const como = gl ? (gl.def.split(/(?<=[.!?])\s/)[0] || "") : "";
+              const u = unitDeSerie(st, r.ei);
+              const antes = pv && ((pv.weight !== "" && pv.weight != null) || (pv.reps !== "" && pv.reps != null))
+                ? `antes ${pv.weight !== "" && pv.weight != null ? `${String(pesoMostrado(pv.weight, u)).replace(".", ",")} ${u} × ` : ""}${pv.reps !== "" && pv.reps != null ? pv.reps : "?"}${pv.rir !== "" && pv.rir != null ? ` · RIR ${pv.rir}` : ""}` : "";
+              const obj = consigna || isWarm ? "" : detalle;
+              const partes = [obj, antes].filter(Boolean);
+              if (!tl && !partes.length && !(pv && pv.comment)) return null;
+              return (
+                <div style={{ padding: "3px 0 0 36px", fontSize: 12.5, color: SES.dim, lineHeight: 1.4 }}>
+                  {(tl || partes.length > 0) && <div>{tl && <b style={{ color: SES.ink }}>{tl}</b>}{tl && partes.length ? " · " : ""}{partes.join(" · ")}</div>}
+                  {como && <div style={{ color: SES.faint }}>{como}</div>}
+                  {pv && pv.comment && <div style={{ display: "flex", gap: 5 }}><MessageSquare size={12} style={{ marginTop: 3, flexShrink: 0 }} /><span style={{ whiteSpace: "pre-wrap" }}>{pv.comment}</span></div>}
+                </div>
+              );
+            })()}
             {!isWarm && st.sugLegs && st.sugLegs.length > 0 && (
               <div style={{ fontSize: 12.5, color: SES.dim, padding: "4px 0 0 44px", lineHeight: 1.35 }}>
                 {(MULTI_LEG_TYPES[st.type] || { leg: "parte" }).leg}s sugeridas: {st.sugLegs.map((l) => `${l.w !== "" ? String(pesoMostrado(l.w, unitDeSerie(st, r.ei))).replace(".", ",") + "×" : ""}${l.reps}`).join(" → ")}
@@ -11542,6 +11573,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
             </button>
           </div>
         )}
+        {soloRow == null && franjaHistorial(block, bi)}
       </div>
     );
   };
