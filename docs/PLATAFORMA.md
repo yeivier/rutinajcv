@@ -43,6 +43,9 @@ Librerías: React, Recharts, lucide-react (íconos). Fuentes: Archivo y Geist Mo
 - **Nutrición**: objetivos, comidas, suplementos, MyFitnessPal.
 - **Más**: perfil, ajustes, dispositivos (WHOOP, Garmin), Competition Prep (categoría elegible + peak week), Atlas de ejercicios, laboratorios, exámenes, guía de términos, cambiar a Coach.
 
+### Progresión automática (`sugerirProgresion` en `App.jsx`)
+Al iniciar una sesión, cada ejercicio con historial recibe el peso y las reps a buscar hoy (peso precargado y editable; reps como meta en gris). Es doble progresión con autorregulación por RIR, determinista y con los registros reales del ejercicio: sube carga cuando todas las series llegan al tope del rango (2,5 % tren superior / 5 % inferior, doble si el RIR superó al objetivo en 2+), si no mantiene carga y busca +1 rep (0 si se llegó al fallo), baja 5 % tras dos sesiones bajo el piso, reduce 5–10 % tras 3–5 semanas sin hacerlo, descarga −10 % en semanas de descarga del mesociclo y resetea −5 % si hay estancamiento. El peso sugerido que no se toca no se guarda en el historial. El coach y el atleta ven "Próxima sesión" por ejercicio en Progreso / Actividad.
+
 ## Pantallas — Modo Coach (barra inferior)
 - **Panel**: tarjetas con métricas del equipo (sesiones, volumen, adherencia) y detalle.
 - **Atletas**: Actividad (tocar al atleta abre su actividad/historial con comentarios; ícono de ajustes = "Gestionar"), Progresión, Rankings, Cobros, Leads.
