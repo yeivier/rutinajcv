@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v416";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v417";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -8274,7 +8274,7 @@ const ProximaSugerida = ({ plan, entries, name }) => {
   const k = norma(name || "");
   const ex = ((plan && plan.days) || []).flatMap((d) => d.exs || []).find((e) => norma(e.name) === k);
   if (!ex || !entries || !entries.length) return null;
-  const sug = sugerirProgresion({ entries, sets: ex.sets || [], deload: false, unit: ex.unit || "kg", muscle: ex.muscle });
+  const sug = sugerirProgresion({ entries, sets: ex.sets || [], deload: false, muscle: ex.muscle });
   if (!sug) return null;
   const s0 = sug.sets[0];
   const Ic = sug.modo === "subir" ? ArrowUp : sug.modo === "mantener" ? Minus : ArrowDown;
@@ -10452,78 +10452,123 @@ const progresoEj = (entries) => {
    · RIR como medida de esfuerzo (Zourdos et al. 2016; Helms et al. 2016):
      si el RIR real fue muy superior al objetivo se sube más; si se llegó al
      fallo (RIR 0) con un objetivo mayor, no se suman reps.
-   · Reducción por inactividad (>2–3 semanas sin el ejercicio): se retoma
-     con 5–10 % menos (Mujika & Padilla 2000, detraining).
-   · Estancamiento (3 sesiones sin superar a la más antigua): reducción
-     del ~5 % y reconstrucción del rango (reset de carga).
+   · Reducción por inactividad (>3 semanas sin el ejercicio): se retoma con
+     5–10 % menos (Mujika & Padilla 2000, detraining).
+   · Estancamiento (3 sesiones sin superar a la más antigua): –5 % y reset.
    · Semana de descarga del mesociclo: –10 % de carga, mismas reps.
-   Reglas, en orden, por ejercicio:
-   1. Todas las series de trabajo llegaron al tope del rango → sube carga
-      (2,5 % tren superior / 5 % tren inferior, mínimo un salto de disco;
-      el doble si el RIR real superó en 2+ al objetivo) y reps = piso del rango.
-   2. Si no, se mantiene la carga de esa serie y se busca +1 rep (+2 si el
-      RIR real superó en 2+ al objetivo; 0 si se llegó al fallo con RIR
-      objetivo ≥ 1), sin pasar del tope.
-   3. Dos sesiones seguidas bajo el piso del rango → –5 % de carga.
-   Todo se redondea al salto de carga real (2,5 kg o 5 lb). */
+   Los valores son EXACTOS (sin redondear a discos ni a saltos fijos).
+   Cada tipo de serie se progresa con su propia referencia (la misma clase
+   de serie de la sesión anterior):
+   · normal / top / amrap / protocolos (vma, iso, fst…): doble progresión.
+   · back-off: sigue al top set — conserva su proporción de carga.
+   · drop / rest-pause / cluster: la serie principal progresa y las partes
+     extra mantienen su proporción de carga y sus reps de la vez anterior.
+   · aproximación: no se sugiere.
+   Superseries: cada ejercicio miembro se progresa por separado. */
 const parseRangoReps = (t) => {
   const n = (String(t == null ? "" : t).match(/\d+/g) || []).map(Number).filter((x) => x > 0);
   if (!n.length) return null;
   return { lo: Math.min(...n), hi: Math.max(...n) };
 };
 const PROG_TREN_INFERIOR = new Set(["Cuádriceps", "Femoral", "Glúteo", "Gemelo"]);
-function sugerirProgresion({ entries, sets, deload, unit, muscle, now }) {
+const progTipo = (x) => x.type || "normal";
+function sugerirProgresion({ entries, sets, deload, muscle, now }) {
   const work = seriesDeTrabajo(sets);
-  const conDato = (x) => x && x.weight !== "" && x.weight != null && x.reps !== "" && x.reps != null && +x.reps > 0;
-  const hist = (entries || []).map((e) => seriesDeTrabajo(e.sets).filter((x) => x.done !== false && (conDato(x) || (x.reps !== "" && x.reps != null && +x.reps > 0)))).filter((a) => a.length);
-  if (!hist.length || !work.length) return null;
-  const ult = hist[hist.length - 1], pen = hist.length > 1 ? hist[hist.length - 2] : null;
-  const fechaUlt = (entries || []).filter((e) => seriesDeTrabajo(e.sets).some((x) => x.done !== false && x.reps !== "" && x.reps != null))
-    .map((e) => new Date(e.date).getTime()).pop();
-  const dias = fechaUlt ? Math.max(0, Math.round(((now || Date.now()) - fechaUlt) / 86400000)) : 0;
-  const paso = unit === "lb" ? 5 / 2.2046226218 : 2.5;
-  const redondear = (kgv) => Math.max(0, Math.round(kgv / paso) * paso);
+  const repsOk = (x) => x && x.reps !== "" && x.reps != null && +x.reps > 0;
+  const histAll = (entries || []).map((e) => ({ date: e.date, sets: seriesDeTrabajo(e.sets).filter((x) => x.done !== false && repsOk(x)) })).filter((e) => e.sets.length);
+  if (!histAll.length || !work.length) return null;
+  const ultE = histAll[histAll.length - 1];
+  const ult = ultE.sets, pen = histAll.length > 1 ? histAll[histAll.length - 2].sets : null;
+  const dias = Math.max(0, Math.round(((now || Date.now()) - new Date(ultE.date).getTime()) / 86400000));
   const num = (v) => (v === "" || v == null || isNaN(+v) ? 0 : +v);
-  const rango = parseRangoReps(work[0].repsT) || (() => { const r = ult.map((x) => +x.reps); return { lo: Math.min(...r), hi: Math.max(...r) }; })();
-  const rirObj = (() => { const m = String(work[0].rirT == null ? "" : work[0].rirT).match(/\d+/); return m ? +m[0] : null; })();
+  const r2 = (x) => Math.round(x * 100) / 100;
   const pctBase = PROG_TREN_INFERIOR.has(muscle) ? 0.05 : 0.025;
-  const todasTope = ult.every((x) => +x.reps >= rango.hi);
-  const rirsUlt = ult.map((x) => (x.rir === "" || x.rir == null ? null : +x.rir)).filter((x) => x != null && !isNaN(x));
-  const rirProm = rirsUlt.length ? rirsUlt.reduce((a, b) => a + b, 0) / rirsUlt.length : null;
-  const muyFacil = rirObj != null && rirProm != null && rirProm >= rirObj + 2;
-  const alFallo = rirObj != null && rirObj >= 1 && rirProm != null && rirProm <= 0;
-  const bajoPiso = (a) => a && a.length && a.reduce((s, x) => s + +x.reps, 0) / a.length < rango.lo;
-  const volEj = (a) => a.reduce((s, x) => s + num(x.weight) * +x.reps || s + +x.reps, 0);
-  // Estancamiento: las dos últimas no superan a la tercera desde el final.
-  const estancado = hist.length >= 3 && Math.max(volEj(ult), volEj(pen)) <= volEj(hist[hist.length - 3]) * 1.01;
-  let modo = "mantener", nota = "", factorGlobal = 1;
-  if (deload) { modo = "descarga"; nota = "Semana de descarga: –10 % de carga, mismas reps"; factorGlobal = 0.9; }
-  else if (dias > 35) { modo = "retomar"; nota = `${dias} días sin hacerlo: retoma con –10 %`; factorGlobal = 0.9; }
-  else if (dias > 21) { modo = "retomar"; nota = `${dias} días sin hacerlo: retoma con –5 %`; factorGlobal = 0.95; }
-  else if (bajoPiso(ult) && bajoPiso(pen)) { modo = "bajar"; nota = `Dos sesiones bajo ${rango.lo} reps: –5 % de carga`; factorGlobal = 0.95; }
-  else if (estancado) { modo = "reset"; nota = "Estancado 3 sesiones: –5 % y reconstruye el rango"; factorGlobal = 0.95; }
-  else if (todasTope) { modo = "subir"; nota = muyFacil ? `Todas las series en ${rango.hi}+ y RIR ${rirProm.toFixed(0)} (objetivo ${rirObj}): subida doble` : `Todas las series llegaron a ${rango.hi}: sube la carga`; }
-  else nota = alFallo ? "Llegaste al fallo: misma carga y mismas reps" : muyFacil ? "RIR muy por encima del objetivo: +2 reps" : "Mantén la carga y busca +1 rep";
-  const out = work.map((_, i) => {
-    const ref = ult[Math.min(i, ult.length - 1)];
-    const wRef = num(ref.weight), rRef = +ref.reps;
-    let w = wRef, reps = rRef;
-    if (modo === "subir") {
-      const base = wRef > 0 ? wRef : 0;
-      const salto = Math.max(paso, redondear(base * pctBase * (muyFacil ? 2 : 1)));
-      w = base > 0 ? redondear(base + salto) : paso;
-      reps = rango.lo;
-    } else if (modo === "descarga") { w = redondear(wRef * factorGlobal); reps = Math.min(rRef, rango.hi); }
-    else if (modo === "retomar" || modo === "bajar") { w = redondear(wRef * factorGlobal); reps = Math.max(rango.lo, Math.min(rRef, rango.hi)); }
-    else if (modo === "reset") { w = redondear(wRef * factorGlobal); reps = Math.min(rango.hi, Math.max(rango.lo, rRef + 1)); }
-    else {
-      const ganar = alFallo ? 0 : muyFacil ? 2 : 1;
-      reps = Math.min(rango.hi, Math.max(rango.lo, rRef + ganar));
-      w = wRef;
-    }
-    return { w: w > 0 ? Math.round(w * 100) / 100 : "", reps };
+  const vol = (a) => a.reduce((t, x) => t + (num(x.weight) > 0 ? num(x.weight) * +x.reps : +x.reps), 0);
+  const estancado = histAll.length >= 3 && Math.max(vol(ult), pen ? vol(pen) : 0) <= vol(histAll[histAll.length - 3].sets) * 1.01;
+  // Referencias por tipo: la misma clase de serie de la sesión anterior; si no
+  // existe, las normales; si tampoco, todas.
+  const refsDe = (arr, tipo) => {
+    if (!arr) return [];
+    const mismo = arr.filter((x) => progTipo(x) === tipo);
+    if (mismo.length) return mismo;
+    const norm = arr.filter((x) => progTipo(x) === "normal");
+    return norm.length ? norm : arr;
+  };
+  const tipos = [...new Set(work.map(progTipo))];
+  const orden = ["top", ...tipos.filter((t) => t !== "top" && t !== "backoff"), "backoff"].filter((t) => tipos.includes(t));
+  const decisiones = {}; // tipo → { modo, nota, rango, rirObj, refs, muyFacil, alFallo }
+  tipos.forEach((tipo) => {
+    const actuales = work.filter((x) => progTipo(x) === tipo);
+    const refs = refsDe(ult, tipo), prefs = refsDe(pen, tipo);
+    const rango = parseRangoReps(actuales[0].repsT) || (() => { const r = refs.map((x) => +x.reps); return { lo: Math.min(...r), hi: Math.max(...r) }; })();
+    const rirObj = (() => { const m = String(actuales[0].rirT == null ? "" : actuales[0].rirT).match(/\d+/); return m ? +m[0] : null; })();
+    const rirs = refs.map((x) => (x.rir === "" || x.rir == null ? null : +x.rir)).filter((x) => x != null && !isNaN(x));
+    const rirProm = rirs.length ? rirs.reduce((a, b) => a + b, 0) / rirs.length : null;
+    const muyFacil = rirObj != null && rirProm != null && rirProm >= rirObj + 2;
+    const alFallo = rirObj != null && rirObj >= 1 && rirProm != null && rirProm <= 0;
+    const bajoPiso = (a) => a && a.length && a.reduce((t, x) => t + +x.reps, 0) / a.length < rango.lo;
+    const todasTope = refs.every((x) => +x.reps >= rango.hi);
+    let modo = "mantener", nota = "", factor = 1;
+    if (deload) { modo = "descarga"; nota = "Semana de descarga: –10 % de carga, mismas reps"; factor = 0.9; }
+    else if (dias > 35) { modo = "retomar"; nota = `${dias} días sin hacerlo: retoma con –10 %`; factor = 0.9; }
+    else if (dias > 21) { modo = "retomar"; nota = `${dias} días sin hacerlo: retoma con –5 %`; factor = 0.95; }
+    else if (bajoPiso(refs) && bajoPiso(prefs)) { modo = "bajar"; nota = `Dos sesiones bajo ${rango.lo} reps: –5 % de carga`; factor = 0.95; }
+    else if (estancado) { modo = "reset"; nota = "Estancado 3 sesiones: –5 % y reconstruye el rango"; factor = 0.95; }
+    else if (todasTope) { modo = "subir"; nota = !refs.some((x) => num(x.weight) > 0) ? `Todas las series llegaron a ${rango.hi}: suma una rep o añade lastre` : muyFacil ? `Todas en ${rango.hi}+ con RIR ${rirProm.toFixed(0)} (objetivo ${rirObj}): subida doble` : `Todas las series llegaron a ${rango.hi}: sube la carga`; }
+    else nota = alFallo ? "Llegaste al fallo: misma carga y mismas reps" : muyFacil ? "RIR muy por encima del objetivo: +2 reps" : "Mantén la carga y busca +1 rep";
+    decisiones[tipo] = { modo, nota, rango, factor, muyFacil, alFallo, refs, actuales };
   });
-  return { sets: out, modo, nota, rango, dias };
+  const out = new Array(work.length);
+  const nuevoTop = {}; // peso nuevo de la 1.ª serie top, para el back-off
+  orden.forEach((tipo) => {
+    const d = decisiones[tipo];
+    let k = -1;
+    work.forEach((st, i) => {
+      if (progTipo(st) !== tipo) return;
+      k++;
+      const ref = d.refs[Math.min(k, d.refs.length - 1)];
+      const wRef = num(ref.weight), rRef = +ref.reps;
+      let w = wRef, reps = rRef;
+      if (d.modo === "subir") {
+        if (wRef > 0) { w = wRef * (1 + pctBase * (d.muyFacil ? 2 : 1)); reps = d.rango.lo; }
+        else { w = 0; reps = rRef + 1; } // peso corporal: sin carga no hay salto, se suma una rep
+      } else if (d.modo === "descarga") { w = wRef * d.factor; reps = Math.min(rRef, d.rango.hi); }
+      else if (d.modo === "retomar" || d.modo === "bajar") { w = wRef * d.factor; reps = Math.max(d.rango.lo, Math.min(rRef, d.rango.hi)); }
+      else if (d.modo === "reset") { w = wRef * d.factor; reps = Math.min(d.rango.hi, Math.max(d.rango.lo, rRef + 1)); }
+      else { reps = Math.min(d.rango.hi, Math.max(d.rango.lo, rRef + (d.alFallo ? 0 : d.muyFacil ? 2 : 1))); w = wRef; }
+      // Back-off: mantiene su proporción respecto del top set.
+      if (tipo === "backoff" && nuevoTop.w > 0 && nuevoTop.ref > 0 && wRef > 0) w = nuevoTop.w * (wRef / nuevoTop.ref);
+      if (tipo === "top" && nuevoTop.w == null) { nuevoTop.w = w; nuevoTop.ref = wRef; }
+      // Partes extra (drop / rest-pause / cluster): misma proporción de carga
+      // y mismas reps que la vez anterior.
+      let legs = null;
+      if (MULTI_LEG_TYPES[tipo] && Array.isArray(ref.drops)) {
+        const ls = ref.drops.filter((l) => repsOk(l) || num(l.weight) > 0);
+        if (ls.length) legs = ls.map((l) => ({ w: wRef > 0 && num(l.weight) > 0 ? r2(w * (num(l.weight) / wRef)) : "", reps: repsOk(l) ? +l.reps : "" }));
+      }
+      out[i] = { w: w > 0 ? r2(w) : "", reps, legs, tipo };
+    });
+  });
+  const principal = decisiones[tipos.includes("normal") ? "normal" : orden[0]];
+  return { sets: out, modo: principal.modo, nota: principal.nota, rango: principal.rango, dias,
+    porTipo: Object.fromEntries(tipos.map((t) => [t, { modo: decisiones[t].modo, nota: decisiones[t].nota }])) };
+}
+
+function aplicarSugEj(exx, entries, deload) {
+  const sug = sugerirProgresion({ entries, sets: exx.sets, deload: !!deload, muscle: exx.muscle });
+  if (!sug) return false;
+  exx.sug = { modo: sug.modo, nota: sug.nota, lo: sug.rango.lo, hi: sug.rango.hi, porTipo: sug.porTipo };
+  let k = 0;
+  exx.sets.forEach((s) => {
+    if (s.type === "warmup") return;
+    const sg = sug.sets[k++];
+    if (!sg) return;
+    s.sugReps = sg.reps; s.sugW = sg.w; s.sugLegs = sg.legs || null;
+    // El peso sugerido se precarga (editable) y se marca: si la serie no se
+    // toca ni se marca, al terminar se descarta y no ensucia el historial.
+    if (s.weight === "" && s.reps === "" && s.rir === "" && sg.w !== "") { s.weight = String(sg.w); s.prefilled = true; }
+  });
+  return true;
 }
 
 const RetoSerie = ({ actual, previa, unidad, compacto }) => {
@@ -10706,6 +10751,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
   // Índice del bloque cuyas indicaciones están abiertas (null = cerrada).
   const [coachNotesOpen, setCoachNotesOpen] = useState(null);
   const [reemplazoEi, setReemplazoEi] = useState(null); // ejercicio que se está reemplazando
+  const [ultimaVezEi, setUltimaVezEi] = useState(null); // ejercicio sin historial al que se le anota la última vez
   // Deslizar una serie a la izquierda la elimina: { key, dx } mientras se arrastra.
   const [swipe, setSwipe] = useState(null);
   const swipeRef = useRef(null);
@@ -10812,22 +10858,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     const clone = structuredClone(active);
     let any = false;
     clone.exs.forEach((exx) => {
-      const entries = exEntries(history, exx);
-      const trabajoIdx = [];
-      exx.sets.forEach((s, si) => { if (s.type !== "warmup") trabajoIdx.push(si); });
-      const sug = sugerirProgresion({ entries, sets: exx.sets, deload: !!clone.deload, unit: exx.unit || weightUnit, muscle: exx.muscle });
-      if (!sug) return;
-      exx.sug = { modo: sug.modo, nota: sug.nota, lo: sug.rango.lo, hi: sug.rango.hi };
-      trabajoIdx.forEach((si, k) => {
-        const s = exx.sets[si], sg = sug.sets[k];
-        if (!sg) return;
-        s.sugReps = sg.reps; s.sugW = sg.w;
-        // Las series de aproximación no se precargan. El peso sugerido se
-        // precarga (editable) y se marca: si la serie no se toca ni se marca,
-        // al terminar se descarta y no ensucia el historial.
-        if (s.weight === "" && s.reps === "" && s.rir === "" && sg.w !== "") { s.weight = String(sg.w); s.prefilled = true; any = true; }
-        else any = true;
-      });
+      if (aplicarSugEj(exx, exEntries(history, exx), clone.deload)) any = true;
     });
     if (any) patch(() => clone);
   }, []);
@@ -10876,7 +10907,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     if (kgGuardado === "" || kgGuardado == null) return 0;
     const n = +kgGuardado;
     if (isNaN(n)) return 0;
-    return Math.round((unit === "lb" ? kgToLb(n) : n) * 10) / 10;
+    return Math.round((unit === "lb" ? kgToLb(n) : n) * 100) / 100;
   };
   const pesoAKg = (v, unit = weightUnit) => (unit === "lb" ? Math.round(lbToKg(v) * 100) / 100 : v);
   // Unidad con la que se anota CADA ejercicio: su override propio si lo tiene
@@ -11144,6 +11175,53 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     );
   };
 
+  // Peso y reps a buscar hoy (progresión automática) o, si el ejercicio no
+  // tiene historial, el acceso para anotar la última vez.
+  const sugLinea = (ei, conNombre) => {
+    const ex = exs[ei], sg = ex.sug;
+    if (!sg) {
+      if (puedeEditar && saveHistory && exEntries(history, ex).length === 0) return (
+        <button onClick={() => setUltimaVezEi(ei)} aria-label={`Anotar la última vez de ${ex.name}`}
+          style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, color: SES.dim, textAlign: "left", padding: "2px 0" }}>
+          <History size={15} style={{ flexShrink: 0 }} />{conNombre ? `${ex.name}: ` : ""}Sin historial · anota la última vez para calcular tu meta
+        </button>
+      );
+      return null;
+    }
+    const tr = seriesDeTrabajo(ex.sets);
+    const w0 = tr.length && tr[0].sugW !== "" && tr[0].sugW != null ? pesoMostrado(tr[0].sugW, unitFor(ei)) : null;
+    const Ic = sg.modo === "subir" ? ArrowUp : sg.modo === "mantener" ? Minus : ArrowDown;
+    const extras = sg.porTipo ? Object.entries(sg.porTipo).filter(([t]) => t !== "normal" && t !== "warmup") : [];
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 13.5, color: SES.ink, lineHeight: 1.4 }}>
+          <Ic size={14} strokeWidth={3} style={{ marginTop: 3, flexShrink: 0 }} />
+          <span><b>{conNombre ? `${ex.name} · ` : ""}Hoy: {w0 != null ? `${String(w0).replace(".", ",")} ${unitFor(ei)} × ` : ""}{tr.length ? tr[0].sugReps : ""} reps</b><span style={{ color: SES.dim }}> · {sg.nota}</span></span>
+        </div>
+        {extras.length > 0 && extras.map(([t, d]) => (
+          <div key={t} style={{ fontSize: 12.5, color: SES.dim, paddingLeft: 20, lineHeight: 1.35 }}>{(SET_TYPES[t] || SET_TYPES.normal).short}: {d.nota}</div>
+        ))}
+      </div>
+    );
+  };
+  const guardarUltimaVez = (ei, rows, dias) => {
+    const ex = exs[ei];
+    const u = unitFor(ei);
+    const sets = seriesDeTrabajo(ex.sets).map((st, i) => {
+      const r = rows[Math.min(i, rows.length - 1)] || { w: "", reps: "", rir: "" };
+      const w = r.w === "" || isNaN(+r.w) ? "" : String(pesoAKg(+r.w, u));
+      return { id: uid(), type: st.type || "normal", weight: w, reps: r.reps, rir: r.rir, done: true, comment: "", attachIds: [], drops: [], ...(u === "lb" ? { unit: "lb" } : {}) };
+    }).filter((x) => x.reps !== "");
+    if (!sets.length) return;
+    const entry = { sessionId: `manual-${uid()}`, date: new Date(Date.now() - dias * 864e5).toISOString(), dayId: active.dayId || "", dayName: active.dayName || "", exName: ex.name, sets, comment: "", attachIds: [], manual: true };
+    const h = structuredClone(history);
+    if (!h.byEx) h.byEx = {};
+    h.byEx[ex.id] = [...(h.byEx[ex.id] || []), entry].sort((a, b) => (a.date < b.date ? -1 : 1));
+    saveHistory(h);
+    patch((a) => { if (a.exs[ei]) aplicarSugEj(a.exs[ei], [entry], a.deload); return a; });
+    setUltimaVezEi(null);
+  };
+
   const tablaDe = (block, bi, soloRow) => {
     const consignas = block.group ? null : consignasPorSerie(exs[block.ei]);
     const titulo = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
@@ -11234,20 +11312,11 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
         </div>
         {comentarioEx(block, bi)}
 
-        {(!block.group || indicaciones || tempo) && (
+        {(!block.group || indicaciones || tempo || block.members.some((mi) => exs[mi].sug || (puedeEditar && saveHistory))) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
             {!block.group && objetivoEj(exs[block.ei]) && <div style={{ fontSize: 15.5, color: SES.faint, fontWeight: 400 }}>Objetivo {objetivoEj(exs[block.ei])}</div>}
-            {!block.group && exs[block.ei].sug && (() => {
-              const sg = exs[block.ei].sug, ws = seriesDeTrabajo(exs[block.ei].sets).filter((x) => x.sugW !== "" && x.sugW != null);
-              const w0 = ws.length ? pesoMostrado(ws[0].sugW, unitFor(block.ei)) : null;
-              const Ic = sg.modo === "subir" ? ArrowUp : sg.modo === "mantener" ? Minus : ArrowDown;
-              return (
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 13.5, color: SES.ink, lineHeight: 1.4 }}>
-                  <Ic size={14} strokeWidth={3} style={{ marginTop: 3, flexShrink: 0 }} />
-                  <span><b>Hoy: {w0 != null ? `${String(w0).replace(".", ",")} ${unitFor(block.ei)} × ` : ""}{seriesDeTrabajo(exs[block.ei].sets)[0].sugReps} reps</b><span style={{ color: SES.dim }}> · {sg.nota}</span></span>
-                </div>
-              );
-            })()}
+            {!block.group && sugLinea(block.ei)}
+            {block.group && block.members.map((mi) => <React.Fragment key={mi}>{sugLinea(mi, true)}</React.Fragment>)}
             {indicaciones && <div style={{ fontSize: 13, color: SES.dim, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{indicaciones}</div>}
             {tempo && <div><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
           </div>
@@ -11393,6 +11462,11 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
             })()}
             {renderLegs(st, r.ei, r.si, dónde)}
             {consigna && <div style={{ fontSize: 13, color: SES.faint, padding: "6px 0 0 44px", lineHeight: 1.35 }}>{consigna}</div>}
+            {!isWarm && st.sugLegs && st.sugLegs.length > 0 && (
+              <div style={{ fontSize: 12.5, color: SES.dim, padding: "4px 0 0 44px", lineHeight: 1.35 }}>
+                {(MULTI_LEG_TYPES[st.type] || { leg: "parte" }).leg}s sugeridas: {st.sugLegs.map((l) => `${l.w !== "" ? String(pesoMostrado(l.w, unitDeSerie(st, r.ei))).replace(".", ",") + "×" : ""}${l.reps}`).join(" → ")}
+              </div>
+            )}
             {/* Opciones de ESTA serie, detrás del número: tipo, comentar,
                 foto o archivo, unidad, borrar y mover. Se abren al tocar el
                 número; si la serie ya tiene comentario o adjunto, estos se
@@ -12190,6 +12264,8 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           );
         })()}
       </Sheet>
+      <UltimaVezSheet open={ultimaVezEi != null && !!exs[ultimaVezEi]} onClose={() => setUltimaVezEi(null)} ex={ultimaVezEi != null ? exs[ultimaVezEi] : null}
+        unidad={ultimaVezEi != null && exs[ultimaVezEi] ? unitFor(ultimaVezEi) : "kg"} onSave={(rows, dias) => guardarUltimaVez(ultimaVezEi, rows, dias)} />
       <ReemplazarEjSheet open={reemplazoEi != null && !!exs[reemplazoEi]} onClose={() => setReemplazoEi(null)} ex={reemplazoEi != null ? exs[reemplazoEi] : null} plan={plan} library={library}
         onPick={(pick) => {
           const ex = exs[reemplazoEi];
@@ -16457,7 +16533,7 @@ const HistoryRows = ({ entries, onOpenImg, sessions }) => {
         const work = todas.filter((x) => x.type !== "warmup");
         const best = work.reduce((m, x) => Math.max(m, +x.weight || 0), 0);
         const ses = (sessions || []).find((x) => x.id === en.sessionId);
-        const meta = [en.dayName, ses && ses.gym, ses && ses.durationMin ? `${ses.durationMin} min` : null].filter(Boolean).join(" · ");
+        const meta = [en.manual ? "Anotado a mano" : null, en.dayName, ses && ses.gym, ses && ses.durationMin ? `${ses.durationMin} min` : null].filter(Boolean).join(" · ");
         let wn = 0, an = 0;
         return (
           <div key={i} style={{ padding: "16px 0", borderTop: i ? `1px solid ${P.fillTertiary}` : "none" }}>
@@ -20357,7 +20433,7 @@ const RANK_CRITERIA = [
    bajando, estancado) — un listado alfabético obliga a leerlos todos para
    encontrar al que se cayó, que es justo lo que un coach con 20 alumnos no
    puede hacer todas las semanas. */
-const ProgresionTab = ({ roster, toast, onManage }) => {
+const ProgresionEstado = ({ roster, toast, onManage }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [abierto, setAbierto] = useState(null);
@@ -21127,6 +21203,115 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           </Card>
         ))}
       </Sheet>
+    </div>
+  );
+};
+
+/* Panel del coach: la sugerencia de progresión (peso y reps a buscar en la
+   próxima sesión) de TODOS los atletas, ejercicio por ejercicio, con la
+   misma lógica que ve el atleta al iniciar su sesión (sugerirProgresion). */
+const SugerenciasCoach = ({ roster }) => {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+  const [q, setQ] = useState("");
+  const [filtro, setFiltro] = useState("todos");
+  const [abierto, setAbierto] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      setLoading(true);
+      const out = await mapaEnParalelo(roster.students, async (st) => {
+        const [p, h] = await Promise.all([sGet(`forja-plan:${st.id}`), sGet(`forja-history:${st.id}`)]);
+        const plan = p || emptyPlan(), hist = h || emptyHistory();
+        const week = currentWeek(plan);
+        const vistos = new Set();
+        const items = [];
+        (plan.days || []).forEach((d) => (d.exs || []).forEach((ex) => {
+          const k = norma(ex.name || "");
+          if (!k || vistos.has(k)) return;
+          vistos.add(k);
+          const sets = (ex.sets || []).map((s, si) => { const t = setTargets(ex, si, week); return { ...s, repsT: t.repsT, rirT: t.rirT }; });
+          const entries = exEntries(hist, ex);
+          const sug = sugerirProgresion({ entries, sets, deload: !!(week && week.deload), muscle: ex.muscle });
+          const tr = seriesDeTrabajo(sets);
+          items.push({ name: ex.name, day: d.name, muscle: ex.muscle, unit: ex.unit || "kg", n: tr.length, sug, entradas: entries.length });
+        }));
+        return { id: st.id, name: st.name, items };
+      });
+      out.sort((a, b) => a.name.localeCompare(b.name, "es"));
+      if (vivo) { setRows(out); setLoading(false); }
+    })();
+    return () => { vivo = false; };
+  }, [roster]);
+  if (loading) return <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}><LoadingBlock label="Calculando la progresión de todos tus atletas…" /></div>;
+  const clase = (it) => (!it.sug ? "sin" : it.sug.modo === "subir" ? "sube" : it.sug.modo === "mantener" ? "igual" : "ajusta");
+  const cuenta = (c) => rows.reduce((t, r) => t + r.items.filter((it) => clase(it) === c).length, 0);
+  const META = { sube: { I: ArrowUp, t: "Sube" }, igual: { I: Minus, t: "Mantiene" }, ajusta: { I: ArrowDown, t: "Ajusta" }, sin: { I: History, t: "Sin historial" } };
+  const visibles = rows.filter((r) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
+      <ScreenTitle title="Sugerencias" sub="Peso y reps a buscar en la próxima sesión, por atleta."
+        tabs={<SectionSwitch value={filtro} onChange={setFiltro} items={[
+          { id: "todos", label: "Todas" }, { id: "sube", label: `Suben ${cuenta("sube")}` }, { id: "ajusta", label: `Ajustan ${cuenta("ajusta")}` }, { id: "sin", label: `Sin hist. ${cuenta("sin")}` }]} />} />
+      <div style={{ position: "relative", margin: "4px 0 12px" }}>
+        <Search size={16} color={P.faint2} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar atleta" aria-label="Buscar atleta"
+          style={{ width: "100%", padding: "11px 12px 11px 36px", fontSize: 15, background: P.s4, borderRadius: R_TILE, minHeight: HIT, border: "none" }} />
+      </div>
+      {visibles.length === 0 && <Empty icon={Users} title="Sin atletas" body="Agrega atletas para ver sus sugerencias." />}
+      <div style={{ display: "flex", flexDirection: "column", gap: SP.stack }}>
+        {visibles.map((r) => {
+          const lista = r.items.filter((it) => filtro === "todos" || clase(it) === filtro);
+          if (filtro !== "todos" && lista.length === 0) return null;
+          const open = abierto === r.id || (q.trim() !== "" && visibles.length === 1);
+          const sube = r.items.filter((it) => clase(it) === "sube").length, sin = r.items.filter((it) => clase(it) === "sin").length;
+          return (
+            <Card key={r.id} style={{ padding: 0, overflow: "hidden" }}>
+              <button onClick={() => setAbierto(open ? null : r.id)} aria-expanded={open} aria-label={`Sugerencias de ${r.name}`}
+                style={{ width: "100%", textAlign: "left", padding: "14px 15px", display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ ...TYPE.headline, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                  <div style={{ ...TYPE.footnote, color: P.faint, marginTop: 1 }}>{r.items.length} ejercicios · {sube} suben{sin ? ` · ${sin} sin historial` : ""}</div>
+                </div>
+                <ChevronDown size={17} color={P.chevron} strokeWidth={2.4} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none" }} />
+              </button>
+              {open && (
+                <div style={{ borderTop: `1px solid ${P.line}` }}>
+                  {lista.length === 0 && <div style={{ padding: 14, ...TYPE.footnote, color: P.faint }}>Sin ejercicios en la rutina.</div>}
+                  {lista.map((it, i) => {
+                    const c = clase(it), m = META[c], s0 = it.sug && it.sug.sets[0];
+                    const u = it.unit;
+                    const wTxt = s0 && s0.w !== "" ? `${String(Math.round((u === "lb" ? kgToLb(s0.w) : s0.w) * 100) / 100).replace(".", ",")} ${u} × ` : "";
+                    return (
+                      <div key={it.name} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 15px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+                        <m.I size={15} strokeWidth={3} style={{ marginTop: 3, flexShrink: 0, color: c === "sin" ? P.faint : P.text }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{it.name}</div>
+                          {it.sug
+                            ? <div style={{ fontSize: 13.5, color: P.dim, marginTop: 2 }}><b style={{ color: P.text }}>{wTxt}{s0.reps} reps</b> · {it.sug.nota}</div>
+                            : <div style={{ fontSize: 13, color: P.faint, marginTop: 2 }}>Sin historial: el atleta puede anotar la última vez al iniciar la sesión.</div>}
+                          <div style={{ fontSize: 12, color: P.faint2, marginTop: 2 }}>{it.day}{it.n ? ` · ${it.n} series` : ""}{it.entradas ? ` · ${it.entradas} registros` : ""}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+const ProgresionTab = ({ roster, toast, onManage }) => {
+  const [vista, setVista] = useState("estado");
+  return (
+    <div>
+      <div style={{ padding: "4px 20px 0" }}>
+        <SectionSwitch value={vista} onChange={setVista} items={[{ id: "estado", label: "Estado" }, { id: "sugerencias", label: "Sugerencias" }]} />
+      </div>
+      {vista === "estado" ? <ProgresionEstado roster={roster} toast={toast} onManage={onManage} /> : <SugerenciasCoach roster={roster} />}
     </div>
   );
 };
@@ -27949,6 +28134,44 @@ const CatalogBulkSheet = ({ open, onClose, plan, onAplicar, toast }) => {
   );
 };
 
+/* Primera vez en la app: el atleta anota lo de la última vez que hizo el
+   ejercicio (aunque sea de memoria) y con eso se calcula la sugerencia. Se
+   guarda como un registro del historial marcado "a mano". */
+const UltimaVezSheet = ({ open, onClose, ex, unidad, onSave }) => {
+  const nTrabajo = ex ? seriesDeTrabajo(ex.sets).length : 0;
+  const [dias, setDias] = useState("7");
+  const [rows, setRows] = useState([]);
+  useEffect(() => { if (open) { setDias("7"); setRows(Array.from({ length: Math.max(1, nTrabajo) }, () => ({ w: "", reps: "", rir: "" }))); } }, [open, nTrabajo]);
+  const set = (i, f, v) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [f]: v } : (i === 0 && j > 0 && (r[f] === "" || r[f] === rs[0][f]) ? { ...r, [f]: v } : r))));
+  const valido = rows.some((r) => r.reps !== "" && +r.reps > 0);
+  const inp = { width: "100%", boxSizing: "border-box", padding: "11px 6px", fontSize: 17, textAlign: "center", background: P.s4, borderRadius: R_TILE, border: "none", fontFamily: "inherit" };
+  return (
+    <Sheet open={open} onClose={onClose} title={ex ? `Última vez · ${ex.name || "ejercicio"}` : "Última vez"} tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ fontSize: 13.5, color: P.faint, lineHeight: 1.45 }}>Anota lo que hiciste la última vez (aunque sea aproximado). Con eso se calcula qué peso, reps y RIR buscar hoy.</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 14, color: P.dim }}>Hace</span>
+          <input type="text" inputMode="numeric" value={dias} onChange={(e) => setDias(e.target.value.replace(/\D/g, ""))} aria-label="Días desde la última vez" style={{ ...inp, width: 72 }} />
+          <span style={{ fontSize: 14, color: P.dim }}>días</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, fontSize: 12.5, color: P.faint, padding: "0 2px" }}>
+          <span style={{ width: 22 }}>#</span><span style={{ flex: 1, textAlign: "center" }}>{unidad.toUpperCase()}</span><span style={{ flex: 1, textAlign: "center" }}>REPS</span><span style={{ flex: 1, textAlign: "center" }}>RIR</span>
+        </div>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 22, textAlign: "center", color: P.faint }}>{i + 1}</span>
+            <input type="text" inputMode="decimal" value={r.w} onChange={(e) => set(i, "w", e.target.value.replace(",", "."))} aria-label={`Peso de la serie ${i + 1}`} style={{ ...inp, flex: 1 }} />
+            <input type="text" inputMode="numeric" value={r.reps} onChange={(e) => set(i, "reps", e.target.value.replace(/\D/g, ""))} aria-label={`Reps de la serie ${i + 1}`} style={{ ...inp, flex: 1 }} />
+            <input type="text" inputMode="numeric" value={r.rir} onChange={(e) => set(i, "rir", e.target.value.replace(/\D/g, ""))} aria-label={`RIR de la serie ${i + 1}`} style={{ ...inp, flex: 1 }} />
+          </div>
+        ))}
+        <button disabled={!valido} onClick={() => onSave(rows, +dias || 7)}
+          style={{ height: 52, borderRadius: 16, background: valido ? P.text : P.s3, color: valido ? P.bg : P.faint, fontSize: 16, fontWeight: 700, marginTop: 4 }}>Calcular sugerencia</button>
+      </div>
+    </Sheet>
+  );
+};
+
 /* Reemplazar un ejercicio EN LA SESIÓN (máquina ocupada o mala): sugiere
    equivalentes del mismo músculo —primero los que ya están en la rutina o
    la biblioteca, luego el catálogo— y deja buscar o escribir uno propio. */
@@ -32247,7 +32470,7 @@ const App = () => {
       // El peso que se precargó como sugerencia y nunca se tocó no es un
       // registro: se descarta en vez de guardarse como serie hecha.
       if (s.prefilled && !s.done) { s.weight = ""; s.reps = ""; s.rir = ""; }
-      delete s.prefilled; delete s.sugW; delete s.sugReps;
+      delete s.prefilled; delete s.sugW; delete s.sugReps; delete s.sugLegs;
       const hasData = (s.weight !== "" && s.weight != null) || (s.reps !== "" && s.reps != null);
       if (hasData) s.done = true;
     }));
