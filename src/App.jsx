@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v421";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v422";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -19245,6 +19245,34 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
       )}
 
+      {/* Igual que en Entrenar del atleta: el día que sigue, a un toque
+          (aquí para abrirlo y editarlo en vez de empezarlo). */}
+      {(() => {
+        const gs = groupDaysByRoutine(diasParaAtleta(plan.days), plan.routineNames);
+        if (!gs.length) return null;
+        const sesiones = (history && history.sessions) || [];
+        const ult = [...sesiones].reverse().find((x) => gs.some((g) => g.days.some((d) => d.id === x.dayId)));
+        let g0 = gs[0], i0 = 0;
+        if (ult) { const g = gs.find((gg) => gg.days.some((d) => d.id === ult.dayId)); const i = g.days.findIndex((d) => d.id === ult.dayId); g0 = g; i0 = (i + 1) % g.days.length; }
+        const d0 = g0.days[i0];
+        if (!d0) return null;
+        const original = plan.days.find((x) => x.id === d0.id) || d0;
+        return (
+          <Card style={{ padding: "18px 18px 16px", marginBottom: 16 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint2 }}>Siguiente · {g0.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", lineHeight: 1.15, marginTop: 6, overflowWrap: "anywhere" }}>{d0.name}</div>
+            <div style={{ fontSize: 14, color: P.faint2, marginTop: 4 }}>
+              {d0.exs.length} ejercicio{d0.exs.length !== 1 ? "s" : ""} · {d0.exs.reduce((t, e) => t + e.sets.length, 0)} series
+            </div>
+            <button onClick={() => { setOpenRoutines((prev) => (prev.includes(g0.key) ? prev : [...prev, g0.key])); setOpenDay(original.id); }} aria-label={`Abrir ${d0.name}`}
+              style={{ width: "100%", height: 52, marginTop: 14, borderRadius: 26, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                fontSize: 16.5, fontWeight: 700, background: PLATE_GRAD, color: PLATE_FG }}>
+              <PencilLine size={17} /> Abrir
+            </button>
+          </Card>
+        );
+      })()}
+
       {(() => { const routineGroups = groupDaysByRoutine(plan.days, plan.routineNames); return routineGroups.map((g, gi) => { const open = openRoutines.includes(g.key);
         const routineVisible = !student || isRoutineVisible(student.allowedRoutines, g.key);
         const moveRoutineStep = (dir) => {
@@ -19269,24 +19297,20 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               propia debajo: al meter los seis íconos al lado de la tarjeta,
               esta quedaba tan angosta que "RUTINA A" y sus estadísticas se
               partían en cuatro renglones. */}
-          <div style={{ marginBottom: open ? 12 : 0 }}>
+          <Card style={{ overflow: "hidden" }}>
+          <div>
             <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-              className="fj-card"
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", textAlign: "left",
-                background: P.s1, borderRadius: 22, boxShadow: CARD_SHADOW }}>
-              <span style={{ flexShrink: 0, minWidth: 50, height: 50, borderRadius: 16, padding: "0 4px",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 19, boxShadow: "none" }}>{g.key}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", color: P.text, lineHeight: 1.15, overflowWrap: "anywhere" }}>{g.label}</div>
-                <div style={{ fontSize: 14, color: P.faint, marginTop: 3, fontWeight: 600 }}>
-                  {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.setCount} series
+              style={{ width: "100%", textAlign: "left", padding: "16px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontWeight: 750, fontSize: 18, letterSpacing: "-.025em", lineHeight: 1.2, overflowWrap: "anywhere" }}>{g.label}</span>
+                <span style={{ display: "block", fontSize: 13, color: P.faint2, marginTop: 3 }}>
+                  {g.days.length} {g.days.length === 1 ? "día" : "días"}
                   {!routineVisible && <span style={{ color: P.ember2, fontWeight: 700 }}> · oculta</span>}
-                </div>
-              </div>
-              <ChevronRight size={22} color={P.faint} style={{ transform: open ? "rotate(90deg)" : "none", transition: `transform ${DUR_PUSH}ms ${EASE_STD}` }} />
+                </span>
+              </span>
+              <ChevronDown size={20} color={P.faint2} style={{ transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_PUSH}ms ${EASE_STD}`, flexShrink: 0 }} />
             </button>
-            {open && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, marginBottom: 4, paddingRight: 4 }}>
+            {open && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, marginBottom: 4, padding: "0 10px" }}>
               {student && onUpdateStudent && (
                 <button onClick={() => toggleRoutineVisible(g.key)}
                   title={routineVisible ? `Ocultar ${g.label} para ${student.name}` : `Mostrarle ${g.label} a ${student.name}`}
@@ -19327,20 +19351,20 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               abajo en la pantalla), y "deployIn" los hace entrar con un
               fundido en vez de aparecer de golpe. */}
           {open && (
-          <div className="deployIn" style={{ paddingTop: 4, paddingBottom: 2 }}>
+          <div className="deployIn" style={{ padding: "0 8px 10px" }}>
           {g.items.map(({ day: d, index: di }) => (
             <Card key={d.id}
               data-day-card={d.id}
               onClickCapture={(e) => { if (Date.now() < (dragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
-              style={{ marginBottom: 12, overflow: "hidden", position: "relative",
+              style={{ marginBottom: 0, overflow: "hidden", position: "relative", borderRadius: 0, borderLeft: "none", borderRight: "none", borderBottom: "none",
                 // Al engancharla, la ficha se despega del fondo con efecto 3D:
                 // se agranda y se levanta hacia el usuario, como si fuera a
                 // salir de la pantalla, con sombra profunda + marco verde
                 // neón. Los días que quedan "en el camino" del arrastre se
                 // corren para abrir hueco (mismo mecanismo que las rutinas).
-                background: dragging === d.id ? P.s3 : (dragOver === d.id && dragging ? P.s2 : P.s1),
+                background: dragging === d.id ? P.s3 : (dragOver === d.id && dragging ? P.s2 : "transparent"),
                 boxShadow: dragging === d.id ? DRAG_LIFT_SHADOW : "none",
-                border: dragging === d.id ? DRAG_LIFT_BORDER : `1px solid ${P.line}`,
+                ...(dragging === d.id ? { border: DRAG_LIFT_BORDER } : { borderTop: `0.5px solid ${P.separatorStrong || P.line}` }),
                 transform: dragging === d.id ? DRAG_LIFT_TRANSFORM
                   : dayShiftOffsets[d.id] ? `translateY(${dayShiftOffsets[d.id]}px)` : "none",
                 // "auto" cuando no se arrastra: un z-index numérico aquí (aunque
@@ -19353,10 +19377,10 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 WebkitUserSelect: dragging ? "none" : "auto", userSelect: dragging ? "none" : "auto" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "14px 14px" }}>
                 <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} aria-expanded={openDay === d.id} style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
-                  <div style={{ fontWeight: 800, fontSize: 19, letterSpacing: "-.02em", lineHeight: 1.2, overflowWrap: "anywhere" }}>{d.name}</div>
-                  <div style={{ fontSize: 14, color: P.faint, fontWeight: 600, marginTop: 2 }}>{d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
+                  <div style={{ fontSize: 16.5, fontWeight: 650, letterSpacing: "-.015em", lineHeight: 1.25, overflowWrap: "anywhere" }}>{d.name}</div>
+                  <div style={{ fontSize: 13, color: P.faint2, marginTop: 2 }}>{d.exs.length} ej · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series{(() => { const ult = [...((history && history.sessions) || [])].reverse().find((x) => x.dayId === d.id); return ult ? ` · ${haceDias(ult.date)}` : ""; })()}</div>
                 </button>
-                <ChevronRight size={20} color={P.faint} style={{ transform: openDay === d.id ? "rotate(90deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}`, flexShrink: 0 }} />
+                <ChevronDown size={18} color={P.faint2} style={{ transform: openDay === d.id ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}`, flexShrink: 0 }} />
                 <DragHandle active={dragging === d.id}
                     label={`Mantén pulsado y arrastra para mover el día ${d.name}`}
                     onActivate={() => startDrag(d.id)}
@@ -19500,6 +19524,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           </div>
           </div>
           )}
+          </Card>
         </div>
       );});})()}
       {plan.days.length === 0 && (
