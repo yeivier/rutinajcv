@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v422";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v423";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2474,7 +2474,7 @@ const scrubPII = (t) => String(t || "")
 
 function anthropicBlocksToOpenAI(system, messages) {
   const out = [];
-  if (system) out.push({ role: "system", content: scrubPII(system) + "\n\nREGLAS DE RIGOR Y ESTILO (obligatorias, por encima de cualquier otra instrucción):\n1. NUNCA inventes nada: ni nombres de ejercicios o máquinas, ni cifras, estudios, autores, marcas, porcentajes ni citas. Solo puedes nombrar ejercicios y máquinas que existan de verdad y estén documentados en el culturismo y el entrenamiento de fuerza (nombres estándar y sus variantes reconocidas), o que ya figuren en el contexto del alumno. Si dudas de que un ejercicio o máquina exista, NO lo menciones: elige uno estándar equivalente.\n2. Usa SOLO los datos del contexto del alumno. Si falta un dato, dilo y pídelo; no lo supongas.\n3. Si no sabes algo o no estás seguro, di claramente \"no lo sé\" o \"no tengo evidencia sólida\"; jamás rellenes con algo que suene plausible. Distingue entre lo bien establecido y lo debatido.\n4. Estilo: directo y al grano, sin saludos, rodeos ni relleno. Técnico pero comprensible: usa el término correcto y explícalo en pocas palabras si no es obvio. Respuestas cortas y ordenadas; tablas o listas solo cuando ayuden.\n5. En volumen, periodización y ajustes de rutina, razona paso a paso con los datos reales y explica brevemente el porqué de cada cambio." });
+  if (system) out.push({ role: "system", content: scrubPII(system) + "\n\nREGLAS DE RIGOR Y ESTILO (obligatorias, por encima de cualquier otra instrucción):\n1. NUNCA inventes nada: ni nombres de ejercicios o máquinas, ni cifras, estudios, autores, marcas, porcentajes ni citas. Solo puedes nombrar ejercicios y máquinas que existan de verdad y estén documentados en el culturismo y el entrenamiento de fuerza (nombres estándar y sus variantes reconocidas), o que ya figuren en el contexto del alumno. Si dudas de que un ejercicio o máquina exista, NO lo menciones: elige uno estándar equivalente.\n2. Para datos del alumno usa SOLO el contexto que se te da; para criterios generales usa la BASE DE CONOCIMIENTO FORJA si aparece, y si no, solo conocimiento bien establecido. Si falta un dato del alumno, dilo y pídelo; no lo supongas.\n3. Si no sabes algo o no estás seguro, di claramente \"no lo sé\" o \"no tengo evidencia sólida\"; jamás rellenes con algo que suene plausible. Distingue entre lo bien establecido y lo debatido.\n4. Estilo: directo y al grano, sin saludos, rodeos ni relleno. Técnico pero comprensible: usa el término correcto y explícalo en pocas palabras si no es obvio. Respuestas cortas y ordenadas; tablas o listas solo cuando ayuden.\n5. En volumen, periodización y ajustes de rutina, razona paso a paso con los datos reales y explica brevemente el porqué de cada cambio." });
   for (const m of messages || []) {
     if (typeof m.content === "string") { out.push({ role: m.role, content: scrubPII(m.content) }); continue; }
     const parts = [];
@@ -2505,7 +2505,9 @@ async function callClaudeAPI(apiKey, body, { idleMs = 120000, retries = 1 } = {}
     try {
       // Primero el servidor propio (varios proveedores gratuitos en cadena,
       // con cupo repartido); si ni siquiera responde, directo a Pollinations.
-      const payload = JSON.stringify({ model: FREE_AI_MODEL, messages, max_tokens: Math.min(body.max_tokens || 2000, 8000) });
+      // tier (fast | default | deep) y ragQuery los usa solo el servidor propio (forja-ai):
+      // elige el modelo y la consulta a la base de conocimiento. Pollinations los ignora.
+      const payload = JSON.stringify({ model: FREE_AI_MODEL, messages, max_tokens: Math.min(body.max_tokens || 2000, 8000), tier: body.tier, ragQuery: body.ragQuery });
       let r;
       try {
         r = await fetch(`${SB_PROJECT}/functions/v1/forja-ai`, { method: "POST", signal: ctrl.signal, headers: SB_H, body: payload });
@@ -21484,14 +21486,161 @@ const SugerenciasCoach = ({ roster }) => {
     </div>
   );
 };
+/* Propuestas que la IA del alumno le manda al coach (series, reemplazo, nota). El coach aprueba
+   (se aplica al plan del alumno cuando se puede) o descarta. Nada cambia sin su aprobación. */
+const PropuestasCoach = ({ roster, toast }) => {
+  const [loading, setLoading] = useState(true);
+  const [filas, setFilas] = useState([]);
+  const cargar = async () => {
+    setLoading(true);
+    const out = await mapaEnParalelo(roster.students, async (st) => {
+      const l = await sGet(propKey(st.id));
+      return (Array.isArray(l) ? l : []).map((p) => ({ ...p, sid: st.id, nombre: st.name }));
+    });
+    const todas = out.flat().sort((a, b) => (a.estado === "pendiente" ? 0 : 1) - (b.estado === "pendiente" ? 0 : 1) || String(b.fecha).localeCompare(String(a.fecha)));
+    setFilas(todas.slice(0, 40)); setLoading(false);
+  };
+  useEffect(() => { cargar(); }, [roster]);
+  const decidir = async (f, estado) => {
+    let aviso = estado === "aprobada" ? "Aprobada" : "Descartada";
+    if (estado === "aprobada") {
+      const plan = await sGet(`forja-plan:${f.sid}`);
+      const np = aplicarPropuestaAlPlan(plan, f);
+      if (np) { await sSet(`forja-plan:${f.sid}`, np); aviso = "Aplicada al plan"; }
+      else aviso = "Aprobada: aplícala tú en la rutina";
+    }
+    const l = (await sGet(propKey(f.sid))) || [];
+    await sSet(propKey(f.sid), l.map((x) => (x.id === f.id ? { ...x, estado, decidida: todayISO() } : x)));
+    toast && toast(aviso);
+    cargar();
+  };
+  if (loading) return <div style={{ padding: `14px 20px ${TAB_BOTTOM_PAD}` }}><LoadingBlock label="Buscando propuestas…" /></div>;
+  const pend = filas.filter((f) => f.estado === "pendiente").length;
+  return (
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
+      <ScreenTitle title="Propuestas" sub={pend ? `${pend} por decidir` : "Nada pendiente"} />
+      {filas.length === 0 && <Empty icon={Send} title="Sin propuestas" body="Cuando la IA de un alumno proponga un cambio, aparece aquí." />}
+      <div style={{ display: "flex", flexDirection: "column", gap: SP.stack }}>
+        {filas.map((f) => (
+          <Card key={f.id} style={{ padding: "13px 14px", opacity: f.estado === "pendiente" ? 1 : 0.55 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+              <span style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, color: P.dim, flexShrink: 0 }}>{(f.nombre || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?"}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{propTitulo(f)}</div>
+                <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>{f.nombre}{f.estado !== "pendiente" ? ` · ${f.estado}` : ""}</div>
+              </div>
+              {f.estado === "pendiente" && (<>
+                <button onClick={() => decidir(f, "descartada")} aria-label="Descartar" style={{ width: 40, height: 40, borderRadius: 20, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center" }}><X size={17} /></button>
+                <button onClick={() => decidir(f, "aprobada")} aria-label="Aprobar" style={{ width: 40, height: 40, borderRadius: 20, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}><Check size={17} /></button>
+              </>)}
+            </div>
+            {(f.motivo || f.texto) && <div style={{ fontSize: 13.5, color: P.dim, marginTop: 8, lineHeight: 1.45 }}>{f.texto ? `${f.texto} · ` : ""}{f.motivo}</div>}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/* Resumen numérico de un atleta para el análisis de equipo de la IA (sin nombres). */
+function digestAtleta(plan, hist) {
+  const dia = (iso) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : null);
+  const ses = (hist.sessions || []).filter((x) => x && x.date);
+  const ult = ses.length ? Math.min(...ses.map((x) => dia(x.date))) : null;
+  const ses28 = ses.filter((x) => dia(x.date) <= 28).length;
+  const prog = Object.values(plan.schedule || {}).filter(Boolean).length;
+  const avg = (arr, campo, dias) => { const v = (arr || []).filter((x) => x && x.date && dia(x.date) <= dias && isFinite(+x[campo])).map((x) => +x[campo]); return v.length ? Math.round((v.reduce((t, x) => t + x, 0) / v.length) * 10) / 10 : null; };
+  const bw7 = avg(hist.bodyweight, "kg", 7);
+  const bwPrev = (() => { const v = (hist.bodyweight || []).filter((x) => x && x.date && dia(x.date) > 7 && dia(x.date) <= 14 && isFinite(+x.kg)).map((x) => +x.kg); return v.length ? Math.round((v.reduce((t, x) => t + x, 0) / v.length) * 10) / 10 : null; })();
+  const week = currentWeek(plan);
+  const cont = { sube: 0, mantiene: 0, ajusta: 0, sinHistorial: 0 };
+  const vistos = new Set();
+  (plan.days || []).forEach((d) => (d.exs || []).forEach((ex) => {
+    const k = norma(ex.name || ""); if (!k || vistos.has(k)) return; vistos.add(k);
+    const sets = (ex.sets || []).map((st, si) => { const t = setTargets(ex, si, week); return { ...st, repsT: t.repsT, rirT: t.rirT }; });
+    const sug = sugerirProgresion({ entries: exEntries(hist, ex), sets, deload: !!(week && week.deload), muscle: ex.muscle });
+    if (!sug) cont.sinHistorial++; else if (sug.modo === "subir") cont.sube++; else if (sug.modo === "mantener") cont.mantiene++; else cont.ajusta++;
+  }));
+  const a = plan.athlete || {};
+  return {
+    fase: a.phase || null, nivel: a.level || null, asistido: a.enhanced === "asistido", competencia: a.compDate || null, lesiones: a.injuries || null,
+    diasDesdeUltimaSesion: ult, sesiones28d: ses28, programadasPorSemana: prog,
+    pesoProm7d: bw7, pesoPromSemanaPrevia: bwPrev, sueñoProm7d: avg(hist.sleep, "hours", 7), recuperacionProm7d: avg(hist.physio, "recovery", 7),
+    ejercicios: cont,
+  };
+}
+
+/* Análisis de equipo con la IA (nivel profundo): quién necesita atención y qué hacer, con alias A1..An
+   (los nombres reales no salen del dispositivo). */
+const AnalisisIACoach = ({ roster, toast }) => {
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null);   // { fecha, items:[{nombre, estado, motivo, accion}] }
+  const [err, setErr] = useState("");
+  useEffect(() => { sGet("forja-ai-team").then((r) => r && Array.isArray(r.items) && setRes(r)); }, []);
+  const correr = async () => {
+    setBusy(true); setErr("");
+    try {
+      const filas = await mapaEnParalelo(roster.students, async (st, i) => {
+        const [p, h] = await Promise.all([sGet(`forja-plan:${st.id}`), sGet(`forja-history:${st.id}`)]);
+        return { alias: `A${i + 1}`, nombre: st.name, d: digestAtleta(p || emptyPlan(), h || emptyHistory()) };
+      });
+      if (!filas.length) { setErr("No hay atletas."); setBusy(false); return; }
+      const data = await callClaudeAPI("gratis", {
+        model: AI_MODEL, max_tokens: 3000, tier: "deep",
+        ragQuery: "estancamiento fatiga deload recuperación volumen adherencia sueño peso tendencia",
+        system: `Eres el analista de un coach de culturismo. Recibes datos numéricos de sus atletas (alias A1..An) y devuelves SOLO un arreglo JSON, sin texto alrededor:
+[{"id":"A1","estado":"ok|atencion|riesgo","motivo":"una frase con los datos concretos","accion":"una acción concreta y breve para el coach"}]
+Criterios: riesgo = señales claras de sobrecarga, abandono o salud (días sin entrenar altos con adherencia baja, recuperación y sueño bajos de forma sostenida, lesión declarada con carga alta); atencion = una variable fuera de rango o estancamiento; ok = sin hallazgos. Usa solo los datos dados, no inventes. Un objeto por atleta, en el mismo orden.`,
+        messages: [{ role: "user", content: JSON.stringify(filas.map((f) => ({ id: f.alias, ...f.d }))) }],
+      }, { retries: 0 });
+      const txt = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+      const m = txt.match(/\[[\s\S]*\]/);
+      const arr = m ? JSON.parse(m[0]) : null;
+      if (!Array.isArray(arr)) throw new Error("La IA no devolvió un análisis válido. Intenta de nuevo.");
+      const items = arr.map((r) => { const f = filas.find((x) => x.alias === r.id); return f ? { nombre: f.nombre, estado: ["ok", "atencion", "riesgo"].includes(r.estado) ? r.estado : "atencion", motivo: String(r.motivo || "").slice(0, 300), accion: String(r.accion || "").slice(0, 300) } : null; }).filter(Boolean);
+      const out = { fecha: todayISO(), items };
+      setRes(out); sSet("forja-ai-team", out);
+    } catch (e) { setErr(e.message || "No se pudo analizar."); }
+    setBusy(false);
+  };
+  const orden = { riesgo: 0, atencion: 1, ok: 2 };
+  const items = res ? [...res.items].sort((a, b) => orden[a.estado] - orden[b.estado]) : [];
+  return (
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}` }}>
+      <ScreenTitle title="Análisis IA" sub={res ? `Actualizado ${fmtDate(res.fecha)}` : "Quién necesita atención y qué hacer."} />
+      <Btn kind="ember" onClick={correr} disabled={busy} aria-label="Analizar equipo" style={{ width: "100%", marginBottom: 14 }}>
+        {busy ? <Loader2 size={18} className="fj-spin" /> : <Sparkles size={18} />}
+      </Btn>
+      {err && <div style={{ padding: "12px 16px", borderRadius: 18, background: `${P.red}22`, fontSize: 13.5, color: P.red, marginBottom: 10 }}>{err}</div>}
+      {!res && !busy && <Empty icon={Sparkles} title="Sin análisis" body="Toca el botón para analizar a todo el equipo." />}
+      <div style={{ display: "flex", flexDirection: "column", gap: SP.stack }}>
+        {items.map((r, i) => (
+          <Card key={i} style={{ padding: "13px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {r.estado === "ok" ? <Check size={17} color={P.dim} strokeWidth={3} /> : <AlertTriangle size={17} color={r.estado === "riesgo" ? P.red : P.text} />}
+              <div style={{ flex: 1, fontSize: 15, fontWeight: 600, color: P.text }}>{r.nombre}</div>
+              <div style={{ fontSize: 12, color: r.estado === "riesgo" ? P.red : P.faint, textTransform: "uppercase", letterSpacing: ".06em" }}>{r.estado === "atencion" ? "atención" : r.estado}</div>
+            </div>
+            {r.motivo && <div style={{ fontSize: 13.5, color: P.dim, marginTop: 7, lineHeight: 1.45 }}>{r.motivo}</div>}
+            {r.accion && <div style={{ fontSize: 13.5, color: P.text, marginTop: 5, lineHeight: 1.45, display: "flex", gap: 7 }}><ArrowRight size={14} style={{ marginTop: 3, flexShrink: 0 }} /> {r.accion}</div>}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const ProgresionTab = ({ roster, toast, onManage }) => {
   const [vista, setVista] = useState("estado");
   return (
     <div>
       <div style={{ padding: "4px 20px 0" }}>
-        <SectionSwitch value={vista} onChange={setVista} items={[{ id: "estado", label: "Estado" }, { id: "sugerencias", label: "Sugerencias" }]} />
+        <SectionSwitch value={vista} onChange={setVista} items={[{ id: "estado", label: "Estado" }, { id: "sugerencias", label: "Sugerencias" }, { id: "propuestas", label: "Propuestas" }, { id: "ia", label: "IA" }]} />
       </div>
-      {vista === "estado" ? <ProgresionEstado roster={roster} toast={toast} onManage={onManage} /> : <SugerenciasCoach roster={roster} />}
+      {vista === "estado" ? <ProgresionEstado roster={roster} toast={toast} onManage={onManage} />
+        : vista === "sugerencias" ? <SugerenciasCoach roster={roster} />
+        : vista === "propuestas" ? <PropuestasCoach roster={roster} toast={toast} />
+        : <AnalisisIACoach roster={roster} toast={toast} />}
     </div>
   );
 };
@@ -22376,7 +22525,7 @@ DOMINIO TÉCNICO QUE MANEJAS
 13. Atletas asistidos (en ciclo) — eres experto en programar entrenamiento y nutrición para este perfil, no solo para naturales. Con soporte anabólico la síntesis proteica y la recuperación sistémica mejoran mucho: toleran bastante más volumen (ver landmarks del punto 2), más frecuencia por grupo muscular (3 o más veces por semana es normal) y sostienen entrenamiento cerca del fallo con más frecuencia, sin el mismo riesgo de sobreentrenamiento sistémico que un natural. Ojo con el tejido conectivo: tendones y ligamentos NO reciben el mismo beneficio anabólico que el músculo, así que la fuerza y el volumen tolerado suelen subir más rápido que lo que aguantan tendones y articulaciones — sigues siendo tú quien frena la progresión de carga en básicos pesados aunque el atleta "se sienta bien", el criterio no es solo cómo recupera el músculo. En nutrición: suelen necesitar más proteína (hasta ~3 g/kg o más) y tienen mejor partición de nutrientes — pueden ganar músculo en déficit y sostener cortes más agresivos perdiendo menos tejido magro que un natural; los ritmos de cambio de peso del punto 8 son un piso pensado para natural, no un techo para un asistido. Los deloads siguen siendo necesarios igual (la fatiga articular y del sistema nervioso no depende de las hormonas), aunque pueden ser más cortos o menos frecuentes que en un natural. Todo esto es programación de entrenamiento y nutrición — nunca cruces al punto de sustancias, dosis o protocolos (ver LÍMITES INNEGOCIABLES).
 
 LÍMITES INNEGOCIABLES
-- No indicas, dosificas ni programas esteroides anabolizantes, hormonas, SARMs, diuréticos ni ninguna sustancia de prescripción o dopante. Si te lo piden, dilo con claridad y deriva a un médico especializado; puedes hablar de riesgos generales y de la importancia del control médico.
+${AI_SUBSTANCES_POLICY}
 - No eres médico ni nutricionista clínico: ante patología, medicación, embarazo, trastorno de la conducta alimentaria, menores de edad o dolor con señales de alarma (dolor nocturno, pérdida de fuerza, hormigueo, inflamación marcada), deriva al profesional correspondiente.
 - No inventas datos del alumno. Si falta información clave para responder bien, pídela antes de dar el plan.
 
@@ -22448,7 +22597,7 @@ function buildActiveSessionSummary(active, history) {
 // modificar el plan: solo explica, orienta y responde dudas. Si el alumno
 // pide un cambio real (más peso, otro ejercicio, cambiar un día), lo remite
 // a su coach en vez de simular que lo aplicó.
-function buildStudentSystemPrompt(ctx, studentName, activeSummary) {
+function buildStudentSystemPrompt(ctx, studentName, activeSummary, extra = "") {
   return `Eres el asistente de IA de FORJA, la plataforma de entrenamiento que usa este alumno. Hablas directamente CON el alumno, de tú (nunca de "vos" ni de "usted"), en un tono cercano, directo y motivador — como un coach que conoce su caso a fondo, no un buscador genérico.
 
 QUÉ SABES DE ESTE ALUMNO
@@ -22463,19 +22612,173 @@ ${GLOSSARY_KNOWLEDGE}
 - Resolver dudas sobre su progreso, nutrición o cualquier pantalla de la app.
 - Dar ánimo y contexto técnico breve cuando lo pida.
 
-LÍMITE INNEGOCIABLE: NO PUEDES MODIFICAR SU PLAN
-No tienes ninguna acción para cambiar su rutina, sus pesos objetivo, sus macros ni nada del programa — eso lo decide su coach. Si te pide un cambio real ("súbeme el peso", "cámbiame este ejercicio", "quiero un día más"), explícale brevemente el porqué técnico si corresponde, pero dile con claridad que eso lo debe pedir directamente a su coach — nunca simules que ya lo aplicaste ni inventes que "quedó guardado".
+LÍMITE INNEGOCIABLE: NO MODIFICAS SU PLAN, SOLO PROPONES
+No puedes cambiar su rutina, sus pesos objetivo ni sus macros: eso lo decide y lo aprueba su coach. Nunca simules que ya lo aplicaste ni digas que "quedó guardado".
+Si te pide un cambio real ("cámbiame este ejercicio", "quiero una serie más") o sus datos lo respaldan con claridad, explica el porqué técnico y añade AL FINAL de tu respuesta un único bloque para que le llegue a su coach como propuesta pendiente (el coach la aprueba o la descarta):
+\`\`\`forja-propuesta
+{"tipo":"series","ejercicio":"nombre exacto del ejercicio en su plan","delta":1,"motivo":"datos concretos que lo respaldan"}
+\`\`\`
+Tipos válidos: "series" (delta 1 o -1: añade o quita una serie de trabajo), "reemplazo" (campo "nuevo": nombre de un ejercicio estándar equivalente), "nota" (campo "texto": indicación técnica breve), "otro" (campo "detalle": cualquier otro cambio, p. ej. de carga). Solo un bloque por respuesta y solo cuando haya un cambio que proponer; para dudas teóricas no lo uses. Dile al alumno que la propuesta quedó enviada a su coach.
 
 OTROS LÍMITES
 - No eres médico ni nutricionista clínico: ante dolor con señales de alarma, lesión, patología, medicación o trastorno de la conducta alimentaria, dile que lo hable con su coach y/o un profesional de la salud.
-- No hables de esteroides, hormonas, SARMs ni sustancias de prescripción/dopantes más allá de derivarlo a un médico si pregunta.
+${AI_SUBSTANCES_POLICY}
 - No inventes datos que no estén en su ficha (si falta algo, dilo en vez de suponerlo).
 
 CÓMO RESPONDES
 - Español, tono cercano y directo, de tú. Nada de relleno motivacional vacío.
 - Respuestas cortas y concretas: máximo 4-5 párrafos cortos o una lista breve. Si el tema da para más, entrega lo esencial y ofrece profundizar si te lo piden.
+- Distingue lo bien establecido de lo debatido; si no hay evidencia sólida, dilo.
 
-${ctx}`;
+${ctx}${extra ? `\n\n${extra}` : ""}`;
+}
+
+/* ============================================================
+   IA v2 — memoria por atleta, contexto de tendencias y progresión,
+   política de sustancias y propuestas con aprobación del coach.
+   ============================================================ */
+
+// Una sola política, usada por la IA del alumno y la del coach. Se programa para
+// atletas asistidos y se habla de riesgos y control médico, pero la IA no receta.
+const AI_SUBSTANCES_POLICY = `- Sustancias (esteroides, hormonas, SARMs, diuréticos, fármacos): NO recetas, NO dosificas ni armas protocolos o ciclos; eso lo decide un médico. Sí puedes explicar con claridad los riesgos generales, qué controles médicos periódicos conviene hacerse (hemograma/hematocrito, perfil lipídico, presión arterial, función hepática y renal, hormonas) y programar el entrenamiento y la nutrición para ese perfil. Sin juicios morales ni sermones; directo y útil.`;
+
+const aiMemKey = (sid) => `forja-aimem:${sid}`;
+async function aiMemLoad(sid) {
+  if (!sid) return { summary: "", turns: 0 };
+  const m = await sGet(aiMemKey(sid));
+  return m && typeof m.summary === "string" ? { summary: m.summary, turns: +m.turns || 0, updatedAt: m.updatedAt } : { summary: "", turns: 0 };
+}
+const aiMemSave = (sid, mem) => (sid ? sSet(aiMemKey(sid), { ...mem, updatedAt: todayISO() }) : null);
+
+// Resume la conversación en hechos duraderos del atleta (lesiones, preferencias, objetivos,
+// decisiones, dudas ya resueltas). Modelo rápido y barato; se corre cada pocos turnos.
+async function aiMemRefresh(apiKey, sid, mem, msgs) {
+  const texto = (msgs || []).slice(-10).filter((m) => typeof m.content === "string" && m.content.trim())
+    .map((m) => `${m.role === "user" ? "ATLETA" : "IA"}: ${m.content.slice(0, 700)}`).join("\n");
+  if (!texto) return mem;
+  try {
+    const data = await callClaudeAPI(apiKey, {
+      model: AI_MODEL, max_tokens: 700, tier: "fast", ragQuery: " ",
+      system: `Mantienes la MEMORIA de un atleta para un asistente de entrenamiento. Devuelve SOLO la memoria actualizada: máximo 8 viñetas cortas ("- ..."), en español, sin introducción.
+Incluye solo hechos duraderos que el atleta dijo o decidió: lesiones o molestias, preferencias de ejercicios o horarios, equipamiento, objetivos, restricciones de dieta, decisiones tomadas y dudas ya resueltas. Quita lo obsoleto. No inventes, no diagnostiques, no guardes datos que no aporten a entrenar mejor ni identifiquen a la persona.`,
+      messages: [{ role: "user", content: `MEMORIA ACTUAL:\n${mem.summary || "(vacía)"}\n\nCONVERSACIÓN RECIENTE:\n${texto}` }],
+    }, { retries: 0 });
+    const out = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+    if (!out) return mem;
+    const next = { summary: out.slice(0, 1400), turns: 0 };
+    await aiMemSave(sid, next);
+    return next;
+  } catch { return mem; }
+}
+const aiMemBlock = (mem) => (mem && mem.summary ? `MEMORIA DEL ATLETA (hechos duraderos de conversaciones anteriores; el atleta puede editarla)\n${mem.summary}` : "");
+
+// Tendencias, estado de recuperación y progresión sugerida del próximo día programado:
+// lo que un coach mira antes de contestar, resumido en texto plano.
+function buildAIExtras({ plan, history }) {
+  const h = history || {};
+  const out = [];
+  try {
+    const pr = prontitudDelDia(h);
+    if (pr && pr.estado !== "sin datos") out.push(`ESTADO DE RECUPERACIÓN DE HOY: ${pr.titulo}${pr.señales && pr.señales.length ? ` — ${pr.señales.map((s) => s.txt).join("; ")}` : ""}`);
+  } catch {}
+  const corte = (d) => Date.now() - d * 86400000;
+  const serie = (arr, campo, dias) => (arr || []).filter((x) => x && x.date && new Date(x.date).getTime() >= corte(dias) && isFinite(+x[campo])).map((x) => +x[campo]);
+  const prom = (a) => (a.length ? a.reduce((t, x) => t + x, 0) / a.length : null);
+  const r1 = (n) => (n == null ? "?" : String(Math.round(n * 10) / 10).replace(".", ","));
+  const tend = [];
+  const bw7 = prom(serie(h.bodyweight, "kg", 7)), bwPrev = prom((h.bodyweight || []).filter((x) => x && x.date && new Date(x.date).getTime() < corte(7) && new Date(x.date).getTime() >= corte(14)).map((x) => +x.kg).filter(isFinite));
+  if (bw7 != null) tend.push(`peso corporal promedio 7 d: ${r1(bw7)} kg${bwPrev != null ? ` (semana previa ${r1(bwPrev)}, ${bw7 - bwPrev >= 0 ? "+" : ""}${r1(bw7 - bwPrev)} kg)` : ""}`);
+  const sl = prom(serie(h.sleep, "hours", 7)); if (sl != null) tend.push(`sueño promedio 7 d: ${r1(sl)} h`);
+  const rc = prom(serie(h.physio, "recovery", 7)); if (rc != null) tend.push(`recuperación promedio 7 d: ${Math.round(rc)} %`);
+  const st = prom(serie(h.steps, "count", 7)); if (st != null) tend.push(`pasos promedio 7 d: ${Math.round(st)}`);
+  const ses28 = (h.sessions || []).filter((s) => s && s.date && new Date(s.date).getTime() >= corte(28)).length;
+  const prog = Object.values((plan && plan.schedule) || {}).filter(Boolean).length;
+  if (prog) tend.push(`adherencia 28 d: ${ses28} sesiones de ~${prog * 4} programadas`);
+  if (tend.length) out.push(`TENDENCIAS: ${tend.join(" · ")}`);
+
+  try {
+    const hoy = new Date().getDay();
+    let dia = null, diasHasta = 0;
+    for (let i = 0; i < 7 && !dia; i++) {
+      const id = plan.schedule && plan.schedule[DAY_KEYS[(hoy + i) % 7]];
+      dia = id ? (plan.days || []).find((d) => d.id === id) : null;
+      diasHasta = i;
+    }
+    if (dia) {
+      const week = currentWeek(plan);
+      const filas = [];
+      (dia.exs || []).slice(0, 10).forEach((ex) => {
+        const sets = (ex.sets || []).map((s, si) => { const t = setTargets(ex, si, week); return { ...s, repsT: t.repsT, rirT: t.rirT }; });
+        const sug = sugerirProgresion({ entries: exEntries(h, ex), sets, deload: !!(week && week.deload), muscle: ex.muscle });
+        const s0 = sug && sug.sets && sug.sets[0];
+        filas.push(`  · ${ex.name}: ${s0 ? `${s0.w !== "" && s0.w != null ? `${String(s0.w).replace(".", ",")} kg × ` : ""}${s0.reps} reps — ${sug.nota}` : "sin historial (pedir la última vez)"}`);
+      });
+      if (filas.length) out.push(`PROGRESIÓN CALCULADA POR LA APP para ${dia.name}${diasHasta === 0 ? " (hoy)" : ` (en ${diasHasta} d)`}:\n${filas.join("\n")}`);
+    }
+  } catch {}
+  return out.join("\n\n");
+}
+
+/* ---- Propuestas de la IA del alumno (las aprueba el coach) ---- */
+const propKey = (sid) => `forja-proposals:${sid}`;
+function parsePropuestas(texto) {
+  const props = [];
+  const clean = (texto || "").replace(/```forja-propuesta\s*([\s\S]*?)```/g, (_, j) => {
+    try {
+      const p = JSON.parse(j.trim());
+      if (p && ["series", "reemplazo", "nota", "otro"].includes(p.tipo) && p.ejercicio) props.push({
+        tipo: p.tipo, ejercicio: String(p.ejercicio).slice(0, 80), delta: +p.delta === -1 ? -1 : 1,
+        nuevo: p.nuevo ? String(p.nuevo).slice(0, 80) : "", texto: p.texto ? String(p.texto).slice(0, 300) : "",
+        detalle: p.detalle ? String(p.detalle).slice(0, 300) : "", motivo: p.motivo ? String(p.motivo).slice(0, 400) : "",
+      });
+    } catch {}
+    return "";
+  });
+  return { clean: limpiarBloquesRotos(clean).replace(/\n{3,}/g, "\n\n").trim(), props };
+}
+async function guardarPropuestas(sid, props) {
+  if (!sid || !props.length) return;
+  const cur = (await sGet(propKey(sid))) || [];
+  const nuevas = props.map((p) => ({ ...p, id: uid(), estado: "pendiente", fecha: todayISO() }));
+  await sSet(propKey(sid), [...nuevas, ...(Array.isArray(cur) ? cur : [])].slice(0, 60));
+}
+const propTitulo = (p) => ({
+  series: `${p.ejercicio}: ${p.delta > 0 ? "+1 serie" : "−1 serie"}`,
+  reemplazo: `${p.ejercicio} → ${p.nuevo || "?"}`,
+  nota: `${p.ejercicio}: nota`,
+  otro: `${p.ejercicio}: ${p.detalle || "cambio"}`,
+})[p.tipo] || p.ejercicio;
+
+// Aplica una propuesta aprobada sobre un plan. Devuelve el plan nuevo o null si el ejercicio no existe
+// (o es de tipo "otro", que el coach resuelve a mano).
+function aplicarPropuestaAlPlan(plan, p) {
+  if (!plan || p.tipo === "otro") return null;
+  const np = structuredClone(plan);
+  const k = norma(p.ejercicio);
+  let n = 0;
+  (np.days || []).forEach((d) => (d.exs || []).forEach((ex) => {
+    if (norma(ex.name) !== k) return;
+    if (p.tipo === "series") {
+      const trabajo = (ex.sets || []).filter((s) => s.type !== "warmup");
+      if (p.delta > 0 && trabajo.length) {
+        const base = structuredClone(trabajo[trabajo.length - 1]);
+        ex.sets.push({ ...base, id: uid(), weight: "", reps: "", rir: "", done: false, comment: "", attachIds: [], drops: [] });
+        n++;
+      } else if (p.delta < 0 && trabajo.length > 1) {
+        const idx = ex.sets.lastIndexOf(trabajo[trabajo.length - 1]);
+        if (idx >= 0) { ex.sets.splice(idx, 1); n++; }
+      }
+    } else if (p.tipo === "reemplazo" && p.nuevo) {
+      const enPlan = (np.days || []).flatMap((x) => x.exs || []).find((e) => norma(e.name) === norma(p.nuevo));
+      ex.replacedFrom = ex.replacedFrom || ex.name;
+      ex.name = p.nuevo; ex.id = (enPlan && enPlan.id) || uid(); delete ex.catId; n++;
+    } else if (p.tipo === "nota" && p.texto) {
+      ex.notes = ex.notes ? `${ex.notes}\n${p.texto}` : p.texto; n++;
+    }
+  }));
+  if (!n) return null;
+  np.updatedAt = todayISO();
+  return np;
 }
 
 /* ---- Ficha del atleta ---- */
@@ -24216,10 +24519,15 @@ const BodybuildingChat = ({ plan, savePlan, history, currentStudent, apiKey, onN
     try {
       const ctx = buildAthleteContext({ plan, history, athlete: plan.athlete, student: currentStudent });
       const apiMessages = await Promise.all(nextMsgs.map(async (m) => ({ role: m.role, content: await contentForAPI(m) })));
+      // Memoria del atleta (la que dejó su propia conversación) + tendencias y progresión calculada.
+      const memAt = await aiMemLoad(sid);
+      const extra = [aiMemBlock(memAt), buildAIExtras({ plan, history })].filter(Boolean).join("\n\n");
       const data = await callClaudeComplete(apiKey, {
         model: AI_MODEL,
         max_tokens: 8000,
-        system: buildBBSystemPrompt(ctx, specialty, (plan.athlete || {}).enhanced === "asistido"),
+        tier: "default",
+        ragQuery: `${text} ${spec.label}`,
+        system: buildBBSystemPrompt(ctx, specialty, (plan.athlete || {}).enhanced === "asistido") + (extra ? `\n\n${extra}` : ""),
         messages: apiMessages,
       });
       const answer = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n") || "(sin respuesta)";
@@ -24460,15 +24768,19 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [mem, setMem] = useState({ summary: "", turns: 0 });
+  const [memOpen, setMemOpen] = useState(false);
+  const [memDraft, setMemDraft] = useState("");
   const scrollRef = useRef(null);
 
   useEffect(() => {
     if (!sid) return;
     let alive = true;
     (async () => {
-      const saved = await sGet(`forja-student-chat:${sid}`);
+      const [saved, m] = await Promise.all([sGet(`forja-student-chat:${sid}`), aiMemLoad(sid)]);
       if (!alive) return;
       setMessages(Array.isArray(saved) ? saved : []);
+      setMem(m);
       setLoadedFor(sid);
     })();
     return () => { alive = false; };
@@ -24477,7 +24789,16 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy]);
 
   const persist = (msgs) => { if (sid) sSet(`forja-student-chat:${sid}`, msgs); };
-  const clearChat = () => { setMessages([]); persist([]); };
+  // Al reiniciar la conversación se destila lo duradero en la memoria antes de borrarla.
+  const clearChat = () => {
+    if (messages.length >= 2) aiMemRefresh(apiKey, sid, mem, messages).then(setMem);
+    setMessages([]); persist([]);
+  };
+  const guardarMemoria = async () => {
+    const next = { summary: memDraft.trim().slice(0, 1400), turns: 0 };
+    await aiMemSave(sid, next); setMem(next); setMemOpen(false);
+    toast && toast(next.summary ? "Memoria guardada" : "Memoria borrada");
+  };
 
   const send = async (preset) => {
     const text = (preset != null ? preset : input).trim();
@@ -24488,15 +24809,27 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
     setMessages(nextMsgs); setInput(""); setBusy(true);
     try {
       const ctx = buildAthleteContext({ plan, history, athlete: plan.athlete, student });
+      const extra = [aiMemBlock(mem), buildAIExtras({ plan, history })].filter(Boolean).join("\n\n");
+      // La consulta a la base de conocimiento incluye los ejercicios de la sesión abierta,
+      // así "¿por qué este peso?" también encuentra criterios de progresión y técnica.
+      const ragQuery = `${text} ${active && active.exs ? active.exs.map((e) => e.name).join(" ") : ""}`;
       const data = await callClaudeComplete(apiKey, {
         model: AI_MODEL,
         max_tokens: 8000,
-        system: buildStudentSystemPrompt(ctx, student?.name, buildActiveSessionSummary(active, history)),
-        messages: nextMsgs,
+        tier: "default",
+        ragQuery,
+        system: buildStudentSystemPrompt(ctx, student?.name, buildActiveSessionSummary(active, history), extra),
+        messages: nextMsgs.map((m) => ({ role: m.role, content: m.content })),
       });
-      const answer = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n") || "(sin respuesta)";
-      const final = [...nextMsgs, { role: "assistant", content: answer }];
+      const raw = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n") || "(sin respuesta)";
+      const { clean, props } = parsePropuestas(raw);
+      if (props.length) await guardarPropuestas(sid, props);
+      const final = [...nextMsgs, { role: "assistant", content: clean || "(sin respuesta)", ...(props.length ? { propuestas: props.map(propTitulo) } : {}) }];
       setMessages(final); persist(final);
+      // Memoria: cada 6 preguntas se actualiza en segundo plano (modelo rápido).
+      const turns = (mem.turns || 0) + 1;
+      if (turns >= 6) aiMemRefresh(apiKey, sid, mem, final).then(setMem);
+      else { const nm = { ...mem, turns }; setMem(nm); aiMemSave(sid, nm); }
     } catch (e) {
       setErr(e.message || "Error de conexión");
     } finally { setBusy(false); }
@@ -24510,6 +24843,27 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
         <Sparkles size={30} style={{ marginBottom: 10, opacity: .6 }} />
         <div style={{ fontWeight: 600, color: P.dim, marginBottom: 5 }}>El asistente todavía no está activo</div>
         <div style={{ fontSize: 14.5, lineHeight: 1.5 }}>Tu coach necesita activarlo desde su pestaña IA. Avísale y en un momento vas a poder preguntarle lo que quieras acá mismo.</div>
+      </div>
+    );
+  }
+
+  // Editor de la memoria: reemplaza al chat dentro del mismo panel (una hoja encima quedaría
+  // detrás del asistente, que ya es una capa superior).
+  if (memOpen) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, padding: "6px 0 8px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <StickyNote size={18} />
+          <div style={{ flex: 1, fontSize: 17, fontWeight: 700 }}>Memoria</div>
+        </div>
+        <textarea value={memDraft} onChange={(e) => setMemDraft(e.target.value)} aria-label="Memoria de la IA"
+          placeholder="Aquí la IA guarda lo duradero que le cuentas: lesiones, preferencias, objetivos. Puedes editarla o borrarla."
+          style={{ flex: 1, minHeight: 0, width: "100%", padding: 12, fontSize: 14.5, lineHeight: 1.45, background: P.s4, borderRadius: R_TILE, border: "none", resize: "none" }} />
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <Btn kind="line" aria-label="Cerrar memoria" onClick={() => setMemOpen(false)}><X size={16} /></Btn>
+          <Btn kind="line" aria-label="Borrar memoria" onClick={() => setMemDraft("")}><Trash2 size={16} /></Btn>
+          <Btn kind="ember" aria-label="Guardar memoria" onClick={guardarMemoria} style={{ flex: 1 }}><Check size={17} /></Btn>
+        </div>
       </div>
     );
   }
@@ -24528,7 +24882,14 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
         ) : messages.map((m, i) => (
           m.role === "user"
             ? <ChatBubble key={i} role="user">{m.content}</ChatBubble>
-            : <ChatBubble key={i} role="assistant" text={m.content} onCopy={() => toast && toast("Copiado")}><ChatMarkdown text={m.content} /></ChatBubble>
+            : <React.Fragment key={i}>
+                <ChatBubble role="assistant" text={m.content} onCopy={() => toast && toast("Copiado")}><ChatMarkdown text={m.content} /></ChatBubble>
+                {(m.propuestas || []).map((t, k) => (
+                  <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, margin: "-2px 0 10px 4px", fontSize: 13, color: P.dim }}>
+                    <Send size={14} color={P.text} /> <span>Enviada a tu coach · {t}</span>
+                  </div>
+                ))}
+              </React.Fragment>
         ))}
         {busy && <ChatTyping label="Pensando" />}
         {err && <div style={{ padding: "12px 16px", borderRadius: 18, background: `${P.red}22`, fontSize: 13.5, color: P.red, marginBottom: 10 }}>{err}</div>}
@@ -24537,7 +24898,8 @@ const StudentAIChat = ({ plan, history, student, active, apiKey, toast }) => {
         <ChatComposer value={input} onChange={setInput} onSend={() => send()} busy={busy} placeholder="Escribe tu pregunta…"
           tools={<>
             <VoiceDictateButton disabled={busy} onError={setErr} onResult={(text) => setInput((v) => (v ? `${v} ${text}` : text))} />
-            {messages.length > 0 && <button onClick={clearChat} aria-label="Reiniciar conversación" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: P.faint, padding: "6px 10px" }}><Trash2 size={13} /> Nueva conversación</button>}
+            <button onClick={() => { setMemDraft(mem.summary || ""); setMemOpen(true); }} aria-label="Memoria de la IA" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", padding: "6px 10px", color: mem.summary ? P.text : P.faint }}><StickyNote size={16} /></button>
+            {messages.length > 0 && <button onClick={clearChat} aria-label="Nueva conversación" style={{ display: "inline-flex", alignItems: "center", padding: "6px 10px", color: P.faint }}><Trash2 size={16} /></button>}
           </>} />
       </div>
     </div>
