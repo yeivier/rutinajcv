@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v420";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v422";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -3744,10 +3744,33 @@ const nextRoutineKey = (days) => {
    alumno ve todo — el comportamiento de siempre, cero fricción. */
 const isRoutineVisible = (allowedRoutines, key) =>
   !allowedRoutines || allowedRoutines.length === 0 || allowedRoutines.includes(key);
+/* ---- Complementos de la RUTINA FINAL (ABS / Calves / Cardio) ----
+   Cada día accesorio pertenece a la sesión de fuerza de su mismo día de la
+   semana: Lunes→A, Martes→B, Miércoles→C, Jueves→Hombros/Bíceps/Tríceps,
+   Viernes→D, Sábado→E. Para el atleta ya no son sesiones aparte: sus
+   ejercicios se suman a los de su sesión (sin tocar el plan guardado) y los
+   días accesorios dejan de salir sueltos en la lista. */
+const COMPLEMENTOS_DE = {
+  "LPF-A": ["LPF-ABS-MON"], "LPF-B": ["LPF-CALVES-TUE"], "LPF-C": ["LPF-CARDIO-WED"],
+  "LPF-HBT": ["LPF-ABS-THU"], "LPF-D": ["LPF-CALVES-FRI"], "LPF-E": ["LPF-CARDIO-SAT"],
+};
+const esComplementoDia = (d) => !!d && /^LPF-(ABS|CALVES|CARDIO)-/.test(d.seedKey || "");
+// Suma a `day` los ejercicios de sus complementos (idempotente: no repite los que ya están).
+function diaConComplementos(days, day) {
+  const keys = day && COMPLEMENTOS_DE[day.seedKey];
+  if (!keys) return day;
+  const ya = new Set((day.exs || []).map((e) => e.id));
+  const extra = keys.map((k) => (days || []).find((x) => x.seedKey === k)).filter(Boolean)
+    .flatMap((x) => (x.exs || []).filter((e) => !ya.has(e.id)));
+  return extra.length ? { ...day, exs: [...(day.exs || []), ...extra] } : day;
+}
+// Días como los ve el atleta: complementos fusionados en su sesión y sin los días accesorios sueltos.
+const diasParaAtleta = (days) => (days || []).filter((d) => !esComplementoDia(d)).map((d) => diaConComplementos(days, d));
+
 const visibleRoutineGroups = (days, allowedRoutines, customNames) =>
-  groupDaysByRoutine(days, customNames).filter((g) => isRoutineVisible(allowedRoutines, g.key));
+  groupDaysByRoutine(diasParaAtleta(days), customNames).filter((g) => isRoutineVisible(allowedRoutines, g.key));
 const visibleDays = (days, allowedRoutines) =>
-  (days || []).filter((d) => isRoutineVisible(allowedRoutines, routineOf(d)));
+  diasParaAtleta(days).filter((d) => isRoutineVisible(allowedRoutines, routineOf(d)));
 
 // Mueve TODOS los días de una rutina (bloque completo) justo antes/después
 // del bloque de otra rutina, sin alterar el orden interno de los días de
@@ -8273,7 +8296,7 @@ const EvolucionChart = ({ data, unit }) => {
 const ProximaSugerida = ({ plan, entries, name }) => {
   const k = norma(name || "");
   const ex = ((plan && plan.days) || []).flatMap((d) => d.exs || []).find((e) => norma(e.name) === k);
-  if (!ex || !entries || !entries.length) return null;
+  if (!ex || esCardio(ex) || !entries || !entries.length) return null;
   const sug = sugerirProgresion({ entries, sets: ex.sets || [], deload: false, muscle: ex.muscle });
   if (!sug) return null;
   const s0 = sug.sets[0];
@@ -10555,6 +10578,7 @@ function sugerirProgresion({ entries, sets, deload, muscle, now }) {
 }
 
 function aplicarSugEj(exx, entries, deload) {
+  if (esCardio(exx)) return false;
   const sug = sugerirProgresion({ entries, sets: exx.sets, deload: !!deload, muscle: exx.muscle });
   if (!sug) return false;
   exx.sug = { modo: sug.modo, nota: sug.nota, lo: sug.rango.lo, hi: sug.rango.hi, porTipo: sug.porTipo };
@@ -10627,6 +10651,101 @@ const FinDescansoAviso = ({ marca }) => {
   );
 };
 
+/* ---- Cardio en la sesión ----
+   El cardio no es una serie de peso: se anota a mano cuánto se hizo (min),
+   en qué máquina y con qué detalles (velocidad, inclinación…). Trae un
+   temporizador (cuenta atrás desde el tiempo de la rutina, 20 min por
+   defecto) y un cronómetro. Se guarda en la única serie del ejercicio:
+   reps = minutos, machine = máquina, detail = detalles. */
+const esCardio = (ex) => !!ex && (ex.kind === "cardio" || /^cardio\b/i.test(String(ex.name || "").trim()));
+const minutosObjetivoCardio = (ex) => { const m = String(((ex && ex.sets) || [])[0] && ex.sets[0].repsT || "").match(/\d+/); return m ? +m[0] : 20; };
+const CardioCard = ({ ex, st, iconos, comentario, indicaciones, onPatch, onToggle }) => {
+  const objetivo = minutosObjetivoCardio(ex);
+  const [modo, setModo] = useState("temporizador"); // "temporizador" | "cronometro"
+  const [duracion, setDuracion] = useState(objetivo); // minutos del temporizador
+  const [corre, setCorre] = useState(false);
+  const [base, setBase] = useState(0);      // ms acumulados antes del último "play"
+  const [desde, setDesde] = useState(0);    // marca de tiempo del último "play"
+  const [, tick] = useState(0);
+  useEffect(() => { if (!corre) return; const t = setInterval(() => tick((n) => n + 1), 250); return () => clearInterval(t); }, [corre]);
+  const transcurrido = base + (corre ? Date.now() - desde : 0);
+  const restante = Math.max(0, duracion * 60000 - transcurrido);
+  const aviso = useRef(false);
+  useEffect(() => {
+    if (modo === "temporizador" && corre && restante <= 0 && !aviso.current) {
+      aviso.current = true;
+      setCorre(false); setBase(duracion * 60000);
+      if (st.reps === "" || st.reps == null) onPatch({ reps: String(duracion) });
+      try { navigator.vibrate && navigator.vibrate([300, 150, 300]); } catch {}
+    }
+  }, [restante, modo, corre]);
+  const fmt = (ms) => { const sgs = Math.floor(ms / 1000); return `${String(Math.floor(sgs / 60)).padStart(2, "0")}:${String(sgs % 60).padStart(2, "0")}`; };
+  const jugar = () => { aviso.current = false; setDesde(Date.now()); setCorre(true); };
+  const pausar = () => {
+    const total = base + Date.now() - desde;
+    setBase(total); setCorre(false);
+    if (modo === "cronometro" && total > 0) onPatch({ reps: String(Math.max(1, Math.round(total / 60000))) });
+  };
+  const reiniciar = () => { setCorre(false); setBase(0); aviso.current = false; };
+  const cambiarModo = (m) => { if (m === modo) return; reiniciar(); setModo(m); };
+  const boton = { height: 44, minWidth: 44, borderRadius: 22, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 14px", fontSize: 14, fontWeight: 650 };
+  const campo = { width: "100%", boxSizing: "border-box", padding: "12px 12px", fontSize: 16, background: "transparent", color: SES.ink, border: `1px solid ${SES.line}`, borderRadius: 16, fontFamily: "inherit", outline: "none" };
+  return (
+    <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: 28, padding: "20px 14px 14px" }}>
+      <div style={{ fontSize: 21, fontWeight: 650, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.045em", overflowWrap: "anywhere" }}>{ex.name || "Cardio"}</div>
+      {iconos}
+      {comentario}
+      {indicaciones && <div style={{ fontSize: 13, color: SES.dim, lineHeight: 1.45, whiteSpace: "pre-wrap", marginTop: 8 }}>{indicaciones}</div>}
+      <div style={{ marginTop: 14, padding: "16px 12px", borderRadius: 22, background: SES.campo, textAlign: "center" }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 10 }}>
+          {[["temporizador", "Temporizador"], ["cronometro", "Cronómetro"]].map(([id, lab]) => (
+            <button key={id} onClick={() => cambiarModo(id)} aria-pressed={modo === id}
+              style={{ height: 34, padding: "0 14px", borderRadius: 17, fontSize: 13, fontWeight: 650, background: modo === id ? SES.ink : "transparent", color: modo === id ? SES.card : SES.dim, border: `1px solid ${modo === id ? SES.ink : SES.line}` }}>{lab}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: 56, fontWeight: 700, letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums", color: SES.ink, lineHeight: 1.05 }}>
+          {fmt(modo === "temporizador" ? restante : transcurrido)}
+        </div>
+        {modo === "temporizador" && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 8, color: SES.dim, fontSize: 14 }}>
+            <button onClick={() => { if (!corre) { setDuracion((d) => Math.max(1, d - 1)); setBase(0); } }} aria-label="Menos un minuto" disabled={corre} style={{ width: 34, height: 34, borderRadius: 17, border: `1px solid ${SES.line}`, fontSize: 18, color: SES.ink }}>−</button>
+            <span style={{ minWidth: 120 }}>{duracion} min{duracion === objetivo ? " (rutina)" : ""}</span>
+            <button onClick={() => { if (!corre) { setDuracion((d) => d + 1); setBase(0); } }} aria-label="Más un minuto" disabled={corre} style={{ width: 34, height: 34, borderRadius: 17, border: `1px solid ${SES.line}`, fontSize: 18, color: SES.ink }}>+</button>
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 12 }}>
+          {corre
+            ? <button onClick={pausar} aria-label="Pausar" style={{ ...boton, background: SES.ink, color: SES.card }}><Pause size={18} /> Pausar</button>
+            : <button onClick={jugar} aria-label="Iniciar" style={{ ...boton, background: SES.ink, color: SES.card }}><Play size={18} fill="currentColor" /> {base > 0 ? "Seguir" : "Iniciar"}</button>}
+          <button onClick={reiniciar} aria-label="Reiniciar" style={{ ...boton, border: `1px solid ${SES.line}`, color: SES.ink }}><RotateCcw size={17} /></button>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="mono" style={{ fontSize: 10.5, color: SES.faint, marginBottom: 5 }}>MINUTOS HECHOS</div>
+          <input type="text" inputMode="decimal" value={st.reps == null ? "" : String(st.reps)} placeholder={String(objetivo)} aria-label="Minutos de cardio hechos"
+            onChange={(e) => onPatch({ reps: e.target.value.replace(",", ".").replace(/[^0-9.]/g, "") })} style={{ ...campo, textAlign: "center", fontSize: 20, fontWeight: 600 }} />
+        </div>
+        <div style={{ flex: 2, minWidth: 0 }}>
+          <div className="mono" style={{ fontSize: 10.5, color: SES.faint, marginBottom: 5 }}>MÁQUINA</div>
+          <input type="text" value={st.machine || ""} placeholder="Caminadora, bici, elíptica…" aria-label="Máquina de cardio"
+            onChange={(e) => onPatch({ machine: e.target.value })} style={campo} />
+        </div>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <div className="mono" style={{ fontSize: 10.5, color: SES.faint, marginBottom: 5 }}>DETALLES</div>
+        <input type="text" value={st.detail || ""} placeholder="Velocidad, inclinación, nivel, pulso…" aria-label="Detalles del cardio"
+          onChange={(e) => onPatch({ detail: e.target.value })} style={campo} />
+      </div>
+      <button onClick={onToggle} aria-pressed={!!st.done} aria-label={st.done ? "Desmarcar el cardio" : "Marcar el cardio como hecho"}
+        style={{ marginTop: 14, width: "100%", height: 52, borderRadius: 18, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontSize: 16, fontWeight: 650,
+          background: st.done ? SES.ink : "transparent", color: st.done ? SES.card : SES.ink, border: `1px solid ${st.done ? SES.ink : SES.line}` }}>
+        <Check size={20} strokeWidth={2.4} /> {st.done ? "Cardio hecho" : "Marcar como hecho"}
+      </button>
+    </div>
+  );
+};
+
 const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, saveHistory, active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRemoveSetAt, onReplaceEx, library, onRenameEx, onRemoveEx }) => {
   const [weightUnit, setWeightUnit] = useWeightUnit();
   const [themeMode, setThemeMode] = useTheme();
@@ -10676,7 +10795,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
   const [salida, setSalida] = useState(false);
   useEffect(() => { if (pedirSalida) { setSalida(true); onSalidaConsumida && onSalidaConsumida(); } }, [pedirSalida]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [histEx, setHistEx] = useState(null);
-  const [histCerrados, setHistCerrados] = useState(() => new Set()); // historiales que el atleta plegó (por defecto todos abiertos)
+  const [histAbiertos, setHistAbiertos] = useState(() => new Set()); // historiales que el atleta desplegó (por defecto todos ocultos)
   const [vincularOpen, setVincularOpen] = useState(false);
   const [herrOpen, setHerrOpen] = useState(false);
   // Reordenar series con "mantén pulsado y arrastra" — mismo mecanismo que
@@ -10836,7 +10955,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
   // una serie a la vez.
   const flatSets = useMemo(() => {
     const out = [];
-    blocks.forEach((b, bi) => b.rows.forEach((_, ri) => out.push({ bi, ri })));
+    blocks.forEach((b, bi) => { if (!b.group && esCardio(exs[b.ei])) return; b.rows.forEach((_, ri) => out.push({ bi, ri })); });
     return out;
   }, [blocks]);
   // Al entrar a Focus Mode, empezar en la primera serie pendiente.
@@ -11142,18 +11261,18 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     const u = unitFor(ei);
     const last = en[en.length - 1];
     const pr = progresoEj(en);
-    const abiertoH = !histCerrados.has(key);
+    const abiertoH = histAbiertos.has(key);
     const meta = !pr ? null : {
       mejor: { t: `Subió ${Math.round(pr.pct)}%`, I: ArrowUp, c: SES.ink },
       igual: { t: "Igual que la vez anterior", I: Minus, c: SES.dim },
       peor: { t: `Bajó ${Math.abs(Math.round(pr.pct))}%`, I: ArrowDown, c: SES.dim },
       estancado: { t: "Estancado · 3 sesiones sin subir", I: Minus, c: SES.dim },
     }[pr.estado];
-    const lineaSets = (sets) => seriesDeTrabajo(sets).map(cargaDeSerie).filter(Boolean)
+    const lineaSets = (sets) => esCardio(ex) ? seriesDeTrabajo(sets).filter((x) => x.reps !== "" && x.reps != null).map((x) => `${x.reps} min${x.machine ? ` · ${x.machine}` : ""}`).join(" · ") : seriesDeTrabajo(sets).map(cargaDeSerie).filter(Boolean)
       .map((c, i, a) => c.tipo === "vol" ? `${kg(pesoMostrado(seriesDeTrabajo(sets).filter((x) => cargaDeSerie(x))[i].weight, u))}×${c.r}` : `${c.r}`).join(" · ");
     return (
       <div key={key} style={{ marginTop: 12 }}>
-        <button onClick={() => setHistCerrados((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; })} aria-expanded={abiertoH} aria-label={`Historial de ${ex.name}`}
+        <button onClick={() => setHistAbiertos((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; })} aria-expanded={abiertoH} aria-label={`Historial de ${ex.name}`}
           style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 14, background: SES.campo, border: `1px solid ${SES.line}`, color: SES.ink }}>
           <History size={16} color={SES.faint} style={{ flexShrink: 0 }} />
           <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, lineHeight: 1.35 }}>
@@ -11179,7 +11298,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     );
   };
   // Historial completo del ejercicio (o de cada miembro de una superserie),
-  // siempre a la vista bajo las series.
+  // oculto por defecto: se despliega al tocarlo (o con su ícono).
   const franjaHistorial = (block, bi) => (block.group
     ? block.members.map((mi) => histBlock(mi, `${bi}-${mi}`))
     : histBlock(block.ei, `${bi}`));
@@ -11197,21 +11316,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
       );
       return null;
     }
-    const tr = seriesDeTrabajo(ex.sets);
-    const w0 = tr.length && tr[0].sugW !== "" && tr[0].sugW != null ? pesoMostrado(tr[0].sugW, unitFor(ei)) : null;
-    const Ic = sg.modo === "subir" ? ArrowUp : sg.modo === "mantener" ? Minus : ArrowDown;
-    const extras = sg.porTipo ? Object.entries(sg.porTipo).filter(([t]) => t !== "normal" && t !== "warmup") : [];
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 13.5, color: SES.ink, lineHeight: 1.4 }}>
-          <Ic size={14} strokeWidth={3} style={{ marginTop: 3, flexShrink: 0 }} />
-          <span><b>{conNombre ? `${ex.name} · ` : ""}Hoy: {w0 != null ? `${String(w0).replace(".", ",")} ${unitFor(ei)} × ` : ""}{tr.length ? tr[0].sugReps : ""} reps</b><span style={{ color: SES.dim }}> · {sg.nota}</span></span>
-        </div>
-        {extras.length > 0 && extras.map(([t, d]) => (
-          <div key={t} style={{ fontSize: 12.5, color: SES.dim, paddingLeft: 20, lineHeight: 1.35 }}>{(SET_TYPES[t] || SET_TYPES.normal).short}: {d.nota}</div>
-        ))}
-      </div>
-    );
+    return null; // la meta de cada serie va en su propia fila
   };
   const guardarUltimaVez = (ei, rows, dias) => {
     const ex = exs[ei];
@@ -11283,6 +11388,24 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     // detalle de cada serie, todo detrás de un mismo chevron por tarjeta.
     const abierta = true; // todo el detalle a la vista, sin chevron
 
+    // Cardio: no es una serie de peso. Minutos, máquina y detalles a mano, con
+    // temporizador y cronómetro (ver CardioCard).
+    if (!block.group && esCardio(exs[block.ei])) {
+      const ex = exs[block.ei];
+      const si0 = block.rows[0] ? block.rows[0].si : 0;
+      const st0 = ex.sets[si0] || {};
+      return (
+        <CardioCard key={`cardio-${ex.id}`} ex={ex} st={st0} iconos={accionesDe(block, bi)} comentario={comentarioEx(block, bi)} indicaciones={indicaciones}
+          onPatch={(f) => patchSet(block.ei, si0, { ...f, prefilled: false })}
+          onToggle={() => {
+            const hacer = !st0.done;
+            patchSet(block.ei, si0, { done: hacer, prefilled: false,
+              ...(hacer && (st0.reps === "" || st0.reps == null) ? { reps: String(minutosObjetivoCardio(ex)) } : {}),
+              ...(hacer ? { doneAt: new Date().toISOString() } : {}) });
+          }} />
+      );
+    }
+
     return (
       <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: 28, padding: "20px 14px 8px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
@@ -11298,10 +11421,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                 style={{ width: "100%", boxSizing: "border-box", fontSize: 15.5, fontWeight: 700, color: SES.ink,
                   background: SES.campo, border: `1px solid ${SES.acc}`, borderRadius: 8, padding: "6px 9px", outline: "none", fontFamily: "inherit" }} />
             ) : (
-              <button onClick={() => setExAbierto(exAbierto === bi ? null : bi)} aria-expanded={exAbierto === bi} aria-label={`Opciones de ${titulo || "ejercicio"}`}
-                style={{ display: "block", textAlign: "left", width: "100%", padding: 0 }}>
-                <span style={{ display: "block", fontSize: 21, fontWeight: 650, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.045em", overflowWrap: "anywhere" }}>{titulo || "Ejercicio sin nombre"}</span>
-              </button>
+              <span style={{ display: "block", fontSize: 21, fontWeight: 650, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.045em", overflowWrap: "anywhere" }}>{titulo || "Ejercicio sin nombre"}</span>
             )}
             {/* Antes acá decía "Objetivo N series · descanso Y s" — un dato
                 que ya está en cada fila (reps/RIR objetivo) y en el propio
@@ -11317,44 +11437,15 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
               </div>
             )}
           </div>
-          {btnComentarioEx(block, bi)}
         </div>
+        {accionesDe(block, bi)}
         {comentarioEx(block, bi)}
 
-        {(!block.group || indicaciones || tempo || block.members.some((mi) => exs[mi].sug || (puedeEditar && saveHistory))) && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
-            {!block.group && objetivoEj(exs[block.ei]) && <div style={{ fontSize: 15.5, color: SES.faint, fontWeight: 400 }}>Objetivo {objetivoEj(exs[block.ei])}</div>}
-            {!block.group && sugLinea(block.ei)}
-            {block.group && block.members.map((mi) => <React.Fragment key={mi}>{sugLinea(mi, true)}</React.Fragment>)}
+        {(indicaciones || tempo || (block.group ? block.members : [block.ei]).some((mi) => !exs[mi].sug && puedeEditar && saveHistory && exEntries(history, exs[mi]).length === 0)) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+            {(block.group ? block.members : [block.ei]).map((mi) => <React.Fragment key={mi}>{sugLinea(mi, block.group)}</React.Fragment>)}
             {indicaciones && <div style={{ fontSize: 13, color: SES.dim, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{indicaciones}</div>}
             {tempo && <div><TempoBadge tempo={tempo} exerciseName={exs[block.ei].name} muscle={exs[block.ei].muscle} big /></div>}
-          </div>
-        )}
-
-        {exAbierto === bi && (
-          <div className="deployIn" style={{ marginTop: 10, padding: "6px 0", borderTop: `1px solid ${SES.line}`, borderBottom: `1px solid ${SES.line}` }}>
-            {accionesDe(block, bi)}
-            <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 2px 0" }}>
-              <button onClick={() => setFicha(block.group ? block.members[0] : block.ei)} aria-label={`Ver la técnica de ${titulo}`} title="Técnica"
-                style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><Play size={16} /></button>
-              {puedeEditar && !block.group && (
-                <button onClick={() => { setRenameId(exs[block.ei].id); setExAbierto(null); }} aria-label={`Renombrar ${titulo || "ejercicio"}`} title="Renombrar"
-                  style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><PencilLine size={16} /></button>
-              )}
-              <span style={{ flex: 1 }} />
-              {puedeEditar && !block.group && block.rows.length > 1 && (
-                <button onClick={() => onRemoveSet(block.ei)} aria-label="Quitar serie" title="Quitar la última serie"
-                  style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><Minus size={18} /></button>
-              )}
-              {puedeEditar && !block.group && onReplaceEx && (
-                <button onClick={() => { setExAbierto(null); setReemplazoEi(block.ei); }} aria-label={`Reemplazar ${titulo || "ejercicio"} por otro equivalente`} title="Reemplazar ejercicio"
-                  style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><RefreshCw size={16} /></button>
-              )}
-              {puedeEditar && !block.group && (
-                <button onClick={() => { setExAbierto(null); onRemoveEx(block.ei); }} aria-label="Eliminar ejercicio de la sesión" title="Eliminar ejercicio"
-                  style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><Trash2 size={16} /></button>
-              )}
-            </div>
           </div>
         )}
 
@@ -11482,12 +11573,17 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
               const u = unitDeSerie(st, r.ei);
               const antes = pv && ((pv.weight !== "" && pv.weight != null) || (pv.reps !== "" && pv.reps != null))
                 ? `antes ${pv.weight !== "" && pv.weight != null ? `${String(pesoMostrado(pv.weight, u)).replace(".", ",")} ${u} × ` : ""}${pv.reps !== "" && pv.reps != null ? pv.reps : "?"}${pv.rir !== "" && pv.rir != null ? ` · RIR ${pv.rir}` : ""}` : "";
-              const obj = consigna || isWarm ? "" : detalle;
-              const partes = [obj, antes].filter(Boolean);
-              if (!tl && !partes.length && !(pv && pv.comment)) return null;
+              const pesoSug = st.sugW !== "" && st.sugW != null ? `${String(pesoMostrado(st.sugW, u)).replace(".", ",")} ${u}` : "";
+              const rirTxt = st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : "";
+              // Qué hacer en ESTA serie: cuántas reps y con qué peso.
+              const hacer = isWarm ? "" : st.sugReps != null
+                ? [`Hacer ${st.sugReps} reps`, pesoSug, rirTxt].filter(Boolean).join(" · ")
+                : (consigna ? "" : detalle);
+              if (!tl && !hacer && !antes && !(pv && pv.comment)) return null;
               return (
                 <div style={{ padding: "3px 0 0 36px", fontSize: 12.5, color: SES.dim, lineHeight: 1.4 }}>
-                  {(tl || partes.length > 0) && <div>{tl && <b style={{ color: SES.ink }}>{tl}</b>}{tl && partes.length ? " · " : ""}{partes.join(" · ")}</div>}
+                  {(tl || hacer) && <div style={{ color: SES.ink }}>{tl && <b>{tl}</b>}{tl && hacer ? " · " : ""}{hacer && <b style={{ fontWeight: 650 }}>{hacer}</b>}</div>}
+                  {antes && <div>{antes}</div>}
                   {como && <div style={{ color: SES.faint }}>{como}</div>}
                   {pv && pv.comment && <div style={{ display: "flex", gap: 5 }}><MessageSquare size={12} style={{ marginTop: 3, flexShrink: 0 }} /><span style={{ whiteSpace: "pre-wrap" }}>{pv.comment}</span></div>}
                 </div>
@@ -11623,39 +11719,40 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     );
   };
 
+  // Todas las funciones del ejercicio, siempre visibles y en una sola fila
+  // ordenada (sin desplegar nada): íconos parejos en una grilla.
   const accionesDe = (block, bi) => {
     const primero = block.group ? block.members[0] : block.ei;
     const nombre = block.group ? block.members.map((m) => exs[m].name).join(" + ") : exs[block.ei].name;
     const tieneCmt = !!(exs[primero].comment || "").trim();
     const cmtAbierto = exCmtFor === bi;
+    const claves = block.group ? block.members.map((mi) => `${bi}-${mi}`) : [`${bi}`];
+    const histAbierto = claves.some((k) => histAbiertos.has(k));
+    const tieneNotas = (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes);
+    const editable = puedeEditar && !block.group;
+    const cardio = !block.group && esCardio(exs[block.ei]);
+    const items = [
+      ["Comentario del ejercicio", MessageSquare, () => setExCmtFor(cmtAbierto ? null : bi), tieneCmt || cmtAbierto, tieneCmt],
+      ["Preguntar a la IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false, false, !!onOpenAIChat],
+      ["Historial del ejercicio", History, () => setHistAbiertos((prev) => { const n = new Set(prev); if (histAbierto) claves.forEach((k) => n.delete(k)); else claves.forEach((k) => n.add(k)); return n; }), histAbierto, false],
+      ["Indicaciones del coach", FileText, () => setCoachNotesOpen(bi), tieneNotas, false, tieneNotas],
+      ["Técnica del ejercicio", Play, () => setFicha(primero), false, false],
+      ["Reemplazar ejercicio", RefreshCw, () => setReemplazoEi(block.ei), false, false, editable && !!onReplaceEx],
+      ["Convertir kg ↔ lb", ArrowUpDown, () => setConvOpen(true), false, false, !cardio],
+      ["Calcular RM", Calculator, () => setCalcOpen(true), false, false, !cardio],
+      ["Renombrar ejercicio", PencilLine, () => setRenameId(exs[block.ei].id), false, false, editable],
+      ["Quitar la última serie", Minus, () => onRemoveSet(block.ei), false, false, editable && !cardio && block.rows.length > 1],
+      ["Eliminar ejercicio de la sesión", Trash2, () => onRemoveEx(block.ei), false, false, editable],
+    ].filter((it) => it[5] === undefined || it[5]);
     return (
-      <>
-      <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 2px" }}>
-        {[["Comentario del ejercicio", MessageSquare, () => setExCmtFor(cmtAbierto ? null : bi), tieneCmt || cmtAbierto],
-          ["Historial del ejercicio", History, () => setHistEx(primero), false],
-          ["Indicaciones del coach", FileText, () => setCoachNotesOpen(bi),
-            (block.group ? block.members : [block.ei]).some((mi) => !!exs[mi].notes)],
-          ["Preguntar al Coach IA", Sparkles, () => onOpenAIChat && onOpenAIChat(), false],
-        ].map(([lbl, Icon, onClick, marcado]) => (
-          <button key={lbl} onClick={onClick} aria-label={`${lbl} — ${nombre}${marcado ? " (con contenido)" : ""}`} title={lbl}
-            style={{ width: 34, height: 34, borderRadius: 17, flexShrink: 0, background: "transparent",
-              color: marcado ? SES.acc : SES.faint, border: "none",
-              display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon size={17} strokeWidth={2} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", justifyItems: "center", gap: 2, margin: "8px -4px 0" }}>
+        {items.map(([lbl, Icon, onClick, marcado, relleno]) => (
+          <button key={lbl} onClick={onClick} aria-label={`${lbl} — ${nombre}${marcado ? " (activo)" : ""}`} title={lbl}
+            style={{ width: 42, height: 42, borderRadius: 21, display: "flex", alignItems: "center", justifyContent: "center", background: marcado ? SES.campo : "transparent", color: marcado ? SES.ink : SES.faint }}>
+            <Icon size={19} strokeWidth={1.9} fill={relleno ? "currentColor" : "none"} />
           </button>
         ))}
-        <button onClick={() => setConvOpen(true)} aria-label={`Convertir kg y lb — ${nombre}`} title="Convertir kg ↔ lb"
-          style={{ marginLeft: "auto", width: 34, height: 34, borderRadius: 17, display: "flex", alignItems: "center", justifyContent: "center",
-            background: "transparent", border: "none", color: SES.faint }}>
-          <ArrowUpDown size={17} />
-        </button>
-        <button onClick={() => setCalcOpen(true)} aria-label={`Calcular RM — ${nombre}`} title="Calcular RM"
-          style={{ width: 34, height: 34, borderRadius: 17, display: "flex", alignItems: "center", justifyContent: "center",
-            background: "transparent", border: "none", color: SES.faint }}>
-          <Calculator size={17} />
-        </button>
       </div>
-      </>
     );
   };
 
@@ -12726,6 +12823,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
     // pasa en una sesión retroactiva (`fecha` puesto): ahí `day` es de un
     // día PASADO, no necesariamente hoy, y fusionar el cardio de HOY no
     // tendría sentido.
+    day = diaConComplementos(plan.days, day);
     if (!fecha && !day.free) {
       const hoy = new Date();
       const principalHoy = scheduledDayFor(plan, hoy);
@@ -12733,7 +12831,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
         const secundarioHoy = scheduledDayFor2(plan, hoy);
         const yaHecho = secundarioHoy && (history.sessions || []).some((s) =>
           isoDate(new Date(s.date)) === isoDate(hoy) && s.dayId === secundarioHoy.id);
-        if (secundarioHoy && secundarioHoy.id !== day.id && !yaHecho) {
+        if (secundarioHoy && secundarioHoy.id !== day.id && !yaHecho && !esComplementoDia(secundarioHoy)) {
           day = { ...day, name: `${day.name} + ${secundarioHoy.name}`, exs: [...(day.exs || []), ...(secundarioHoy.exs || [])] };
         }
       }
@@ -12783,7 +12881,7 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
     const day = (plan.days || []).find((d) => d.id === abrirDiaId);
     // Igual que al tocar un día en la lista: primero la vista previa con la
     // lista de ejercicios (y la ✕ para salir), no directo al gimnasio.
-    if (day) { setBrowsing(false); setPreviewDay(day); }
+    if (day) { setBrowsing(false); setPreviewDay(diaConComplementos(plan.days, day)); }
     onAutoStartConsumed && onAutoStartConsumed();
   }, [abrirDiaId]);
 
@@ -13245,7 +13343,7 @@ function useTodayData(plan, history, allowedRoutines) {
     } else suggested = days[0];
   }
   const todayScheduled = scheduledDayFor(plan, new Date());
-  if (todayScheduled && days.some((d) => d.id === todayScheduled.id)) suggested = todayScheduled;
+  if (todayScheduled && days.some((d) => d.id === todayScheduled.id)) suggested = days.find((d) => d.id === todayScheduled.id);
   const todayScheduled2 = scheduledDayFor2(plan, new Date());
   const suggested2 = todayScheduled2 && days.some((d) => d.id === todayScheduled2.id) ? todayScheduled2 : null;
   const suggested2Done = !!suggested2 && history.sessions.some((s) => isoDate(new Date(s.date)) === isoDate(new Date()) && s.dayId === suggested2.id);
@@ -16609,7 +16707,8 @@ const HistoryRows = ({ entries, onOpenImg, sessions }) => {
                     <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
                       <span style={{ width: 20, flexShrink: 0, textAlign: "center", fontSize: 14, color: P.faint }}>{etiqueta}</span>
                       <span style={{ fontSize: 15, fontWeight: 650, fontVariantNumeric: "tabular-nums", color: warm ? P.faint : P.text }}>
-                        {vistoVal(x.weight) ? `${pesoTxt(x.weight, unit)} ${unit} × ${vistoVal(x.reps) ? x.reps : "?"}` : `${vistoVal(x.reps) ? x.reps : "?"} reps`}
+                        {esCardio({ name: en.exName }) ? `${vistoVal(x.reps) ? x.reps : "?"} min${[x.machine, x.detail].filter(Boolean).length ? ` · ${[x.machine, x.detail].filter(Boolean).join(" · ")}` : ""}`
+                          : vistoVal(x.weight) ? `${pesoTxt(x.weight, unit)} ${unit} × ${vistoVal(x.reps) ? x.reps : "?"}` : `${vistoVal(x.reps) ? x.reps : "?"} reps`}
                       </span>
                       {vistoVal(x.rir) && <span style={{ fontSize: 13, color: P.faint }}>RIR {x.rir}</span>}
                       {!warm && x.type && x.type !== "normal" && t && t.short && <span className="mono" style={{ fontSize: 10.5, color: P.faint }}>{t.short}</span>}
@@ -19146,6 +19245,34 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
         <Empty icon={ClipboardList} title="El plan está vacío" body="Usa «Importar rutina con IA» para cargarla desde un archivo, o toca «Nuevo día» abajo para crearla a mano." />
       )}
 
+      {/* Igual que en Entrenar del atleta: el día que sigue, a un toque
+          (aquí para abrirlo y editarlo en vez de empezarlo). */}
+      {(() => {
+        const gs = groupDaysByRoutine(diasParaAtleta(plan.days), plan.routineNames);
+        if (!gs.length) return null;
+        const sesiones = (history && history.sessions) || [];
+        const ult = [...sesiones].reverse().find((x) => gs.some((g) => g.days.some((d) => d.id === x.dayId)));
+        let g0 = gs[0], i0 = 0;
+        if (ult) { const g = gs.find((gg) => gg.days.some((d) => d.id === ult.dayId)); const i = g.days.findIndex((d) => d.id === ult.dayId); g0 = g; i0 = (i + 1) % g.days.length; }
+        const d0 = g0.days[i0];
+        if (!d0) return null;
+        const original = plan.days.find((x) => x.id === d0.id) || d0;
+        return (
+          <Card style={{ padding: "18px 18px 16px", marginBottom: 16 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint2 }}>Siguiente · {g0.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", lineHeight: 1.15, marginTop: 6, overflowWrap: "anywhere" }}>{d0.name}</div>
+            <div style={{ fontSize: 14, color: P.faint2, marginTop: 4 }}>
+              {d0.exs.length} ejercicio{d0.exs.length !== 1 ? "s" : ""} · {d0.exs.reduce((t, e) => t + e.sets.length, 0)} series
+            </div>
+            <button onClick={() => { setOpenRoutines((prev) => (prev.includes(g0.key) ? prev : [...prev, g0.key])); setOpenDay(original.id); }} aria-label={`Abrir ${d0.name}`}
+              style={{ width: "100%", height: 52, marginTop: 14, borderRadius: 26, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                fontSize: 16.5, fontWeight: 700, background: PLATE_GRAD, color: PLATE_FG }}>
+              <PencilLine size={17} /> Abrir
+            </button>
+          </Card>
+        );
+      })()}
+
       {(() => { const routineGroups = groupDaysByRoutine(plan.days, plan.routineNames); return routineGroups.map((g, gi) => { const open = openRoutines.includes(g.key);
         const routineVisible = !student || isRoutineVisible(student.allowedRoutines, g.key);
         const moveRoutineStep = (dir) => {
@@ -19170,24 +19297,20 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               propia debajo: al meter los seis íconos al lado de la tarjeta,
               esta quedaba tan angosta que "RUTINA A" y sus estadísticas se
               partían en cuatro renglones. */}
-          <div style={{ marginBottom: open ? 12 : 0 }}>
+          <Card style={{ overflow: "hidden" }}>
+          <div>
             <button onClick={() => toggleRoutine(g.key)} aria-expanded={open}
-              className="fj-card"
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", textAlign: "left",
-                background: P.s1, borderRadius: 22, boxShadow: CARD_SHADOW }}>
-              <span style={{ flexShrink: 0, minWidth: 50, height: 50, borderRadius: 16, padding: "0 4px",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: PLATE_GRAD, color: PLATE_FG, fontWeight: 800, fontSize: 19, boxShadow: "none" }}>{g.key}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", color: P.text, lineHeight: 1.15, overflowWrap: "anywhere" }}>{g.label}</div>
-                <div style={{ fontSize: 14, color: P.faint, marginTop: 3, fontWeight: 600 }}>
-                  {g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.setCount} series
+              style={{ width: "100%", textAlign: "left", padding: "16px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontWeight: 750, fontSize: 18, letterSpacing: "-.025em", lineHeight: 1.2, overflowWrap: "anywhere" }}>{g.label}</span>
+                <span style={{ display: "block", fontSize: 13, color: P.faint2, marginTop: 3 }}>
+                  {g.days.length} {g.days.length === 1 ? "día" : "días"}
                   {!routineVisible && <span style={{ color: P.ember2, fontWeight: 700 }}> · oculta</span>}
-                </div>
-              </div>
-              <ChevronRight size={22} color={P.faint} style={{ transform: open ? "rotate(90deg)" : "none", transition: `transform ${DUR_PUSH}ms ${EASE_STD}` }} />
+                </span>
+              </span>
+              <ChevronDown size={20} color={P.faint2} style={{ transform: open ? "rotate(180deg)" : "none", transition: `transform ${DUR_PUSH}ms ${EASE_STD}`, flexShrink: 0 }} />
             </button>
-            {open && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, marginBottom: 4, paddingRight: 4 }}>
+            {open && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, marginBottom: 4, padding: "0 10px" }}>
               {student && onUpdateStudent && (
                 <button onClick={() => toggleRoutineVisible(g.key)}
                   title={routineVisible ? `Ocultar ${g.label} para ${student.name}` : `Mostrarle ${g.label} a ${student.name}`}
@@ -19228,20 +19351,20 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
               abajo en la pantalla), y "deployIn" los hace entrar con un
               fundido en vez de aparecer de golpe. */}
           {open && (
-          <div className="deployIn" style={{ paddingTop: 4, paddingBottom: 2 }}>
+          <div className="deployIn" style={{ padding: "0 8px 10px" }}>
           {g.items.map(({ day: d, index: di }) => (
             <Card key={d.id}
               data-day-card={d.id}
               onClickCapture={(e) => { if (Date.now() < (dragRef.current.blockUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }}
-              style={{ marginBottom: 12, overflow: "hidden", position: "relative",
+              style={{ marginBottom: 0, overflow: "hidden", position: "relative", borderRadius: 0, borderLeft: "none", borderRight: "none", borderBottom: "none",
                 // Al engancharla, la ficha se despega del fondo con efecto 3D:
                 // se agranda y se levanta hacia el usuario, como si fuera a
                 // salir de la pantalla, con sombra profunda + marco verde
                 // neón. Los días que quedan "en el camino" del arrastre se
                 // corren para abrir hueco (mismo mecanismo que las rutinas).
-                background: dragging === d.id ? P.s3 : (dragOver === d.id && dragging ? P.s2 : P.s1),
+                background: dragging === d.id ? P.s3 : (dragOver === d.id && dragging ? P.s2 : "transparent"),
                 boxShadow: dragging === d.id ? DRAG_LIFT_SHADOW : "none",
-                border: dragging === d.id ? DRAG_LIFT_BORDER : `1px solid ${P.line}`,
+                ...(dragging === d.id ? { border: DRAG_LIFT_BORDER } : { borderTop: `0.5px solid ${P.separatorStrong || P.line}` }),
                 transform: dragging === d.id ? DRAG_LIFT_TRANSFORM
                   : dayShiftOffsets[d.id] ? `translateY(${dayShiftOffsets[d.id]}px)` : "none",
                 // "auto" cuando no se arrastra: un z-index numérico aquí (aunque
@@ -19254,10 +19377,10 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
                 WebkitUserSelect: dragging ? "none" : "auto", userSelect: dragging ? "none" : "auto" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "14px 14px" }}>
                 <button onClick={() => setOpenDay(openDay === d.id ? null : d.id)} aria-expanded={openDay === d.id} style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
-                  <div style={{ fontWeight: 800, fontSize: 19, letterSpacing: "-.02em", lineHeight: 1.2, overflowWrap: "anywhere" }}>{d.name}</div>
-                  <div style={{ fontSize: 14, color: P.faint, fontWeight: 600, marginTop: 2 }}>{d.exs.length} ejercicios · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series</div>
+                  <div style={{ fontSize: 16.5, fontWeight: 650, letterSpacing: "-.015em", lineHeight: 1.25, overflowWrap: "anywhere" }}>{d.name}</div>
+                  <div style={{ fontSize: 13, color: P.faint2, marginTop: 2 }}>{d.exs.length} ej · {d.exs.reduce((a, e) => a + e.sets.length, 0)} series{(() => { const ult = [...((history && history.sessions) || [])].reverse().find((x) => x.dayId === d.id); return ult ? ` · ${haceDias(ult.date)}` : ""; })()}</div>
                 </button>
-                <ChevronRight size={20} color={P.faint} style={{ transform: openDay === d.id ? "rotate(90deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}`, flexShrink: 0 }} />
+                <ChevronDown size={18} color={P.faint2} style={{ transform: openDay === d.id ? "rotate(180deg)" : "none", transition: `transform ${DUR_ROW}ms ${EASE_STD}`, flexShrink: 0 }} />
                 <DragHandle active={dragging === d.id}
                     label={`Mantén pulsado y arrastra para mover el día ${d.name}`}
                     onActivate={() => startDrag(d.id)}
@@ -19401,6 +19524,7 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
           </div>
           </div>
           )}
+          </Card>
         </div>
       );});})()}
       {plan.days.length === 0 && (
@@ -22778,9 +22902,10 @@ function restLabelExport(sec) {
   if (!s) return "—";
   return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} min` : `${s} s`;
 }
-function buildRoutinesHTML(plan, who) {
+function buildRoutinesHTML(plan, who, claves) {
   const uniq = (arr) => [...new Set(arr)];
-  const groups = groupDaysByRoutine(plan.days || [], plan.routineNames);
+  // `claves`: lista de rutinas a exportar (si se omite, todas).
+  const groups = groupDaysByRoutine(plan.days || [], plan.routineNames).filter((g) => !claves || claves.includes(g.key));
   const setsCol = (e) => String((e.sets || []).length || "—");
   const repsCol = (e) => { const v = uniq((e.sets || []).map((s) => (s.repsT || "").trim()).filter(Boolean)); return v.length ? v.join(" / ") : "—"; };
   const rirCol = (e) => { const v = uniq((e.sets || []).map((s) => String(s.rirT ?? "").trim()).filter(Boolean)); return v.length ? v.join(" / ") : "—"; };
@@ -22847,10 +22972,16 @@ const RoutinesExportButton = ({ plan, who, toast, small, block, iconOnly }) => {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const hayRutinas = (plan.days || []).length > 0;
+  const grupos = useMemo(() => groupDaysByRoutine(plan.days || [], plan.routineNames), [plan.days, plan.routineNames]);
+  // Qué rutinas se exportan: por defecto todas; se pueden marcar/desmarcar.
+  const [fuera, setFuera] = useState(() => new Set());
+  const elegidas = grupos.filter((g) => !fuera.has(g.key)).map((g) => g.key);
+  const alternar = (k) => setFuera((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const run = async (kind) => {
+    if (!elegidas.length) { toast && toast("Elige al menos una rutina"); return; }
     setBusy(kind);
     try {
-      const html = buildRoutinesHTML(plan, who);
+      const html = buildRoutinesHTML(plan, who, elegidas);
       const base = "rutinas" + (who ? `_${slugForFile(who)}` : "");
       if (kind === "pdf") { if (!openPrintable(html)) toast && toast("El navegador bloqueó la ventana. Habilita ventanas emergentes e intenta de nuevo."); }
       else if (kind === "word") downloadTextFile(`${base}.doc`, "application/msword", wordDocFromHtml(html));
@@ -22878,7 +23009,29 @@ const RoutinesExportButton = ({ plan, who, toast, small, block, iconOnly }) => {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ fontSize: 14, color: P.dim, lineHeight: 1.45 }}>
-              Baja <b>todas las rutinas</b> ordenadas por rutina y día, con series, reps y RIR objetivo, descanso, agrupaciones y notas de cada ejercicio.
+              Elige <b>qué rutinas</b> exportar: salen ordenadas por día, con series, reps y RIR objetivo, descanso, agrupaciones y notas.
+            </div>
+            <Card style={{ overflow: "hidden" }}>
+              {grupos.map((g, i) => {
+                const on = !fuera.has(g.key);
+                return (
+                  <button key={g.key} onClick={() => alternar(g.key)} role="checkbox" aria-checked={on} aria-label={`Exportar ${g.label}`}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", textAlign: "left", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+                    <span style={{ width: 22, height: 22, borderRadius: 7, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: on ? P.text : "transparent", border: `1.5px solid ${on ? P.text : P.line}`, color: P.bg }}>
+                      {on && <Check size={14} strokeWidth={3} />}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: 15.5, fontWeight: 600, color: P.text }}>{g.label}</span>
+                      <span style={{ display: "block", fontSize: 12.5, color: P.faint }}>{g.days.length} día{g.days.length !== 1 ? "s" : ""} · {g.exCount} ejercicios · {g.setCount} series</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </Card>
+            <div style={{ display: "flex", gap: 14, fontSize: 13, fontWeight: 650 }}>
+              <button onClick={() => setFuera(new Set())} style={{ color: P.dim }}>Todas</button>
+              <button onClick={() => setFuera(new Set(grupos.map((g) => g.key)))} style={{ color: P.dim }}>Ninguna</button>
+              <span style={{ marginLeft: "auto", color: P.faint, fontWeight: 500 }}>{elegidas.length} de {grupos.length}</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "stretch" }}>
               <Btn kind="ember" onClick={() => run("pdf")} disabled={!!busy} style={{ width: "100%" }}><FileDown size={15} /> {busy === "pdf" ? "…" : "PDF"}</Btn>
