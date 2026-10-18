@@ -8,7 +8,7 @@ import {
   Undo2, Redo2, Calendar, Sparkles, SlidersHorizontal, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Footprints, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText, Volume2,
-  UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, Pill,
+  UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, ScanLine, Pill,
   FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette, Crosshair, List, ShoppingCart, BellOff, RefreshCw, Link2, Unlink, Activity
 } from "lucide-react";
 
@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v424";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v425";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -16994,7 +16994,231 @@ const NutriReminderBanner = ({ sid, plan, compact }) => {
   );
 };
 
+/* ============================================================
+   Base de alimentos + escáner de código de barras.
+   Fuentes (todas públicas, sin clave propia):
+   · Open Food Facts — la base abierta de productos envasados más grande
+     del mundo (millones de productos con código de barras). El subdominio
+     «cl» filtra a los productos vendidos en Chile (los que suben usuarios
+     chilenos desde los supermercados).
+   · USDA FoodData Central — alimentos genéricos/crudos (en inglés).
+   Los macros vienen por 100 g y se escalan a los gramos que se coman.
+   ============================================================ */
+const OFF_FIELDS = "code,product_name,product_name_es,brands,nutriments,serving_quantity,quantity";
+const num1 = (v) => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
+function offNormalize(p) {
+  if (!p) return null;
+  const nu = p.nutriments || {};
+  let kcal = num1(nu["energy-kcal_100g"]);
+  if (!kcal && nu.energy_100g) kcal = num1(nu.energy_100g) / 4.184;
+  const name = (p.product_name_es || p.product_name || "").trim();
+  if (!name) return null;
+  return { id: p.code, name, brand: (p.brands || "").split(",")[0].trim(),
+    kcal: Math.round(kcal), p: Math.round(num1(nu.proteins_100g) * 10) / 10, c: Math.round(num1(nu.carbohydrates_100g) * 10) / 10,
+    f: Math.round(num1(nu.fat_100g) * 10) / 10, serving: num1(p.serving_quantity) || 0, code: p.code, src: "off" };
+}
+async function fetchJson(url, ms = 12000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try { const r = await fetch(url, { signal: ctrl.signal }); if (!r.ok) throw new Error("http " + r.status); return await r.json(); }
+  finally { clearTimeout(t); }
+}
+async function buscarAlimentos(q, scope) {
+  const term = encodeURIComponent(q.trim());
+  if (scope === "usda") {
+    const j = await fetchJson(`https://api.nal.usda.gov/fdc/v1/foods/search?query=${term}&pageSize=25&dataType=Foundation,SR%20Legacy&api_key=DEMO_KEY`);
+    const get = (f, id) => { const x = (f.foodNutrients || []).find((n) => n.nutrientId === id); return x ? num1(x.value) : 0; };
+    return (j.foods || []).map((f) => ({ id: "u" + f.fdcId, name: f.description, brand: "USDA", kcal: Math.round(get(f, 1008)),
+      p: Math.round(get(f, 1003) * 10) / 10, c: Math.round(get(f, 1005) * 10) / 10, f: Math.round(get(f, 1004) * 10) / 10, serving: 0, src: "usda" }));
+  }
+  const host = scope === "cl" ? "cl" : "world";
+  const j = await fetchJson(`https://${host}.openfoodfacts.org/cgi/search.pl?search_terms=${term}&search_simple=1&action=process&json=1&page_size=30&lc=es&fields=${OFF_FIELDS}`);
+  return (j.products || []).map(offNormalize).filter(Boolean);
+}
+async function productoPorCodigo(code) {
+  const j = await fetchJson(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}`);
+  return j && j.status === 1 ? offNormalize(j.product) : null;
+}
+const macroPorGramos = (a, g) => { const k = (g || 0) / 100; return { kcal: Math.round(a.kcal * k), p: Math.round(a.p * k * 10) / 10, c: Math.round(a.c * k * 10) / 10, f: Math.round(a.f * k * 10) / 10 }; };
+
+// Cámara + detección de códigos. BarcodeDetector donde existe (Android/Chrome);
+// si no (iOS Safari), se carga ZXing al vuelo. Siempre queda el ingreso manual.
+const BarcodeScanner = ({ onCode, onClose }) => {
+  const vref = useRef(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let vivo = true, stream = null, raf = 0, zx = null;
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        if (!vivo) { stream.getTracks().forEach((t) => t.stop()); return; }
+        const v = vref.current; v.srcObject = stream; await v.play().catch(() => {});
+        if ("BarcodeDetector" in window) {
+          const det = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"] });
+          const loop = async () => {
+            if (!vivo) return;
+            try { const r = await det.detect(v); if (r && r[0] && r[0].rawValue) { onCode(r[0].rawValue); return; } } catch {}
+            raf = requestAnimationFrame(loop);
+          };
+          loop();
+        } else {
+          await new Promise((res, rej) => {
+            if (window.ZXing) return res();
+            const s = document.createElement("script");
+            s.src = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s);
+          });
+          if (!vivo) return;
+          zx = new window.ZXing.BrowserMultiFormatReader();
+          zx.decodeFromVideoElement(v, (r) => { if (r && vivo) onCode(r.getText()); });
+        }
+      } catch { if (vivo) setErr("No se pudo usar la cámara. Escribe el código a mano."); }
+    })();
+    return () => { vivo = false; cancelAnimationFrame(raf); try { zx && zx.reset(); } catch {} if (stream) stream.getTracks().forEach((t) => t.stop()); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#000", aspectRatio: "4 / 3" }}>
+      <video ref={vref} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      <div style={{ position: "absolute", left: "12%", right: "12%", top: "38%", height: "24%", border: "2px solid rgba(255,255,255,.85)", borderRadius: 10 }} />
+      {err && <div style={{ position: "absolute", left: 0, right: 0, bottom: 8, textAlign: "center", fontSize: 13, color: "#fff", padding: "0 12px" }}>{err}</div>}
+      <button onClick={onClose} aria-label="Cerrar cámara" style={{ position: "absolute", top: 8, right: 8, width: 34, height: 34, borderRadius: 17, background: "rgba(0,0,0,.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <X size={18} />
+      </button>
+    </div>
+  );
+};
+
+const FoodLookupSheet = ({ open, onClose, meals, onAdd, toast }) => {
+  const [q, setQ] = useState("");
+  const [scope, setScope] = useState("cl");
+  const [res, setRes] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [sel, setSel] = useState(null);
+  const [grams, setGrams] = useState("100");
+  const [scan, setScan] = useState(false);
+  const [codigo, setCodigo] = useState("");
+  const reqId = useRef(0);
+
+  const buscar = async (texto = q, sc = scope) => {
+    if (texto.trim().length < 2) return;
+    const id = ++reqId.current; setBusy(true); setMsg(""); setSel(null);
+    try {
+      const r = await buscarAlimentos(texto, sc);
+      if (id !== reqId.current) return;
+      setRes(r); if (!r.length) setMsg("Sin resultados.");
+    } catch { if (id === reqId.current) { setRes([]); setMsg("No se pudo consultar la base. Revisa tu conexión."); } }
+    finally { if (id === reqId.current) setBusy(false); }
+  };
+  const porCodigo = async (c) => {
+    const code = String(c || "").replace(/\D/g, "");
+    if (code.length < 6) { setMsg("Código inválido."); return; }
+    setScan(false); setBusy(true); setMsg(""); setRes([]);
+    try {
+      const p = await productoPorCodigo(code);
+      if (p) { setSel(p); setGrams(String(p.serving || 100)); }
+      else setMsg(`Código ${code}: no está en la base todavía.`);
+    } catch { setMsg("No se pudo consultar la base. Revisa tu conexión."); }
+    finally { setBusy(false); }
+  };
+  const elegir = (a) => { setSel(a); setGrams(String(a.serving || 100)); };
+  const g = Math.max(0, num1(grams));
+  const m = sel ? macroPorGramos(sel, g) : null;
+  const agregar = (mealId) => {
+    if (!sel || !onAdd) return;
+    onAdd(mealId, { food: sel.brand && sel.src === "off" ? `${sel.name} (${sel.brand})` : sel.name, qty: `${g} g`, ...m });
+    if (toast) toast(`✓ ${sel.name} agregado`);
+    setSel(null);
+  };
+  const chip = (id, label) => (
+    <button key={id} onClick={() => { setScope(id); if (q.trim().length >= 2) buscar(q, id); }}
+      style={{ padding: "6px 12px", borderRadius: 20, fontSize: 13, fontWeight: 700, background: scope === id ? P.text : P.s3, color: scope === id ? P.bg : P.dim }}>{label}</button>
+  );
+
+  return (
+    <Sheet open={open} onClose={() => { setScan(false); onClose(); }} title="Alimentos" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ position: "relative", flex: 1 }}>
+            <Search size={16} color={P.faint} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscar()} placeholder="Buscar alimento o producto" aria-label="Buscar alimento"
+              style={{ width: "100%", padding: "11px 12px 11px 34px", borderRadius: 12, background: P.s3, fontSize: 15 }} />
+          </div>
+          <button onClick={() => setScan((v) => !v)} aria-label="Escanear código de barras" title="Escanear código de barras"
+            style={{ width: 46, borderRadius: 12, background: scan ? P.text : P.s3, color: scan ? P.bg : P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <ScanLine size={21} />
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {chip("cl", "Chile")}{chip("world", "Mundo")}{chip("usda", "USDA")}
+          {busy && <Loader2 size={16} color={P.faint} style={{ marginLeft: 4, animation: "fjSpin 1s linear infinite" }} />}
+        </div>
+        {scan && <BarcodeScanner onCode={porCodigo} onClose={() => setScan(false)} />}
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={codigo} onChange={(e) => setCodigo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && porCodigo(codigo)} inputMode="numeric" placeholder="Código de barras" aria-label="Código de barras"
+            style={{ flex: 1, padding: "9px 12px", borderRadius: 12, background: P.s3, fontSize: 14 }} />
+          <button onClick={() => porCodigo(codigo)} aria-label="Buscar código" style={{ width: 46, borderRadius: 12, background: P.s3, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}><ArrowRight size={18} /></button>
+        </div>
+        {msg && <div style={{ fontSize: 13.5, color: P.faint, textAlign: "center" }}>{msg}</div>}
+
+        {sel && (
+          <div style={{ background: P.s1, borderRadius: 16, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: P.text, lineHeight: 1.25 }}>{sel.name}</div>
+              {sel.brand && <div style={{ fontSize: 12.5, color: P.faint }}>{sel.brand}{sel.code ? ` · ${sel.code}` : ""}</div>}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="number" inputMode="decimal" value={grams} onChange={(e) => setGrams(e.target.value)} aria-label="Gramos"
+                style={{ width: 84, padding: "8px 10px", borderRadius: 10, background: P.s3, fontSize: 16, fontWeight: 700, textAlign: "center" }} />
+              <span style={{ fontSize: 14, color: P.faint }}>g</span>
+              {[50, 100, 150, 200].map((x) => <button key={x} onClick={() => setGrams(String(x))} style={{ padding: "6px 9px", borderRadius: 16, background: P.s3, fontSize: 12.5, fontWeight: 700, color: P.dim }}>{x}</button>)}
+            </div>
+            <div style={{ display: "flex", gap: 8, textAlign: "center" }}>
+              {[["kcal", m.kcal, P.text], ["P", m.p, P.prog], ["C", m.c, P.ember], ["G", m.f, P.dim]].map(([l, v, col]) => (
+                <div key={l} style={{ flex: 1, background: P.s3, borderRadius: 12, padding: "8px 4px" }}>
+                  <div className="mono" style={{ fontSize: 18, fontWeight: 800, color: col }}>{v}</div>
+                  <div style={{ fontSize: 11, color: P.faint, fontWeight: 700 }}>{l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11.5, color: P.faint }}>por 100 g: {sel.kcal} kcal · P {sel.p} · C {sel.c} · G {sel.f}</div>
+            {onAdd && (meals || []).length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(meals || []).map((ml) => (
+                  <button key={ml.id} onClick={() => agregar(ml.id)} aria-label={`Agregar a ${ml.name}`}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 12px", borderRadius: 20, background: PLATE_GRAD, color: PLATE_FG, fontSize: 13, fontWeight: 700 }}>
+                    <Plus size={14} /> {ml.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!sel && res.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {res.map((a, i) => (
+              <button key={a.id + "-" + i} onClick={() => elegir(a)} style={{ textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "11px 2px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, color: P.text, lineHeight: 1.25, overflowWrap: "anywhere" }}>{a.name}</div>
+                  {a.brand && <div style={{ fontSize: 12, color: P.faint }}>{a.brand}</div>}
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: P.text }}>{a.kcal} kcal</div>
+                  <div className="mono" style={{ fontSize: 11, color: P.faint }}>P{a.p} C{a.c} G{a.f}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: P.faint2, textAlign: "center", lineHeight: 1.4 }}>Open Food Facts · USDA · valores por 100 g, referenciales</div>
+      </div>
+    </Sheet>
+  );
+};
+
 const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenSupplements, sid }) => {
+  const [foodOpen, setFoodOpen] = useState(false);
   // Ciclado de carbohidratos (opcional, ver NutritionEditor): si está
   // activado, se muestran los macros de "hoy" según si hay rutina
   // programada (scheduledDayIdFor ya resuelve semana concreta/tipo y el
@@ -17198,6 +17422,10 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
       {/* Suplementos y lista de compras: dos botones redondos, solo ícono y
           el número que importa. */}
       <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={() => setFoodOpen(true)} aria-label="Buscar alimento o escanear código de barras" title="Alimentos"
+          style={{ flex: 1, height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <ScanLine size={22} />
+        </button>
         <button onClick={onOpenSupplements} disabled={!onOpenSupplements} aria-label={`Suplementos: ${supplements.length ? `${suppDone} de ${supplements.length}` : "sin cargar"}`} title="Suplementos"
           style={{ flex: 1, height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 17, fontWeight: 700 }}>
           <Pill size={22} /> {supplements.length ? `${suppDone}/${supplements.length}` : ""}
@@ -17207,6 +17435,15 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
           <ShoppingCart size={22} /> {shopping.length ? shopPending : ""}
         </button>
       </div>
+
+      <FoodLookupSheet open={foodOpen} onClose={() => setFoodOpen(false)} toast={toast}
+        meals={savePlan ? n.meals : null}
+        onAdd={savePlan ? (mealId, it) => {
+          const p = structuredClone(plan); const ml = (p.nutrition.meals || []).find((x) => x.id === mealId); if (!ml) return;
+          ml.items = [...(ml.items || []).filter((x) => (x.food || "").trim()), { id: uid(), ...it }];
+          if (it.kcal) ml.kcal = (+ml.kcal || 0) + it.kcal;
+          p.updatedAt = todayISO(); savePlan(p);
+        } : null} />
 
       <Sheet open={notasOpen} onClose={() => setNotasOpen(false)} title="Notas del plan" tall>
         <div style={{ fontSize: 16, color: P.dim, lineHeight: 1.6, whiteSpace: "pre-line" }}>{n.notes}</div>
@@ -19810,6 +20047,7 @@ const GOAL_META = { deficit: { label: "Déficit (definición)", factor: 0.8, col
 
 const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
   const n = plan.nutrition;
+  const [foodFor, setFoodFor] = useState(null); // id de la comida a la que se agrega desde la base
   const mut = (fn) => { const p = structuredClone(plan); fn(p.nutrition); p.updatedAt = todayISO(); savePlan(p); };
   const solve = n.solve || "kcal";
   const v = macroSolve(n, solve);
@@ -19978,6 +20216,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
             ))}
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
               <button onClick={() => mut((x) => x.meals[mi].items.push({ id: uid(), food: "", qty: "" }))} aria-label="Añadir alimento" title="Añadir alimento" style={tinyBtn}><Plus size={17} /></button>
+              <button onClick={() => setFoodFor(m.id)} aria-label="Buscar en la base de alimentos / escanear" title="Base de alimentos" style={tinyBtn}><ScanLine size={17} /></button>
               <Inp type="number" inputMode="numeric" value={m.kcal === "" || m.kcal == null ? "" : m.kcal} placeholder="kcal" aria-label="kcal de esta comida"
                 onChange={(e) => mut((x) => (x.meals[mi].kcal = e.target.value === "" ? "" : (+e.target.value || 0)))} style={{ ...bare, width: 64, fontSize: 14, fontWeight: 600 }} />
               <Inp value={m.notes} placeholder="Nota" aria-label="Nota de esta comida" onChange={(e) => mut((x) => (x.meals[mi].notes = e.target.value))} style={{ ...bare, flex: 1, minWidth: 0, fontSize: 14, color: P.dim }} />
@@ -19985,6 +20224,12 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
           </div>
         ))}
       </div>
+      <FoodLookupSheet open={!!foodFor} onClose={() => setFoodFor(null)} meals={n.meals.filter((x) => x.id === foodFor)}
+        onAdd={(mealId, it) => mut((x) => {
+          const ml = x.meals.find((y) => y.id === mealId); if (!ml) return;
+          ml.items = [...ml.items.filter((y) => (y.food || "").trim()), { id: uid(), ...it }];
+          if (it.kcal) ml.kcal = (+ml.kcal || 0) + it.kcal;
+        })} />
       <button onClick={() => mut((x) => x.meals.push({ id: uid(), name: `Comida ${n.meals.length + 1}`, time: "", kcal: "", items: [{ id: uid(), food: "", qty: "" }], notes: "" }))}
         aria-label="Añadir comida" title="Añadir comida"
         style={{ width: "100%", height: 56, borderRadius: 28, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center" }}>
