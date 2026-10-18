@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   Flame, Dumbbell, TrendingUp, BarChart3, BookOpen, Utensils, ClipboardList, MessageSquare,
   Camera, Check, Plus, Minus, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
-  X, Info, Timer, PencilLine, Copy, Award, Scale, Video, History, Play,
+  X, Info, Timer, PencilLine, Pencil, Copy, Award, Scale, Video, History, Play,
   ArrowUp, ArrowDown, AlertTriangle, RotateCcw, Home, Users, StickyNote, Pause,
   Undo2, Redo2, Calendar, Sparkles, SlidersHorizontal, Upload, ArrowRight, Zap, Send, Bell, Paperclip, GripVertical, Layers, Search, Library, Mic, MicOff,
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v423";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v424";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -18887,6 +18887,11 @@ const RoutineTab = ({ plan, savePlan, onInfo, toast, history, student, onUpdateS
     setCatalogoDia(null); setFichaEx(null); setViewImg(null);
   }, [view]);
   const toggleRoutine = (key) => setOpenRoutines((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]));
+  // Creador → «Editar»: despliega esa rutina y la trae a la vista.
+  useAbrirRutinaPedida((k) => {
+    setOpenRoutines((o) => (o.includes(k) ? o : [...o, k]));
+    setTimeout(() => { const el = document.querySelector(`[data-routine-group="${k}"]`); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 120);
+  });
   // Ocultar/mostrar una rutina para el alumno actual. Nunca deja que el
   // alumno se quede sin ninguna rutina visible.
   const toggleRoutineVisible = (key) => {
@@ -19728,6 +19733,10 @@ const RoutineTabMono = (props) => {
   const { plan, savePlan, onInfo, student, onOpenCompare } = props;
   const [openDayId, setOpenDayId] = useState(null);
   const groups = groupDaysByRoutine(plan.days, plan.routineNames);
+  useAbrirRutinaPedida((k) => {
+    const g = groupDaysByRoutine(plan.days, plan.routineNames).find((x) => x.key === k);
+    if (g && g.items[0]) setOpenDayId(g.items[0].day.id);
+  });
 
   if (openDayId) {
     const idx = plan.days.findIndex((d) => d.id === openDayId);
@@ -29713,8 +29722,26 @@ const studioChipBtn = { display: "inline-flex", alignItems: "center", gap: 5, fo
    cuánto volumen mueve cada una por músculo, y en qué se diferencian dos
    entre sí, pensada para mirar y comparar, no para tipear.
    ============================================================ */
+/* Pide al editor de «Rutina» (clásico o compacto) que abra una rutina concreta.
+   Se deja la clave en window por si el editor todavía no está montado (viene
+   de Creador cambiando de pestaña) y además se avisa por evento por si ya lo está. */
+const pedirAbrirRutina = (key) => {
+  try { window.__fjAbrirRutina = key; window.dispatchEvent(new CustomEvent("fj-abrir-rutina", { detail: key })); } catch {}
+};
+function useAbrirRutinaPedida(onKey) {
+  const ref = useRef(onKey);
+  ref.current = onKey;
+  useEffect(() => {
+    const go = (k) => { if (!k) return; window.__fjAbrirRutina = null; ref.current(k); };
+    go(window.__fjAbrirRutina);
+    const h = (e) => go(e.detail);
+    window.addEventListener("fj-abrir-rutina", h);
+    return () => window.removeEventListener("fj-abrir-rutina", h);
+  }, []);
+}
+
 const ROUTINE_BADGE_COLORS = [P.ember, P.accent2];
-const RoutineStudioView = ({ plan, savePlan, toast }) => {
+const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
   const enhanced = (plan.athlete || {}).enhanced === "asistido";
   const refTable = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
   const groups = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames), [plan.days, plan.routineNames]);
@@ -29859,7 +29886,7 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
 
   return (
     <div style={{ padding: `18px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
-      <ScreenTitle title="Creador" sub="Todas tus rutinas de un vistazo — comparalas por volumen y saltá a editarlas en «Rutina»."
+      <ScreenTitle title="Creador" sub="Toca una rutina para editarla: días, ejercicios, series e indicaciones."
         tabs={<SectionSwitch compact value={modo} onChange={setModo}
           items={[{ id: "cards", label: "Rutinas" }, { id: "comparar", label: "Comparar" }]} />} />
 
@@ -29907,7 +29934,7 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
                       <Trophy size={11} /> más volumen
                     </span>
                   )}
-                  <button onClick={() => { setDetMusc(null); setDetalle(g.key); }} aria-label={`Abrir ${g.label}`}
+                  <button onClick={() => (onEdit ? onEdit(g.key) : (setDetMusc(null), setDetalle(g.key)))} aria-label={`Editar ${g.label}`}
                     style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -29939,6 +29966,9 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
                     </div>
                   </button>
                   <div style={{ display: "flex", gap: 6, marginTop: "auto", flexWrap: "wrap" }}>
+                    <button onClick={() => { setDetMusc(null); setDetalle(g.key); }} aria-label={`Ver detalle de ${g.label}`} style={studioChipBtn}>
+                      <Eye size={12} />
+                    </button>
                     <button onClick={() => duplicar(g.key)} style={studioChipBtn}>
                       <Copy size={12} /> Duplicar
                     </button>
@@ -30088,6 +30118,11 @@ const RoutineStudioView = ({ plan, savePlan, toast }) => {
                   {metaDet ? `${metaDet.athlete}${metaDet.split ? " · " + metaDet.split : ""} · ` : ""}{gDet.days.length} día{gDet.days.length !== 1 ? "s" : ""} · {gDet.exCount} ejercicios · {fmtSets(sDet.efectivas)} series
                 </div>
               </div>
+              {onEdit && (
+                <button onClick={() => { const k = detalle; setDetalle(null); onEdit(k); }} aria-label="Editar rutina" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 16, background: P.text, color: P.bg, flexShrink: 0 }}>
+                  <Pencil size={15} />
+                </button>
+              )}
               <button onClick={() => setRename({ key: detalle, value: gDet.label })} aria-label="Renombrar rutina" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 16, background: P.s3, color: P.faint, flexShrink: 0 }}>
                 <PencilLine size={16} />
               </button>
@@ -33629,7 +33664,8 @@ const App = () => {
         )}
         {mode === "coach" && sub === "creador" && (
           <ReadOnlyLock active={roleTabAccess.creador === "view"} toast={toast}>
-            <RoutineStudioView plan={plan} savePlan={savePlan} toast={toast} />
+            <RoutineStudioView plan={plan} savePlan={savePlan} toast={toast}
+              onEdit={(key) => { pedirAbrirRutina(key); setTab("rutina"); setSection((o) => ({ ...o, rutina: "rutina" })); }} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && sub === "indicaciones" && (
