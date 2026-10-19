@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v430";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v431";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -30636,7 +30636,8 @@ function useAbrirRutinaPedida(onKey) {
 }
 
 const ROUTINE_BADGE_COLORS = [P.ember, P.accent2];
-const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
+const nuevoEjercicio = () => ({ id: uid(), isNew: true, name: "", muscle: MUSCLES[0], equipment: "", rest: DEFAULT_REST, video: "", superset: "", notes: "", secondary: [], sets: [{ id: uid(), type: "normal", repsT: "8-10", rirT: "2" }] });
+const RoutineStudioView = ({ plan, savePlan, toast, onInfo, history }) => {
   const enhanced = (plan.athlete || {}).enhanced === "asistido";
   const refTable = enhanced ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
   const groups = useMemo(() => groupDaysByRoutine(plan.days, plan.routineNames), [plan.days, plan.routineNames]);
@@ -30657,6 +30658,8 @@ const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
   const [muscOpen, setMuscOpen] = useState(null); // músculo expandido dentro de "Comparar"
   const [detMusc, setDetMusc] = useState(null); // músculo expandido dentro del detalle de una rutina
   const [copiar, setCopiar] = useState(null); // { ex, fromDayId, modo:'copiar'|'mover' } — ejercicio en juego
+  const [editEx, setEditEx] = useState(null); // { dayId, ex } — ejercicio en edición (o nuevo) dentro del detalle
+  const [delEx, setDelEx] = useState(null); // { dayId, exId, name }
 
   const routineMeta = plan.routineMeta || {};
   const hayPro = useMemo(() => groups.some((g) => routineMeta[g.key]), [groups, routineMeta]);
@@ -30861,11 +30864,9 @@ const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
                     </div>
                   </button>
                   <div style={{ display: "flex", gap: 6, marginTop: "auto", flexWrap: "wrap" }}>
-                    {onEdit && (
-                      <button onClick={() => onEdit(g.key)} aria-label={`Editar ${g.label}`} style={{ ...studioChipBtn, background: P.text, color: P.bg }}>
-                        <Pencil size={15} />
-                      </button>
-                    )}
+                    <button onClick={() => { setDetMusc(null); setDetalle(g.key); }} aria-label={`Editar ${g.label}`} title="Editar" style={{ ...studioChipBtn, background: P.text, color: P.bg }}>
+                      <Pencil size={15} />
+                    </button>
                     <button onClick={() => duplicar(g.key)} aria-label="Duplicar" title="Duplicar" style={studioChipBtn}>
                       <Copy size={15} />
                     </button>
@@ -31015,11 +31016,6 @@ const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
                   {metaDet ? `${metaDet.athlete}${metaDet.split ? " · " + metaDet.split : ""} · ` : ""}{gDet.days.length} día{gDet.days.length !== 1 ? "s" : ""} · {gDet.exCount} ejercicios · {fmtSets(sDet.efectivas)} series
                 </div>
               </div>
-              {onEdit && (
-                <button onClick={() => { const k = detalle; setDetalle(null); onEdit(k); }} aria-label="Editar rutina" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 16, background: P.text, color: P.bg, flexShrink: 0 }}>
-                  <Pencil size={15} />
-                </button>
-              )}
               <button onClick={() => setRename({ key: detalle, value: gDet.label })} aria-label="Renombrar rutina" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 16, background: P.s3, color: P.faint, flexShrink: 0 }}>
                 <PencilLine size={16} />
               </button>
@@ -31062,9 +31058,15 @@ const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 {gDet.days.map((d) => (
                   <div key={d.id}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
-                      <span style={{ fontSize: 15, fontWeight: 700, color: P.text, minWidth: 0, lineHeight: 1.3 }}>{d.name}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <input defaultValue={d.name} key={d.id + d.name} aria-label="Nombre del día"
+                        onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== d.name) mut((p) => { const dd = p.days.find((x) => x.id === d.id); if (dd) dd.name = v; }); }}
+                        style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, color: P.text, lineHeight: 1.3, background: "transparent", padding: 0 }} />
                       <span style={{ fontSize: 11.5, color: P.faint, flexShrink: 0, whiteSpace: "nowrap" }}>{(d.exs || []).length} ej · {(d.exs || []).reduce((a, e) => a + (e.sets || []).length, 0)} series</span>
+                      <button onClick={() => setEditEx({ dayId: d.id, ex: nuevoEjercicio() })} aria-label={`Añadir ejercicio a ${d.name}`} title="Añadir ejercicio"
+                        style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: PLATE_FG, background: PLATE_GRAD }}>
+                        <Plus size={16} />
+                      </button>
                     </div>
                     {(d.exs || []).length === 0 ? (
                       <div style={{ fontSize: 12.5, color: P.textQuaternary, paddingLeft: 2 }}>Día vacío.</div>
@@ -31073,14 +31075,19 @@ const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
                         {(d.exs || []).map((ex) => {
                           const eff = (ex.sets || []).filter((s) => s.type !== "warmup").length;
                           return (
-                            <div key={ex.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 11px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_ROW }}>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.3, overflowWrap: "anywhere" }}>{ex.name}</div>
+                            <div key={ex.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px 4px 4px", background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_ROW }}>
+                              <button onClick={() => setEditEx({ dayId: d.id, ex: structuredClone(ex) })} aria-label={`Editar ${ex.name}`}
+                                style={{ flex: 1, minWidth: 0, textAlign: "left", padding: "6px 7px" }}>
+                                <div style={{ fontSize: 14, fontWeight: 600, color: P.text, lineHeight: 1.3, overflowWrap: "anywhere" }}>{ex.name || "Sin nombre"}</div>
                                 <div style={{ fontSize: 11.5, color: P.faint, marginTop: 1 }}>{ex.muscle || "—"} · {eff} series{ex.equipment ? " · " + ex.equipment : ""}</div>
-                              </div>
+                              </button>
                               <button onClick={() => setCopiar({ ex, fromDayId: d.id, modo: "copiar" })} aria-label={`Copiar o mover ${ex.name}`}
                                 style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, background: P.s3 }}>
                                 <ArrowUpDown size={15} />
+                              </button>
+                              <button onClick={() => setDelEx({ dayId: d.id, exId: ex.id, name: ex.name })} aria-label={`Quitar ${ex.name}`}
+                                style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: P.red, background: P.s3 }}>
+                                <Trash2 size={15} />
                               </button>
                             </div>
                           );
@@ -31089,6 +31096,10 @@ const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
                     )}
                   </div>
                 ))}
+                <button onClick={() => mut((p) => { p.days = [...p.days, { id: uid(), name: `Día ${gDet.days.length + 1}`, routine: detalle, exs: [] }]; })} aria-label="Añadir día" title="Añadir día"
+                  style={{ height: 44, borderRadius: 22, background: P.s3, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Plus size={20} />
+                </button>
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 22 }}>
                 <button onClick={() => duplicar(detalle)} style={{ ...studioChipBtn, flex: 1, justifyContent: "center", padding: "10px" }}><Copy size={13} /> Duplicar</button>
@@ -31098,6 +31109,15 @@ const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
           </div>
         );
       })()}
+
+      <ExerciseEditorSheet ex={editEx ? editEx.ex : null} onClose={() => setEditEx(null)} onInfo={onInfo} meso={currentMesociclo(plan)} history={history}
+        onSave={(exd) => { const { isNew, ...clean } = exd; const dayId = editEx.dayId;
+          mut((p) => { const day = p.days.find((x) => x.id === dayId); if (!day) return;
+            const i = day.exs.findIndex((x) => x.id === clean.id); if (i >= 0) day.exs[i] = clean; else day.exs.push(clean); });
+          setEditEx(null); }} />
+      <Confirm open={!!delEx} danger title="Quitar ejercicio" body={delEx ? `¿Quitar «${delEx.name}» de la rutina? El historial no se borra.` : ""} okLabel="Quitar"
+        onCancel={() => setDelEx(null)}
+        onOk={() => { const x = delEx; mut((p) => { const day = p.days.find((y) => y.id === x.dayId); if (day) day.exs = day.exs.filter((e) => e.id !== x.exId); }); setDelEx(null); }} />
 
       {/* Copiar / mover un ejercicio a un día de otra rutina (o del mismo plan) */}
       <Sheet open={!!copiar} onClose={() => setCopiar(null)} title={copiar ? copiar.ex.name : ""}>
@@ -34610,8 +34630,7 @@ const App = () => {
         )}
         {mode === "coach" && sub === "creador" && (
           <ReadOnlyLock active={roleTabAccess.creador === "view"} toast={toast}>
-            <RoutineStudioView plan={plan} savePlan={savePlan} toast={toast}
-              onEdit={(key) => { pedirAbrirRutina(key); setTab("rutina"); setSection((o) => ({ ...o, rutina: "rutina" })); }} />
+            <RoutineStudioView plan={plan} savePlan={savePlan} toast={toast} onInfo={onInfo} history={history} />
           </ReadOnlyLock>
         )}
         {mode === "coach" && sub === "indicaciones" && (
