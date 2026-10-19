@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v428";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v429";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -17064,13 +17064,14 @@ function offNormalize(p) {
   const nu = p.nutriments || {};
   let kcal = num1(nu["energy-kcal_100g"]);
   if (!kcal && nu.energy_100g) kcal = num1(nu.energy_100g) / 4.184;
-  const name = (p.product_name_es || p.product_name || "").trim();
+  const txt = (v) => (Array.isArray(v) ? v[0] : v && typeof v === "object" ? (v.es || v.main || Object.values(v)[0]) : v) || "";
+  const name = String(txt(p.product_name_es) || txt(p.product_name)).trim();
   if (!name) return null;
-  return { id: p.code, name, brand: (p.brands || "").split(",")[0].trim(),
+  return { id: p.code, name, brand: String(Array.isArray(p.brands) ? p.brands[0] : p.brands || "").split(",")[0].trim(),
     kcal: Math.round(kcal), p: Math.round(num1(nu.proteins_100g) * 10) / 10, c: Math.round(num1(nu.carbohydrates_100g) * 10) / 10,
     f: Math.round(num1(nu.fat_100g) * 10) / 10, serving: num1(p.serving_quantity) || 0, code: p.code, src: "off" };
 }
-async function fetchJson(url, ms = 12000) {
+async function fetchJson(url, ms = 10000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try { const r = await fetch(url, { signal: ctrl.signal }); if (!r.ok) throw new Error("http " + r.status); return await r.json(); }
@@ -17084,9 +17085,28 @@ async function buscarAlimentos(q, scope) {
     return (j.foods || []).map((f) => ({ id: "u" + f.fdcId, name: f.description, brand: "USDA", kcal: Math.round(get(f, 1008)),
       p: Math.round(get(f, 1003) * 10) / 10, c: Math.round(get(f, 1005) * 10) / 10, f: Math.round(get(f, 1004) * 10) / 10, serving: 0, src: "usda" }));
   }
-  const host = scope === "cl" ? "cl" : "world";
-  const j = await fetchJson(`https://${host}.openfoodfacts.org/cgi/search.pl?search_terms=${term}&search_simple=1&action=process&json=1&page_size=30&lc=es&fields=${OFF_FIELDS}`);
-  return (j.products || []).map(offNormalize).filter(Boolean);
+  // Dos rutas en paralelo y gana la primera que responda: el buscador nuevo de Open Food Facts
+  // (rápido) y el clásico (a veces lento o caído). Si ninguna responde, falla con error.
+  const nuevo = async () => {
+    const qq = scope === "cl" ? `${q.trim()} countries_tags:"en:chile"` : q.trim();
+    const j = await fetchJson(`https://search.openfoodfacts.org/search?q=${encodeURIComponent(qq)}&langs=es&page_size=30&fields=${OFF_FIELDS}`, 9000);
+    const r = (j.hits || []).map(offNormalize).filter(Boolean);
+    if (!r.length) throw new Error("vacío");
+    return r;
+  };
+  const clasico = async () => {
+    const host = scope === "cl" ? "cl" : "world";
+    const j = await fetchJson(`https://${host}.openfoodfacts.org/cgi/search.pl?search_terms=${term}&search_simple=1&action=process&json=1&page_size=30&lc=es&fields=${OFF_FIELDS}`, 15000);
+    const r = (j.products || []).map(offNormalize).filter(Boolean);
+    if (!r.length) throw new Error("vacío");
+    return r;
+  };
+  try { return await Promise.any([nuevo(), clasico()]); }
+  catch (e) {
+    const errs = (e && e.errors) || [];
+    if (errs.length && errs.every((x) => x && x.message === "vacío")) return [];
+    throw e;
+  }
 }
 async function productoPorCodigo(code) {
   const j = await fetchJson(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}`);
@@ -17157,8 +17177,9 @@ const FoodLookupSheet = ({ open, onClose, meals, onAdd, toast }) => {
     if (texto.trim().length < 2) return;
     const id = ++reqId.current; setBusy(true); setMsg(""); setSel(null);
     try {
-      const r = await buscarAlimentos(texto, sc);
+      let r = await buscarAlimentos(texto, sc);
       if (id !== reqId.current) return;
+      if (!r.length && sc === "cl") { r = await buscarAlimentos(texto, "world"); if (id !== reqId.current) return; if (r.length) { setScope("world"); setMsg("Sin productos de Chile para esa búsqueda: resultados del mundo."); } }
       setRes(r); if (!r.length) setMsg("Sin resultados.");
     } catch { if (id === reqId.current) { setRes([]); setMsg("No se pudo consultar la base. Revisa tu conexión."); } }
     finally { if (id === reqId.current) setBusy(false); }
