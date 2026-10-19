@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v426";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v427";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -12903,6 +12903,15 @@ const TrainTab = ({ saveHistory, plan, history, active, setActive, saveActive, s
               </Card>
             ))}
           </div>
+          {(() => { const gan = 50 + (summary.prs || []).length * 150 + Math.round((summary.volume || 0) / 25); const xi = nivelInfo(computeXp(history)); return (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, background: P.s3, borderRadius: 14, padding: "11px 14px", marginBottom: 14 }}>
+              <Medal size={22} color={P.ember} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: P.text }}>+{gan} XP</div>
+                <div style={{ fontSize: 12.5, color: P.faint }}>Nivel {xi.nivel} · {xi.rango}</div>
+              </div>
+              <div style={{ width: 70, height: 6, borderRadius: 3, background: P.fillTertiary, overflow: "hidden" }}><div style={{ height: "100%", width: `${xi.pct}%`, background: P.prog }} /></div>
+            </div>); })()}
           {(summary.prs || []).length > 0 && (
             <div style={{ background: "rgba(255,255,255,.08)", border: `1px solid ${P.dim}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
               <div style={{ fontWeight: 700, color: P.ember2, marginBottom: 6 }}><Award size={15} style={{ verticalAlign: -2, marginRight: 5 }} />Récords personales de peso</div>
@@ -15723,6 +15732,49 @@ const LandmarkBar = ({ muscle, sets, actual, ref, max, open, onToggle }) => {
    sus series efectivas semana a semana. Contesta "¿mi espalda viene
    subiendo o llevo dos meses estancado?", que el panel de estado (una foto
    de la semana en curso) no puede contestar. */
+/* ---- Edad muscular: "años de volumen" por grupo ----
+   Estimación sobre el historial registrado en FORJA (hasta 2 años): cada
+   semana en que el músculo llegó al volumen mínimo efectivo (MEV) cuenta
+   como semana de estímulo; 52 semanas = 1 año de volumen. Junto al promedio
+   de las últimas 4 semanas, dice si toca subir o bajar según MEV/MAV/MRV. */
+const MuscleAgeCard = ({ plan, history }) => {
+  const enh = (plan.athlete || {}).enhanced === "asistido";
+  const tabla = enh ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
+  const filas = useMemo(() => {
+    const d = volumenSemanalPorMusculo(plan, history, 104);
+    return d.musculos.map((m) => {
+      const ref = tabla[m.muscle]; if (!ref) return null;
+      const sem = m.serie.filter((v) => v >= ref.mev).length;
+      const last4 = m.serie.slice(-4).reduce((a, b) => a + b, 0) / 4;
+      const rec = last4 < ref.mev ? { t: `sube a ${ref.mev}+`, c: P.ember } : last4 > ref.mrv ? { t: `baja a ≤${ref.mrv}`, c: P.red }
+        : last4 < ref.mav[0] ? { t: `sube hacia ${ref.mav[0]}`, c: P.dim } : { t: "en rango", c: P.faint };
+      return { muscle: m.muscle, anios: sem / 52, last4, rec, ref };
+    }).filter(Boolean).sort((a, b) => b.anios - a.anios);
+  }, [plan, history, tabla]);
+  if (!filas.length) return null;
+  const maxA = Math.max(0.25, ...filas.map((f) => f.anios));
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div className="mono" style={{ margin: "0 4px 8px", letterSpacing: ".08em" }}>Edad muscular</div>
+      <Card style={{ padding: "6px 14px" }}>
+        {filas.map((f, i) => (
+          <div key={f.muscle} style={{ padding: "9px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ width: 74, flexShrink: 0, fontSize: 13.5, fontWeight: 600, color: P.text }}>{f.muscle}</span>
+              <div style={{ flex: 1, height: 7, borderRadius: 4, background: P.fillTertiary, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.max(4, (f.anios / maxA) * 100)}%`, background: P.prog, borderRadius: 4 }} />
+              </div>
+              <span style={{ width: 44, textAlign: "right", fontSize: 13, fontWeight: 800, color: P.text }}>{String(Math.round(f.anios * 10) / 10).replace(".", ",")} a</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: f.rec.c, marginLeft: 84, marginTop: 2, textTransform: "none", letterSpacing: 0 }}>{fmtSets(f.last4)} series/sem · {f.rec.t}</div>
+          </div>
+        ))}
+      </Card>
+      <div style={{ fontSize: 11.5, color: P.faint2, margin: "6px 4px 0", lineHeight: 1.4 }}>Años con volumen efectivo según tu historial en FORJA (MEV {enh ? "asistido" : "natural"}). Es una estimación, no tu edad de entrenamiento real.</div>
+    </div>
+  );
+};
+
 const MuscleEvolution = ({ plan, history }) => {
   const datos = useMemo(() => volumenSemanalPorMusculo(plan, history, 12), [plan, history]);
   const [sel, setSel] = useState(null);
@@ -16633,6 +16685,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           {/* Primero la película (cómo viene cada músculo semana a semana),
               después la foto (cómo va esta semana contra MEV/MAV/MRV). */}
           <MuscleEvolution plan={plan} history={history} />
+          <MuscleAgeCard plan={plan} history={history} />
           <AthleteVolumePanel plan={plan} history={history} />
         </>
       )}
@@ -28919,6 +28972,39 @@ function buildCompICS(plan) {
   return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//FORJA//Competicion//ES", "CALSCALE:GREGORIAN", ...ev, "END:VCALENDAR"].join("\r\n");
 }
 
+/* ---- Briefing matutino: el día en una hoja ---- */
+const MorningBriefing = ({ open, onClose, plan, history }) => {
+  const hoy = new Date();
+  const dayId = scheduledDayIdFor(plan, hoy);
+  const dia = dayId ? (plan.days || []).find((d) => d.id === dayId) : null;
+  let pr = null; try { pr = prontitudDelDia(history); } catch {}
+  const n = plan.nutrition || {};
+  const a = plan.athlete || {};
+  const left = a.compDate ? Math.round((parseDate(a.compDate) - new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())) / 86400000) : null;
+  const xp = nivelInfo(computeXp(history));
+  const fila = (Icon, titulo, texto, sub) => (
+    <div style={{ display: "flex", gap: 14, padding: "13px 0", borderTop: `1px solid ${P.line}` }}>
+      <span style={{ width: 36, height: 36, borderRadius: 11, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon size={18} color={P.text} /></span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: P.faint2, textTransform: "uppercase", letterSpacing: ".05em" }}>{titulo}</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: P.text, lineHeight: 1.3, marginTop: 1 }}>{texto}</div>
+        {sub && <div style={{ fontSize: 13, color: P.faint, marginTop: 2, lineHeight: 1.4 }}>{sub}</div>}
+      </div>
+    </div>
+  );
+  return (
+    <Sheet open={open} onClose={onClose} title={hoy.getHours() < 12 ? "Buenos días" : hoy.getHours() < 20 ? "Buenas tardes" : "Buenas noches"}>
+      <div>
+        {fila(Dumbbell, "Entrenamiento", dia ? dia.name : "Descanso", dia ? `${(dia.exs || []).length} ejercicios · ${(dia.exs || []).reduce((t, e) => t + (e.sets || []).length, 0)} series` : "Hoy no hay sesión programada")}
+        {n.kcal ? fila(Utensils, "Nutrición", `${n.kcal} kcal`, `P ${n.p || "?"} · C ${n.c || "?"} · G ${n.f || "?"}${(n.meals || []).length ? ` · ${(n.meals || []).length} comidas` : ""}`) : null}
+        {pr && pr.estado !== "sin datos" ? fila(HeartPulse, "Recuperación", pr.titulo, pr.señales && pr.señales.length ? pr.señales.map((s) => s.txt).join(" · ") : "") : null}
+        {left != null && left >= 0 ? fila(Trophy, "Competencia", left === 0 ? "Hoy es el show" : `${left} día${left !== 1 ? "s" : ""}`, a.category ? `Categoría ${a.category}` : "") : null}
+        {fila(Medal, `Nivel ${xp.nivel}`, xp.rango, `${xp.faltan} XP para el siguiente`)}
+      </div>
+    </Sheet>
+  );
+};
+
 const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast, history }) => {
   const [sub, setSub] = useState("categoria");
   const a = plan.athlete || {};
@@ -29031,6 +29117,47 @@ const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast, history })
    - free-exercise-db (`ex.src === "fedb"`): 1-2 fotos fijas (inicio/fin),
      sin GIF. Se alternan solas cada ~800ms (StopMotionImg) apenas se abre
      la ficha, para dar una idea de la ejecución sin depender de video. */
+/* ---- Score de hipertrofia 1-100 (heurístico, por ejercicio) ----
+   No es una medición: combina tres cosas que la literatura asocia a más
+   estímulo por serie — tensión sostenida (el equipo: polea/máquina la
+   mantienen todo el recorrido), estiramiento bajo carga (posiciones
+   alargadas del músculo) y ROM útil — y resta ejercicios balísticos o de
+   riesgo articular. Sirve para comparar opciones, no como verdad absoluta. */
+const HYPER_STRETCH = [
+  [/incline|inclinado/i, 7], [/overhead|sobre la cabeza|french|skull/i, 9], [/preacher|scott|spider/i, 8],
+  [/romanian|rumano|stiff|good morning|buenos d/i, 11], [/fly|flye|aperturas|cruce|pec deck|contractor/i, 7],
+  [/pullover/i, 8], [/hack squat|hack|sentadilla.*(profunda|bulgara|búlgara)|bulgarian|split squat|sissy/i, 9],
+  [/seated leg curl|curl femoral sentado|lying leg curl|curl femoral/i, 8], [/deficit|déficit|stretch|estir/i, 6],
+  [/lateral raise|elevaci[oó]n lateral|elevaciones laterales/i, 4], [/pulldown|jal[oó]n|lat pull/i, 4],
+  [/leg extension|extensi[oó]n de cu[aá]driceps/i, 4], [/calf raise|gemelo|pantorrilla/i, 4], [/dips?\b|fondos/i, 3],
+];
+const HYPER_PENAL = [
+  [/swing|jump|salto|plyo|burpee|clean|snatch|arranque|cargada|kipping|twist/i, 18],
+  [/behind the neck|tras nuca|upright row|remo al ment[oó]n/i, 10], [/crunch|abdominal|sit[- ]?up/i, 6], [/smith.*(squat|sentadilla)/i, 0],
+];
+function scoreHipertrofia(ex) {
+  const txt = `${ex.n || ""} ${ex.e || ""}`;
+  const eq = (ex.eq || "").toLowerCase();
+  let s = 52; const why = [];
+  const tens = /polea|cable|cuerda/.test(eq) ? 11 : /m[aá]quina|machine/.test(eq) ? 9 : /mancuerna|dumbbell/.test(eq) ? 6 : /barra|barbell|ez/.test(eq) ? 4 : /kettlebell/.test(eq) ? -6 : /banda|band/.test(eq) ? -2 : /corporal|body/.test(eq) ? -4 : 0;
+  if (tens) { s += tens; if (tens >= 6) why.push("tensión constante"); }
+  const mech = (ex.mech || "").toLowerCase();
+  if (mech.startsWith("compuesto")) { s += 5; why.push("compuesto"); } else if (mech.startsWith("aislado")) s += 3;
+  let st = 0;
+  HYPER_STRETCH.forEach(([re, w]) => { if (re.test(txt)) st = Math.max(st, w); });
+  if (st) { s += st + 4; why.push("estiramiento bajo carga"); }
+  HYPER_PENAL.forEach(([re, w]) => { if (w && re.test(txt)) { s -= w; why.push("balístico / riesgo articular"); } });
+  const lvl = (ex.lvl || "").toLowerCase();
+  if (lvl.startsWith("avanz")) s -= 2;
+  s = Math.max(20, Math.min(98, Math.round(s)));
+  const tier = s >= 80 ? "Élite" : s >= 68 ? "Alto" : s >= 52 ? "Medio" : "Bajo";
+  return { score: s, tier, why };
+}
+const HyperTag = ({ e }) => {
+  const h = useMemo(() => scoreHipertrofia(e), [e]);
+  return <span className="mono" style={{ marginLeft: 6, fontWeight: 800, color: h.score >= 80 ? P.ember : h.score >= 68 ? P.text : P.faint }}>· {h.score}</span>;
+};
+
 const CatalogExerciseSheet = ({ ex, open, onClose, onElegir, etiquetaElegir }) => {
   const [animado, setAnimado] = useState(false);
   const [host, setHost] = useState(catHostInicial);
@@ -29065,6 +29192,15 @@ const CatalogExerciseSheet = ({ ex, open, onClose, onElegir, etiquetaElegir }) =
         {ex.e && norma(ex.e) !== norma(ex.n) && (
           <div style={{ fontSize: 13, color: P.faint, textAlign: "center", marginTop: -4 }}>{ex.e}</div>
         )}
+
+        {(() => { const h = scoreHipertrofia(ex); return (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, background: P.s3, borderRadius: 14, padding: "10px 14px" }}>
+            <span className="mono" style={{ fontSize: 26, fontWeight: 800, color: h.score >= 80 ? P.ember : P.text }}>{h.score}</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: P.text }}>Hipertrofia · {h.tier}</div>
+              <div style={{ fontSize: 11.5, color: P.faint }}>{h.why.length ? h.why.join(" · ") : "estímulo estándar"}</div>
+            </div>
+          </div>); })()}
 
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "center" }}>
           {[ex.mu, ...(ex.s || [])].filter(Boolean).map((m, i) => (
@@ -29193,7 +29329,7 @@ const CatalogAddSheet = ({ open, onClose, onAgregar }) => {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14.5, fontWeight: 600, color: P.text, lineHeight: 1.25 }}>{e.n}</div>
                   <div style={{ fontSize: 12, color: P.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {e.mu}{e.eq && e.eq !== "Otro" ? ` · ${e.eq}` : ""}
+                    {e.mu}{e.eq && e.eq !== "Otro" ? ` · ${e.eq}` : ""}<HyperTag e={e} />
                   </div>
                 </div>
                 <button onClick={() => onAgregar(e)} aria-label={`Agregar ${e.n} al día`}
@@ -29274,7 +29410,7 @@ const CatalogPickerSheet = ({ open, onClose, nombre, actual, onElegir }) => {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14.5, fontWeight: 600, color: P.text, lineHeight: 1.25 }}>{e.n}</div>
                   <div style={{ fontSize: 12, color: P.faint, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {e.mu}{e.eq && e.eq !== "Otro" ? ` · ${e.eq}` : ""}{norma(e.e) !== norma(e.n) ? ` · ${e.e}` : ""}
+                    {e.mu}{e.eq && e.eq !== "Otro" ? ` · ${e.eq}` : ""}<HyperTag e={e} />{norma(e.e) !== norma(e.n) ? ` · ${e.e}` : ""}
                   </div>
                 </div>
                 {actual === e.i ? <Check size={17} color={P.text} /> : <ChevronRight size={16} color={P.faint} />}
@@ -29583,7 +29719,7 @@ const ExerciseAtlasSheet = ({ open, onClose, library, plan, initialQuery }) => {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: P.text, lineHeight: 1.25 }}>{e.n}</div>
         <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {e.mu}{e.eq && e.eq !== "Otro" ? ` · ${e.eq}` : ""}
+          {e.mu}{e.eq && e.eq !== "Otro" ? ` · ${e.eq}` : ""}<HyperTag e={e} />
         </div>
       </div>
       <ChevronRight size={16} color={P.faint} />
@@ -33064,6 +33200,8 @@ const App = () => {
   const [fichaOpen, setFichaOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [compPrepOpen, setCompPrepOpen] = useState(false);
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [ptr, setPtr] = useState({ dy: 0, busy: false });
   const [atlasOpen, setAtlasOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [supplementsOpen, setSupplementsOpen] = useState(false);
@@ -33848,6 +33986,19 @@ const App = () => {
     return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
   }, [sid, traerLogsReloj]);
 
+  // Briefing matutino: la primera vez que se abre la app cada día (desde las 8:00), como atleta.
+  const briefYa = useRef(false);
+  useEffect(() => {
+    if (!ready || mode !== "alumno" || briefYa.current) return;
+    briefYa.current = true;
+    const k = "forja-brief-" + new Date().toISOString().slice(0, 10);
+    let visto = false; try { visto = !!localStorage.getItem(k); } catch {}
+    if (visto || new Date().getHours() < 8) return;
+    try { localStorage.setItem(k, "1"); } catch {}
+    const t = setTimeout(() => setBriefOpen(true), 3500);
+    return () => clearTimeout(t);
+  }, [ready, mode]);
+
   // WHOOP: si el alumno lo conectó, pide una sincronización fresca (como mucho
   // cada 20 min) y mezcla lo traído en el historial.
   const [whoopTick, setWhoopTick] = useState(0);
@@ -33877,6 +34028,33 @@ const App = () => {
     document.addEventListener("visibilitychange", onVis);
     return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
   }, [sid, traerWhoop, whoopTick]);
+  // Pull-to-refresh: tirar hacia abajo desde el tope de la página vuelve a traer plan e historial
+  // (no pisa una sesión en curso) y los datos del reloj / WHOOP.
+  const refrescarDatos = useCallback(async () => {
+    const id = sidRef.current; if (!id) return;
+    setPtr({ dy: 56, busy: true });
+    try {
+      if (!activeRef.current) {
+        const nm = ((roster.students || []).find((x) => x.id === id) || {}).name || "";
+        const { p, h } = await loadStudent(id, nm);
+        setPlan(p); setHistory(h);
+      }
+      await traerLogsReloj(); await traerWhoop(true);
+      try { navigator.vibrate && navigator.vibrate(15); } catch {}
+    } catch {} finally { setPtr({ dy: 0, busy: false }); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [traerLogsReloj, traerWhoop, roster]);
+  const refrescarRef = useRef(refrescarDatos); refrescarRef.current = refrescarDatos;
+  useEffect(() => {
+    let y0 = null, dy = 0;
+    const scrollable = (el) => { for (let n = el; n && n !== document.body; n = n.parentElement) { const oy = getComputedStyle(n).overflowY; if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight + 2) return true; if (getComputedStyle(n).position === "fixed") return true; } return false; };
+    const ts = (e) => { y0 = (window.scrollY <= 0 && e.touches.length === 1 && !scrollable(e.target)) ? e.touches[0].clientY : null; dy = 0; };
+    const tm = (e) => { if (y0 == null) return; dy = Math.max(0, Math.min(90, (e.touches[0].clientY - y0) * 0.5)); if (dy > 0) setPtr((p) => (p.busy ? p : { dy, busy: false })); };
+    const te = () => { if (y0 == null) return; const go = dy >= 55; y0 = null; if (go) refrescarRef.current(); else setPtr((p) => (p.busy ? p : { dy: 0, busy: false })); };
+    window.addEventListener("touchstart", ts, { passive: true }); window.addEventListener("touchmove", tm, { passive: true }); window.addEventListener("touchend", te);
+    return () => { window.removeEventListener("touchstart", ts); window.removeEventListener("touchmove", tm); window.removeEventListener("touchend", te); };
+  }, []);
+
   // Regreso de WHOOP tras autorizar: la app se abre en /whoop?code=…&state=…
   useEffect(() => {
     let u; try { u = new URL(window.location.href); } catch { return; }
@@ -34112,6 +34290,7 @@ const App = () => {
     tool("Temporizador", Timer, () => setUtility("timer"), "temporizador cronometro descanso");
     tool("Guía de términos", BookOpen, () => setUtility("guia"), "guia glosario terminos rir top drop");
     tool("Atlas de ejercicios", Library, () => { setAtlasInitialQuery(""); setAtlasOpen(true); }, "atlas catalogo ejercicios biblioteca");
+    tool("Briefing del día", Sun, () => setBriefOpen(true), "resumen matutino hoy briefing buenos dias");
     tool("Competition Prep", Trophy, () => setCompPrepOpen(true), "competencia tarima peak week posing categorias");
     tool("Centro de control", LayoutGrid, () => setControlCenterOpen(true), "centro control accesos rapidos");
     tool("Configuración", Sun, () => setMoreOpen(true), "ajustes configuracion tema unidades cuenta interfaz");
@@ -34259,6 +34438,12 @@ const App = () => {
             onOpenSupplements={() => setSupplementsOpen(true)} onOpenLabs={() => setLabsOpen(true)}
             onOpenNutrition={() => setTab("nutricion")} onOpenExams={() => setExamsOpen(true)}
             onOpenPhotos={() => setPhotosOpen(true)} />
+        )}
+        <MorningBriefing open={briefOpen} onClose={() => setBriefOpen(false)} plan={plan} history={history} />
+        {(ptr.dy > 0 || ptr.busy) && (
+          <div aria-hidden style={{ position: "fixed", top: `calc(env(safe-area-inset-top) + ${Math.round(ptr.dy) - 34}px)`, left: "50%", transform: "translateX(-50%)", zIndex: 120, width: 34, height: 34, borderRadius: 17, background: P.s2, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+            <RefreshCw size={17} color={P.text} style={{ animation: ptr.busy ? "fjSpin 1s linear infinite" : "none", transform: ptr.busy ? undefined : `rotate(${ptr.dy * 4}deg)` }} />
+          </div>
         )}
         <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} savePlan={savePlan} toast={toast} history={history} />
         <ExerciseAtlasSheet open={atlasOpen} onClose={() => setAtlasOpen(false)} library={library} plan={plan} initialQuery={atlasInitialQuery} />
