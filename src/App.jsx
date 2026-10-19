@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v427";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v428";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -30692,7 +30692,7 @@ const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
 
   return (
     <div style={{ padding: `18px 16px calc(${TAB_BOTTOM_PAD} + 40px)` }}>
-      <ScreenTitle title="Creador" sub="Toca una rutina para editarla: días, ejercicios, series e indicaciones."
+      <ScreenTitle title="Creador" sub="Todas tus rutinas de un vistazo — comparalas por volumen y edítalas con el lápiz."
         tabs={<SectionSwitch compact value={modo} onChange={setModo}
           items={[{ id: "cards", label: "Rutinas" }, { id: "comparar", label: "Comparar" }]} />} />
 
@@ -30735,17 +30735,17 @@ const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
                   border: `1px solid ${P.frame}`, borderRadius: R_CARD, padding: 16,
                   display: "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
                   {g.key === topKey && ranking.length > 1 && ranking[0].total > 0 && (
-                    <span style={{ position: "absolute", top: 10, right: 10, display: "flex", alignItems: "center", gap: 3,
+                    <span aria-label="Más volumen" title="Más volumen" style={{ position: "absolute", bottom: 14, right: 12, display: "flex", alignItems: "center", gap: 3,
                       fontSize: 10, fontWeight: 700, color: PLATE_FG, background: PLATE_GRAD, padding: "3px 8px", borderRadius: 20 }}>
-                      <Trophy size={11} /> más volumen
+                      <Trophy size={12} />
                     </span>
                   )}
-                  <button onClick={() => (onEdit ? onEdit(g.key) : (setDetMusc(null), setDetalle(g.key)))} aria-label={`Editar ${g.label}`}
+                  <button onClick={() => { setDetMusc(null); setDetalle(g.key); }} aria-label={`Abrir ${g.label}`}
                     style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                         <div style={{ fontSize: 16, fontWeight: 700, color: P.text, lineHeight: 1.2, flex: 1, minWidth: 0,
-                          paddingRight: (g.key === topKey && ranking.length > 1) ? 66 : 0 }}>{g.label}</div>
+                          paddingRight: 0 }}>{g.label}</div>
                         <ChevronRight size={16} color={P.faint} style={{ flexShrink: 0 }} />
                       </div>
                       {meta && (
@@ -30772,14 +30772,16 @@ const RoutineStudioView = ({ plan, savePlan, toast, onEdit }) => {
                     </div>
                   </button>
                   <div style={{ display: "flex", gap: 6, marginTop: "auto", flexWrap: "wrap" }}>
-                    <button onClick={() => { setDetMusc(null); setDetalle(g.key); }} aria-label={`Ver detalle de ${g.label}`} style={studioChipBtn}>
-                      <Eye size={12} />
+                    {onEdit && (
+                      <button onClick={() => onEdit(g.key)} aria-label={`Editar ${g.label}`} style={{ ...studioChipBtn, background: P.text, color: P.bg }}>
+                        <Pencil size={15} />
+                      </button>
+                    )}
+                    <button onClick={() => duplicar(g.key)} aria-label="Duplicar" title="Duplicar" style={studioChipBtn}>
+                      <Copy size={15} />
                     </button>
-                    <button onClick={() => duplicar(g.key)} style={studioChipBtn}>
-                      <Copy size={12} /> Duplicar
-                    </button>
-                    <button onClick={() => setDel({ key: g.key, label: g.label })} style={{ ...studioChipBtn, color: P.red }}>
-                      <Trash2 size={12} /> Eliminar
+                    <button onClick={() => setDel({ key: g.key, label: g.label })} aria-label="Eliminar" title="Eliminar" style={{ ...studioChipBtn, color: P.red }}>
+                      <Trash2 size={15} />
                     </button>
                   </div>
                 </div>
