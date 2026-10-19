@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v431";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v432";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -17104,6 +17104,27 @@ const CL_FOODS = [
 ];
 const normaTxt = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 const CL_INDEX = CL_FOODS.map(([name, kcal, p, c, f]) => ({ id: "cl-" + normaTxt(name).replace(/\W+/g, "-"), name, brand: "Chile · referencia", kcal, p, c, f, serving: 0, src: "local", _n: normaTxt(name) }));
+// Marcas que se venden en Chile. Valores APROXIMADOS por 100 g/ml, típicos de la categoría; la etiqueta de cada
+// producto manda (por eso salen marcadas "aprox." y conviene confirmar con el código de barras).
+const CL_BRANDS = [
+  ["Colun", "Leche entera", 61, 3.2, 4.8, 3.3], ["Colun", "Leche descremada", 35, 3.4, 5, 0.1], ["Soprole", "Leche semidescremada", 46, 3.3, 4.8, 1.5], ["Calo", "Leche sin lactosa semidescremada", 47, 3.3, 4.8, 1.6],
+  ["Soprole", "Yogurt batido frutilla", 90, 3.2, 15, 1.8], ["Soprole", "Yogurt Protein+", 60, 10, 4, 0.5], ["Colun", "Yogurt natural", 61, 3.5, 4.7, 3.3], ["Colun", "Yogurt griego natural", 97, 9, 3.9, 5],
+  ["Soprole", "Yogurt griego natural", 97, 9, 3.9, 5], ["Nestlé", "Yogurt Svelty", 45, 4.3, 6, 0.2], ["Colun", "Queso gauda laminado", 356, 25, 2.2, 27], ["Soprole", "Queso mantecoso", 340, 25, 1, 26],
+  ["Colun", "Quesillo", 174, 12, 3, 13], ["Philadelphia", "Queso crema", 342, 6, 4, 34], ["Colun", "Manjar", 315, 6, 55, 8], ["Nestlé", "Manjar", 315, 6, 55, 8], ["Nestlé", "Leche condensada", 321, 8, 54, 9],
+  ["Colun", "Mantequilla", 717, 0.9, 0.1, 81], ["Soprole", "Mantequilla", 717, 0.9, 0.1, 81],
+  ["Ariztía", "Pechuga de pollo", 120, 22.5, 0, 2.6], ["Super Pollo", "Pechuga de pollo", 120, 22.5, 0, 2.6], ["Sadia", "Pechuga de pollo", 120, 22.5, 0, 2.6], ["Ariztía", "Nuggets de pollo", 250, 14, 17, 14],
+  ["San Jorge", "Jamón de pavo", 100, 17, 2, 2.5], ["San Jorge", "Vienesa", 270, 11, 4, 23], ["Winter's", "Vienesa", 270, 11, 4, 23], ["PF", "Hamburguesa de vacuno", 250, 15, 5, 19], ["San Jorge", "Longaniza", 330, 14, 2, 30],
+  ["Robinson Crusoe", "Atún en agua", 116, 26, 0, 1], ["Van Camp's", "Atún en agua", 116, 26, 0, 1], ["Robinson Crusoe", "Atún en aceite", 198, 29, 0, 8], ["Colorado", "Atún en agua", 116, 26, 0, 1], ["San José", "Jurel en conserva", 160, 20, 0, 9],
+  ["Tucapel", "Arroz grado 1 crudo", 360, 7, 79, 0.6], ["Miraflores", "Arroz grado 1 crudo", 360, 7, 79, 0.6], ["Carozzi", "Fideos spaghetti crudos", 371, 13, 75, 1.5], ["Lucchetti", "Fideos spaghetti crudos", 371, 13, 75, 1.5],
+  ["Quaker", "Avena", 389, 16.9, 66, 6.9], ["Kellogg's", "Corn Flakes", 357, 7.5, 84, 0.4], ["Kellogg's", "Zucaritas", 375, 5, 88, 0.5], ["Nestlé", "Cereal Fitness", 360, 8, 77, 1.5], ["Nestlé", "Chocapic", 380, 7, 78, 3.5],
+  ["Ideal", "Pan de molde blanco", 266, 8, 49, 3.3], ["Ideal", "Pan de molde integral", 247, 13, 41, 3.4], ["Ideal", "Pan hamburguesa", 270, 8, 48, 4.5], ["Selecta", "Harina de trigo", 364, 10, 76, 1], ["Iansa", "Azúcar", 387, 0, 100, 0],
+  ["Chef", "Aceite vegetal", 884, 0, 0, 100], ["Belmont", "Aceite vegetal", 884, 0, 0, 100], ["Hellmann's", "Mayonesa", 680, 1, 0.6, 75], ["Heinz", "Ketchup", 101, 1, 25, 0.1], ["Watts", "Mermelada", 250, 0.4, 65, 0.1],
+  ["McKay", "Galletas de soda", 430, 9, 71, 12], ["Costa", "Galletas Tritón", 480, 6, 70, 19], ["Costa", "Galletas Vino", 440, 7, 74, 13], ["Nestlé", "Chocolate Sahne-Nuss", 540, 8, 55, 32], ["Costa", "Chocolate Super 8", 500, 6, 65, 24],
+  ["Oreo", "Galletas", 480, 4.5, 70, 20], ["Nutella", "Crema de avellanas", 539, 6.3, 57.5, 30.9], ["Coca-Cola", "Bebida", 42, 0, 10.6, 0], ["Coca-Cola", "Zero", 0, 0, 0, 0], ["Fanta", "Bebida", 40, 0, 10, 0],
+  ["Watts", "Néctar de durazno", 45, 0, 11, 0], ["Cristal", "Cerveza", 43, 0.3, 3.5, 0],
+  ["Optimum Nutrition", "Whey Gold Standard", 400, 80, 8, 6], ["Lider · Great Value", "Avena", 389, 16.9, 66, 6.9], ["Jumbo · Cuisine&Co", "Pechuga de pollo", 120, 22.5, 0, 2.6],
+];
+CL_BRANDS.forEach(([brand, name, kcal, p, c, f]) => CL_INDEX.push({ id: "clb-" + normaTxt(brand + name).replace(/\W+/g, "-"), name: `${name} — ${brand}`, brand: `${brand} · aprox., ver etiqueta`, kcal, p, c, f, serving: 0, src: "local", _n: normaTxt(`${name} ${brand}`) }));
 function buscarLocal(q) {
   const toks = normaTxt(q).split(/\s+/).filter(Boolean);
   if (!toks.length) return [];
@@ -17154,7 +17175,19 @@ async function buscarAlimentos(q, scope) {
     if (!r.length) throw new Error("vacío");
     return r;
   };
-  try { return await Promise.any([nuevo(), clasico()]); }
+  try {
+    const r = await Promise.any([nuevo(), clasico()]);
+    // En «Chile» se completa con el mundo (marcas que se venden aquí pero no están marcadas como Chile en la base).
+    if (scope === "cl" && r.length < 12) {
+      try {
+        const j = await fetchJson(`https://search.openfoodfacts.org/search?q=${term}&langs=es&page_size=30&fields=${OFF_FIELDS}`, 8000);
+        const extra = (j.hits || []).map(offNormalize).filter(Boolean);
+        const ids = new Set(r.map((x) => x.id));
+        return [...r, ...extra.filter((x) => !ids.has(x.id))];
+      } catch { return r; }
+    }
+    return r;
+  }
   catch (e) {
     const errs = (e && e.errors) || [];
     if (errs.length && errs.every((x) => x && x.message === "vacío")) return [];
@@ -17353,7 +17386,7 @@ const FoodLookupSheet = ({ open, onClose, meals, onAdd, toast }) => {
             ))}
           </div>
         )}
-        <div style={{ fontSize: 11, color: P.faint2, textAlign: "center", lineHeight: 1.4 }}>Open Food Facts · USDA · valores por 100 g, referenciales</div>
+        <div style={{ fontSize: 11, color: P.faint2, textAlign: "center", lineHeight: 1.4 }}>Open Food Facts · USDA · valores por 100 g; las marcas locales son aproximadas, confirma con la etiqueta</div>
       </div>
     </Sheet>
   );
