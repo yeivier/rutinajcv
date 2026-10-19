@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v429";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v430";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -17057,6 +17057,59 @@ const NutriReminderBanner = ({ sid, plan, compact }) => {
    · USDA FoodData Central — alimentos genéricos/crudos (en inglés).
    Los macros vienen por 100 g y se escalan a los gramos que se coman.
    ============================================================ */
+// Alimentos de uso común en Chile, por 100 g (valores de referencia tipo tablas USDA/INTA; el crudo/cocido va en el nombre).
+// Salen al instante, sin conexión, y se mezclan con los productos de Open Food Facts.
+const CL_FOODS = [
+  // carnes y pescados
+  ["Pechuga de pollo cruda", 120, 22.5, 0, 2.6], ["Pechuga de pollo cocida", 165, 31, 0, 3.6], ["Muslo de pollo con piel cocido", 229, 24, 0, 14],
+  ["Pollo trutro sin piel cocido", 177, 26, 0, 8], ["Pavo pechuga cocida", 135, 30, 0, 1], ["Carne molida vacuno 10% grasa cruda", 176, 20, 0, 10],
+  ["Carne molida vacuno cocida", 250, 26, 0, 15], ["Lomo vetado cocido", 271, 26, 0, 18], ["Posta negra cruda", 130, 21, 0, 4.5], ["Filete de vacuno cocido", 217, 31, 0, 9],
+  ["Lomo liso de vacuno crudo", 143, 21, 0, 6], ["Asiento picana cocido", 190, 29, 0, 8], ["Cerdo lomo cocido", 242, 27, 0, 14], ["Costillar de cerdo cocido", 292, 25, 0, 21],
+  ["Jamón de pavo", 100, 17, 2, 2.5], ["Jamón pierna cerdo", 110, 17, 1.5, 4], ["Vienesa", 270, 11, 4, 23], ["Longaniza cocida", 330, 14, 2, 30], ["Charqui", 250, 55, 1, 3],
+  ["Salmón crudo", 208, 20, 0, 13], ["Salmón cocido", 232, 25, 0, 14], ["Merluza cruda", 82, 18, 0, 0.7], ["Merluza cocida", 105, 22, 0, 1.3], ["Reineta cruda", 105, 19, 0, 3],
+  ["Atún en agua (conserva)", 116, 26, 0, 1], ["Atún en aceite (conserva)", 198, 29, 0, 8], ["Jurel en conserva", 160, 20, 0, 9], ["Choritos cocidos", 172, 24, 7, 4.5], ["Camarones cocidos", 99, 24, 0.2, 0.3],
+  ["Machas cocidas", 90, 15, 3, 2], ["Pulpo cocido", 164, 30, 4.4, 2],
+  // huevos y lácteos
+  ["Huevo entero crudo", 143, 12.6, 0.7, 9.5], ["Huevo cocido", 155, 13, 1.1, 11], ["Clara de huevo", 52, 11, 0.7, 0.2], ["Yema de huevo", 322, 16, 3.6, 27],
+  ["Leche entera", 61, 3.2, 4.8, 3.3], ["Leche semidescremada", 46, 3.3, 4.8, 1.5], ["Leche descremada", 35, 3.4, 5, 0.1], ["Yogurt natural", 61, 3.5, 4.7, 3.3],
+  ["Yogurt griego natural", 97, 9, 3.9, 5], ["Yogurt proteico", 62, 10, 4.5, 0.4], ["Yogurt descremado", 45, 4.3, 6, 0.2], ["Queso fresco", 174, 12, 3, 13],
+  ["Queso mantecoso", 340, 25, 1, 26], ["Queso gauda", 356, 25, 2.2, 27], ["Queso cheddar", 403, 25, 1.3, 33], ["Queso crema", 342, 6, 4, 34], ["Queso ricotta", 174, 11, 3, 13],
+  ["Cottage", 98, 11, 3.4, 4.3], ["Mantequilla", 717, 0.9, 0.1, 81], ["Crema de leche", 340, 2, 3, 36], ["Manjar", 315, 6, 55, 8], ["Leche condensada", 321, 8, 54, 9],
+  // cereales, panes, pastas
+  ["Arroz blanco crudo", 360, 7, 79, 0.6], ["Arroz blanco cocido", 130, 2.7, 28, 0.3], ["Arroz integral cocido", 123, 2.7, 26, 1], ["Fideos crudos", 371, 13, 75, 1.5],
+  ["Fideos cocidos", 158, 5.8, 31, 0.9], ["Tallarines cocidos", 158, 5.8, 31, 0.9], ["Avena cruda", 389, 16.9, 66, 6.9], ["Avena cocida", 71, 2.5, 12, 1.5], ["Quínoa cocida", 120, 4.4, 21, 1.9],
+  ["Pan marraqueta", 270, 9, 55, 1.5], ["Pan hallulla", 290, 8.5, 54, 4.5], ["Pan de molde blanco", 266, 8, 49, 3.3], ["Pan de molde integral", 247, 13, 41, 3.4], ["Pan pita", 275, 9, 55, 1.2],
+  ["Tortilla de trigo", 304, 8, 50, 7], ["Tostadas (pan tostado)", 313, 11, 56, 4], ["Galletas de soda", 430, 9, 71, 12], ["Cereal Corn Flakes", 357, 7.5, 84, 0.4], ["Granola", 471, 10, 64, 20],
+  ["Harina de trigo", 364, 10, 76, 1], ["Harina tostada", 380, 10, 75, 3], ["Sémola de maíz (polenta)", 362, 8, 79, 1.7], ["Cuscús cocido", 112, 3.8, 23, 0.2],
+  // legumbres y verduras
+  ["Lentejas cocidas", 116, 9, 20, 0.4], ["Garbanzos cocidos", 164, 8.9, 27, 2.6], ["Porotos negros cocidos", 132, 8.9, 24, 0.5], ["Porotos granados cocidos", 120, 8, 21, 0.5],
+  ["Porotos verdes", 31, 1.8, 7, 0.1], ["Arvejas cocidas", 84, 5.4, 15, 0.2], ["Papa cocida", 87, 1.9, 20, 0.1], ["Papa cruda", 77, 2, 17, 0.1], ["Papas fritas", 312, 3.4, 41, 15],
+  ["Camote cocido", 90, 2, 21, 0.2], ["Choclo cocido", 96, 3.4, 21, 1.5], ["Zapallo italiano", 17, 1.2, 3.1, 0.3], ["Zapallo camote cocido", 37, 1, 9, 0.1], ["Zanahoria cruda", 41, 0.9, 10, 0.2],
+  ["Tomate", 18, 0.9, 3.9, 0.2], ["Lechuga", 15, 1.4, 2.9, 0.2], ["Pepino", 15, 0.7, 3.6, 0.1], ["Cebolla", 40, 1.1, 9, 0.1], ["Pimentón", 31, 1, 6, 0.3], ["Brócoli cocido", 35, 2.4, 7, 0.4],
+  ["Coliflor cocida", 23, 1.8, 4.1, 0.5], ["Espinaca cruda", 23, 2.9, 3.6, 0.4], ["Apio", 16, 0.7, 3, 0.2], ["Betarraga cocida", 44, 1.7, 10, 0.2], ["Champiñones", 22, 3.1, 3.3, 0.3], ["Ajo", 149, 6.4, 33, 0.5],
+  ["Palta", 160, 2, 8.5, 14.7], ["Aceituna", 115, 0.8, 6, 10.7],
+  // frutas
+  ["Plátano", 89, 1.1, 23, 0.3], ["Manzana", 52, 0.3, 14, 0.2], ["Naranja", 47, 0.9, 12, 0.1], ["Mandarina", 53, 0.8, 13, 0.3], ["Pera", 57, 0.4, 15, 0.1], ["Uva", 69, 0.7, 18, 0.2],
+  ["Frutilla", 32, 0.7, 7.7, 0.3], ["Arándanos", 57, 0.7, 14, 0.3], ["Durazno", 39, 0.9, 10, 0.3], ["Damasco", 48, 1.4, 11, 0.4], ["Ciruela", 46, 0.7, 11, 0.3], ["Cereza", 63, 1.1, 16, 0.2],
+  ["Sandía", 30, 0.6, 7.6, 0.2], ["Melón", 34, 0.8, 8, 0.2], ["Piña", 50, 0.5, 13, 0.1], ["Kiwi", 61, 1.1, 15, 0.5], ["Mango", 60, 0.8, 15, 0.4], ["Limón", 29, 1.1, 9, 0.3],
+  ["Chirimoya", 75, 1.6, 18, 0.7], ["Higo", 74, 0.8, 19, 0.3], ["Pasas", 299, 3.1, 79, 0.5], ["Dátiles", 282, 2.5, 75, 0.4],
+  // frutos secos, aceites, grasas
+  ["Almendras", 579, 21, 22, 50], ["Nueces", 654, 15, 14, 65], ["Maní", 567, 26, 16, 49], ["Mantequilla de maní", 588, 25, 20, 50], ["Pistachos", 560, 20, 28, 45], ["Avellanas", 628, 15, 17, 61],
+  ["Semillas de chía", 486, 17, 42, 31], ["Semillas de linaza", 534, 18, 29, 42], ["Aceite de oliva", 884, 0, 0, 100], ["Aceite vegetal", 884, 0, 0, 100], ["Aceite de coco", 862, 0, 0, 100],
+  // azúcares y otros
+  ["Azúcar", 387, 0, 100, 0], ["Miel", 304, 0.3, 82, 0], ["Mermelada", 250, 0.4, 65, 0.1], ["Chocolate amargo 70%", 598, 7.8, 46, 43], ["Chocolate con leche", 535, 7.7, 59, 30],
+  ["Whey protein (proteína en polvo)", 400, 80, 8, 6], ["Creatina", 0, 0, 0, 0], ["Barra de proteína", 370, 33, 35, 12], ["Mayonesa", 680, 1, 0.6, 75], ["Ketchup", 101, 1, 25, 0.1],
+  ["Pebre", 35, 1, 6, 0.8], ["Empanada de pino horneada", 270, 9, 28, 13], ["Completo italiano", 290, 11, 28, 15], ["Sopaipilla", 380, 6, 45, 19], ["Humita", 150, 3.5, 22, 5],
+  ["Cazuela de vacuno", 70, 5, 8, 2], ["Pastel de choclo", 160, 8, 17, 7], ["Charquicán", 105, 6, 12, 4], ["Pan con palta", 215, 5, 25, 11],
+];
+const normaTxt = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+const CL_INDEX = CL_FOODS.map(([name, kcal, p, c, f]) => ({ id: "cl-" + normaTxt(name).replace(/\W+/g, "-"), name, brand: "Chile · referencia", kcal, p, c, f, serving: 0, src: "local", _n: normaTxt(name) }));
+function buscarLocal(q) {
+  const toks = normaTxt(q).split(/\s+/).filter(Boolean);
+  if (!toks.length) return [];
+  return CL_INDEX.filter((a) => toks.every((t) => a._n.includes(t)))
+    .sort((a, b) => (a._n.startsWith(toks[0]) ? 0 : 1) - (b._n.startsWith(toks[0]) ? 0 : 1) || a.name.length - b.name.length).slice(0, 30);
+}
 const OFF_FIELDS = "code,product_name,product_name_es,brands,nutriments,serving_quantity,quantity";
 const num1 = (v) => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
 function offNormalize(p) {
@@ -17175,13 +17228,17 @@ const FoodLookupSheet = ({ open, onClose, meals, onAdd, toast }) => {
 
   const buscar = async (texto = q, sc = scope) => {
     if (texto.trim().length < 2) return;
-    const id = ++reqId.current; setBusy(true); setMsg(""); setSel(null);
+    const id = ++reqId.current; setBusy(true); setMsg("");
+    const locales = sc === "usda" ? [] : buscarLocal(texto);
+    if (locales.length) setRes(locales);
     try {
       let r = await buscarAlimentos(texto, sc);
       if (id !== reqId.current) return;
-      if (!r.length && sc === "cl") { r = await buscarAlimentos(texto, "world"); if (id !== reqId.current) return; if (r.length) { setScope("world"); setMsg("Sin productos de Chile para esa búsqueda: resultados del mundo."); } }
+      if (!r.length && sc === "cl") { r = await buscarAlimentos(texto, "world"); if (id !== reqId.current) return; if (r.length) setMsg("Sin productos de Chile para esa búsqueda: resultados del mundo."); }
+      const vistos = new Set(locales.map((x) => normaTxt(x.name)));
+      r = [...locales, ...r.filter((x) => !vistos.has(normaTxt(x.name)))];
       setRes(r); if (!r.length) setMsg("Sin resultados.");
-    } catch { if (id === reqId.current) { setRes([]); setMsg("No se pudo consultar la base. Revisa tu conexión."); } }
+    } catch { if (id === reqId.current) { setRes(locales); setMsg(locales.length ? "" : "No se pudo consultar la base. Revisa tu conexión."); } }
     finally { if (id === reqId.current) setBusy(false); }
   };
   const porCodigo = async (c) => {
@@ -17195,6 +17252,17 @@ const FoodLookupSheet = ({ open, onClose, meals, onAdd, toast }) => {
     } catch { setMsg("No se pudo consultar la base. Revisa tu conexión."); }
     finally { setBusy(false); }
   };
+  // Buscar mientras escribes: lo local aparece al instante y la base online se suma enseguida.
+  useEffect(() => {
+    if (!open) return;
+    const t = q.trim();
+    if (t.length < 2) { setRes([]); setMsg(""); return; }
+    const loc = scope === "usda" ? [] : buscarLocal(t);
+    if (loc.length) setRes(loc);
+    const h = setTimeout(() => buscar(t, scope), 400);
+    return () => clearTimeout(h);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, scope, open]);
   const elegir = (a) => { setSel(a); setGrams(String(a.serving || 100)); };
   const g = Math.max(0, num1(grams));
   const m = sel ? macroPorGramos(sel, g) : null;
@@ -17205,7 +17273,7 @@ const FoodLookupSheet = ({ open, onClose, meals, onAdd, toast }) => {
     setSel(null);
   };
   const chip = (id, label) => (
-    <button key={id} onClick={() => { setScope(id); if (q.trim().length >= 2) buscar(q, id); }}
+    <button key={id} onClick={() => setScope(id)}
       style={{ padding: "6px 12px", borderRadius: 20, fontSize: 13, fontWeight: 700, background: scope === id ? P.text : P.s3, color: scope === id ? P.bg : P.dim }}>{label}</button>
   );
 
@@ -17215,7 +17283,7 @@ const FoodLookupSheet = ({ open, onClose, meals, onAdd, toast }) => {
         <div style={{ display: "flex", gap: 8 }}>
           <div style={{ position: "relative", flex: 1 }}>
             <Search size={16} color={P.faint} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }} />
-            <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscar()} placeholder="Buscar alimento o producto" aria-label="Buscar alimento"
+            <input value={q} onChange={(e) => { setQ(e.target.value); setSel(null); }} onKeyDown={(e) => e.key === "Enter" && buscar()} placeholder="Escribe un alimento (ej. pollo, palta, marraqueta)" aria-label="Buscar alimento"
               style={{ width: "100%", padding: "11px 12px 11px 34px", borderRadius: 12, background: P.s3, fontSize: 15 }} />
           </div>
           <button onClick={() => setScan((v) => !v)} aria-label="Escanear código de barras" title="Escanear código de barras"
