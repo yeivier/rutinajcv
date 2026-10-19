@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v425";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v426";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -28521,7 +28521,405 @@ const EASY_TAB_LABELS = { rutina: "Rutinas", agenda: "Agenda", cmas: "Más", nut
    un dato guardado.
    ============================================================ */
 const COMP_PREP_STANDARD_WEEKS = 16;
-const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast }) => {
+/* ============================================================
+   Competición con IA: peak week (copiloto), pump-up, backstage,
+   juez de posing, técnica en video y escáner físico / simetría.
+   Todo orientativo: la IA ve fotogramas sueltos, no al atleta en
+   vivo; no reemplaza al juez ni al coach. Sin fármacos ni
+   deshidratación extrema (ver COMP_AI_RULES).
+   ============================================================ */
+const COMP_AI_RULES = `Reglas: responde SOLO un objeto JSON válido, sin texto fuera del JSON, en español. Sé concreto y honesto sobre la incertidumbre. NUNCA recomiendes diuréticos, fármacos, ni dosis de sustancias, ni deshidratación extrema (no bajar de 3 L de agua al día salvo indicación médica; el sodio nunca en cero). Si no hay datos suficientes para algo, dilo en "notas" en vez de inventar.`;
+const parseJsonLoose = (txt) => {
+  const s = String(txt || "").replace(/```json|```/g, "");
+  const a = s.indexOf("{"), b = s.lastIndexOf("}");
+  if (a < 0 || b <= a) throw new Error("La IA no devolvió un formato legible. Intenta de nuevo.");
+  try { return JSON.parse(s.slice(a, b + 1)); } catch { throw new Error("La IA devolvió un formato roto. Intenta de nuevo."); }
+};
+async function compAI(system, content, { tier = "default", max = 3500 } = {}) {
+  const data = await callClaudeAPI("", { model: AI_MODEL, max_tokens: max, tier, system: system + "\n\n" + COMP_AI_RULES, messages: [{ role: "user", content }] });
+  return parseJsonLoose((data.content || []).map((b) => b.text || "").join(""));
+}
+// Fotogramas repartidos a lo largo de un video (la IA no recibe el video: recibe estas imágenes).
+async function videoFrames(file, n = 8, maxW = 640) {
+  const url = URL.createObjectURL(file);
+  try {
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
+    await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error("No pude leer ese video.")); });
+    const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : 1;
+    const w = Math.min(maxW, v.videoWidth || maxW);
+    const h = Math.round(w * (v.videoHeight || w) / (v.videoWidth || w));
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    const cx = cv.getContext("2d");
+    const frames = [];
+    for (let i = 0; i < n; i++) {
+      const t = dur * (i + 0.5) / n;
+      await new Promise((res) => { v.onseeked = res; v.currentTime = t; setTimeout(res, 2500); });
+      cx.drawImage(v, 0, 0, w, h);
+      frames.push({ t: Math.round(t * 10) / 10, data: cv.toDataURL("image/jpeg", 0.7).split(",")[1] });
+    }
+    return frames;
+  } finally { URL.revokeObjectURL(url); }
+}
+const imgBlock = (data) => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data } });
+async function fotoABloque(file) { const d = await compressImage(file, 1280, 0.8); return imgBlock(d.slice(d.indexOf(",") + 1)); }
+
+// Resultado guardado: en el plan si hay savePlan (coach), si no en el dispositivo (atleta).
+const useCompStore = (plan, savePlan, key) => {
+  const [loc, setLoc] = useState(() => { try { return JSON.parse(localStorage.getItem("forja-comp-" + key)); } catch { return null; } });
+  const val = (plan.compAI && plan.compAI[key]) || loc;
+  const set = (v) => {
+    if (savePlan) savePlan({ ...plan, compAI: { ...(plan.compAI || {}), [key]: v } });
+    else { setLoc(v); try { localStorage.setItem("forja-comp-" + key, JSON.stringify(v)); } catch {} }
+  };
+  return [val, set];
+};
+const compCtx = (plan, history) => {
+  const a = plan.athlete || {}; const n = plan.nutrition || {};
+  const kg = ((history && history.bodyweight) || []).slice(-1)[0];
+  return `Atleta: peso ${kg ? kg.kg + " kg" : "sin dato"}, categoría ${a.category || "sin elegir"}, fase ${a.phase || "?"}, nivel ${a.level || "?"}, competencia ${a.compDate || "sin fecha"}, lesiones ${a.injuries || "ninguna"}. Macros actuales del plan: ${n.kcal || "?"} kcal, P ${n.p || "?"} C ${n.c || "?"} G ${n.f || "?"}.`;
+};
+
+const CompBusyBtn = ({ busy, onClick, Icon, label, disabled }) => (
+  <button onClick={onClick} disabled={busy || disabled} aria-label={label} title={label}
+    style={{ height: 50, borderRadius: 25, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontWeight: 700, fontSize: 15, opacity: disabled ? .5 : 1 }}>
+    {busy ? <Loader2 size={20} style={{ animation: "fjSpin 1s linear infinite" }} /> : <Icon size={20} />}
+  </button>
+);
+const CompErr = ({ msg }) => msg ? <div style={{ fontSize: 13.5, color: P.red, lineHeight: 1.4 }}>{msg}</div> : null;
+const CompNote = ({ children }) => <div style={{ fontSize: 12, color: P.faint2, lineHeight: 1.45 }}>{children}</div>;
+const ScoreRing = ({ value, max = 100, label }) => (
+  <div style={{ textAlign: "center" }}>
+    <div className="mono" style={{ fontSize: 34, fontWeight: 800, color: P.text, lineHeight: 1 }}>{value}<span style={{ fontSize: 14, color: P.faint }}>/{max}</span></div>
+    {label && <div style={{ fontSize: 11.5, color: P.faint, marginTop: 4, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>}
+  </div>
+);
+const sevColor = (s) => (s === "alta" ? P.red : s === "media" ? P.ember : P.faint);
+const CompList = ({ title, items, color }) => (items && items.length) ? (
+  <div>
+    <div style={{ fontSize: 12, fontWeight: 700, color: P.faint2, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{title}</div>
+    {items.map((t, i) => <div key={i} style={{ fontSize: 14, color: color || P.dim, lineHeight: 1.45, padding: "3px 0" }}>· {typeof t === "string" ? t : JSON.stringify(t)}</div>)}
+  </div>
+) : null;
+
+/* ---- Peak week: copiloto día por día ---- */
+const PeakWeekCopilot = ({ plan, history, savePlan }) => {
+  const [pk, setPk] = useCompStore(plan, savePlan, "peak");
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [fb, setFb] = useState("");
+  const a = plan.athlete || {};
+  const generar = async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await compAI(
+        `Eres un preparador de físico-culturismo experimentado. Diseña o ajusta la PEAK WEEK día por día (de -7 a 0 = día del show) con water load moderado, sodio, potasio, carbohidratos y entrenamiento. Formato: {"dias":[{"d":-7,"etiqueta":"Lun","agua_l":number,"sodio_mg":number,"potasio_mg":number,"carbos_g":number,"proteina_g":number,"grasa_g":number,"entreno":"texto","notas":"por qué, en una línea"}],"notas":"advertencias y qué vigilar"}`,
+        `${compCtx(plan, history)}\nPlan anterior: ${pk ? JSON.stringify(pk.dias) : "ninguno"}\nCómo se siente/ve hoy el atleta: ${fb || "sin novedades"}\nSi hay plan anterior, ajusta solo los días que faltan según lo que cuenta el atleta.`,
+        { tier: "deep", max: 4500 });
+      if (!Array.isArray(r.dias) || !r.dias.length) throw new Error("La IA no devolvió días. Intenta de nuevo.");
+      setPk({ ...r, at: todayISO() }); setFb("");
+    } catch (e) { setErr(e.message || "Falló la IA."); } finally { setBusy(false); }
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {!a.compDate && <CompNote>Sin fecha de competencia cargada: la IA asumirá que el día 0 es el show. Cárgala en el perfil del atleta para mayor precisión.</CompNote>}
+      {pk && pk.dias && (
+        <Card style={{ overflow: "hidden" }}>
+          {pk.dias.map((d, i) => (
+            <div key={i} style={{ padding: "12px 14px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: P.text }}>{d.d === 0 ? "Show" : `${d.d}`} {d.etiqueta ? `· ${d.etiqueta}` : ""}</span>
+                <span className="mono" style={{ fontSize: 12, color: P.faint }}>{d.agua_l} L · Na {d.sodio_mg} · K {d.potasio_mg}</span>
+              </div>
+              <div className="mono" style={{ fontSize: 12.5, color: P.dim, marginTop: 3 }}>C {d.carbos_g} · P {d.proteina_g} · G {d.grasa_g}</div>
+              {d.entreno && <div style={{ fontSize: 13, color: P.dim, marginTop: 4 }}>{d.entreno}</div>}
+              {d.notas && <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2, lineHeight: 1.4 }}>{d.notas}</div>}
+            </div>
+          ))}
+        </Card>
+      )}
+      {pk && pk.notas && <CompNote>{pk.notas}</CompNote>}
+      <textarea value={fb} onChange={(e) => setFb(e.target.value)} placeholder={pk ? "¿Cómo amaneciste? (plano, lleno, peso, hinchazón…)" : "Contexto opcional"} rows={2}
+        style={{ width: "100%", padding: "10px 12px", borderRadius: 12, background: P.s3, fontSize: 14, resize: "none" }} />
+      <CompBusyBtn busy={busy} onClick={generar} Icon={pk ? RefreshCw : Sparkles} label={pk ? "Ajustar peak week" : "Generar peak week"} />
+      <CompErr msg={err} />
+      <CompNote>Referencial. Confírmalo con tu coach: la peak week mal hecha puede afectar tu salud.</CompNote>
+    </div>
+  );
+};
+
+/* ---- Pump-up optimizer ---- */
+const PumpUpOptimizer = ({ plan, history, savePlan }) => {
+  const [pu, setPu] = useCompStore(plan, savePlan, "pump");
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [eq, setEq] = useState("bandas y mancuernas livianas");
+  const generar = async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await compAI(
+        `Diseña el pump-up pre-escenario (backstage). Formato: {"pasos":[{"t":"T-45","ejercicio":"","series_reps":"","carga":"muy liviana","musculo":"","razon":""}],"notas":""}. Ejercicios simples, sin fatiga, con tiempos (T-minutos antes de salir a escena) y la razón de cada uno, adaptados a la categoría.`,
+        `${compCtx(plan, history)}\nEquipo disponible backstage: ${eq}.`, { tier: "default", max: 2500 });
+      if (!Array.isArray(r.pasos) || !r.pasos.length) throw new Error("La IA no devolvió pasos. Intenta de nuevo.");
+      setPu({ ...r, at: todayISO() });
+    } catch (e) { setErr(e.message || "Falló la IA."); } finally { setBusy(false); }
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <input value={eq} onChange={(e) => setEq(e.target.value)} aria-label="Equipo disponible backstage" placeholder="Equipo disponible"
+        style={{ padding: "10px 12px", borderRadius: 12, background: P.s3, fontSize: 14 }} />
+      {pu && pu.pasos && (
+        <Card style={{ overflow: "hidden" }}>
+          {pu.pasos.map((s, i) => (
+            <div key={i} style={{ display: "flex", gap: 12, padding: "12px 14px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+              <span className="mono" style={{ width: 44, flexShrink: 0, fontSize: 13, fontWeight: 800, color: P.ember }}>{s.t}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: P.text }}>{s.ejercicio}</div>
+                <div style={{ fontSize: 12.5, color: P.faint }}>{s.series_reps}{s.carga ? ` · ${s.carga}` : ""}{s.musculo ? ` · ${s.musculo}` : ""}</div>
+                {s.razon && <div style={{ fontSize: 13, color: P.dim, marginTop: 2, lineHeight: 1.4 }}>{s.razon}</div>}
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+      {pu && pu.notas && <CompNote>{pu.notas}</CompNote>}
+      <CompBusyBtn busy={busy} onClick={generar} Icon={pu ? RefreshCw : Zap} label={pu ? "Regenerar pump-up" : "Generar pump-up"} />
+      <CompErr msg={err} />
+    </div>
+  );
+};
+
+/* ---- Backstage run-sheet: línea de tiempo por desfase respecto de la salida a escena ---- */
+const BACKSTAGE_TEMPLATE = [
+  [-300, "Despertar y desayuno ligero ya probado (nada nuevo)"],
+  [-240, "Llegar al recinto: registro, número y credencial"],
+  [-210, "Ubicar camerino y espacio de pump-up; guardar bolso"],
+  [-180, "Color/bronceado: capa final y repaso de zonas"],
+  [-150, "Última comida de carbohidratos controlada (los alimentos de la prueba)"],
+  [-120, "Movilidad y calentamiento suave"],
+  [-90, "Vestuario (trusa) y ajuste; revisar pelo y uñas"],
+  [-75, "Pump-up, fase 1"],
+  [-45, "Pump-up, fase 2; sorbos de agua, sin excesos"],
+  [-30, "Aceite ligero y ropa de tarima; revisar número visible"],
+  [-20, "Fila backstage; ubicar a tu coach"],
+  [-10, "Poses de calentamiento y control"],
+  [-5, "Respirar, soltar hombros, repasar la secuencia"],
+  [0, "A escena"],
+];
+const fmtHM = (min) => `${String(Math.floor(((min % 1440) + 1440) % 1440 / 60)).padStart(2, "0")}:${String((((min % 60) + 60) % 60)).padStart(2, "0")}`;
+const hmToMin = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ""); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+const BackstageRunSheet = ({ plan, savePlan }) => {
+  const [st, setSt] = useCompStore(plan, savePlan, "backstage"); // { hora, hechos:[] }
+  const hora = (st && st.hora) || "14:00";
+  const hechos = (st && st.hechos) || [];
+  const base = hmToMin(hora);
+  const upd = (patch) => setSt({ hora, hechos, ...(st || {}), ...patch });
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Timer size={20} color={P.faint} />
+        <input type="time" value={hora} onChange={(e) => upd({ hora: e.target.value })} aria-label="Hora de salida a escena"
+          style={{ padding: "9px 12px", borderRadius: 12, background: P.s3, fontSize: 17, fontWeight: 700 }} />
+        <span style={{ fontSize: 12.5, color: P.faint }}>salida a escena</span>
+      </div>
+      <Card style={{ overflow: "hidden" }}>
+        {BACKSTAGE_TEMPLATE.map(([off, txt], i) => {
+          const done = hechos.includes(off);
+          return (
+            <button key={off} onClick={() => upd({ hechos: done ? hechos.filter((x) => x !== off) : [...hechos, off] })} aria-pressed={done}
+              style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+              <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `1.5px solid ${P.chevron}` }}>
+                {done && <Check size={13} color={PLATE_FG} strokeWidth={3} />}
+              </span>
+              <span className="mono" style={{ width: 52, flexShrink: 0, fontSize: 12.5, fontWeight: 800, color: P.ember }}>{off === 0 ? "T-0" : `T${off > 0 ? "+" : "-"}${Math.abs(off) >= 60 && Math.abs(off) % 60 === 0 ? Math.abs(off) / 60 + "h" : Math.abs(off) + "m"}`}</span>
+              <span style={{ flex: 1, fontSize: 14, color: done ? P.faint : P.text, textDecoration: done ? "line-through" : "none", lineHeight: 1.35 }}>{txt}</span>
+              <span className="mono" style={{ fontSize: 12.5, color: P.faint, flexShrink: 0 }}>{base != null ? fmtHM(base + off) : ""}</span>
+            </button>
+          );
+        })}
+      </Card>
+      <CompNote>Adapta los horarios al itinerario del evento; los tiempos son una guía típica.</CompNote>
+    </div>
+  );
+};
+
+/* ---- Análisis visual: video (posing / técnica) y fotos (físico / simetría) ---- */
+const POSING_SCHEMA = `{"puntaje_general":0-100,"poses":[{"pose":"","puntaje":0-10,"deducciones":[""],"correccion":""}],"fortalezas":[""],"poses_debiles":[""],"notas":""}`;
+const VideoJudge = ({ plan, history }) => {
+  const [modo, setModo] = useState("posing"); // posing | tecnica
+  const [cat, setCat] = useState(POSING_CATEGORIES[1].id);
+  const [ejer, setEjer] = useState("");
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [res, setRes] = useState(null); const [prog, setProg] = useState("");
+  const fileRef = useRef(null);
+  const catObj = POSING_CATEGORIES.find((c) => c.id === cat) || POSING_CATEGORIES[0];
+  const analizar = async (file) => {
+    if (!file) return;
+    setBusy(true); setErr(""); setRes(null);
+    try {
+      setProg("Extrayendo fotogramas…");
+      const frames = await videoFrames(file, 8);
+      const blocks = [];
+      frames.forEach((f, i) => { blocks.push({ type: "text", text: `Fotograma ${i + 1} (t=${f.t}s)` }); blocks.push(imgBlock(f.data)); });
+      setProg("Analizando con IA…");
+      let r;
+      if (modo === "posing") {
+        blocks.push({ type: "text", text: `Categoría: ${catObj.name}. Poses obligatorias: ${catObj.poses.join(", ")}.\n${compCtx(plan, history)}\nEvalúa como un juez de tarima SOLO lo observable en estos fotogramas (no inventes poses que no se vean). Si una pose obligatoria no aparece, indícalo en "poses_debiles". Formato: ${POSING_SCHEMA}` });
+        r = await compAI("Eres un juez internacional de culturismo (criterios IFBB/NPC): simetría, proporción, condición, presentación, transiciones y ejecución de poses.", blocks, { tier: "deep", max: 3500 });
+      } else {
+        blocks.push({ type: "text", text: `Ejercicio: ${ejer || "(infiérelo del video)"}.\nEvalúa la técnica SOLO con lo observable en los fotogramas (rango de movimiento, trayectoria, postura de columna, hombros/rodillas, control). Formato: {"ejercicio":"","puntaje_tecnica":0-100,"errores":[{"error":"","severidad":"baja|media|alta","correccion":""}],"bien":[""],"cues":[""],"notas":""}` });
+        r = await compAI("Eres un entrenador biomecánico de fuerza e hipertrofia con ojo clínico para la técnica.", blocks, { tier: "deep", max: 3000 });
+      }
+      setRes(r);
+    } catch (e) { setErr(e.message || "No pude analizar el video."); } finally { setBusy(false); setProg(""); }
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", gap: 6 }}>
+        {[["posing", "Posing"], ["tecnica", "Técnica"]].map(([k, l]) => (
+          <button key={k} onClick={() => { setModo(k); setRes(null); }} style={{ padding: "7px 14px", borderRadius: 20, fontSize: 13.5, fontWeight: 700, background: modo === k ? P.text : P.s3, color: modo === k ? P.bg : P.dim }}>{l}</button>
+        ))}
+      </div>
+      {modo === "posing" ? (
+        <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Categoría de posing" style={{ padding: "10px 12px", borderRadius: 12, background: P.s3, fontSize: 14.5, fontWeight: 600, appearance: "auto" }}>
+          {POSING_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      ) : (
+        <input value={ejer} onChange={(e) => setEjer(e.target.value)} placeholder="Ejercicio (opcional)" aria-label="Ejercicio" style={{ padding: "10px 12px", borderRadius: 12, background: P.s3, fontSize: 14.5 }} />
+      )}
+      <input ref={fileRef} type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; analizar(f); }} />
+      <CompBusyBtn busy={busy} onClick={() => fileRef.current && fileRef.current.click()} Icon={Video} label="Subir video y analizar" />
+      {prog && <CompNote>{prog}</CompNote>}
+      <CompErr msg={err} />
+      {res && modo === "posing" && (
+        <Card style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+          <ScoreRing value={res.puntaje_general ?? "—"} label="Score general" />
+          {(res.poses || []).map((p, i) => (
+            <div key={i} style={{ borderTop: `1px solid ${P.line}`, paddingTop: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 14.5, fontWeight: 700, color: P.text }}>{p.pose}</span><span className="mono" style={{ fontWeight: 800, color: P.text }}>{p.puntaje}/10</span></div>
+              {(p.deducciones || []).map((d, k) => <div key={k} style={{ fontSize: 13, color: P.red, lineHeight: 1.4 }}>− {d}</div>)}
+              {p.correccion && <div style={{ fontSize: 13, color: P.dim, marginTop: 2 }}>→ {p.correccion}</div>}
+            </div>
+          ))}
+          <CompList title="Poses débiles" items={res.poses_debiles} color={P.ember} />
+          <CompList title="Fortalezas" items={res.fortalezas} />
+          {res.notas && <CompNote>{res.notas}</CompNote>}
+        </Card>
+      )}
+      {res && modo === "tecnica" && (
+        <Card style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+          <ScoreRing value={res.puntaje_tecnica ?? "—"} label={res.ejercicio || "Técnica"} />
+          {(res.errores || []).map((e, i) => (
+            <div key={i} style={{ borderTop: `1px solid ${P.line}`, paddingTop: 10 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 700, color: sevColor(e.severidad) }}>{e.error} <span style={{ fontSize: 11, textTransform: "uppercase" }}>{e.severidad}</span></div>
+              {e.correccion && <div style={{ fontSize: 13, color: P.dim }}>→ {e.correccion}</div>}
+            </div>
+          ))}
+          <CompList title="Bien" items={res.bien} />
+          <CompList title="Cues" items={res.cues} />
+          {res.notas && <CompNote>{res.notas}</CompNote>}
+        </Card>
+      )}
+      <CompNote>La IA analiza fotogramas sueltos del video: orientativo, no sustituye a un juez ni a tu coach.</CompNote>
+    </div>
+  );
+};
+
+const PhysiqueScanner = ({ plan, history }) => {
+  const [modo, setModo] = useState("fisico"); // fisico | simetria
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [res, setRes] = useState(null);
+  const fileRef = useRef(null);
+  const analizar = async (files) => {
+    if (!files.length) return;
+    setBusy(true); setErr(""); setRes(null);
+    try {
+      const blocks = [];
+      for (const f of files.slice(0, 3)) blocks.push(await fotoABloque(f));
+      let r;
+      if (modo === "fisico") {
+        blocks.push({ type: "text", text: `${compCtx(plan, history)}\nEvalúa el físico en la(s) foto(s). Formato: {"score":0-100,"grasa_estimada":"rango % y confianza","puntos_debiles":[{"musculo":"","nota":""}],"fortalezas":[""],"plan":[{"enfoque":"","accion":""}],"notas":""}` });
+        r = await compAI("Eres un juez y preparador de físico-culturismo. Evalúas desarrollo, proporciones y condición solo con lo visible; la grasa corporal es una estimación visual con margen de error amplio.", blocks, { tier: "deep", max: 3000 });
+      } else {
+        blocks.push({ type: "text", text: `Analiza asimetrías izquierda/derecha visibles (hombros, pecho, brazos, dorsales, cintura, cuádriceps, pantorrillas), distinguiendo las que pueden venir de la postura o el ángulo de la foto. Formato: {"score_simetria":0-100,"asimetrias":[{"region":"","lado_mayor":"izquierdo|derecho","severidad":"baja|media|alta","nota":""}],"plan":[""],"notas":""}` });
+        r = await compAI("Eres un evaluador de simetría muscular para culturismo. No exageres: solo señala lo que se ve con claridad.", blocks, { tier: "deep", max: 2500 });
+      }
+      setRes(r);
+    } catch (e) { setErr(e.message || "No pude analizar las fotos."); } finally { setBusy(false); }
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", gap: 6 }}>
+        {[["fisico", "Físico"], ["simetria", "Simetría"]].map(([k, l]) => (
+          <button key={k} onClick={() => { setModo(k); setRes(null); }} style={{ padding: "7px 14px", borderRadius: 20, fontSize: 13.5, fontWeight: 700, background: modo === k ? P.text : P.s3, color: modo === k ? P.bg : P.dim }}>{l}</button>
+        ))}
+      </div>
+      <CompNote>{modo === "fisico" ? "Foto de cuerpo completo, buena luz, relajado de frente (puedes sumar espalda y lado)." : "Frontal y posterior, misma distancia y postura, sin flexionar."}</CompNote>
+      <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { const fs = [...(e.target.files || [])]; e.target.value = ""; analizar(fs); }} />
+      <CompBusyBtn busy={busy} onClick={() => fileRef.current && fileRef.current.click()} Icon={ScanFace} label="Subir fotos y analizar" />
+      <CompErr msg={err} />
+      {res && modo === "fisico" && (
+        <Card style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+          <ScoreRing value={res.score ?? "—"} label="Physique score" />
+          {res.grasa_estimada && <div style={{ textAlign: "center", fontSize: 13.5, color: P.dim }}>Grasa estimada: {res.grasa_estimada}</div>}
+          {(res.puntos_debiles || []).length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: P.faint2, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Puntos débiles</div>
+              {res.puntos_debiles.map((w, i) => <div key={i} style={{ fontSize: 14, color: P.dim, padding: "3px 0" }}><b style={{ color: P.ember }}>{w.musculo}</b> — {w.nota}</div>)}
+            </div>
+          )}
+          <CompList title="Fortalezas" items={res.fortalezas} />
+          {(res.plan || []).length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: P.faint2, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Plan dirigido</div>
+              {res.plan.map((x, i) => <div key={i} style={{ fontSize: 14, color: P.dim, padding: "3px 0" }}><b style={{ color: P.text }}>{x.enfoque}</b> — {x.accion}</div>)}
+            </div>
+          )}
+          {res.notas && <CompNote>{res.notas}</CompNote>}
+        </Card>
+      )}
+      {res && modo === "simetria" && (
+        <Card style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+          <ScoreRing value={res.score_simetria ?? "—"} label="Simetría" />
+          {(res.asimetrias || []).length === 0 && <div style={{ textAlign: "center", fontSize: 13.5, color: P.dim }}>No se ven asimetrías claras.</div>}
+          {(res.asimetrias || []).map((x, i) => (
+            <div key={i} style={{ borderTop: `1px solid ${P.line}`, paddingTop: 10 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 700, color: sevColor(x.severidad) }}>{x.region} · mayor {x.lado_mayor} <span style={{ fontSize: 11, textTransform: "uppercase" }}>{x.severidad}</span></div>
+              {x.nota && <div style={{ fontSize: 13, color: P.dim }}>{x.nota}</div>}
+            </div>
+          ))}
+          <CompList title="Plan" items={res.plan} />
+          {res.notas && <CompNote>{res.notas}</CompNote>}
+        </Card>
+      )}
+      <CompNote>Estimación visual orientativa; la postura y el ángulo de la foto cambian el resultado.</CompNote>
+    </div>
+  );
+};
+
+// Exporta peak week, día del show y backstage a un .ics para el calendario del teléfono.
+const icsEscape = (s) => String(s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\;");
+function buildCompICS(plan) {
+  const a = plan.athlete || {}; const ai = plan.compAI || {};
+  if (!a.compDate) return null;
+  const day = parseDate(a.compDate);
+  const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  const ymdhm = (d) => `${ymd(d)}T${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}00`;
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+  const ev = [];
+  const push = (uid_, start, end, title, desc, allDay) => ev.push(["BEGIN:VEVENT", `UID:${uid_}@forja`, `DTSTAMP:${stamp}`,
+    allDay ? `DTSTART;VALUE=DATE:${ymd(start)}` : `DTSTART:${ymdhm(start)}`, allDay ? `DTEND;VALUE=DATE:${ymd(end)}` : `DTEND:${ymdhm(end)}`,
+    `SUMMARY:${icsEscape(title)}`, desc ? `DESCRIPTION:${icsEscape(desc)}` : null, "END:VEVENT"].filter(Boolean).join("\r\n"));
+  const next = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+  push("show-" + a.compDate, day, next(day), `Competencia${a.category ? " · " + a.category : ""}`, "", true);
+  ((ai.peak && ai.peak.dias) || []).forEach((d, i) => {
+    if (d.d === 0) return;
+    const dd = new Date(day.getFullYear(), day.getMonth(), day.getDate() + d.d);
+    push(`peak-${a.compDate}-${i}`, dd, next(dd), `Peak week ${d.d}`, `Agua ${d.agua_l} L · Na ${d.sodio_mg} mg · K ${d.potasio_mg} mg · C ${d.carbos_g} g · P ${d.proteina_g} g · G ${d.grasa_g} g\n${d.entreno || ""}\n${d.notas || ""}`, true);
+  });
+  const bs = ai.backstage; const base = bs && hmToMin(bs.hora);
+  if (base != null) BACKSTAGE_TEMPLATE.forEach(([off, txt], i) => {
+    const t = base + off; const s = new Date(day.getFullYear(), day.getMonth(), day.getDate(), Math.floor(t / 60), t % 60);
+    push(`bs-${a.compDate}-${i}`, s, new Date(s.getTime() + 15 * 60000), `Backstage · ${txt}`, "", false);
+  });
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//FORJA//Competicion//ES", "CALSCALE:GREGORIAN", ...ev, "END:VCALENDAR"].join("\r\n");
+}
+
+const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast, history }) => {
   const [sub, setSub] = useState("categoria");
   const a = plan.athlete || {};
   const compDate = a.compDate ? parseDate(a.compDate) : null;
@@ -28536,6 +28934,15 @@ const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast }) => {
     const nueva = a.category === id ? "" : id;
     savePlan({ ...plan, athlete: { ...(plan.athlete || {}), category: nueva } });
     toast && toast(nueva ? "Categoría guardada" : "Categoría quitada");
+  };
+  const exportarICS = () => {
+    const ics = buildCompICS(plan);
+    if (!ics) return;
+    const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+    const el = document.createElement("a"); el.href = url; el.download = "competencia-forja.ics";
+    document.body.appendChild(el); el.click(); el.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast && toast("Calendario exportado");
   };
   return (
     <Sheet open={open} onClose={onClose} title="Competition Prep" tall>
@@ -28554,7 +28961,14 @@ const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast }) => {
           </Card>
         )}
 
-        <SectionSwitch value={sub} onChange={setSub} items={[{ id: "categoria", label: "Categoría" }, { id: "peak", label: "Peak week" }]} />
+        <div style={{ display: "flex", gap: 6, background: P.s3, borderRadius: 16, padding: 4 }}>
+          {[["categoria", Medal, "Categoría"], ["peak", Droplet, "Peak week"], ["pump", Zap, "Pump-up"], ["backstage", Timer, "Backstage"], ["video", Video, "Juez de video"], ["scan", ScanFace, "Escáner físico"]].map(([id, Ic, lb]) => (
+            <button key={id} onClick={() => setSub(id)} aria-label={lb} title={lb} aria-pressed={sub === id}
+              style={{ flex: 1, height: 40, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", background: sub === id ? P.bg : "transparent", color: sub === id ? P.text : P.faint }}>
+              <Ic size={19} />
+            </button>
+          ))}
+        </div>
 
         {sub === "categoria" && (
           <Card style={{ overflow: "hidden" }}>
@@ -28573,6 +28987,11 @@ const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast }) => {
             ))}
           </Card>
         )}
+        {sub === "peak" && <PeakWeekCopilot plan={plan} history={history} savePlan={savePlan} />}
+        {sub === "pump" && <PumpUpOptimizer plan={plan} history={history} savePlan={savePlan} />}
+        {sub === "backstage" && <BackstageRunSheet plan={plan} savePlan={savePlan} />}
+        {sub === "video" && <VideoJudge plan={plan} history={history} />}
+        {sub === "scan" && <PhysiqueScanner plan={plan} history={history} />}
         {sub === "peak" && (
           <Card style={{ overflow: "hidden" }}>
             {BB_PEAK_WEEK.map((tip, i) => (
@@ -28582,6 +29001,12 @@ const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast }) => {
               </div>
             ))}
           </Card>
+        )}
+        {a.compDate && (
+          <button onClick={exportarICS} aria-label="Exportar a calendario (.ics)" title="Exportar a calendario (.ics)"
+            style={{ alignSelf: "center", display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 22, background: P.s3, color: P.dim, fontSize: 13.5, fontWeight: 700 }}>
+            <Calendar size={17} /> .ics
+          </button>
         )}
       </div>
     </Sheet>
@@ -33835,7 +34260,7 @@ const App = () => {
             onOpenNutrition={() => setTab("nutricion")} onOpenExams={() => setExamsOpen(true)}
             onOpenPhotos={() => setPhotosOpen(true)} />
         )}
-        <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} savePlan={savePlan} toast={toast} />
+        <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} savePlan={savePlan} toast={toast} history={history} />
         <ExerciseAtlasSheet open={atlasOpen} onClose={() => setAtlasOpen(false)} library={library} plan={plan} initialQuery={atlasInitialQuery} />
         {/* Suplementación abre la analítica sin cerrarse: el seguimiento
             médico es justamente el puente entre las dos. */}
