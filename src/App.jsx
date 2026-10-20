@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v436";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v437";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -16559,12 +16559,97 @@ const PROGRESO_SUB_ITEMS = [
   { id: "resumen", label: "Resumen", Icon: LayoutGrid }, { id: "fuerza", label: "Fuerza", Icon: Dumbbell }, { id: "cuerpo", label: "Cuerpo", Icon: Scale },
   { id: "volumen", label: "Volumen", Icon: BarChart3 }, { id: "logros", label: "Logros", Icon: Trophy }, { id: "historial", label: "Historial", Icon: History },
 ];
-const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, onOpenCheckin }) => {
+/* ---- Registros: ver y eliminar datos guardados (peso, medidas, fotos, sueño…) ---- */
+const REG_CATS = [
+  { k: "bodyweight", label: "Peso corporal", Icon: Scale, fmt: (e) => `${kg(e.kg)} kg` },
+  { k: "measurements", label: "Medidas", Icon: Ruler, fmt: (e) => `${Object.keys(e.values || {}).length} medidas` },
+  { k: "bodyPhotos", label: "Fotos y videos", Icon: Camera, fmt: (e) => ({ frontal: "Frontal", lateral: "Lateral", posterior: "Posterior", video: "Video de posing" }[e.angle] || "Foto"), thumb: true },
+  { k: "sleep", label: "Sueño", Icon: Moon, fmt: (e) => `${kg(e.hours)} h` },
+  { k: "steps", label: "Pasos", Icon: Footprints, fmt: (e) => Math.round(e.count || 0).toLocaleString("es-CL") },
+  { k: "recovery", label: "Cuestionarios de recuperación", Icon: HeartPulse, fmt: (e) => (e.comment ? String(e.comment).slice(0, 40) : "Cuestionario") },
+  { k: "physiqueScans", label: "Análisis de físico", Icon: ScanFace, fmt: (e) => `${e.general}/10` },
+  { k: "labs", label: "Analíticas", Icon: Droplet, fmt: (e) => `${Object.keys(e.values || {}).filter((x) => e.values[x] !== "").length} marcadores` },
+];
+const RegThumb = ({ id }) => {
+  const [m, setM] = useState(null);
+  useEffect(() => { let on = true; sGet(`attach:${id}`).then((v) => on && setM(v || null)).catch(() => {}); return () => { on = false; }; }, [id]);
+  return (
+    <span style={{ width: 38, height: 38, borderRadius: 8, overflow: "hidden", background: P.s3, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {m && (m.poster || (m.kind !== "video" && m.dataUrl)) ? <img src={m.poster || m.dataUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Camera size={16} color={P.faint} />}
+    </span>
+  );
+};
+const RegistrosSheet = ({ open, onClose, history, saveHistory, toast }) => {
+  const [openCat, setOpenCat] = useState(null);
+  const [del, setDel] = useState(null); // { k, idx, label }
+  const h = history || {};
+  const borrar = async () => {
+    if (!del || !saveHistory) { setDel(null); return; }
+    const nh = structuredClone(h);
+    const arr = nh[del.k] || [];
+    const e = arr[del.idx];
+    nh[del.k] = arr.filter((_, i) => i !== del.idx);
+    // fotos y adjuntos de esa entrada
+    const ids = [];
+    if (del.k === "bodyPhotos" && e && e.id) ids.push(e.id);
+    if (del.k === "recovery" && e && Array.isArray(e.attachIds)) ids.push(...e.attachIds);
+    saveHistory(nh);
+    for (const id of ids) { try { await sDel(`attach:${id}`); } catch {} }
+    toast && toast("Registro eliminado");
+    setDel(null);
+  };
+  return (
+    <Sheet open={open} onClose={onClose} title="Registros" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {REG_CATS.map((c) => {
+          const arr = h[c.k] || [];
+          const on = openCat === c.k;
+          return (
+            <div key={c.k} style={{ background: P.s1, borderRadius: 14, overflow: "hidden" }}>
+              <button onClick={() => setOpenCat(on ? null : c.k)} aria-expanded={on}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", textAlign: "left" }}>
+                <c.Icon size={20} color={P.text} />
+                <span style={{ flex: 1, fontSize: 15.5, fontWeight: 600, color: P.text }}>{c.label}</span>
+                <span className="mono" style={{ fontSize: 13, color: P.faint }}>{arr.length}</span>
+                <ChevronDown size={16} color={P.faint} style={{ transform: on ? "rotate(180deg)" : "none" }} />
+              </button>
+              {on && (
+                <div style={{ borderTop: `1px solid ${P.line}` }}>
+                  {arr.length === 0 && <div style={{ padding: "14px", fontSize: 13.5, color: P.faint }}>Sin registros.</div>}
+                  {arr.map((e, i) => ({ e, i })).reverse().slice(0, 60).map(({ e, i }) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderTop: `1px solid ${P.line}` }}>
+                      {c.thumb && e.id && <RegThumb id={e.id} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14.5, fontWeight: 600, color: P.text }}>{c.fmt(e)}</div>
+                        <div style={{ fontSize: 12, color: P.faint }}>{fmtDateFull(e.date)}</div>
+                      </div>
+                      <button onClick={() => setDel({ k: c.k, idx: i, label: `${c.fmt(e)} · ${fmtDate(e.date)}` })} aria-label={`Eliminar ${c.label} ${fmtDate(e.date)}`} title="Eliminar"
+                        style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", color: P.red, background: P.s3, flexShrink: 0 }}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <div style={{ fontSize: 12, color: P.faint2, lineHeight: 1.4, padding: "4px 2px" }}>Las sesiones de entrenamiento se eliminan desde Progreso › Historial, y los exámenes desde Más › Exámenes con IA.</div>
+      </div>
+      <Confirm open={!!del} danger title="Eliminar registro" okLabel="Eliminar"
+        body={del ? `Se borra «${del.label}» de forma definitiva. No se puede deshacer.` : ""}
+        onOk={borrar} onCancel={() => setDel(null)} />
+    </Sheet>
+  );
+};
+
+const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, onOpenCheckin, toast }) => {
   const [sub, setSub] = useState("fuerza");
   const [exId, setExId] = useState("");
   const [measureOpen, setMeasureOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [regOpen, setRegOpen] = useState(false);
   // Permite abrir esta pestaña directo en una sub-sección (p.ej. desde las
   // fichas de Hoy: tocar "Peso corporal" cae en "Cuerpo", "Volumen sem."
   // cae en "Volumen"), igual que ya hace AITab con jumpSub/onJumpConsumed.
@@ -16680,6 +16765,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           <RowGroup label="Cuerpo" rows={[
             { label: "Medidas", value: lastMeasure ? daysAgoLabel(lastMeasure.date) : "—", onClick: () => setMeasureOpen(true) },
             { label: "Fotos", value: photos.length ? String(photos.length) : "—", onClick: () => setCompareOpen(true) },
+            { label: "Registros", value: "Ver y eliminar", onClick: () => setRegOpen(true) },
             // Mismo criterio que la lista de Atletas del coach (v201):
             // verde solo cuando es buena (≥70%), gris el resto — nunca en
             // rojo de alarma. El mismo dato se lee igual en los dos lados.
@@ -16717,6 +16803,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
       <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} measurements={history.measurements || []} />
       <PhotoCompareSheet open={compareOpen} onClose={() => setCompareOpen(false)} photos={photos} bodyweight={bwEntries} />
       <HealthDashboardSheet open={dashboardOpen} onClose={() => setDashboardOpen(false)} history={history} />
+      <RegistrosSheet open={regOpen} onClose={() => setRegOpen(false)} history={history} saveHistory={saveHistory} toast={toast} />
     </div>
   );
 };
@@ -34801,7 +34888,7 @@ const App = () => {
             onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} sid={sid} library={library} />
         )}
         {tab === "progreso" && (
-          <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
+          <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory} toast={toast}
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             jumpSub={progressJumpSub} onJumpConsumed={() => setProgressJumpSub(null)} />
         )}
