@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v435";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v436";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -20205,10 +20205,8 @@ const RoutineTabMono = (props) => {
   );
 };
 
-const RoutineTabRouter = (props) => {
-  const [view] = useRoutineView();
-  return view === "compacto" ? <RoutineTabMono {...props} /> : <RoutineTab {...props} />;
-};
+// Un solo editor de rutina (el «Completo»). El selector Completo/Compacto de Ajustes se eliminó.
+const RoutineTabRouter = (props) => <RoutineTab {...props} />;
 
 /* ============================================================
    MODO COACH — nutrición e indicaciones
@@ -27954,7 +27952,7 @@ const GlobalSearchSheet = ({ open, onClose, items }) => {
   );
 };
 
-const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha, sid, plan, savePlan, onDeleteAccount }) => {
+const MoreSheet = ({ open, onClose, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, onOpenUtility, onOpenRoster, onOpenTeam, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha, sid, plan, savePlan, onDeleteAccount }) => {
   const [theme, setTheme] = useTheme();
   const [accent, setAccent] = useAccent();
   const [bg, setBg] = useBg();
@@ -28018,14 +28016,14 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 17, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{studentName || "—"}</div>
-          <div style={{ fontSize: 13, color: P.faint }}>{isDelegate ? "perfil con acceso" : `modo ${mode}`}</div>
+          <div style={{ fontSize: 13, color: P.faint }}>{isDelegate ? "perfil con acceso" : "entrenador y atleta"}</div>
         </div>
       </Card>
       {/* Ficha completa: tarjeta propia y prominente (no una fila más de
           ajustes) — es lo que se pidió que apareciera acá, no solo
           adentro de Coach IA. Solo en modo coach, gestionando a alguien
           puntual (el nombre de arriba dice a quién). */}
-      {mode === "coach" && !isDelegate && onOpenFicha && (
+      {!isDelegate && onOpenFicha && (
         <button onClick={onOpenFicha} style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
           padding: "14px 16px", marginBottom: 16, borderRadius: R_CARD, background: PLATE_GRAD, color: PLATE_FG }}>
           <span style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(255,255,255,.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -28056,12 +28054,10 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
 
       <SettingGroup label="Entreno">
         <SettingRow Icon={Timer} label="Descanso por defecto" hint={`${defaultRest} s — se precarga en cada ejercicio nuevo`} onClick={() => setDescansoOpen(true)} />
-        <SettingRow Icon={Bell} label="Avisar al terminar" hint={avisoActivos === 0 ? "Solo el cronómetro en pantalla" : `${avisoActivos} aviso${avisoActivos === 1 ? "" : "s"} activo${avisoActivos === 1 ? "" : "s"}`} onClick={() => setAvisoOpen(true)} />
-        <SettingRow Icon={ClipboardList} label="Editor de rutina" hint={routineView === "compacto" ? "Compacto — una fila por ejercicio" : "Completo — crear días, arrastrar, copiar"} last
-          control={<SectionSwitch items={[{ id: "completo", label: "Completo" }, { id: "compacto", label: "Compacto" }]} value={routineView} onChange={onChangeRoutineView} />} />
+        <SettingRow Icon={Bell} label="Avisar al terminar" hint={avisoActivos === 0 ? "Solo el cronómetro en pantalla" : `${avisoActivos} aviso${avisoActivos === 1 ? "" : "s"} activo${avisoActivos === 1 ? "" : "s"}`} onClick={() => setAvisoOpen(true)}  last />
       </SettingGroup>
 
-      {mode === "alumno" && (
+      {(
         <SettingGroup label="Privacidad">
           <SettingRow Icon={Bell} label="Notificaciones visibles para tu coach" last
             hint={plan?.notifyLogConsent
@@ -28077,12 +28073,7 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
       )}
 
       <SettingGroup label="Cuenta">
-        {mode === "alumno" && <SettingRow Icon={Watch} label="Dispositivos" hint="Relojes, básculas y apps de salud" onClick={onOpenDevices} />}
-        {!isDelegate && (
-          <SettingRow Icon={mode === "coach" ? ClipboardList : Dumbbell} label="Entrar como" hint={`Ahora estás en modo ${mode}`}
-            control={<SectionSwitch items={[{ id: "alumno", label: "Alumno" }, { id: "coach", label: "Coach" }]} value={mode}
-              onChange={(m) => { if (m !== mode) onSwitchMode(m); }} />} />
-        )}
+        {<SettingRow Icon={Watch} label="Dispositivos" hint="Relojes, básculas y apps de salud" onClick={onOpenDevices} />}
         {!isDelegate && onSwitchAccount && (
           <SettingRow Icon={Users} label="Cambiar de cuenta" hint="Entrar con otro usuario en este teléfono, sin cerrar esta sesión del todo" onClick={onSwitchAccount} />
         )}
@@ -28092,11 +28083,11 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
 
       <SettingGroup label="Herramientas">
         <SettingRow Icon={Timer} label="Temporizador" hint="Intervalos, cuenta regresiva y cronómetro" onClick={() => onOpenUtility("timer")} />
-        <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} last={mode !== "alumno"} />
-        {mode === "alumno" && <SettingRow Icon={Calendar} label="Agenda" hint="Tu semana y tus turnos reservados" onClick={() => onOpenUtility("agenda")} last />}
+        <SettingRow Icon={BookOpen} label="Guía de términos" hint="Qué significa cada etiqueta de la rutina" onClick={() => onOpenUtility("guia")} />
+        <SettingRow Icon={Calendar} label="Agenda" hint="Tu semana y tus turnos reservados" onClick={() => onOpenUtility("agenda")} last />
       </SettingGroup>
 
-      {mode === "coach" && !isDelegate && (
+      {!isDelegate && (
         <SettingGroup label="Gestión">
           <SettingRow Icon={Users} label="Alumnos" hint="Elegir, agregar o renombrar" onClick={onOpenRoster} />
           <SettingRow Icon={RotateCcw} label="Recuperar alumnos" hint="Buscar rutinas guardadas que no aparecen en tu lista" onClick={onRecoverStudents} />
@@ -28304,8 +28295,8 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
    cada pestaña). "Cambiar de cuenta" no aparece para un perfil con acceso
    (mismo gate que ya usa el resto de la app: un perfil de alumno no tiene
    otra cuenta a la que cambiar). */
-const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
-  onTrain, onViewSession, onProgress, onCheckin, onAIChat, onSwitchAccount, onSwitchMode,
+const ControlCenterSheet = ({ open, onClose, canCoach, isDelegate, hasActiveSession,
+  onTrain, onViewSession, onProgress, onCheckin, onAIChat, onSwitchAccount,
   onOpenPanel, onOpenAtletas, onNewRoutine, onOpenMensajes, onOpenAgenda }) => {
   const [themeMode, setThemeMode] = useTheme();
   const isDark = themeMode === "dark";
@@ -28314,30 +28305,19 @@ const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
     label: isDark ? "Modo claro" : "Modo oscuro",
     onClick: go(() => setThemeMode(isDark ? "light" : "dark")) };
   const cuentaItem = !isDelegate && { key: "cuenta", Icon: Users, label: "Cambiar de cuenta", onClick: go(onSwitchAccount) };
-  // "Entrar como…" — pasar de coach a alumno y viceversa de un toque. Solo el
-  // dueño (no un perfil con acceso, que es alumno y punto) puede cambiar de
-  // modo. En coach ofrece "Entrar como alumno"; en alumno, "Entrar como coach".
-  const modoItem = !isDelegate && onSwitchMode && {
-    key: "modo", Icon: mode === "coach" ? Dumbbell : LayoutDashboard,
-    label: mode === "coach" ? "Entrar como alumno" : "Entrar como coach",
-    onClick: go(() => onSwitchMode(mode === "coach" ? "alumno" : "coach")),
-  };
-  const items = mode === "coach" ? [
-    { key: "panel", Icon: LayoutDashboard, label: "Panel", onClick: go(onOpenPanel) },
-    { key: "atletas", Icon: Users, label: "Atletas", onClick: go(onOpenAtletas) },
-    { key: "rutina", Icon: ClipboardList, label: "Nueva rutina", onClick: go(onNewRoutine) },
-    { key: "mensajes", Icon: MessageSquare, label: "Mensajes", onClick: go(onOpenMensajes) },
-    { key: "agenda", Icon: Calendar, label: "Agenda", onClick: go(onOpenAgenda) },
-    { key: "ia", Icon: Sparkles, label: "Coach IA", onClick: go(onAIChat) },
-    modoItem, themeItem, cuentaItem,
-  ].filter(Boolean) : [
+  const items = [
     hasActiveSession
       ? { key: "sesion", Icon: Dumbbell, label: "Ver sesión", onClick: go(onViewSession) }
       : { key: "entrenar", Icon: Dumbbell, label: "Entrenar", onClick: go(onTrain) },
     { key: "progreso", Icon: BarChart3, label: "Progreso", onClick: go(onProgress) },
     { key: "checkin", Icon: Camera, label: "Check-in", onClick: go(onCheckin) },
     { key: "ia", Icon: Sparkles, label: "Coach IA", onClick: go(onAIChat) },
-    modoItem, themeItem, cuentaItem,
+    canCoach && { key: "panel", Icon: LayoutDashboard, label: "Panel", onClick: go(onOpenPanel) },
+    canCoach && { key: "atletas", Icon: Users, label: "Atletas", onClick: go(onOpenAtletas) },
+    canCoach && { key: "rutina", Icon: ClipboardList, label: "Rutina", onClick: go(onNewRoutine) },
+    canCoach && { key: "mensajes", Icon: MessageSquare, label: "Mensajes", onClick: go(onOpenMensajes) },
+    canCoach && { key: "agenda", Icon: Calendar, label: "Agenda", onClick: go(onOpenAgenda) },
+    themeItem, cuentaItem,
   ].filter(Boolean);
   // Reordenar las fichas manteniendo presionado y arrastrando, igual que el
   // Centro de Control y la pantalla de inicio de iOS. Reusa `OrderableGrid`
@@ -28347,7 +28327,7 @@ const ControlCenterSheet = ({ open, onClose, mode, isDelegate, hasActiveSession,
   // fichas no son las mismas.
   const [modoOrden, setModoOrden] = useState(null);
   useExitEditOnOutside(!!modoOrden, () => setModoOrden(null));
-  const clave = "cc-" + (mode === "coach" ? "coach" : "alumno");
+  const clave = "cc-todo";
   // Al cerrar la hoja, salir del modo edición para no reabrir temblando.
   useEffect(() => { if (!open) setModoOrden(null); }, [open]);
   return (
@@ -28394,6 +28374,16 @@ const TABS = {
     { id: "nutricion", label: "Nutrición", Icon: Utensils },
     { id: "mas", label: "Más", Icon: MoreHorizontal },
   ],
+  // Plataforma unificada: ya no hay «modo coach» y «modo atleta». Una sola barra; las funciones de
+  // gestión viven en secciones dentro de Entrenar, Nutrición y Atletas.
+  todos: [
+    { id: "hoy", label: "Hoy", Icon: Home },
+    { id: "progreso", label: "Progreso", Icon: BarChart3 },
+    { id: "entrenar", label: "Entrenar", Icon: Dumbbell, sections: ["sesion", "rutina", "creador", "borradores", "indicaciones", "ia"] },
+    { id: "nutricion", label: "Nutrición", Icon: Utensils, sections: ["plan", "editor"] },
+    { id: "atletas", label: "Atletas", Icon: Users, sections: ["dashboard", "actividad", "progresion", "rankings", "cobros", "leads", "chat"] },
+    { id: "mas", label: "Más", Icon: MoreHorizontal },
+  ],
   coach: [
     { id: "dashboard", label: "Panel", Icon: LayoutDashboard, sections: ["dashboard"] },
     { id: "atletas", label: "Atletas", Icon: Users, sections: ["actividad", "progresion", "rankings", "cobros", "leads"] },
@@ -28402,12 +28392,25 @@ const TABS = {
     { id: "cmas", label: "Más", Icon: MoreHorizontal, sections: ["cmas"] },
   ],
 };
+// Secciones que antes eran solo del modo coach, y la clave de permiso de rol que las gobierna.
+const COACH_SECS = new Set(["rutina", "creador", "borradores", "indicaciones", "ia", "editor", "dashboard", "actividad", "progresion", "rankings", "cobros", "leads", "chat"]);
+const SEC_ACCESS = { editor: "nutricion" };
+// Traduce los destinos de las pestañas viejas (rutina/indicaciones/dashboard…) a la navegación unificada.
+const NAV_VIEJA = {
+  dashboard: () => ["atletas", "dashboard"],
+  rutina: (sec) => (sec === "nutricion" ? ["nutricion", "editor"] : ["entrenar", sec || "rutina"]),
+  indicaciones: (sec) => (sec === "chat" ? ["atletas", "chat"] : ["entrenar", "indicaciones"]),
+  cmas: () => ["mas", null],
+};
 const SECTION_ICONS = {
+  sesion: Play, plan: Utensils, editor: PencilLine,
+  dashboard: LayoutDashboard,
   chat: MessageSquare, indicaciones: ClipboardList, cmas: MoreHorizontal,
   actividad: History, progresion: TrendingUp, rankings: Trophy, cobros: DollarSign, leads: UserPlus,
   rutina: Dumbbell, creador: Layers, borradores: PencilLine, nutricion: Utensils, ia: Sparkles,
 };
 const SECTION_LABELS = {
+  sesion: "Sesión", plan: "Plan", editor: "Editor", dashboard: "Panel",
   chat: "Chat", indicaciones: "Indicaciones", cmas: "Más",
   actividad: "Actividad", progresion: "Progresión", rankings: "Rankings", cobros: "Cobros", leads: "Leads",
   rutina: "Rutina", creador: "Creador", borradores: "Borradores", nutricion: "Nutrición", ia: "IA",
@@ -28752,6 +28755,7 @@ const UTILITY_SCREENS = {
   timer: { label: "Temporizador", Icon: Timer },
   guia:  { label: "Guía de términos", Icon: BookOpen },
   agenda: { label: "Agenda", Icon: Calendar },
+  "agenda-coach": { label: "Agenda del coach", Icon: Calendar },
   chat:  { label: "Mensajes", Icon: MessageSquare },
 };
 
@@ -31809,40 +31813,7 @@ const MasAcordeon = ({ groups, onOpenSearch }) => {
   );
 };
 
-const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpenTeam, onOpenSettings, onSwitchMode, onOpenCompPrep, onOpenScience, onOpenAtlas, onOpenCompare, onOpenSearch, onOpenControlCenter, onResetPlan }) => {
-  const can = (k) => !!access[k];
-  // Cuatro grupos plegados. Coach IA vive en la cabecera.
-  const groups = [
-    { label: "Atletas", Icon: Users, rows: [
-      can("cobros") && { key: "cobros", Icon: DollarSign, label: "Cobros", onClick: () => onGoSection("atletas", "cobros") },
-      can("rankings") && { key: "rankings", Icon: Trophy, label: "Rankings", onClick: () => onGoSection("atletas", "rankings") },
-      can("leads") && { key: "leads", Icon: UserPlus, label: "Leads", onClick: () => onGoSection("atletas", "leads") },
-      can("agenda") && { key: "agenda", Icon: Calendar, label: "Agenda", onClick: () => onOpenUtility("agenda") },
-      canManageTeam && { key: "equipo", Icon: Award, label: "Equipo y roles", onClick: onOpenTeam },
-    ] },
-    { label: "Planes", Icon: ClipboardList, rows: [
-      can("indicaciones") && { key: "indic", Icon: FileText, label: "Indicaciones", onClick: () => onGoSection("indicaciones", "indicaciones") },
-      can("borradores") && { key: "borradores", Icon: ClipboardList, label: "Borradores", onClick: () => onGoSection("rutina", "borradores") },
-      { key: "comparar", Icon: Columns2, label: "Comparar rutinas o sesiones", onClick: onOpenCompare },
-      { key: "prep", Icon: Medal, label: "Competition Prep", onClick: onOpenCompPrep },
-      onResetPlan && { key: "vaciar", Icon: Trash2, label: "Vaciar el plan y empezar de cero", onClick: onResetPlan },
-    ] },
-    { label: "Herramientas", Icon: Timer, rows: [
-      { key: "atlas", Icon: Library, label: "Ejercicios", onClick: onOpenAtlas },
-      { key: "ciencia", Icon: Sparkles, label: "Ciencia al día", onClick: onOpenScience },
-      { key: "timer", Icon: Timer, label: "Temporizador", onClick: () => onOpenUtility("timer") },
-      { key: "guia", Icon: BookOpen, label: "Guía de términos", onClick: () => onOpenUtility("guia") },
-    ] },
-    { label: "Cuenta", Icon: Sun, rows: [
-      { key: "config", Icon: Sun, label: "Configuración", onClick: onOpenSettings },
-      { key: "centro", Icon: LayoutGrid, label: "Centro de control", onClick: onOpenControlCenter },
-      { key: "cambiar", Icon: Users, label: "Cambiar a Atleta", onClick: () => onSwitchMode("alumno") },
-    ] },
-  ].map((g) => ({ ...g, rows: g.rows.filter(Boolean) })).filter((g) => g.rows.length > 0);
-  return <MasAcordeon groups={groups} onOpenSearch={onOpenSearch} />;
-};
-
-const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenScience, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams, onOpenSearch, onOpenControlCenter }) => {
+const MasTab = ({ toast, sid, isDelegate, coach, onOpenUtility, onOpenDevices, onOpenSettings, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenScience, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams, onOpenSearch, onOpenControlCenter }) => {
   // Cuatro grupos plegados. Mensajes, Nutrición y Coach IA ya tienen su sitio
   // (barra de pestañas y cabecera), así que no se repiten acá.
   const groups = [
@@ -31857,6 +31828,16 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
       { key: "posing", Icon: PersonStanding, label: "Posing", onClick: onOpenPosing },
       { key: "prep", Icon: Trophy, label: "Competition Prep", onClick: onOpenCompPrep },
     ] },
+    coach && { label: "Gestión", Icon: ClipboardList, rows: [
+      coach.access.indicaciones && { key: "indic", Icon: FileText, label: "Indicaciones del plan", onClick: () => coach.onGo("indicaciones", "indicaciones") },
+      coach.access.borradores && { key: "borradores", Icon: ClipboardList, label: "Borradores", onClick: () => coach.onGo("rutina", "borradores") },
+      coach.access.creador && { key: "creador", Icon: Layers, label: "Creador de rutinas", onClick: () => coach.onGo("rutina", "creador") },
+      { key: "comparar", Icon: Columns2, label: "Comparar rutinas o sesiones", onClick: coach.onOpenCompare },
+      coach.access.ia && { key: "iacoach", Icon: Sparkles, label: "IA del preparador", onClick: () => coach.onGo("rutina", "ia") },
+      coach.access.agenda && { key: "agendacoach", Icon: Calendar, label: "Agenda del coach", onClick: coach.onOpenAgendaCoach },
+      coach.canManageTeam && { key: "equipo", Icon: Award, label: "Equipo y roles", onClick: coach.onOpenTeam },
+      coach.onResetPlan && { key: "vaciar", Icon: Trash2, label: "Vaciar el plan y empezar de cero", onClick: coach.onResetPlan },
+    ].filter(Boolean) },
     { label: "Herramientas", Icon: Timer, rows: [
       { key: "atlas", Icon: Library, label: "Ejercicios", onClick: onOpenAtlas },
       { key: "ciencia", Icon: Sparkles, label: "Ciencia al día", onClick: onOpenScience },
@@ -31871,9 +31852,8 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
       { key: "centro", Icon: LayoutGrid, label: "Centro de control", onClick: onOpenControlCenter },
       // Un perfil de acceso (alumno) NO puede pasar a modo coach: su cuenta
       // es solo-alumno. Solo el dueño ve "Cambiar a Coach".
-      !isDelegate && { key: "cambiar", Icon: Users, label: "Cambiar a Coach", onClick: () => onSwitchMode("coach") },
     ].filter(Boolean) },
-  ];
+  ].filter(Boolean);
   return <MasAcordeon groups={groups} onOpenSearch={onOpenSearch} />;
 };
 
@@ -31967,7 +31947,7 @@ const AvisoDescansoGroup = ({ sid, plan }) => {
   );
 };
 
-const SectionSwitch = ({ items, value, onChange, style, compact }) => {
+const SectionSwitch = ({ items, value, onChange, style, compact, icons }) => {
   if (!items || items.length < 2) return null;
   const n = items.length;
   const many = compact || n >= 4;
@@ -31976,7 +31956,7 @@ const SectionSwitch = ({ items, value, onChange, style, compact }) => {
   // barra de abajo); el nombre queda en aria-label/title.
   // v394: con nombre siempre que lo haya — un segmentado de cinco íconos sueltos
   // obligaba a adivinar qué hacía cada uno.
-  const iconOnly = items.every((it) => it.Icon) && items.some((it) => !it.label);
+  const iconOnly = items.every((it) => it.Icon) && (!!icons || items.some((it) => !it.label));
   // Segmentado de iOS: pista gris, pastilla blanca (gris medio en oscuro) con
   // una sombra finita; el texto no cambia de color, solo de peso.
   const oscuro = String(P.bg).toLowerCase() < "#808080";
@@ -32147,13 +32127,13 @@ const TAB_INACTIVE = "#A0A0AA";
 // Coach IA, mensajes (en modo alumno; el coach los tiene en su barra de abajo)
 // y el perfil. Reemplaza al texto de identidad, a los botones de buscar y de
 // centro de control y al botón flotante, que se repetían en cada pantalla.
-const HeaderActions = ({ mode, sid, initial, onAI, onChat, onProfile }) => {
-  const unread = useUnreadChatCount(mode === "alumno" ? sid : null, "alumno");
+const HeaderActions = ({ sid, initial, onAI, onChat, onProfile }) => {
+  const unread = useUnreadChatCount(sid, "alumno");
   const btn = { position: "relative", width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: P.text, flexShrink: 0 };
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, padding: "calc(2px + env(safe-area-inset-top)) 12px 0" }}>
       <button onClick={onAI} aria-label="Coach IA" title="Coach IA" style={btn}><Sparkles size={22} strokeWidth={1.8} /></button>
-      {mode === "alumno" && (
+      {(
         <button onClick={onChat} aria-label="Mensajes" title="Mensajes" style={btn}>
           <MessageSquare size={22} strokeWidth={1.8} />
           {unread > 0 && <span style={{ position: "absolute", top: 8, right: 7, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, background: PLATE_GRAD, color: PLATE_FG,
@@ -33329,7 +33309,7 @@ const AI_FAB_HOLD_MS = 550;
 // (60). Antes estaba en 95 y quedaba flotando sobre cualquier hoja
 // abierta, tapando la última fila —se vio tapando "Médico tratante" en
 // Suplementación y la quinta ficha de accesos en la sesión.
-const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatSignal, toast, hideFab }) => {
+const AIFab = ({ plan, history, student, active, onOpenCoachTab, openChatSignal, toast, hideFab }) => {
   const [visible, setVisible] = useAiFabVisible();
   const [pos, setPos] = useState(() => clampFabPos(loadFabPos() || { right: 14, bottom: 82 }));
   const [dragging, setDragging] = useState(false);
@@ -33344,10 +33324,10 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
   // pidió nada" — solo actúa cuando el número sube.
   const seenSignal = useRef(0);
   useEffect(() => {
-    if (mode !== "alumno" || !openChatSignal || openChatSignal === seenSignal.current) return;
+    if (!openChatSignal || openChatSignal === seenSignal.current) return;
     seenSignal.current = openChatSignal;
     setChatOpen(true);
-  }, [openChatSignal, mode]);
+  }, [openChatSignal]);
 
   useEffect(() => {
     const onResize = () => setPos((p) => clampFabPos(p));
@@ -33360,11 +33340,10 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
   // shared=true: vive en Supabase, no en este dispositivo) — el alumno la
   // reutiliza tal cual, sin que se le pida configurar nada.
   useEffect(() => {
-    if (mode !== "alumno") return;
     let alive = true;
     (async () => { const k = await sGet("forja-ai-key"); if (alive) setApiKey(k || "gratis"); })();
     return () => { alive = false; };
-  }, [mode, chatOpen]);
+  }, [chatOpen]);
 
   const onPointerDown = (e) => {
     dragRef.current = { startX: e.clientX, startY: e.clientY, startRight: pos.right, startBottom: pos.bottom, moved: false, hidden: false };
@@ -33393,8 +33372,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
     setHolding(false);
     if (dragRef.current.hidden) return;
     if (dragRef.current.moved) { saveFabPos(pos); return; }
-    if (mode === "coach") onOpenCoachTab && onOpenCoachTab();
-    else setChatOpen(true);
+    setChatOpen(true);
   };
 
   return (
@@ -33427,7 +33405,7 @@ const AIFab = ({ mode, plan, history, student, active, onOpenCoachTab, openChatS
           <Sparkles size={12} strokeWidth={2.4} />
         </button>
       ))}
-      {chatOpen && mode === "alumno" && (
+      {chatOpen && (
         <div onClick={() => setChatOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 96, background: "rgba(5,3,3,.68)",
           display: "flex", alignItems: "flex-end", justifyContent: "center",
           paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
@@ -33488,7 +33466,7 @@ const App = () => {
   }, [loading, splashMinDone, splashGone]);
   const [ready, setReady] = useState(false);
   const [roster, setRoster] = useState({ v: ROSTER_VERSION, students: [] });
-  const [mode, setMode] = useState("alumno");
+  const mode = "alumno"; // plataforma unificada: ya no existe el modo coach / modo atleta
   const [sid, setSid] = useState(null);
   // Perfil con acceso activo (null = el dueño, entrada normal). Cuando hay
   // uno, la app corre en un espacio aislado: roster de una sola persona
@@ -33634,7 +33612,6 @@ const App = () => {
   const [fxRes, setFxRes] = useState(null);
   const [fxRestSeg, setFxRestSeg] = useState(null);
   const fxHecho = useRef(false);
-  const [routineView, setRoutineView] = useRoutineView();
   // El gesto para ocultar/mostrar el botón de IA (antes: tres toques
   // seguidos en cualquier parte de la pantalla) se mudó adentro de AIFab
   // como mantener presionado el propio botón — un listener global de
@@ -33857,11 +33834,11 @@ const App = () => {
     const nm = (r.students.find((s) => s.id === id) || {}).name || "";
     const { p, h, a } = await loadStudent(id, nm);
     sidRef.current = id; activeRef.current = a;
-    setMode(m); setSid(id); setPlan(p); setHistory(h); setActive(a); setSavedAt("");
+    setSid(id); setPlan(p); setHistory(h); setActive(a); setSavedAt("");
     setMyTeamId(teamId || null);
-    setTab(m === "coach" ? "rutina" : "hoy");
+    setTab(teamId ? "atletas" : "hoy");
     setReady(true); setLoading(false);
-    sSet("forja-device", { mode: m, sid: id, teamId: teamId || null }, false);
+    sSet("forja-device", { mode: "alumno", sid: id, teamId: teamId || null }, false);
     force((x) => x + 1);
   };
 
@@ -34396,7 +34373,7 @@ const App = () => {
   // Briefing matutino: la primera vez que se abre la app cada día (desde las 8:00), como atleta.
   const briefYa = useRef(false);
   useEffect(() => {
-    if (!ready || mode !== "alumno" || briefYa.current) return;
+    if (!ready || briefYa.current) return;
     briefYa.current = true;
     const k = "forja-brief-" + new Date().toISOString().slice(0, 10);
     let visto = false; try { visto = !!localStorage.getItem(k); } catch {}
@@ -34404,7 +34381,7 @@ const App = () => {
     try { localStorage.setItem(k, "1"); } catch {}
     const t = setTimeout(() => setBriefOpen(true), 3500);
     return () => clearTimeout(t);
-  }, [ready, mode]);
+  }, [ready]);
 
   // WHOOP: si el alumno lo conectó, pide una sincronización fresca (como mucho
   // cada 20 min) y mezcla lo traído en el historial.
@@ -34577,25 +34554,17 @@ const App = () => {
     ? { ...roster, students: [...roster.students, { id: perfilExtra.id, name: perfilExtra.name, createdAt: perfilExtra.createdAt }] } : roster;
   // Entrar a cualquier atleta (del roster o perfil con acceso) como coach o
   // como atleta, con acceso completo. `extra` = { id, name } si es un perfil.
-  const entrarComo = (m, id, extra) => {
+  const entrarComo = (m, id, extra, dest) => {
     const virt = extra && !roster.students.some((x) => x.id === id)
       ? { ...roster, students: [...roster.students, { id, name: extra.name, createdAt: extra.createdAt }] } : roster;
     setPerfilExtra(extra && !roster.students.some((x) => x.id === id) ? { id, name: extra.name, createdAt: extra.createdAt } : null);
-    return openIdentity(m, id, virt, myTeamId);
+    const r = openIdentity(m, id, virt, myTeamId);
+    if (dest) Promise.resolve(r).then(() => irA("rutina", "rutina"));
+    return r;
   };
-  const switchMode = (m) => openIdentity(m, sidRef.current, rosterEfectivo, myTeamId);
   // Avatar de la cabecera: un toque abre "Más"; dos toques seguidos cambian
   // entre atleta y coach (salvo para delegados, que no tienen modo coach).
-  const avatarTapRef = useRef(null);
-  const onAvatarTap = () => {
-    if (delegate) { setMoreOpen(true); return; }
-    if (avatarTapRef.current) {
-      clearTimeout(avatarTapRef.current); avatarTapRef.current = null;
-      switchMode(mode === "coach" ? "alumno" : "coach");
-      return;
-    }
-    avatarTapRef.current = setTimeout(() => { avatarTapRef.current = null; setMoreOpen(true); }, 280);
-  };
+  const onAvatarTap = () => setMoreOpen(true);
   const currentStudent = roster.students.find((s) => s.id === sid) || (perfilExtra && perfilExtra.id === sid ? perfilExtra : undefined);
   // En modo coach, la cabecera de arriba NO muestra el nombre de un
   // alumno puntual — antes mostraba `currentStudent`, que en realidad
@@ -34606,9 +34575,7 @@ const App = () => {
   // dice quién está usando la app (el coach, o el miembro de equipo
   // activo) — a quién se está gestionando se ve en la propia pantalla
   // (Atletas, Rutina) al entrar puntual a esa persona.
-  const identityName = mode === "coach"
-    ? (myTeamId ? (team.members.find((m) => m.id === myTeamId) || {}).name || "Coach" : "Tú")
-    : (currentStudent?.name || "—");
+  const identityName = currentStudent?.name || "—";
   // Las pantallas de utilidad (Temporizador, Guía, Agenda…) no son un
   // <Sheet> — son una pantalla completa con su propia cabecera de
   // "volver" — así que el gesto de deslizar hacia la derecha se conecta
@@ -34616,29 +34583,41 @@ const App = () => {
   const utilitySwipe = useSwipeBack(() => setUtility(null));
   // Una pestaña de coach se muestra si el rol tiene acceso a ALGUNA de sus
   // secciones; dentro, solo aparecen las que ese rol puede ver.
-  const allowedSections = (t) => (t.sections || [t.id]).filter((x) => roleTabAccess[x]);
-  const allTabs = mode === "coach"
-    ? TABS.coach.filter((t) => allowedSections(t).length > 0)
-    : TABS.alumno;
+  // Plataforma unificada: quien tiene permisos de coach (el dueño y los miembros del equipo según su rol)
+  // ve las secciones de gestión; un perfil con acceso (atleta) ve solo las suyas.
+  const canCoach = !delegate;
+  const allowedSections = (t) => (t.sections || [t.id]).filter((x) => !COACH_SECS.has(x) || (canCoach && roleTabAccess[SEC_ACCESS[x] || x]));
+  const allTabs = TABS.todos.filter((t) => allowedSections(t).length > 0);
   const tabs = easyMode
-    ? allTabs.filter((t) => EASY_TAB_IDS[mode].includes(t.id)).map((t) => ({ ...t, label: EASY_TAB_LABELS[t.id] || t.label }))
+    ? allTabs.filter((t) => EASY_TAB_IDS.alumno.includes(t.id)).map((t) => ({ ...t, label: EASY_TAB_LABELS[t.id] || t.label }))
     : allTabs;
   const currentTabDef = tabs.find((t) => t.id === tab);
-  const tabSections = mode === "coach" && currentTabDef ? allowedSections(currentTabDef) : [];
+  const tabSections = currentTabDef && currentTabDef.sections ? allowedSections(currentTabDef) : [];
   const sub = tabSections.includes(section[tab]) ? section[tab] : tabSections[0];
+  // Sección de gestión abierta (nombres de siempre: rutina, creador, nutricion, ia, dashboard…); null si es una pantalla de atleta.
+  const cs = tab === "entrenar" ? (sub && sub !== "sesion" ? sub : null)
+    : tab === "nutricion" ? (sub === "editor" ? "nutricion" : null)
+    : tab === "atletas" ? sub : null;
+  // Ir a un destino con los nombres de pestaña/sección de antes.
+  const irSesion = () => { setTab("entrenar"); setSection((o) => ({ ...o, entrenar: "sesion" })); };
+  const irPlan = () => { setTab("nutricion"); setSection((o) => ({ ...o, nutricion: "plan" })); };
+  const irA = (t, sec) => {
+    const m = NAV_VIEJA[t] ? NAV_VIEJA[t](sec) : [t, sec];
+    setUtility(null); setTab(m[0]); if (m[1]) setSection((o) => ({ ...o, [m[0]]: m[1] }));
+  };
   // Si la pestaña abierta desaparece al entrar en Easy Mode, se cae a la
   // primera disponible en vez de quedar en una pantalla sin pestaña.
   useEffect(() => {
     if (ready && tabs.length && !tabs.some((t) => t.id === tab)) setTab(tabs[0].id);
-  }, [easyMode, mode, ready]);
+  }, [easyMode, ready]);
   // Cambiar de pestaña o de modo cierra la pantalla de utilidad abierta.
-  useEffect(() => { setUtility(null); }, [tab, mode]);
+  useEffect(() => { setUtility(null); }, [tab]);
 
   // Entrenando, Focus Mode es la pantalla ENTERA: sin cabecera de
   // identidad, sin aviso de guardado y sin barra de pestañas. Entrenando
   // no se cambia de sección, y cada franja que queda arriba o abajo es
   // alto que le falta a lo único que importa —la serie que toca—.
-  const enSesion = mode === "alumno" && tab === "entrenar" && !!active;
+  const enSesion = tab === "entrenar" && (!sub || sub === "sesion") && !!active;
 
   if (!splashGone) {
     return <SplashScreen exiting={splashExiting} />;
@@ -34677,10 +34656,11 @@ const App = () => {
     const out = [];
     const done = (fn) => () => { setSearchOpen(false); fn(); };
     const goTab = (t, sec) => done(() => { setUtility(null); setTab(t); if (sec) setSection((o) => ({ ...o, [t]: sec })); });
+    const hayCoach = canCoach;
     // Destinos: las pestañas visibles (respeta rol y Easy Mode). En coach,
     // las pestañas con varias secciones se abren una por sección.
     tabs.forEach((t) => {
-      const secs = mode === "coach" ? allowedSections(t) : null;
+      const secs = t.sections ? allowedSections(t) : null;
       if (secs && secs.length > 1) {
         secs.forEach((s) => out.push({ id: `nav-${t.id}-${s}`, group: "Ir a", Icon: t.Icon,
           label: SECTION_LABELS[s] || s, sub: t.label, kw: `${t.label} ${SECTION_LABELS[s] || s}`, run: goTab(t.id, s) }));
@@ -34688,7 +34668,7 @@ const App = () => {
         out.push({ id: `nav-${t.id}`, group: "Ir a", Icon: t.Icon, label: t.label, sub: "Pantalla", kw: t.label, run: goTab(t.id) });
       }
     });
-    if (mode === "alumno") {
+    {
       [["fuerza", "Fuerza"], ["cuerpo", "Cuerpo"], ["volumen", "Volumen"], ["logros", "Logros"], ["historial", "Historial"]].forEach(([id, lb]) =>
         out.push({ id: `prog-${id}`, group: "Ir a", Icon: BarChart3, label: lb, sub: "Progreso", kw: `progreso ${lb}`,
           run: done(() => { setUtility(null); setProgressJumpSub(id); setTab("progreso"); }) }));
@@ -34702,8 +34682,8 @@ const App = () => {
     tool("Competition Prep", Trophy, () => setCompPrepOpen(true), "competencia tarima peak week posing categorias");
     tool("Centro de control", LayoutGrid, () => setControlCenterOpen(true), "centro control accesos rapidos");
     tool("Configuración", Sun, () => setMoreOpen(true), "ajustes configuracion tema unidades cuenta interfaz");
-    if (mode === "alumno") {
-      tool("Nutrición", Utensils, () => setTab("nutricion"), "nutricion comidas macros calorias");
+    {
+      tool("Nutrición", Utensils, () => irPlan(), "nutricion comidas macros calorias");
       tool("Agenda", Calendar, () => setUtility("agenda"), "agenda turnos calendario reservas");
       tool("Atajos de iPhone", Smartphone, () => setUtility("atajos"), "atajos iphone shortcuts");
       tool("Suplementos", Pill, () => setSupplementsOpen(true), "suplementos");
@@ -34713,17 +34693,16 @@ const App = () => {
       tool("Dispositivos", Watch, () => setDevicesOpen(true), "dispositivos reloj bascula whoop garmin salud");
       tool("Check-in", ClipboardList, () => { setTab("hoy"); setAutoOpenCheckin(true); }, "checkin peso sueno animo pasos");
       tool("Coach IA", Sparkles, () => setAiChatOpenSignal((n) => n + 1), "ia inteligencia artificial asistente coach");
-    } else {
-      tool("Agenda", Calendar, () => setUtility("agenda"), "agenda turnos disponibilidad reservas");
-      tool("Comparar rutinas", Columns2, () => setCompareOpen(true), "comparar rutinas diferencias");
-      tool("Creador de rutinas", Layers, () => { setUtility(null); setTab("rutina"); setSection((o) => ({ ...o, rutina: "creador" })); }, "crear rutina constructor comparar radar duplicar");
-      tool("Ficha del alumno", ClipboardList, () => setFichaOpen(true), "ficha historial checkin datos atleta");
-      if (myRoleMeta.manageTeam) tool("Equipo", Award, () => setEquipoOpen(true), "equipo coaches nutricionistas permisos");
-      tool("Coach IA", Sparkles, () => { setUtility(null); setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }, "ia inteligencia artificial asistente");
     }
-    if (mode === "coach" && !delegate) {
+    if (hayCoach) {
+      tool("Agenda del coach", Calendar, () => setUtility("agenda-coach"), "agenda turnos disponibilidad reservas coach");
+      tool("Comparar rutinas", Columns2, () => setCompareOpen(true), "comparar rutinas diferencias");
+      tool("Creador de rutinas", Layers, () => irA("rutina", "creador"), "crear rutina constructor comparar radar duplicar");
+      tool("Ficha del atleta", ClipboardList, () => setFichaOpen(true), "ficha historial checkin datos atleta");
+      if (myRoleMeta.manageTeam) tool("Equipo", Award, () => setEquipoOpen(true), "equipo coaches nutricionistas permisos");
+      tool("IA del preparador", Sparkles, () => irA("rutina", "ia"), "ia inteligencia artificial preparador plan");
       roster.students.forEach((s) => out.push({ id: `al-${s.id}`, group: "Atletas", Icon: Users, label: s.name,
-        sub: "Entrar como coach de este atleta", kw: s.name, run: done(() => openIdentity("coach", s.id, roster, myTeamId)) }));
+        sub: "Abrir este atleta", kw: s.name, run: done(() => openIdentity("alumno", s.id, roster, myTeamId)) }));
     }
     // Ejercicios: los del plan actual + la biblioteca del coach, sin repetir.
     // Un resultado abre el Atlas ya filtrado por ese nombre.
@@ -34743,9 +34722,9 @@ const App = () => {
   return (
     <div className={(easyMode ? "fj fj-easy" : "fj") + (appEntrada ? " appEnter" : "")} onAnimationEnd={(e) => { if (e.target === e.currentTarget) setAppEntrada(false); }} style={{ minHeight: "100vh", minHeight: "100dvh", background: P.bgGrad }}>
       <GlobalStyle />
-      {!enSesion && utility !== "chat" && <NavTituloCompacto clave={`${mode}|${tab}|${sub || ""}|${utility || ""}`} />}
+      {!enSesion && utility !== "chat" && <NavTituloCompacto clave={`${tab}|${sub || ""}|${utility || ""}`} />}
       <div style={{ maxWidth: "var(--fj-w)", margin: "0 auto",
-        paddingBottom: enSesion ? 0 : (mode === "alumno" && active ? "calc(196px + env(safe-area-inset-bottom))" : "calc(124px + env(safe-area-inset-bottom))") }}>
+        paddingBottom: enSesion ? 0 : (active ? "calc(196px + env(safe-area-inset-bottom))" : "calc(124px + env(safe-area-inset-bottom))") }}>
         {/* Cabecera: identidad como texto a la izquierda (solo informativa —
             quién está usando la app ahora) y el avatar a la derecha, que es
             el único que abre algo (la hoja "Más"). Antes el texto de la
@@ -34753,7 +34732,7 @@ const App = () => {
             de verdad por error. Cerrar sesión ahora vive solo dentro de
             "Más", como su propio botón con confirmación. */}
         {!enSesion && (
-          <HeaderActions mode={mode} sid={sid} initial={(identityName || "?").slice(0, 1).toUpperCase()}
+          <HeaderActions sid={sid} initial={(identityName || "?").slice(0, 1).toUpperCase()}
             onAI={() => setAiChatOpenSignal((n) => n + 1)} onChat={() => setUtility("chat")} onProfile={onAvatarTap} />
         )}
         {!enSesion && <StorageBanner />}
@@ -34777,42 +34756,43 @@ const App = () => {
                 <GlossaryBody showTopButton />
               </div>
             )}
-            {utility === "agenda" && (mode === "coach" ? (
+            {utility === "agenda-coach" && canCoach && (
               <ReadOnlyLock active={roleTabAccess.agenda === "view"} toast={toast}>
                 <ScheduleEditor plan={plan} history={history} savePlan={savePlan} roster={roster} bookings={bookings} onSaveBookings={saveBookings} toast={toast}
                   availability={availability} onSaveAvailability={saveAvailability} />
               </ReadOnlyLock>
-            ) : (
-              <CalendarTab plan={plan} history={history} onGoTrain={() => { setUtility(null); setTab("entrenar"); }}
+            )}
+            {utility === "agenda" && (
+              <CalendarTab plan={plan} history={history} onGoTrain={() => { setUtility(null); irSesion(); }}
                 bookings={bookings.slots} sid={sid} onCancelBooking={(id) => saveBookings(bookings.slots.map((x) => (x.id === id ? { ...x, status: "cancelada" } : x)))} />
-            ))}
+            )}
             {utility === "chat" && <ChatTab sid={sid} role="alumno" onBack={() => setUtility(null)} />}
           </div>
         )}
 
         {/* Segmentado de secciones: solo cuando la pestaña agrupa más de una
             (Atletas, Rutinas). Con una sola sección no se dibuja nada. */}
-        {!utility && tabSections.length > 1 && (
+        {!utility && !enSesion && tabSections.length > 1 && (
           <div style={{ padding: "6px 16px 2px" }}>
-            <SectionSwitch compact items={tabSections.map((x) => ({ id: x, label: SECTION_LABELS[x] || x, Icon: SECTION_ICONS[x] }))}
+            <SectionSwitch compact icons={tabSections.length >= 5} items={tabSections.map((x) => ({ id: x, label: SECTION_LABELS[x] || x, Icon: SECTION_ICONS[x] }))}
               value={sub} onChange={(v) => setSection((o) => ({ ...o, [tab]: v }))} />
           </div>
         )}
 
         <div key={`${tab}-${sub || ""}`} className="tabIn" style={{ display: utility ? "none" : undefined }}>
-        {mode === "alumno" && tab === "hoy" && (
-          <TodayTabMono plan={plan} history={history} active={active} role={mode} saveHistory={saveHistory} savePlan={savePlan} toast={toast}
-            goTrain={(dayId) => { if (dayId) setAbrirDiaId(dayId); setTab("entrenar"); }}
+        {tab === "hoy" && (
+          <TodayTabMono plan={plan} history={history} active={active} role="alumno" saveHistory={saveHistory} savePlan={savePlan} toast={toast}
+            goTrain={(dayId) => { if (dayId) setAbrirDiaId(dayId); irSesion(); }}
             allowedRoutines={delegate ? (currentStudent && currentStudent.allowedRoutines) : undefined}
             bookings={bookings.slots} sid={sid}
-            onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => setTab("nutricion")} onOpenCoach={() => setUtility("chat")}
+            onOpenAgenda={() => setUtility("agenda")} onOpenNutrition={() => irPlan()} onOpenCoach={() => setUtility("chat")}
             onOpenProgress={(jumpSub) => { if (jumpSub) setProgressJumpSub(jumpSub); setTab("progreso"); }}
             onOpenTimer={() => setUtility("timer")}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
             autoOpenCheckin={autoOpenCheckin} onAutoOpenCheckinConsumed={() => setAutoOpenCheckin(false)}
             autoOpenPosing={autoOpenPosing} onAutoOpenPosingConsumed={() => setAutoOpenPosing(false)} />
         )}
-        {mode === "alumno" && tab === "entrenar" && (
+        {tab === "entrenar" && sub === "sesion" && (
           <TrainTab saveHistory={saveHistory} plan={plan} history={history} active={active} setActive={applyActive} saveActive={saveActive} savePlan={savePlan}
             finishSession={finishSession} discardSession={discardSession} onInfo={onInfo} toast={toast} savedAt={savedAt}
             allowedRoutines={delegate ? (currentStudent && currentStudent.allowedRoutines) : undefined}
@@ -34820,32 +34800,35 @@ const App = () => {
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
             onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} sid={sid} library={library} />
         )}
-        {mode === "alumno" && tab === "progreso" && (
+        {tab === "progreso" && (
           <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory}
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             jumpSub={progressJumpSub} onJumpConsumed={() => setProgressJumpSub(null)} />
         )}
-        {mode === "alumno" && tab === "agenda" && (
-          <CalendarTab plan={plan} history={history} onGoTrain={() => setTab("entrenar")}
+        {tab === "agenda" && (
+          <CalendarTab plan={plan} history={history} onGoTrain={() => irSesion()}
             bookings={bookings.slots} sid={sid}
             onCancelBooking={(id) => saveBookings(bookings.slots.map((x) => (x.id === id ? { ...x, status: "cancelada" } : x)))} />
         )}
-        {mode === "alumno" && tab === "nutricion" && (
+        {tab === "nutricion" && sub === "plan" && (
           <NutritionView plan={plan} n={plan.nutrition} history={history} saveHistory={saveHistory}
             savePlan={savePlan} toast={toast} sid={sid}
             onOpenSupplements={() => setSupplementsOpen(true)} />
         )}
-        {mode === "alumno" && tab === "mas" && (
+        {tab === "mas" && (
           <MasTab toast={toast} sid={sid} isDelegate={!!delegate} onOpenUtility={(id) => setUtility(id)} onOpenDevices={() => setDevicesOpen(true)}
             onOpenSearch={() => setSearchOpen(true)} onOpenControlCenter={() => setControlCenterOpen(true)}
-            onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
+            onOpenSettings={() => setMoreOpen(true)}
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             onOpenPosing={() => { setTab("hoy"); setAutoOpenPosing(true); }}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
             onOpenCompPrep={() => setCompPrepOpen(true)} onOpenScience={() => setScienceOpen(true)} onOpenAtlas={() => { setAtlasInitialQuery(""); setAtlasOpen(true); }}
             onOpenSupplements={() => setSupplementsOpen(true)} onOpenLabs={() => setLabsOpen(true)}
-            onOpenNutrition={() => setTab("nutricion")} onOpenExams={() => setExamsOpen(true)}
-            onOpenPhotos={() => setPhotosOpen(true)} />
+            onOpenNutrition={() => irPlan()} onOpenExams={() => setExamsOpen(true)}
+            onOpenPhotos={() => setPhotosOpen(true)}
+            coach={canCoach ? { access: roleTabAccess, canManageTeam: myRoleMeta.manageTeam, onGo: irA, onOpenTeam: () => setEquipoOpen(true),
+              onOpenCompare: () => setCompareOpen(true), onOpenAgendaCoach: () => setUtility("agenda-coach"),
+              onResetPlan: roleTabAccess.rutina === "edit" ? () => setConfirmReset(true) : null } : null} />
         )}
         <ScienceFeedSheet open={scienceOpen} onClose={() => setScienceOpen(false)} />
         <MorningBriefing open={briefOpen} onClose={() => setBriefOpen(false)} plan={plan} history={history} />
@@ -34867,7 +34850,7 @@ const App = () => {
             sistema) y "Vaciar" es la destructiva, así que va en contorno,
             no en placa negra. Antes las tres eran placa: la acción más
             peligrosa de la pantalla era también la más llamativa. */}
-        {mode === "coach" && (sub === "rutina" || sub === "nutricion" || sub === "indicaciones" || sub === "agenda") && roleTabAccess[sub] === "edit"
+        {(cs === "rutina" || cs === "nutricion" || cs === "indicaciones") && roleTabAccess[cs] === "edit"
           && (planHistoryRef.current.past.length > 0 || planHistoryRef.current.future.length > 0) && (
           /* Barra de edición del plan. Antes eran tres botones con texto de
              anchos distintos ("Deshacer"/"Rehacer" largos contra un "Vaciar"
@@ -34894,7 +34877,7 @@ const App = () => {
             ))}
           </div>
         )}
-        {mode === "coach" && sub === "rutina" && (
+        {cs === "rutina" && (
           <ReadOnlyLock active={roleTabAccess.rutina === "view"} toast={toast}>
             {/* key=sid: si el coach cambia de alumno con una hoja abierta
                 (editar ejercicio, borrar, importar…), esa hoja vive FUERA
@@ -34909,114 +34892,102 @@ const App = () => {
               library={library} onSaveLibrary={saveLibrary} onOpenCompare={() => setCompareOpen(true)} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "borradores" && (
+        {cs === "borradores" && (
           <ReadOnlyLock active={roleTabAccess.borradores === "view"} toast={toast}>
             <DraftsPanel toast={toast} onInfo={onInfo} roster={roster} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "nutricion" && (
+        {cs === "nutricion" && (
           <ReadOnlyLock active={roleTabAccess.nutricion === "view"} toast={toast}>
             <NutritionEditor plan={plan} savePlan={savePlan} history={history}
-              onOpenNutritionAI={() => { setTab("ia"); setAiJumpSub("nutricion"); }} />
+              onOpenNutritionAI={() => { irA("rutina", "ia"); setAiJumpSub("nutricion"); }} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "ia" && (
+        {cs === "ia" && (
           <ReadOnlyLock active={roleTabAccess.ia === "view"} toast={toast}>
             <AITab plan={plan} savePlan={savePlan} history={history} currentStudent={currentStudent} toast={toast}
               jumpSub={aiJumpSub} onJumpConsumed={() => setAiJumpSub(null)} library={library} onSaveLibrary={saveLibrary} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "creador" && (
+        {cs === "creador" && (
           <ReadOnlyLock active={roleTabAccess.creador === "view"} toast={toast}>
             <RoutineStudioView plan={plan} savePlan={savePlan} toast={toast} onInfo={onInfo} history={history} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "indicaciones" && (
+        {cs === "indicaciones" && (
           <ReadOnlyLock active={roleTabAccess.indicaciones === "view"} toast={toast}>
             <InstructionsEditor plan={plan} savePlan={savePlan} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "dashboard" && (
+        {cs === "dashboard" && (
           <DashboardTabMono roster={roster} toast={toast} coachName={myTeamId ? (team.members.find((m) => m.id === myTeamId) || {}).name : "Tú"}
-            onNewRoutine={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "rutina" })); }}
+            onNewRoutine={() => irA("rutina", "rutina")}
             onAddStudent={() => addStudent(false)}
-            onOpenCobros={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "cobros" })); }}
-            onOpenAtletas={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "actividad" })); }}
-            onOpenProgresion={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "progresion" })); }}
-            onOpenMensajes={() => { setTab("indicaciones"); setSection((o) => ({ ...o, indicaciones: "chat" })); }}
+            onOpenCobros={() => irA("atletas", "cobros")}
+            onOpenAtletas={() => irA("atletas", "actividad")}
+            onOpenProgresion={() => irA("atletas", "progresion")}
+            onOpenMensajes={() => irA("atletas", "chat")}
             onOpenTeam={myRoleMeta.manageTeam ? () => setEquipoOpen(true) : null} teamSize={(team.members || []).length} />
         )}
-        {mode === "coach" && sub === "actividad" && (
+        {cs === "actividad" && (
           <AtletasActividadTab roster={roster} toast={toast}
-            onManage={(id, extra) => entrarComo("coach", id, extra)} onEnterAthlete={(id, extra) => entrarComo("alumno", id, extra)} />
+            onManage={(id, extra) => entrarComo("alumno", id, extra, "rutina")} onEnterAthlete={(id, extra) => entrarComo("alumno", id, extra)} />
         )}
-        {mode === "coach" && sub === "progresion" && (
+        {cs === "progresion" && (
           <ProgresionTab roster={roster} toast={toast}
-            onManage={(id, extra) => entrarComo("coach", id, extra)} onEnterAthlete={(id, extra) => entrarComo("alumno", id, extra)} />
+            onManage={(id, extra) => entrarComo("alumno", id, extra, "rutina")} onEnterAthlete={(id, extra) => entrarComo("alumno", id, extra)} />
         )}
-        {mode === "coach" && sub === "rankings" && (
+        {cs === "rankings" && (
           <ReadOnlyLock active={roleTabAccess.rankings === "view"} toast={toast}>
             <RankingsTab roster={roster} toast={toast} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "cobros" && (
+        {cs === "cobros" && (
           <ReadOnlyLock active={roleTabAccess.cobros === "view"} toast={toast}>
             <CobrosTab roster={roster} toast={toast} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "leads" && (
+        {cs === "leads" && (
           <ReadOnlyLock active={roleTabAccess.leads === "view"} toast={toast}>
             <LeadsTab onCreateStudent={createStudentNamed} onManageStudent={manageStudent} toast={toast} />
           </ReadOnlyLock>
         )}
-        {mode === "coach" && sub === "chat" && <AtletasMensajesTab roster={roster} toast={toast} />}
-        {mode === "coach" && sub === "cmas" && (
-          <CoachMasTab access={roleTabAccess} canManageTeam={myRoleMeta.manageTeam}
-            onGoSection={(t, sec) => { setTab(t); setSection((o) => ({ ...o, [t]: sec })); }}
-            onOpenUtility={setUtility} onOpenTeam={() => setEquipoOpen(true)}
-            onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
-            onOpenSearch={() => setSearchOpen(true)} onOpenControlCenter={() => setControlCenterOpen(true)}
-            onResetPlan={roleTabAccess.rutina === "edit" ? () => setConfirmReset(true) : null}
-            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenScience={() => setScienceOpen(true)} onOpenAtlas={() => { setAtlasInitialQuery(""); setAtlasOpen(true); }}
-            onOpenCompare={() => setCompareOpen(true)} />
-        )}
+        {cs === "chat" && <AtletasMensajesTab roster={roster} toast={toast} />}
         </div>
       </div>
 
       {compareOpen && <RoutineCompareScreen onClose={() => setCompareOpen(false)} plan={plan} />}
-      {mode === "alumno" && plan && <ReminderScheduler plan={plan} />}
-      {mode === "alumno" && history && <AchievementUnlockWatcher history={history} saveHistory={saveHistory} />}
-      {mode === "alumno" && active && !enSesion && <MiniSesion active={active} onOpen={() => setTab("entrenar")} onClose={() => { setPedirSalida(true); setTab("entrenar"); }} />}
+      {plan && <ReminderScheduler plan={plan} />}
+      {history && <AchievementUnlockWatcher history={history} saveHistory={saveHistory} />}
+      {active && !enSesion && <MiniSesion active={active} onOpen={() => irSesion()} onClose={() => { setPedirSalida(true); irSesion(); }} />}
       {!enSesion && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <GlobalSearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} items={searchItems} />
       <AccessProfilesSheet open={accessOpen} onClose={() => setAccessOpen(false)}
         onEnterAs={(prof) => { setAccessOpen(false); enterDelegate(prof); }} />
       <FaceIdOfferSheet offer={faceOffer} onClose={() => setFaceOffer(null)} />
       <ControlCenterSheet open={controlCenterOpen} onClose={() => setControlCenterOpen(false)}
-        mode={mode} isDelegate={!!delegate} hasActiveSession={!!active}
-        onTrain={() => setTab("entrenar")} onViewSession={() => setTab("entrenar")}
+        canCoach={canCoach} isDelegate={!!delegate} hasActiveSession={!!active}
+        onTrain={() => irSesion()} onViewSession={() => irSesion()}
         onProgress={() => setTab("progreso")} onCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
-        onAIChat={() => { if (mode === "coach") { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); } else { setAiChatOpenSignal((n) => n + 1); } }}
-        onSwitchAccount={switchAccount} onSwitchMode={switchMode}
-        onOpenPanel={() => setTab("dashboard")}
-        onOpenAtletas={() => { setTab("atletas"); setSection((o) => ({ ...o, atletas: "actividad" })); }}
-        onNewRoutine={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "rutina" })); }}
-        onOpenMensajes={() => { setTab("indicaciones"); setSection((o) => ({ ...o, indicaciones: "chat" })); }}
+        onAIChat={() => setAiChatOpenSignal((n) => n + 1)}
+        onSwitchAccount={switchAccount}
+        onOpenPanel={() => irA("atletas", "dashboard")}
+        onOpenAtletas={() => irA("atletas", "actividad")}
+        onNewRoutine={() => irA("rutina", "rutina")}
+        onOpenMensajes={() => irA("atletas", "chat")}
         onOpenAgenda={() => setUtility("agenda")} />
-      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode} isDelegate={!!delegate}
+      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} isDelegate={!!delegate}
         studentName={identityName} managedStudentName={currentStudent?.name}
         onSwitchIdentity={() => { setMoreOpen(false); logout(); }}
         onDeleteAccount={delegate ? async () => { const id = delegate.id; setMoreOpen(false); await borrarCuentaDePerfil(id); logout(); toast("Tu cuenta y tus datos fueron eliminados"); } : null}
         onSwitchAccount={() => { setMoreOpen(false); switchAccount(); }}
         onManageAccess={() => { setMoreOpen(false); setAccessOpen(true); }}
         canManageTeam={myRoleMeta.manageTeam}
-        routineView={routineView} onChangeRoutineView={setRoutineView}
         onOpenUtility={(id) => { setMoreOpen(false); setUtility(id); }}
         onOpenRoster={() => { setMoreOpen(false); setRosterOpen(true); }}
         onRecoverStudents={() => { setMoreOpen(false); setRecoverOpen(true); }}
         onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
         onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
-        onSwitchMode={(m) => { setMoreOpen(false); switchMode(m); }}
         faceIdWho={delegate ? delegate.id : myTeamId ? `team:${myTeamId}` : "owner"}
         onOpenFicha={() => { setMoreOpen(false); setFichaOpen(true); }}
         sid={sid} plan={plan} savePlan={savePlan} />
@@ -35055,9 +35026,9 @@ const App = () => {
           (hideFab) para no tapar la fila de accesos, pero el componente sigue
           vivo para que la estrella "Coach IA" de la sesión pueda abrir el
           chat (openChatSignal). */}
-      <AIFab mode={mode} plan={plan} history={history} student={currentStudent} active={active}
+      <AIFab plan={plan} history={history} student={currentStudent} active={active}
         hideFab
-        onOpenCoachTab={() => { setTab("rutina"); setSection((o) => ({ ...o, rutina: "ia" })); }}
+        onOpenCoachTab={() => irA("rutina", "ia")}
         openChatSignal={aiChatOpenSignal} toast={toast} />
       <Toast msg={toastMsg} />
       {/* Confirmación de lo que registró un Atajo de iPhone. */}
