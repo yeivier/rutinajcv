@@ -1,2 +1,4 @@
 node_modules/
 config.js
+ios-wrapper/www/
+ios-wrapper/node_modules/
