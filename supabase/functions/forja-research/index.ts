@@ -1,5 +1,5 @@
 // forja-research: mantiene al día la base de conocimiento de la IA de FORJA.
-// Cada día (pg_cron) busca estudios nuevos en PubMed (metaanálisis, revisiones y ensayos sobre
+// Cada 6 horas (pg_cron) busca estudios nuevos en PubMed (metaanálisis, revisiones y ensayos sobre
 // hipertrofia, volumen, proteína, creatina, recuperación, preparación de competencia) y artículos
 // recientes de preparadores/científicos del culturismo (RSS). Un LLM los resume en español y los
 // guarda en forja_kb como NO revisados (el coach los puede validar) y en un feed legible por la app.
@@ -89,8 +89,13 @@ async function llm(system: string, user: string): Promise<string> {
   }
   const gk = (rows || []).find((r: any) => r.provider === "gemini")?.api_key;
   if (!gk) throw new Error("sin proveedor de IA");
-  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${gk}` },
-    body: JSON.stringify({ model: "gemini-flash-latest", max_tokens: 700, temperature: 0.2, messages: [{ role: "system", content: system }, { role: "user", content: user }] }) });
+  // flash-lite y sin «thinking»: resumir un abstract no necesita razonamiento y así responde en segundos.
+  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 30000);
+  let r: Response;
+  try {
+    r = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", { method: "POST", signal: ctrl.signal, headers: { "Content-Type": "application/json", Authorization: `Bearer ${gk}` },
+      body: JSON.stringify({ model: "gemini-flash-lite-latest", max_tokens: 700, temperature: 0.2, messages: [{ role: "system", content: system }, { role: "user", content: user }] }) });
+  } finally { clearTimeout(t); }
   if (!r.ok) throw new Error("llm " + r.status);
   const j = await r.json(); return j?.choices?.[0]?.message?.content || "";
 }
@@ -116,7 +121,7 @@ Deno.serve(async (req) => {
   const nuevos = cands.filter((c) => !descartadosPrev.includes(c.key) && !fuentes.some((v) => v.includes(c.key))).slice(0, 60).sort((a, b) => orden[a.evidenciaBase] - orden[b.evidenciaBase]);
 
   const feedItems: any[] = [];
-  let guardados = 0, descartados = 0, fallos = 0, procesados = 0;
+  let guardados = 0, descartados = 0, fallos = 0, procesados = 0, ultimoError = "";
   // Se guarda tras CADA entrada: si el tiempo de la función se agota, no se pierde lo ya procesado.
   const { data: feedRow } = await sb.from("forja_kv").select("value").eq("key", "forja-science-feed").maybeSingle();
   const prevFeed = Array.isArray(feedRow?.value?.items) ? feedRow!.value.items : [];
@@ -126,7 +131,7 @@ Deno.serve(async (req) => {
   };
   const inicio = Date.now();
   for (const c of nuevos) {
-    if (guardados >= MAX_NUEVOS || procesados >= 20 || Date.now() - inicio > 100000) break;
+    if (guardados >= MAX_NUEVOS || procesados >= 12 || Date.now() - inicio > 90000) break;
     procesados++;
     try {
       const r = parse(await llm(SYS, `TÍTULO: ${c.title}\nORIGEN: ${c.origen}\nTEXTO: ${c.text}`));
@@ -140,7 +145,7 @@ Deno.serve(async (req) => {
       guardados++;
       feedItems.unshift({ id: c.key, kind: c.kind, topic, title: clean(r.titulo, 110), summary: clean(r.resumen, 520), apply: clean(r.aplicacion, 260), limits: clean(r.limites, 220), origin: c.origen, url: c.url, date: c.fecha || new Date().toISOString().slice(0, 10), evidence: c.evidenciaBase });
       await flush();
-    } catch { fallos++; }
+    } catch (e) { fallos++; ultimoError = String((e as Error)?.message || e).slice(0, 160); }
   }
-  return json({ candidatos: cands.length, nuevos: nuevos.length, procesados, guardados, descartados, fallos });
+  return json({ candidatos: cands.length, nuevos: nuevos.length, procesados, guardados, descartados, fallos, ultimoError });
 });
