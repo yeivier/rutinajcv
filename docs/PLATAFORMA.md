@@ -85,3 +85,12 @@ Para pruebas automatizadas se usó Playwright con las rutas de Supabase simulada
 - **forja-research** (edge function, cron cada 6 horas, lotes de hasta 12 candidatos): busca en PubMed metaanálisis, revisiones y ensayos nuevos sobre hipertrofia, volumen, proteína/creatina, recuperación y preparación de físico, y artículos recientes de Stronger By Science, Menno Henselmans y Renaissance Periodization. Un LLM los resume en español (sin enlaces ni HTML); se guardan en `forja_kb` como **no revisados** (`[Estudio reciente]` / `[Artículo reciente]`) y en el feed `forja-science-feed`, que se ve en Más › Ciencia al día. Lo descartado por poco relevante queda en `forja-research-seen`.
 - **forja-ai v6**: la base de conocimiento se inyecta como *datos* (no instrucciones) y las novedades se citan con su nivel de evidencia sin cambiar recomendaciones consolidadas.
 - **Marco de decisión** (`COACH_DECISION_FRAMEWORK`) y **señales calculadas** (`senalesDeDecision`: tendencia de peso, adherencia, volumen bajo MEV/sobre MRV, puntos débiles del último análisis de físico, cuenta atrás de competencia) en los prompts del coach y del alumno.
+
+## Plataforma unificada (v436)
+Ya no existe el «modo coach» y «modo atleta»: una sola barra (Hoy · Progreso · Entrenar · Nutrición · Atletas · Más).
+- **Entrenar**: Sesión · Rutina (editor) · Creador · Borradores · Indicaciones · IA del preparador.
+- **Nutrición**: Plan · Editor.
+- **Atletas** (gestión; es lo que luego migrará a la app de coaches): Panel · Actividad · Progresión · Rankings · Cobros · Leads · Chat.
+- **Más**: seguimiento, culturismo, *Gestión* (indicaciones, borradores, creador, comparar, IA del preparador, agenda del coach, equipo, vaciar plan) y herramientas.
+- Las secciones de gestión se muestran según el rol (dueño / equipo); un perfil con acceso (atleta) solo ve las suyas.
+- Se eliminó el selector «Editor de rutina: Completo/Compacto» (queda un único editor).
