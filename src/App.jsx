@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v432";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v433";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -15146,7 +15146,7 @@ const PieChartBox = ({ data, unit, colors, height = 180 }) => {
 // pensado para "Rutina A vs Rutina B", una serie por color. Cada gráfico
 // de la app hasta ahora mostraba UNA sola cosa; este es a propósito el
 // primero pensado para comparar dos de un vistazo.
-const RadarChartBox = ({ data, labelA, labelB, colorA, colorB, height = 300 }) => {
+const RadarChartBox = ({ data, labelA, labelB, colorA, colorB, height = 300, unit = "%" }) => {
   const [R, setR] = useState(null);
   useEffect(() => { let on = true; cargarRecharts().then((m) => { if (on) setR(m); }).catch(() => {}); return () => { on = false; }; }, []);
   if (!R) {
@@ -15169,7 +15169,7 @@ const RadarChartBox = ({ data, labelA, labelB, colorA, colorB, height = 300 }) =
             isAnimationActive animationDuration={750} animationEasing="ease-out" />
           <R.Legend iconType="circle" wrapperStyle={{ fontSize: 12, color: P.faint2 }} />
           <R.Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: P.dim, fontWeight: 700 }}
-            formatter={(v) => [`${v}%`, ""]} />
+            formatter={(v) => [`${v}${unit}`, ""]} />
         </R.RadarChart>
       </R.ResponsiveContainer>
     </div>
@@ -28995,8 +28995,153 @@ const VideoJudge = ({ plan, history }) => {
   );
 };
 
-const PhysiqueScanner = ({ plan, history }) => {
-  const [modo, setModo] = useState("fisico"); // fisico | simetria
+/* ---- Análisis IA del físico: puntaje 1-10, objetivo, por zona ----
+   Para que sea objetivo y no halague: la IA recibe una escala con anclas
+   (qué significa cada nota), puntúa CADA zona por separado solo si la ve en
+   las fotos (si no, null), y el puntaje GENERAL lo calcula la app con un
+   promedio ponderado de esas zonas — no lo inventa el modelo. Se guarda cada
+   análisis para comparar contra el anterior. */
+const PHYS_ZONAS = [
+  { k: "hombros", n: "Hombros", w: 1.3 }, { k: "pecho", n: "Pecho", w: 1.1 }, { k: "espalda", n: "Espalda", w: 1.4 },
+  { k: "brazos", n: "Brazos", w: 1 }, { k: "core", n: "Core / cintura", w: 0.9 }, { k: "cuadriceps", n: "Cuádriceps", w: 1.1 },
+  { k: "femoral_gluteo", n: "Femoral y glúteo", w: 1 }, { k: "gemelos", n: "Gemelos", w: 0.7 },
+];
+const PHYS_ESCALA = `ESCALA OBJETIVA (1-10, sé estricto y calibrado: un atleta de gimnasio con 2-3 años de entrenamiento serio es 5; NO infles):
+1-2 sin entrenar o desarrollo mínimo · 3-4 principiante (<1 año) · 5 intermedio recreativo · 6 sólido, se nota entrenamiento constante · 7 avanzado, destaca en cualquier gimnasio · 8 nivel competitivo regional/amateur · 9 nivel nacional/pro · 10 élite mundial (Olympia).
+Puntúa cada zona SOLO con lo que se ve; si la zona no se aprecia en las fotos devuelve null. Considera tamaño, forma, separación/condición y proporción con el resto.`;
+function puntajePhys(zonas) {
+  let sw = 0, s = 0;
+  PHYS_ZONAS.forEach((z) => { const v = zonas && zonas[z.k] && zonas[z.k].puntaje; if (typeof v === "number" && isFinite(v)) { s += v * z.w; sw += z.w; } });
+  return sw ? Math.round((s / sw) * 10) / 10 : null;
+}
+const FotoSlot = ({ label, value, onChange }) => {
+  const ref = useRef(null);
+  return (
+    <button onClick={() => ref.current && ref.current.click()} aria-label={`Foto ${label}`}
+      style={{ flex: 1, minWidth: 0, aspectRatio: "3/4", borderRadius: 14, overflow: "hidden", position: "relative", background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 4 }}>
+      {value ? <img src={value.preview} alt={label} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} /> : <Camera size={22} color={P.faint} />}
+      <span style={{ position: "relative", marginTop: value ? "auto" : 0, width: "100%", padding: value ? "14px 6px 6px" : 0, fontSize: 12, fontWeight: 700, color: value ? "#fff" : P.faint, background: value ? "linear-gradient(transparent, rgba(0,0,0,.65))" : "none" }}>{label}</span>
+      <input ref={ref} type="file" accept="image/*" style={{ display: "none" }}
+        onChange={async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return; try { const d = await compressImage(f, 1280, 0.8); onChange({ preview: d, data: d.slice(d.indexOf(",") + 1) }); } catch {} }} />
+    </button>
+  );
+};
+const PhysiqueAnalysis = ({ plan, history, saveHistory }) => {
+  const [fotos, setFotos] = useState({ frontal: null, espalda: null, lateral: null });
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [res, setRes] = useState(null);
+  const previos = ((history && history.physiqueScans) || []).slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+  const [anterior, setAnterior] = useState(null); // análisis previo al que se acaba de hacer, para comparar
+  const nFotos = Object.values(fotos).filter(Boolean).length;
+  // fotos de progreso ya guardadas (último frontal/posterior/lateral)
+  const usarGuardadas = async () => {
+    const bp = (history && history.bodyPhotos) || [];
+    const ult = (ang) => bp.filter((x) => x.angle === ang).slice(-1)[0];
+    const out = { ...fotos };
+    for (const [slot, ang] of [["frontal", "frontal"], ["espalda", "posterior"], ["lateral", "lateral"]]) {
+      const it = ult(ang); if (!it) continue;
+      const m = await sGet(`attach:${it.id}`);
+      if (m && m.dataUrl) out[slot] = { preview: m.dataUrl, data: m.dataUrl.slice(m.dataUrl.indexOf(",") + 1) };
+    }
+    setFotos(out);
+  };
+  const analizar = async () => {
+    setBusy(true); setErr(""); setRes(null);
+    setAnterior(previos[previos.length - 1] || null);
+    try {
+      const blocks = [];
+      Object.entries(fotos).forEach(([k, v]) => { if (v) { blocks.push({ type: "text", text: `Foto ${k}` }); blocks.push(imgBlock(v.data)); } });
+      let vol = "";
+      try { const d = volumenSemanalPorMusculo(plan, history, 4); vol = d.musculos.map((m) => `${m.muscle}: ${fmtSets(m.serie.reduce((a, b) => a + b, 0) / 4)} series/sem`).join("; "); } catch {}
+      const zonasSchema = PHYS_ZONAS.map((z) => `"${z.k}":{"puntaje":1-10 o null,"estado":"fuerte|medio|debil","observacion":"","mejora":"acción concreta: ejercicio(s), series/semana, técnica"}`).join(",");
+      blocks.push({ type: "text", text: `${compCtx(plan, history)}\nVolumen reciente (últimas 4 semanas): ${vol || "sin datos"}.\n${PHYS_ESCALA}\nDevuelve: {"zonas":{${zonasSchema}},"proporciones":{"puntaje":1-10,"nota":""},"condicion":{"puntaje":1-10 o null,"grasa_estimada":"rango % con margen de error","nota":""},"simetria":{"puntaje":1-10 o null,"nota":""},"puntos_fuertes":["zona + por qué"],"puntos_debiles":["zona + por qué"],"prioridades":[{"zona":"","accion":"qué cambiar en el entrenamiento"}],"limitaciones":"qué no se pudo evaluar (ángulos, luz, pose)"}` });
+      const r = await compAI("Eres un juez y evaluador de físico-culturismo objetivo e imparcial. No halagas: calibras con la escala dada y justificas cada nota con lo visible. Las mejoras deben ser entrenables (ejercicios, series por semana, técnica), nunca fármacos.", blocks, { tier: "deep", max: 4000 });
+      const general = puntajePhys(r.zonas);
+      const out = { ...r, general, date: todayISO() };
+      setRes(out);
+      if (saveHistory && general != null) {
+        const h = structuredClone(history);
+        const regiones = {}; PHYS_ZONAS.forEach((z) => { const v = r.zonas && r.zonas[z.k] && r.zonas[z.k].puntaje; if (typeof v === "number") regiones[z.k] = v; });
+        h.physiqueScans = [...(h.physiqueScans || []), { id: uid(), date: todayISO(), general, regiones, grasa: r.condicion && r.condicion.grasa_estimada || "" }].slice(-40);
+        saveHistory(h);
+      }
+    } catch (e) { setErr(e.message || "No pude analizar las fotos."); } finally { setBusy(false); }
+  };
+  const zonas = res && res.zonas;
+  const radar = res ? PHYS_ZONAS.map((z) => ({ muscle: z.n.split(" ")[0], a: (zonas && zonas[z.k] && typeof zonas[z.k].puntaje === "number") ? zonas[z.k].puntaje : 0, b: (anterior && anterior.regiones && anterior.regiones[z.k]) || 0 })) : [];
+  const col = (st) => (st === "fuerte" ? P.green : st === "debil" ? P.red : P.faint);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        {["frontal", "espalda", "lateral"].map((k) => <FotoSlot key={k} label={k[0].toUpperCase() + k.slice(1)} value={fotos[k]} onChange={(v) => setFotos((f) => ({ ...f, [k]: v }))} />)}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={usarGuardadas} aria-label="Usar mis fotos de progreso" title="Usar mis fotos de progreso" style={{ height: 50, width: 50, borderRadius: 25, background: P.s3, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}><History size={20} /></button>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}><CompBusyBtn busy={busy} onClick={analizar} disabled={!nFotos} Icon={ScanFace} label="Analizar físico" /></div>
+      </div>
+      <CompNote>Luz pareja, relajado de pie, misma distancia, sin filtros. Cuantas más vistas, más zonas puntuables.</CompNote>
+      <CompErr msg={err} />
+      {res && (
+        <Card style={{ padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18 }}>
+            <ScoreRing value={res.general ?? "—"} max={10} label="Puntaje general" />
+            {anterior && res.general != null && <div style={{ textAlign: "center" }}><div className="mono" style={{ fontSize: 20, fontWeight: 800, color: res.general - anterior.general >= 0 ? P.green : P.red }}>{res.general - anterior.general >= 0 ? "+" : ""}{Math.round((res.general - anterior.general) * 10) / 10}</div><div style={{ fontSize: 11, color: P.faint }}>vs {fmtDate(anterior.date)}</div></div>}
+          </div>
+          <RadarChartBox data={radar} labelA="Ahora" labelB="Anterior" colorA={P.ember} colorB={P.faint} height={260} unit="" />
+          <div>
+            {PHYS_ZONAS.map((z) => { const d = zonas && zonas[z.k]; if (!d || d.puntaje == null) return null; return (
+              <div key={z.k} style={{ borderTop: `1px solid ${P.line}`, padding: "10px 0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span style={{ fontSize: 14.5, fontWeight: 700, color: P.text }}>{z.n} <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: col(d.estado) }}>{d.estado === "debil" ? "débil" : d.estado}</span></span>
+                  <span className="mono" style={{ fontWeight: 800, color: P.text }}>{d.puntaje}/10</span>
+                </div>
+                {d.observacion && <div style={{ fontSize: 13, color: P.dim, marginTop: 2, lineHeight: 1.4 }}>{d.observacion}</div>}
+                {d.mejora && <div style={{ fontSize: 13, color: P.text, marginTop: 3, lineHeight: 1.4 }}>→ {d.mejora}</div>}
+              </div>); })}
+          </div>
+          {res.condicion && res.condicion.puntaje != null && <div style={{ fontSize: 13.5, color: P.dim }}>Condición {res.condicion.puntaje}/10{res.condicion.grasa_estimada ? ` · grasa ${res.condicion.grasa_estimada}` : ""}{res.condicion.nota ? ` — ${res.condicion.nota}` : ""}</div>}
+          {res.proporciones && res.proporciones.puntaje != null && <div style={{ fontSize: 13.5, color: P.dim }}>Proporciones {res.proporciones.puntaje}/10{res.proporciones.nota ? ` — ${res.proporciones.nota}` : ""}</div>}
+          {res.simetria && res.simetria.puntaje != null && <div style={{ fontSize: 13.5, color: P.dim }}>Simetría {res.simetria.puntaje}/10{res.simetria.nota ? ` — ${res.simetria.nota}` : ""}</div>}
+          <CompList title="Puntos fuertes" items={res.puntos_fuertes} color={P.green} />
+          <CompList title="Puntos débiles" items={res.puntos_debiles} color={P.red} />
+          {(res.prioridades || []).length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: P.faint2, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Prioridades de entrenamiento</div>
+              {res.prioridades.map((x, i) => <div key={i} style={{ fontSize: 14, color: P.dim, padding: "3px 0" }}><b style={{ color: P.text }}>{i + 1}. {x.zona}</b> — {x.accion}</div>)}
+            </div>
+          )}
+          {res.limitaciones && <CompNote>No evaluado: {res.limitaciones}</CompNote>}
+        </Card>
+      )}
+      {previos.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: P.faint2, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Historial de análisis</div>
+          {previos.slice().reverse().slice(0, 8).map((p) => (
+            <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: `1px solid ${P.line}`, fontSize: 13.5, color: P.dim }}>
+              <span>{fmtDateFull(p.date)}</span><span className="mono" style={{ fontWeight: 800, color: P.text }}>{p.general}/10{p.grasa ? ` · ${p.grasa}` : ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <CompNote>Estimación visual por IA, orientativa. La luz, el ángulo y la pose cambian el resultado; compara siempre con las mismas condiciones.</CompNote>
+    </div>
+  );
+};
+const PhysiqueHub = ({ plan, history, saveHistory }) => {
+  const [m, setM] = useState("analisis");
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", gap: 6 }}>
+        {[["analisis", "Análisis"], ["simetria", "Simetría"]].map(([k, l]) => (
+          <button key={k} onClick={() => setM(k)} style={{ padding: "7px 14px", borderRadius: 20, fontSize: 13.5, fontWeight: 700, background: m === k ? P.text : P.s3, color: m === k ? P.bg : P.dim }}>{l}</button>
+        ))}
+      </div>
+      {m === "analisis" ? <PhysiqueAnalysis plan={plan} history={history} saveHistory={saveHistory} /> : <PhysiqueScanner plan={plan} history={history} soloSimetria />}
+    </div>
+  );
+};
+
+const PhysiqueScanner = ({ plan, history, soloSimetria }) => {
+  const [modo, setModo] = useState(soloSimetria ? "simetria" : "fisico"); // fisico | simetria
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [res, setRes] = useState(null);
   const fileRef = useRef(null);
   const analizar = async (files) => {
@@ -29018,7 +29163,7 @@ const PhysiqueScanner = ({ plan, history }) => {
   };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", gap: 6 }}>
+      <div style={{ display: soloSimetria ? "none" : "flex", gap: 6 }}>
         {[["fisico", "Físico"], ["simetria", "Simetría"]].map(([k, l]) => (
           <button key={k} onClick={() => { setModo(k); setRes(null); }} style={{ padding: "7px 14px", borderRadius: 20, fontSize: 13.5, fontWeight: 700, background: modo === k ? P.text : P.s3, color: modo === k ? P.bg : P.dim }}>{l}</button>
         ))}
@@ -29127,7 +29272,7 @@ const MorningBriefing = ({ open, onClose, plan, history }) => {
   );
 };
 
-const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast, history }) => {
+const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast, history, saveHistory }) => {
   const [sub, setSub] = useState("categoria");
   const a = plan.athlete || {};
   const compDate = a.compDate ? parseDate(a.compDate) : null;
@@ -29199,7 +29344,7 @@ const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast, history })
         {sub === "pump" && <PumpUpOptimizer plan={plan} history={history} savePlan={savePlan} />}
         {sub === "backstage" && <BackstageRunSheet plan={plan} savePlan={savePlan} />}
         {sub === "video" && <VideoJudge plan={plan} history={history} />}
-        {sub === "scan" && <PhysiqueScanner plan={plan} history={history} />}
+        {sub === "scan" && <PhysiqueHub plan={plan} history={history} saveHistory={saveHistory} />}
         {sub === "peak" && (
           <Card style={{ overflow: "hidden" }}>
             {BB_PEAK_WEEK.map((tip, i) => (
@@ -34589,7 +34734,7 @@ const App = () => {
             <RefreshCw size={17} color={P.text} style={{ animation: ptr.busy ? "fjSpin 1s linear infinite" : "none", transform: ptr.busy ? undefined : `rotate(${ptr.dy * 4}deg)` }} />
           </div>
         )}
-        <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} savePlan={savePlan} toast={toast} history={history} />
+        <CompetitionPrepSheet open={compPrepOpen} onClose={() => setCompPrepOpen(false)} plan={plan} savePlan={savePlan} toast={toast} history={history} saveHistory={saveHistory} />
         <ExerciseAtlasSheet open={atlasOpen} onClose={() => setAtlasOpen(false)} library={library} plan={plan} initialQuery={atlasInitialQuery} />
         {/* Suplementación abre la analítica sin cerrarse: el seguimiento
             médico es justamente el puente entre las dos. */}
