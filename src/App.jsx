@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v433";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v434";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -22953,6 +22953,8 @@ DOMINIO TÉCNICO QUE MANEJAS
 12. Diagnóstico de estancamientos: antes de rediseñar nada, revisar adherencia, energía disponible, sueño, honestidad del RIR, volumen sobre MRV y calidad técnica.
 13. Atletas asistidos (en ciclo) — eres experto en programar entrenamiento y nutrición para este perfil, no solo para naturales. Con soporte anabólico la síntesis proteica y la recuperación sistémica mejoran mucho: toleran bastante más volumen (ver landmarks del punto 2), más frecuencia por grupo muscular (3 o más veces por semana es normal) y sostienen entrenamiento cerca del fallo con más frecuencia, sin el mismo riesgo de sobreentrenamiento sistémico que un natural. Ojo con el tejido conectivo: tendones y ligamentos NO reciben el mismo beneficio anabólico que el músculo, así que la fuerza y el volumen tolerado suelen subir más rápido que lo que aguantan tendones y articulaciones — sigues siendo tú quien frena la progresión de carga en básicos pesados aunque el atleta "se sienta bien", el criterio no es solo cómo recupera el músculo. En nutrición: suelen necesitar más proteína (hasta ~3 g/kg o más) y tienen mejor partición de nutrientes — pueden ganar músculo en déficit y sostener cortes más agresivos perdiendo menos tejido magro que un natural; los ritmos de cambio de peso del punto 8 son un piso pensado para natural, no un techo para un asistido. Los deloads siguen siendo necesarios igual (la fatiga articular y del sistema nervioso no depende de las hormonas), aunque pueden ser más cortos o menos frecuentes que en un natural. Todo esto es programación de entrenamiento y nutrición — nunca cruces al punto de sustancias, dosis o protocolos (ver LÍMITES INNEGOCIABLES).
 
+${COACH_DECISION_FRAMEWORK}
+
 LÍMITES INNEGOCIABLES
 ${AI_SUBSTANCES_POLICY}
 - No eres médico ni nutricionista clínico: ante patología, medicación, embarazo, trastorno de la conducta alimentaria, menores de edad o dolor con señales de alarma (dolor nocturno, pérdida de fuerza, hormigueo, inflamación marcada), deriva al profesional correspondiente.
@@ -23048,6 +23050,9 @@ Si te pide un cambio real ("cámbiame este ejercicio", "quiero una serie más") 
 {"tipo":"series","ejercicio":"nombre exacto del ejercicio en su plan","delta":1,"motivo":"datos concretos que lo respaldan"}
 \`\`\`
 Tipos válidos: "series" (delta 1 o -1: añade o quita una serie de trabajo), "reemplazo" (campo "nuevo": nombre de un ejercicio estándar equivalente), "nota" (campo "texto": indicación técnica breve), "otro" (campo "detalle": cualquier otro cambio, p. ej. de carga). Solo un bloque por respuesta y solo cuando haya un cambio que proponer; para dudas teóricas no lo uses. Dile al alumno que la propuesta quedó enviada a su coach.
+
+CÓMO DECIDES (como un preparador de élite, pero hablándole al alumno)
+Sigue el proceso: qué ves en SUS datos (cita cifras) → causa más probable → UNA recomendación concreta → cómo lo van a evaluar y cuándo revisarlo. Un cambio a la vez, pequeño; no reacciones a un solo día. Si los datos del alumno piden un cambio de plan, propónselo a su coach con el bloque forja-propuesta. Las entradas «Estudio reciente / Artículo reciente» de la base de conocimiento no han sido revisadas por el coach: preséntalas como novedad con su nivel de evidencia, nunca como regla.
 
 OTROS LÍMITES
 - No eres médico ni nutricionista clínico: ante dolor con señales de alarma, lesión, patología, medicación o trastorno de la conducta alimentaria, dile que lo hable con su coach y/o un profesional de la salud.
@@ -23145,7 +23150,69 @@ function buildAIExtras({ plan, history }) {
       if (filas.length) out.push(`PROGRESIÓN CALCULADA POR LA APP para ${dia.name}${diasHasta === 0 ? " (hoy)" : ` (en ${diasHasta} d)`}:\n${filas.join("\n")}`);
     }
   } catch {}
+  try { const sd = senalesDeDecision(plan, h); if (sd) out.push(sd); } catch {}
   return out.join("\n\n");
+}
+
+/* ---- Marco de decisión de preparador de élite (para la IA) ----
+   Condensa principios públicos de la escuela de preparación de físico (p. ej. el enfoque de Hany Rambod:
+   FST-7, un solo cambio a la vez, construir antes de definir, punto débil primero, ajustes pequeños y
+   medidos, llegar «lleno y seco» sin extremos). Es una forma de decidir, no una imitación de nadie. */
+const COACH_DECISION_FRAMEWORK = `MARCO DE DECISIÓN (cómo piensas y decides como preparador de élite)
+Proceso fijo en cada decisión: (1) QUÉ VES en los datos, con cifras → (2) HIPÓTESIS de la causa más probable → (3) DECISIÓN única y concreta → (4) CÓMO la evalúas y CUÁNDO la revisas (7-14 días) → (5) PLAN B si no funciona. Un solo cambio a la vez, pequeño y medido, salvo emergencia; nunca reaccionas a un solo día: miras promedios de 7 días y tendencias de 2-3 semanas.
+Principios:
+- Construir antes de definir: temporadas largas de crecimiento manteniéndose relativamente magro (sin sobre-engordar) para tener margen y salud en la definición.
+- Punto débil primero: el grupo rezagado recibe más volumen (+3 a +6 series/sem sin pasar su MRV), va primero en la sesión, frecuencia 2-3×/sem, y se baja el volumen de los grupos fuertes para pagar la recuperación.
+- Orden de palancas en definición (guarda las fuertes para después): 1) ajustar calorías en 100-150 kcal, sobre todo carbohidratos; 2) pasos/actividad (+2.000-3.000/día); 3) cardio (10-20 min, bajo impacto); 4) recién entonces recortes mayores o refeed/diet break. No gastes todas las palancas temprano: en competencia siempre queda margen de maniobra.
+- Plenitud y bombeo: en el final de la prep, carbohidratos, sodio, agua y digestión se ajustan con cautela, probando antes (nada nuevo en la semana del show); se juzga por fotos y espejo, no solo por la balanza.
+- FST-7 como herramienta de punto débil o fascia: 7 series de 8-12 al final del grupo con 30-45 s de descanso, con peso moderado; se usa en 1-2 grupos a la vez, no en todos.
+Reglas numéricas (úsalas y cita el dato que las dispara):
+- Definición: ritmo sano 0,5-1 % del peso/sem. Si < 0,3 %/sem durante 2 sem con adherencia > 90 % → baja 100-150 kcal o suma pasos/cardio. Si > 1,2 %/sem → sube 100-200 kcal. Si el rendimiento ya cae y el sueño empeora, primero pasos/cardio, no más recorte calórico.
+- Volumen (ganar): objetivo +0,25 a +0,5 %/sem (principiante hasta 1 %). Si sube > 0,75 %/sem → baja 100-200 kcal. Si < 0,1 %/sem durante 3 sem y la fuerza no sube → sube 150-250 kcal.
+- Fatiga: si 2+ ejercicios principales bajan rendimiento en 2 sesiones seguidas y además el sueño/HRV empeoran → deload de una semana (−30 a −50 % de series, mismo peso o −10 %), no más recorte de comida.
+- Volumen por músculo: < MEV → +2 series/sem; dentro de MAV y progresando → mantener; > MRV o dolor articular → recortar.
+- Hambre extrema + rendimiento a la baja en prep → 1-2 días de mantención (refeed) o diet break de 1 semana antes de apretar más.
+Frescura del conocimiento: la base de conocimiento incluye entradas «Estudio reciente» y «Artículo reciente» (sin revisar por el coach). Úsalas para actualizarte, cita su origen y nivel de evidencia, distingue metaanálisis de un estudio pequeño, y NO cambies una recomendación consolidada por un solo estudio nuevo.`;
+
+// Señales calculadas por la app: la IA decide sobre números reales, no sobre impresiones.
+function senalesDeDecision(plan, history) {
+  const h = history || {}; const a = (plan && plan.athlete) || {};
+  const out = [];
+  const dia = 86400000, ahora = Date.now();
+  const prom = (arr) => (arr.length ? arr.reduce((t, x) => t + x, 0) / arr.length : null);
+  const bw = (h.bodyweight || []).filter((x) => x && x.date && isFinite(+x.kg));
+  const enRango = (d0, d1) => bw.filter((x) => { const t = new Date(x.date).getTime(); return t >= ahora - d1 * dia && t < ahora - d0 * dia; }).map((x) => +x.kg);
+  const w1 = prom(enRango(0, 7)), w0 = prom(enRango(7, 14)), w00 = prom(enRango(14, 21));
+  const r = (n) => String(Math.round(n * 100) / 100).replace(".", ",");
+  if (w1 != null && w0 != null) {
+    const pct = ((w1 - w0) / w0) * 100;
+    const pct2 = w00 != null ? ((w0 - w00) / w00) * 100 : null;
+    const fase = BB_PHASES.find((p) => p.id === a.phase);
+    out.push(`Peso: promedio 7 d ${r(w1)} kg, semana previa ${r(w0)} kg → ${pct >= 0 ? "+" : ""}${r(pct)} %/sem${pct2 != null ? ` (semana anterior a esa: ${pct2 >= 0 ? "+" : ""}${r(pct2)} %)` : ""}${fase ? `. Fase del atleta: ${fase.label}, ritmo objetivo ${fase.rate}.` : ". Fase del atleta sin definir."}`);
+  }
+  const ses = (h.sessions || []).filter((s) => s && s.date);
+  const n14 = ses.filter((s) => new Date(s.date).getTime() >= ahora - 14 * dia).length;
+  const n14p = ses.filter((s) => { const t = new Date(s.date).getTime(); return t >= ahora - 28 * dia && t < ahora - 14 * dia; }).length;
+  const prog = Object.values((plan && plan.schedule) || {}).filter(Boolean).length;
+  if (prog) out.push(`Adherencia: ${n14} sesiones en los últimos 14 d (previos 14 d: ${n14p}); programadas ≈ ${prog * 2}.`);
+  try {
+    const enh = a.enhanced === "asistido"; const ref = enh ? BB_VOLUME_REF_ENHANCED : BB_VOLUME_REF;
+    const d = volumenSemanalPorMusculo(plan, h, 4);
+    const bajo = [], alto = [];
+    d.musculos.forEach((m) => { const rf = ref[m.muscle]; if (!rf) return; const avg = m.serie.reduce((t, x) => t + x, 0) / 4; if (avg < rf.mev) bajo.push(`${m.muscle} ${fmtSets(avg)} (MEV ${rf.mev})`); else if (avg > rf.mrv) alto.push(`${m.muscle} ${fmtSets(avg)} (MRV ${rf.mrv})`); });
+    if (bajo.length) out.push(`Volumen por debajo del MEV (prom. 4 sem, series/sem): ${bajo.join("; ")}.`);
+    if (alto.length) out.push(`Volumen por encima del MRV: ${alto.join("; ")}.`);
+  } catch {}
+  try {
+    const sc = (h.physiqueScans || []).slice(-1)[0];
+    if (sc && sc.regiones) {
+      const orden = Object.entries(sc.regiones).sort((x, y) => x[1] - y[1]);
+      const nombre = (k) => (PHYS_ZONAS.find((z) => z.k === k) || { n: k }).n;
+      out.push(`Último análisis de físico (${fmtDate(sc.date)}): general ${sc.general}/10. Puntos débiles: ${orden.slice(0, 3).map(([k, v]) => `${nombre(k)} ${v}/10`).join(", ")}. Fuertes: ${orden.slice(-2).reverse().map(([k, v]) => `${nombre(k)} ${v}/10`).join(", ")}.`);
+    }
+  } catch {}
+  if (a.compDate) { const dd = Math.round((parseDate(a.compDate) - new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())) / dia); if (dd >= 0) out.push(`Competencia en ${dd} días (${Math.ceil(dd / 7)} semanas)${a.category ? `, categoría ${a.category}` : ""}.`); }
+  return out.length ? `SEÑALES PARA DECIDIR (calculadas por la app con datos reales):\n- ${out.join("\n- ")}` : "";
 }
 
 /* ---- Propuestas de la IA del alumno (las aprueba el coach) ---- */
@@ -29272,6 +29339,40 @@ const MorningBriefing = ({ open, onClose, plan, history }) => {
   );
 };
 
+/* ---- Ciencia al día: feed de estudios y artículos nuevos que mantiene forja-research ---- */
+const ScienceFeedSheet = ({ open, onClose }) => {
+  const [feed, setFeed] = useState(null); const [err, setErr] = useState(false);
+  useEffect(() => { if (!open) return; let on = true; sGetFresh("forja-science-feed").then((v) => { if (on) setFeed(v || { items: [] }); }).catch(() => on && setErr(true)); return () => { on = false; }; }, [open]);
+  const items = (feed && feed.items) || [];
+  const evTxt = { alta: "Metaanálisis / revisión", media: "Ensayo controlado", baja: "Evidencia limitada", practica: "Opinión experta" };
+  return (
+    <Sheet open={open} onClose={onClose} title="Ciencia al día" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {err && <CompNote>No se pudo cargar. Revisa tu conexión.</CompNote>}
+        {!feed && !err && <div style={{ textAlign: "center", padding: 24 }}><Loader2 size={22} color={P.faint} style={{ animation: "fjSpin 1s linear infinite" }} /></div>}
+        {feed && !items.length && <Empty icon={BookOpen} title="Todavía sin novedades" body="Cada día se revisan PubMed y blogs de preparadores; lo relevante aparece aquí." />}
+        {items.map((it, i) => (
+          <Card key={(it.id || "") + i} style={{ padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em", color: it.evidence === "alta" ? P.ember : P.faint }}>
+              <span>{it.kind === "estudio" ? "Estudio" : "Artículo"}</span><span>·</span><span>{evTxt[it.evidence] || it.evidence}</span>
+              <span style={{ marginLeft: "auto", fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>{it.date}</span>
+            </div>
+            <div style={{ fontSize: 15.5, fontWeight: 700, color: P.text, lineHeight: 1.3 }}>{it.title}</div>
+            <div style={{ fontSize: 13.5, color: P.dim, lineHeight: 1.45 }}>{it.summary}</div>
+            {it.apply && <div style={{ fontSize: 13.5, color: P.text, lineHeight: 1.45 }}>→ {it.apply}</div>}
+            {it.limits && <div style={{ fontSize: 12, color: P.faint, lineHeight: 1.4 }}>Límites: {it.limits}</div>}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: P.faint2 }}>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.origin}</span>
+              {it.url && /^https:\/\//.test(it.url) && <a href={it.url} target="_blank" rel="noopener noreferrer" aria-label="Abrir fuente" style={{ color: P.text, display: "flex" }}><Link2 size={16} /></a>}
+            </div>
+          </Card>
+        ))}
+        <CompNote>Resúmenes automáticos por IA a partir de PubMed y blogs de preparadores, sin revisión del coach. Orientativos: un estudio nuevo no cambia por sí solo una recomendación consolidada.</CompNote>
+      </div>
+    </Sheet>
+  );
+};
+
 const CompetitionPrepSheet = ({ open, onClose, plan, savePlan, toast, history, saveHistory }) => {
   const [sub, setSub] = useState("categoria");
   const a = plan.athlete || {};
@@ -31694,7 +31795,7 @@ const MasAcordeon = ({ groups, onOpenSearch }) => {
   );
 };
 
-const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpenTeam, onOpenSettings, onSwitchMode, onOpenCompPrep, onOpenAtlas, onOpenCompare, onOpenSearch, onOpenControlCenter, onResetPlan }) => {
+const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpenTeam, onOpenSettings, onSwitchMode, onOpenCompPrep, onOpenScience, onOpenAtlas, onOpenCompare, onOpenSearch, onOpenControlCenter, onResetPlan }) => {
   const can = (k) => !!access[k];
   // Cuatro grupos plegados. Coach IA vive en la cabecera.
   const groups = [
@@ -31714,6 +31815,7 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
     ] },
     { label: "Herramientas", Icon: Timer, rows: [
       { key: "atlas", Icon: Library, label: "Ejercicios", onClick: onOpenAtlas },
+      { key: "ciencia", Icon: Sparkles, label: "Ciencia al día", onClick: onOpenScience },
       { key: "timer", Icon: Timer, label: "Temporizador", onClick: () => onOpenUtility("timer") },
       { key: "guia", Icon: BookOpen, label: "Guía de términos", onClick: () => onOpenUtility("guia") },
     ] },
@@ -31726,7 +31828,7 @@ const CoachMasTab = ({ access, canManageTeam, onGoSection, onOpenUtility, onOpen
   return <MasAcordeon groups={groups} onOpenSearch={onOpenSearch} />;
 };
 
-const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams, onOpenSearch, onOpenControlCenter }) => {
+const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSettings, onSwitchMode, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenScience, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams, onOpenSearch, onOpenControlCenter }) => {
   // Cuatro grupos plegados. Mensajes, Nutrición y Coach IA ya tienen su sitio
   // (barra de pestañas y cabecera), así que no se repiten acá.
   const groups = [
@@ -31743,6 +31845,7 @@ const MasTab = ({ toast, sid, isDelegate, onOpenUtility, onOpenDevices, onOpenSe
     ] },
     { label: "Herramientas", Icon: Timer, rows: [
       { key: "atlas", Icon: Library, label: "Ejercicios", onClick: onOpenAtlas },
+      { key: "ciencia", Icon: Sparkles, label: "Ciencia al día", onClick: onOpenScience },
       { key: "agenda", Icon: Calendar, label: "Agenda", onClick: () => onOpenUtility("agenda") },
       { key: "dispositivos", Icon: Watch, label: "Dispositivos", onClick: onOpenDevices },
       { key: "timer", Icon: Timer, label: "Temporizador", onClick: () => onOpenUtility("timer") },
@@ -33490,6 +33593,7 @@ const App = () => {
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [compPrepOpen, setCompPrepOpen] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
+  const [scienceOpen, setScienceOpen] = useState(false);
   const [ptr, setPtr] = useState({ dy: 0, busy: false });
   const [atlasOpen, setAtlasOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -34579,6 +34683,7 @@ const App = () => {
     tool("Temporizador", Timer, () => setUtility("timer"), "temporizador cronometro descanso");
     tool("Guía de términos", BookOpen, () => setUtility("guia"), "guia glosario terminos rir top drop");
     tool("Atlas de ejercicios", Library, () => { setAtlasInitialQuery(""); setAtlasOpen(true); }, "atlas catalogo ejercicios biblioteca");
+    tool("Ciencia al día", Sparkles, () => setScienceOpen(true), "estudios noticias ciencia novedades pubmed investigacion");
     tool("Briefing del día", Sun, () => setBriefOpen(true), "resumen matutino hoy briefing buenos dias");
     tool("Competition Prep", Trophy, () => setCompPrepOpen(true), "competencia tarima peak week posing categorias");
     tool("Centro de control", LayoutGrid, () => setControlCenterOpen(true), "centro control accesos rapidos");
@@ -34723,11 +34828,12 @@ const App = () => {
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             onOpenPosing={() => { setTab("hoy"); setAutoOpenPosing(true); }}
             onOpenAIChat={() => setAiChatOpenSignal((n) => n + 1)}
-            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => { setAtlasInitialQuery(""); setAtlasOpen(true); }}
+            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenScience={() => setScienceOpen(true)} onOpenAtlas={() => { setAtlasInitialQuery(""); setAtlasOpen(true); }}
             onOpenSupplements={() => setSupplementsOpen(true)} onOpenLabs={() => setLabsOpen(true)}
             onOpenNutrition={() => setTab("nutricion")} onOpenExams={() => setExamsOpen(true)}
             onOpenPhotos={() => setPhotosOpen(true)} />
         )}
+        <ScienceFeedSheet open={scienceOpen} onClose={() => setScienceOpen(false)} />
         <MorningBriefing open={briefOpen} onClose={() => setBriefOpen(false)} plan={plan} history={history} />
         {(ptr.dy > 0 || ptr.busy) && (
           <div aria-hidden style={{ position: "fixed", top: `calc(env(safe-area-inset-top) + ${Math.round(ptr.dy) - 34}px)`, left: "50%", transform: "translateX(-50%)", zIndex: 120, width: 34, height: 34, borderRadius: 17, background: P.s2, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
@@ -34857,7 +34963,7 @@ const App = () => {
             onOpenSettings={() => setMoreOpen(true)} onSwitchMode={switchMode}
             onOpenSearch={() => setSearchOpen(true)} onOpenControlCenter={() => setControlCenterOpen(true)}
             onResetPlan={roleTabAccess.rutina === "edit" ? () => setConfirmReset(true) : null}
-            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenAtlas={() => { setAtlasInitialQuery(""); setAtlasOpen(true); }}
+            onOpenCompPrep={() => setCompPrepOpen(true)} onOpenScience={() => setScienceOpen(true)} onOpenAtlas={() => { setAtlasInitialQuery(""); setAtlasOpen(true); }}
             onOpenCompare={() => setCompareOpen(true)} />
         )}
         </div>
