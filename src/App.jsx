@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v434";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v435";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2683,6 +2683,14 @@ async function hashClave(txt) {
 }
 const loadAccess = async () => { const a = await sGet(ACCESS_KEY); return (a && Array.isArray(a.profiles)) ? a : { profiles: [] }; };
 const saveAccess = (a) => sSet(ACCESS_KEY, a);
+// Eliminar la cuenta de una persona con acceso: borra su plan, historial, memoria de IA, propuestas,
+// conexión WHOOP y el perfil de acceso (requisito de las tiendas de apps: borrar datos desde la app).
+async function borrarCuentaDePerfil(id) {
+  try { await whoopLlamar("disconnect", { studentId: id }); } catch {}
+  for (const k of [`forja-plan:${id}`, `forja-history:${id}`, `forja-active:${id}`, `forja-aimem:${id}`, `forja-proposals:${id}`, `forja-whoop:${id}`]) { try { await sDel(k); } catch {} }
+  const a = await loadAccess();
+  await saveAccess({ ...a, profiles: (a.profiles || []).filter((x) => x.id !== id) });
+}
 
 /* Identidades con las que YA se inició sesión en ESTE dispositivo:
    "owner" y/o "delegate:<id>" por cada perfil con acceso usado acá. A
@@ -27946,7 +27954,7 @@ const GlobalSearchSheet = ({ open, onClose, items }) => {
   );
 };
 
-const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha, sid, plan, savePlan }) => {
+const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, routineView, onChangeRoutineView, onOpenUtility, onOpenRoster, onOpenTeam, onSwitchMode, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha, sid, plan, savePlan, onDeleteAccount }) => {
   const [theme, setTheme] = useTheme();
   const [accent, setAccent] = useAccent();
   const [bg, setBg] = useBg();
@@ -27996,6 +28004,7 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
   // para que pasara sin avisar. Ahora es un botón aparte, con su propia
   // confirmación: nadie sale de la cuenta sin querer.
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [confirmBorrar, setConfirmBorrar] = useState(false);
   return (
     <Sheet open={open} onClose={onClose} title="Configuración" tall>
       {/* Cabecera de perfil: es lo primero que se ve al abrir "Configuración"
@@ -28077,7 +28086,8 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
         {!isDelegate && onSwitchAccount && (
           <SettingRow Icon={Users} label="Cambiar de cuenta" hint="Entrar con otro usuario en este teléfono, sin cerrar esta sesión del todo" onClick={onSwitchAccount} />
         )}
-        <SettingRow Icon={LogOut} label="Cerrar sesión" last onClick={() => setConfirmLogout(true)} />
+        <SettingRow Icon={LogOut} label="Cerrar sesión" last={!(isDelegate && onDeleteAccount)} onClick={() => setConfirmLogout(true)} />
+        {isDelegate && onDeleteAccount && <SettingRow Icon={Trash2} label="Eliminar mi cuenta y mis datos" hint="Borra tu rutina, historial, fotos y conexiones. No se puede deshacer" last onClick={() => setConfirmBorrar(true)} />}
       </SettingGroup>
 
       <SettingGroup label="Herramientas">
@@ -28109,6 +28119,10 @@ const MoreSheet = ({ open, onClose, mode, studentName, managedStudentName, onSwi
       {/* La versión vive acá abajo, no en la cabecera: el encabezado es
           identidad, no diagnóstico. */}
       <div style={{ textAlign: "center", fontSize: 12, color: P.faint, paddingTop: 4 }}>FORJA · {BUILD}</div>
+      <Confirm open={confirmBorrar} title="Eliminar mi cuenta" danger okLabel="Eliminar todo"
+        body="Se borran de forma definitiva tu rutina, historial de entrenos, medidas, fotos, memoria de la IA y la conexión con tus dispositivos, y tu acceso deja de existir. Esto no se puede deshacer."
+        onOk={() => { setConfirmBorrar(false); onDeleteAccount(); }}
+        onCancel={() => setConfirmBorrar(false)} />
       <Confirm open={confirmLogout} title="Cerrar sesión"
         body={`Vas a salir de este dispositivo. La próxima vez vas a necesitar tu usuario y clave${faceOn ? " (o Face ID)" : ""} para volver a entrar.`}
         okLabel="Cerrar sesión" danger
@@ -34992,6 +35006,7 @@ const App = () => {
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} mode={mode} isDelegate={!!delegate}
         studentName={identityName} managedStudentName={currentStudent?.name}
         onSwitchIdentity={() => { setMoreOpen(false); logout(); }}
+        onDeleteAccount={delegate ? async () => { const id = delegate.id; setMoreOpen(false); await borrarCuentaDePerfil(id); logout(); toast("Tu cuenta y tus datos fueron eliminados"); } : null}
         onSwitchAccount={() => { setMoreOpen(false); switchAccount(); }}
         onManageAccess={() => { setMoreOpen(false); setAccessOpen(true); }}
         canManageTeam={myRoleMeta.manageTeam}

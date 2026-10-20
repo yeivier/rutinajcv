@@ -1,0 +1,18 @@
+{
+  "name": "forja-ios",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "web": "bash ../scripts/build-ios-web.sh",
+    "add:ios": "npx cap add ios",
+    "sync": "npm run web && npx cap sync ios",
+    "open": "npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "@capacitor/push-notifications": "^7.0.0",
+    "@capacitor/haptics": "^7.0.0"
+  },
+  "devDependencies": { "@capacitor/cli": "^7.0.0" }
+}

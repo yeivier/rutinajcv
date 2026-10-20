@@ -1,0 +1,7 @@
+{
+  "appId": "com.forjabodybuilding.app",
+  "appName": "FORJA",
+  "webDir": "www",
+  "ios": { "contentInset": "always", "backgroundColor": "#000000" },
+  "server": { "iosScheme": "https", "hostname": "forjabodybuilding.com" }
+}
