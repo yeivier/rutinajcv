@@ -1,0 +1,24 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: .base44/Dockerfile
+    working_dir: /repo
+    command: ["node", "/repo/.base44/dev-server.mjs"]
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./:/repo
+    environment:
+      - PORT=3000
+      - FORJA_REPO=/repo
+      - FORJA_DEV_OUT=/tmp/forja-dev-out
+      # El servidor de desarrollo sólo cambia sw.js y el HTML cuando vale "1".
+      - BASE44_PREVIEW_MODE
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "node", "/repo/.base44/healthcheck.mjs"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
