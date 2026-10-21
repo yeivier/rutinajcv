@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v437";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v438";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -16650,6 +16650,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
   const [compareOpen, setCompareOpen] = useState(false);
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [regOpen, setRegOpen] = useState(false);
+  const [fisicoOpen, setFisicoOpen] = useState(false);
   // Permite abrir esta pestaña directo en una sub-sección (p.ej. desde las
   // fichas de Hoy: tocar "Peso corporal" cae en "Cuerpo", "Volumen sem."
   // cae en "Volumen"), igual que ya hace AITab con jumpSub/onJumpConsumed.
@@ -16765,6 +16766,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
           <RowGroup label="Cuerpo" rows={[
             { label: "Medidas", value: lastMeasure ? daysAgoLabel(lastMeasure.date) : "—", onClick: () => setMeasureOpen(true) },
             { label: "Fotos", value: photos.length ? String(photos.length) : "—", onClick: () => setCompareOpen(true) },
+            { label: "Análisis de físico", value: (() => { const u = (history?.physiqueScans || []).slice(-1)[0]; return u && u.general != null ? `${u.general}/10` : "IA 1–10"; })(), onClick: () => setFisicoOpen(true) },
             { label: "Registros", value: "Ver y eliminar", onClick: () => setRegOpen(true) },
             // Mismo criterio que la lista de Atletas del coach (v201):
             // verde solo cuando es buena (≥70%), gris el resto — nunca en
@@ -16803,6 +16805,9 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
       <BodyMeasureFormSheet open={measureOpen} onClose={() => setMeasureOpen(false)} onSave={saveMeasurements} measurements={history.measurements || []} />
       <PhotoCompareSheet open={compareOpen} onClose={() => setCompareOpen(false)} photos={photos} bodyweight={bwEntries} />
       <HealthDashboardSheet open={dashboardOpen} onClose={() => setDashboardOpen(false)} history={history} />
+      <Sheet open={fisicoOpen} onClose={() => setFisicoOpen(false)} title="Análisis de físico" tall>
+        {fisicoOpen && <PhysiqueHub plan={plan} history={history} saveHistory={saveHistory} />}
+      </Sheet>
       <RegistrosSheet open={regOpen} onClose={() => setRegOpen(false)} history={history} saveHistory={saveHistory} toast={toast} />
     </div>
   );
