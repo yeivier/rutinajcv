@@ -1,0 +1,110 @@
+# Base44 · entorno de desarrollo (sandbox).
+# ===========================================================================
+# FORJA es una PWA estática: `index.html` + `bundle.js` (compilado desde
+# `src/App.jsx` con `scripts/build.sh`) y Netlify la sirve desde la raíz del
+# repo. Acá hay dos servicios:
+#
+#   api  · base de datos local de pruebas: responde las mismas llamadas REST
+#          que hace la app a la tabla `forja_kv` de Supabase, así el preview
+#          funciona sin las credenciales del proyecto real.
+#   web  · sirve el repo en el 3000 (el puerto que muestra el preview),
+#          proxea `/rest/v1/*` al servicio `api` (mismo origen, sin CORS) y
+#          recompila el bundle cuando cambia `src/`.
+#
+# Los dos corren desde el código clonado (bind mount + node:22), nunca desde
+# una imagen precompilada. Sin FORJA_SB_URL/FORJA_SB_KEY la app usa la base
+# local; con esas claves (cargadas como secretos, no acá) usa la base real
+# del usuario. Las de infraestructura local son nuestras y van inline.
+services:
+  api:
+    image: node:22
+    working_dir: /app
+    command: ["node", "/app/.base44/kv-service.mjs"]
+    restart: on-failure
+    environment:
+      - PORT=3001
+      - DATA_DIR=/data
+    volumes:
+      - ./:/app
+      - forja-kv:/data # el almacén sobrevive a recrear los contenedores
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          fetch("http://127.0.0.1:3001/health")
+            .then((r) => process.exit(r.ok ? 0 : 1))
+            .catch((e) => { console.error("api: " + e.message); process.exit(1); });
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  web:
+    image: node:22
+    working_dir: /app
+    restart: on-failure
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000" # único punto público: el preview
+    # Los secretos del usuario van SOLO por acá: `env_file` queda por debajo
+    # del `environment:` de abajo, así que nada pisa una clave cargada luego.
+    env_file:
+      - /run/base44/app.env
+    environment:
+      # Disponible por si algún ajuste necesita distinguir sandbox de
+      # producción; hoy nada en el setup se ramifica con esto (el servidor
+      # estático no valida Host ni Origin, así que no hay allowlist que
+      # extender).
+      - BASE44_PREVIEW_MODE
+      - PORT=3000
+      - API_URL=http://api:3001
+      - FORJA_BUILD_DIR=/build
+    volumes:
+      - ./:/app
+      - forja-build:/build # dependencias de build (react, recharts, esbuild…)
+    # Las dependencias del build viven en un volumen, así que se instalan al
+    # arrancar, después de montar, siguiendo lo que documenta build.sh
+    # (`npm i react react-dom recharts lucide-react esbuild`). El repo no
+    # trae lockfile, así que no hay `ci --frozen-lockfile` que respetar.
+    command:
+      - sh
+      - -ec
+      - |
+        if [ ! -x "$$FORJA_BUILD_DIR/node_modules/.bin/esbuild" ]; then
+          echo "[base44] instalando dependencias de build en $$FORJA_BUILD_DIR"
+          mkdir -p "$$FORJA_BUILD_DIR"
+          cd "$$FORJA_BUILD_DIR"
+          npm install --no-audit --no-fund --loglevel=error react react-dom recharts lucide-react esbuild
+        fi
+        cd /app
+        exec node /app/.base44/dev-server.mjs
+    # Comprueba las dos partes de las que depende el preview: el shell de la
+    # app y la base local a través del proxy, diciendo cuál falla.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          const morir = (m) => { console.error(m); process.exit(1); };
+          Promise.all([
+            fetch("http://127.0.0.1:3000/")
+              .then((r) => r.text())
+              .then((t) => (t.includes('id="root"') ? null : morir("web: sin shell de la app"))),
+            fetch("http://127.0.0.1:3000/rest/v1/forja_kv?limit=1")
+              .then((r) => (r.ok ? null : morir("api: HTTP " + r.status))),
+          ])
+            .then(() => process.exit(0))
+            .catch((e) => morir("web/api: " + e.message));
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+volumes:
+  forja-kv:
+  forja-build:

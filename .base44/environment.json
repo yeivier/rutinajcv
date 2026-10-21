@@ -1,0 +1,17 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "FORJA_SB_URL",
+      "description": "URL REST del proyecto Supabase real, con la forma https://<ref>.supabase.co/rest/v1/forja_kv (variable que ya documenta scripts/gen-config.js). Opcional: sin ella el preview usa una base local de pruebas con datos vacíos.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "FORJA_SB_KEY",
+      "description": "Clave anon del mismo proyecto Supabase (la usa el navegador; es pública por diseño). Opcional, va junto con FORJA_SB_URL. Sin las dos, la app sigue andando contra la base local.",
+      "requiredAtBoot": false
+    }
+  ]
+}
