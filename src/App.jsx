@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v438";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v439";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5722,14 +5722,14 @@ const GlobalStyle = () => {
        las hojas de verdad. Las hojas siguen con sheetIn/fjUp sin tocar;
        esto es solo para el contenido de la pestaña activa. */
     @keyframes fjTabFade { from { opacity: 0; } to { opacity: 1; } }
-    .fj .tabIn { animation: fjTabFade 340ms ${EASE_STD}; }
+    .fj .tabIn { animation: fjTabFade 200ms ${EASE_STD}; }
     /* Movimiento "de sistema": fichas que suben al entrar, título que
        asoma, botones que responden con un rebote corto al soltar. */
     @keyframes fjRise { from { opacity: 0; transform: translateY(26px) scale(.985); } to { opacity: 1; transform: none; } }
-    .fj .fj-rev { animation: fjRise .72s ${EASE_IN} backwards; animation-delay: calc(var(--i, 0) * 62ms); }
+    .fj .fj-rev { animation: fjRise .46s ${EASE_IN} backwards; animation-delay: calc(min(var(--i, 0), 6) * 36ms); }
     .fj .fj-pre { opacity: 0; transform: translateY(26px) scale(.985); }
     @keyframes fjTitleIn { from { opacity: 0; transform: translateY(10px); letter-spacing: -.01em; } to { opacity: 1; transform: none; } }
-    .fj h1 { animation: fjTitleIn .6s ${EASE_IN} backwards; }
+    .fj h1 { animation: fjTitleIn .42s ${EASE_IN} backwards; }
     .fj .fj-hero { animation: fjRise .9s ${EASE_IN} .05s backwards; }
     @keyframes fjFloat { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-7px) rotate(3deg); } }
     .fj .fj-float { animation: fjFloat 6s ease-in-out infinite; }
@@ -5870,6 +5870,25 @@ const GlobalStyle = () => {
        árbol de React, en <body>). */
     .fj .ord-fantasma { position: fixed; z-index: 9999; pointer-events: none; margin: 0;
       transform: scale(1.06); filter: drop-shadow(0 10px 22px rgba(0,0,0,.28)); will-change: left, top; }
+    /* Capa "pro" (v439): nitidez, respuesta inmediata y scroll de sistema. */
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    .fj { font-synthesis: none; -moz-osx-font-smoothing: grayscale; font-feature-settings: "tnum" 1, "cv11" 1; }
+    .fj button, .fj a, .fj input, .fj select, .fj textarea, .fj [role="button"] { touch-action: manipulation; }
+    .fj button, .fj [role="button"] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    .fj ::selection { background: ${P.ember}55; }
+    .fj img, .fj video, .fj canvas { image-rendering: -webkit-optimize-contrast; max-width: 100%; }
+    .fj img { transition: opacity .25s ${EASE_STD}; }
+    .fj svg { shape-rendering: geometricPrecision; flex-shrink: 0; }
+    .fj [style*="overflow-y: auto"], .fj [style*="overflow: auto"], .fj [style*="overflow-y: scroll"] { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    .fj [style*="overflow-x: auto"], .fj [style*="overflow-x: scroll"] { scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+    .fj [style*="overflow-x: auto"]::-webkit-scrollbar, .fj [style*="overflow-x: scroll"]::-webkit-scrollbar { display: none; }
+    .fj button:disabled { cursor: default; }
+    .fj button:not(:disabled):active { transition: transform 70ms ease-out, opacity 70ms ease-out; }
+    .fj input:focus, .fj textarea:focus, .fj select:focus { box-shadow: 0 0 0 3px ${P.ember}26; }
+    .fj input[type="number"] { -moz-appearance: textfield; }
+    .fj input[type="number"]::-webkit-outer-spin-button, .fj input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    @keyframes fjShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    .fj .fj-skel { background: linear-gradient(90deg, ${P.s3} 25%, ${P.s4} 50%, ${P.s3} 75%); background-size: 200% 100%; animation: fjShimmer 1.4s linear infinite; border-radius: 12px; color: transparent; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
     /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
        inferior fija (TabBar) queda "transparente" al puntero: si no, al
