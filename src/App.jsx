@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v440";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v441";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5721,6 +5721,7 @@ const GlobalStyle = () => {
        0→1 en 200ms" — antes usaba la misma sheetIn (con traslado) que
        las hojas de verdad. Las hojas siguen con sheetIn/fjUp sin tocar;
        esto es solo para el contenido de la pestaña activa. */
+    @keyframes fjBackIn { from { transform: translate3d(-24%,0,0); opacity: .55; } to { transform: none; opacity: 1; } }
     @keyframes fjTabFade { from { opacity: 0; } to { opacity: 1; } }
     .fj .tabIn { animation: fjTabFade 200ms ${EASE_STD}; }
     /* Movimiento "de sistema": fichas que suben al entrar, título que
@@ -34736,35 +34737,75 @@ const App = () => {
     if (ult && ult.tab === tab && ult.sub === sub) return;
     p.push({ tab, sub }); if (p.length > 30) p.shift();
   }, [tab, sub, ready]);
+  const navPuede = useRef(null);
   const navAtras = useRef(null);
-  navAtras.current = () => {
+  // Destino de "atrás": la pantalla anterior de la pila; si no hay historial,
+  // la pantalla principal. Devuelve null si ya se está en ella.
+  const navDestino = () => {
     const p = navPila.current;
-    if (p.length < 2 || utility || enSesion) return false;
-    p.pop(); const prev = p[p.length - 1];
-    if (!prev || !tabs.some((t) => t.id === prev.tab)) return false;
-    navVolviendo.current = true;
-    setTab(prev.tab); if (prev.sub) setSection((o) => ({ ...o, [prev.tab]: prev.sub }));
+    if (utility || enSesion) return null;
+    if (p.length >= 2 && tabs.some((t) => t.id === p[p.length - 2].tab)) return { prev: p[p.length - 2], pop: true };
+    if (tabs.length && (tab !== tabs[0].id || (tabSections.length > 1 && sub !== tabSections[0]))) return { prev: { tab: tabs[0].id, sub: tab === tabs[0].id ? tabSections[0] : null }, pop: false };
+    return null;
+  };
+  navAtras.current = () => {
+    const d = navDestino(); if (!d) return false;
+    const p = navPila.current;
+    if (d.pop) p.pop(); else p.splice(0, p.length);
+    navVolviendo.current = !d.pop ? false : true;
+    setTab(d.prev.tab); if (d.prev.sub) setSection((o) => ({ ...o, [d.prev.tab]: d.prev.sub }));
     try { window.scrollTo({ top: 0 }); } catch {}
     return true;
   };
+  navPuede.current = () => !!navDestino();
+  // Gesto de iOS: la pantalla sigue al dedo desde el borde izquierdo; al soltar
+  // pasado el umbral (o con un flick) se desliza hacia afuera y entra la
+  // anterior con un leve paralaje; si no, vuelve con un resorte.
   useEffect(() => {
-    let s = null;
+    let g = null;
+    const pagina = () => document.querySelector(".tabIn");
     const ts = (e) => {
       const t = e.touches[0];
-      s = e.touches.length === 1 && t.clientX <= 28 ? { x: t.clientX, y: t.clientY, t: Date.now() } : null;
+      g = e.touches.length === 1 && t.clientX <= 28 && !document.querySelector(".sheetIn, .modalIn, .paneIn") && navPuede.current && navPuede.current()
+        ? { x: t.clientX, y: t.clientY, t: Date.now(), on: false, dx: 0 } : null;
+    };
+    const tm = (e) => {
+      if (!g) return;
+      const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+      if (!g.on) {
+        if (Math.abs(dy) > 14 && Math.abs(dy) > dx) { g = null; return; }
+        if (dx < 8) return;
+        g.on = true; const el = pagina(); if (el) { el.style.animation = "none"; el.style.transition = "none"; el.style.willChange = "transform"; }
+      }
+      if (e.cancelable) e.preventDefault();
+      g.dx = Math.max(0, dx);
+      const el = pagina(); if (el) el.style.transform = `translate3d(${g.dx}px,0,0)`;
     };
     const te = (e) => {
-      const g = s; s = null; if (!g) return;
-      const t = e.changedTouches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
-      if (dx < 70 || Math.abs(dy) > dx * 0.6 || Date.now() - g.t > 900) return;
-      if (document.querySelector(".sheetIn, .modalIn, .paneIn")) return;
-      if (navAtras.current && navAtras.current()) { try { navigator.vibrate && navigator.vibrate(8); } catch {} }
+      const s = g; g = null; if (!s || !s.on) return;
+      const el = pagina(); if (!el) return;
+      const ancho = window.innerWidth || 390, v = s.dx / Math.max(1, Date.now() - s.t);
+      if (s.dx > ancho * 0.33 || (v > 0.5 && s.dx > 40)) {
+        el.style.transition = "transform .24s cubic-bezier(.32,.72,0,1)";
+        el.style.transform = `translate3d(${ancho}px,0,0)`;
+        setTimeout(() => {
+          if (navAtras.current && navAtras.current()) {
+            try { navigator.vibrate && navigator.vibrate(8); } catch {}
+            requestAnimationFrame(() => { const n = pagina(); if (n) { n.style.animation = "fjBackIn .3s cubic-bezier(.32,.72,0,1)"; } });
+          } else { el.style.transform = ""; el.style.transition = ""; el.style.animation = ""; }
+        }, 230);
+      } else {
+        el.style.transition = "transform .3s cubic-bezier(.34,1.3,.5,1)";
+        el.style.transform = "translate3d(0,0,0)";
+        setTimeout(() => { el.style.transform = ""; el.style.transition = ""; el.style.willChange = ""; el.style.animation = ""; }, 320);
+      }
     };
-    const tc = () => { s = null; };
+    const tc = () => { const el = pagina(); if (g && g.on && el) { el.style.transform = ""; el.style.transition = ""; el.style.animation = ""; } g = null; };
     window.addEventListener("touchstart", ts, { passive: true });
+    window.addEventListener("touchmove", tm, { passive: false });
     window.addEventListener("touchend", te, { passive: true });
     window.addEventListener("touchcancel", tc, { passive: true });
-    return () => { window.removeEventListener("touchstart", ts); window.removeEventListener("touchend", te); window.removeEventListener("touchcancel", tc); };
+    return () => { window.removeEventListener("touchstart", ts); window.removeEventListener("touchmove", tm); window.removeEventListener("touchend", te); window.removeEventListener("touchcancel", tc); };
   }, []);
 
   // Entrenando, Focus Mode es la pantalla ENTERA: sin cabecera de
