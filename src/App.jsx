@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v439";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v440";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -34723,6 +34723,49 @@ const App = () => {
   }, [easyMode, ready]);
   // Cambiar de pestaña o de modo cierra la pantalla de utilidad abierta.
   useEffect(() => { setUtility(null); }, [tab]);
+  // Atrás global: pila de pantallas visitadas (pestaña + sección) y gesto de
+  // deslizar desde el borde izquierdo hacia la derecha para volver a la
+  // anterior, como el "atrás" de iOS. Las hojas y las pantallas de utilidad
+  // ya tienen su propio gesto (useSwipeBack): si hay una abierta, este no actúa.
+  const navPila = useRef([]);
+  const navVolviendo = useRef(false);
+  useEffect(() => {
+    if (!ready) return;
+    if (navVolviendo.current) { navVolviendo.current = false; return; }
+    const p = navPila.current, ult = p[p.length - 1];
+    if (ult && ult.tab === tab && ult.sub === sub) return;
+    p.push({ tab, sub }); if (p.length > 30) p.shift();
+  }, [tab, sub, ready]);
+  const navAtras = useRef(null);
+  navAtras.current = () => {
+    const p = navPila.current;
+    if (p.length < 2 || utility || enSesion) return false;
+    p.pop(); const prev = p[p.length - 1];
+    if (!prev || !tabs.some((t) => t.id === prev.tab)) return false;
+    navVolviendo.current = true;
+    setTab(prev.tab); if (prev.sub) setSection((o) => ({ ...o, [prev.tab]: prev.sub }));
+    try { window.scrollTo({ top: 0 }); } catch {}
+    return true;
+  };
+  useEffect(() => {
+    let s = null;
+    const ts = (e) => {
+      const t = e.touches[0];
+      s = e.touches.length === 1 && t.clientX <= 28 ? { x: t.clientX, y: t.clientY, t: Date.now() } : null;
+    };
+    const te = (e) => {
+      const g = s; s = null; if (!g) return;
+      const t = e.changedTouches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+      if (dx < 70 || Math.abs(dy) > dx * 0.6 || Date.now() - g.t > 900) return;
+      if (document.querySelector(".sheetIn, .modalIn, .paneIn")) return;
+      if (navAtras.current && navAtras.current()) { try { navigator.vibrate && navigator.vibrate(8); } catch {} }
+    };
+    const tc = () => { s = null; };
+    window.addEventListener("touchstart", ts, { passive: true });
+    window.addEventListener("touchend", te, { passive: true });
+    window.addEventListener("touchcancel", tc, { passive: true });
+    return () => { window.removeEventListener("touchstart", ts); window.removeEventListener("touchend", te); window.removeEventListener("touchcancel", tc); };
+  }, []);
 
   // Entrenando, Focus Mode es la pantalla ENTERA: sin cabecera de
   // identidad, sin aviso de guardado y sin barra de pestañas. Entrenando
