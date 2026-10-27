@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v441";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v442";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5871,6 +5871,12 @@ const GlobalStyle = () => {
        árbol de React, en <body>). */
     .fj .ord-fantasma { position: fixed; z-index: 9999; pointer-events: none; margin: 0;
       transform: scale(1.06); filter: drop-shadow(0 10px 22px rgba(0,0,0,.28)); will-change: left, top; }
+    /* Orden tipográfico (v442): títulos equilibrados, párrafos sin viudas,
+       rótulos de sección en minúscula suave y misma jerarquía en todas las pantallas. */
+    .fj h1, .fj h2, .fj h3 { text-wrap: balance; }
+    .fj p, .fj [style*="line-height: 1.4"], .fj [style*="line-height: 1.5"] { text-wrap: pretty; }
+    .fj .mono[style*="margin"]:not([style*="font-size"]) { font-family: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0 !important; text-transform: none; color: ${P.faint2}; margin-left: 4px; }
+    .fj .num, .fj [class*="num"] { font-variant-numeric: tabular-nums; }
     /* Capa "pro" (v439): nitidez, respuesta inmediata y scroll de sistema. */
     html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     .fj { font-synthesis: none; -moz-osx-font-smoothing: grayscale; font-feature-settings: "tnum" 1, "cv11" 1; }
@@ -6586,12 +6592,12 @@ const RowGroup = ({ label, rows }) => {
       <Card style={{ overflow: "hidden" }}>
         {list.map((r, i) => {
           const frame = { width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
-            padding: "13px 16px", borderBottom: i < list.length - 1 ? `1px solid ${P.line}` : "none" };
+            padding: "12px 16px", minHeight: 52, borderBottom: i < list.length - 1 ? `1px solid ${P.line}` : "none" };
           const inner = (
             <>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 16, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 500, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
               {r.value != null && r.value !== "" && (
-                <span style={{ fontSize: 15, color: r.tone || P.faint2, flexShrink: 0 }}>{r.value}</span>
+                <span style={{ fontSize: 15, color: r.tone || P.faint2, flexShrink: 0, maxWidth: "52%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right" }}>{r.value}</span>
               )}
               {r.onClick && <ChevronRight size={16} color={P.chevron} style={{ flexShrink: 0 }} />}
             </>
@@ -32168,17 +32174,17 @@ const StatGrid = ({ children, cols = 2 }) => (
 const SettingRow = ({ Icon, label, hint, onClick, right, control, last }) => {
   const head = (
     <>
-      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: 14, background: P.s3, color: P.text, flexShrink: 0 }}>
-        <Icon size={19} strokeWidth={2.2} />
+      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 11, background: P.s3, color: P.text, flexShrink: 0 }}>
+        <Icon size={18} strokeWidth={1.75} />
       </span>
       <span style={{ display: "flex", flexDirection: "column", gap: 1, flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: 15, fontWeight: 600, color: P.text }}>{label}</span>
-        {hint && <span style={{ fontSize: 12.5, color: P.faint, overflow: "hidden", textOverflow: "ellipsis" }}>{hint}</span>}
+        <span style={{ fontSize: 16, fontWeight: 500, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        {hint && <span style={{ fontSize: 12.5, color: P.faint2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hint}</span>}
       </span>
-      {right !== undefined ? right : (onClick && <ChevronRight size={17} color={P.faint} strokeWidth={2.4} />)}
+      {right !== undefined ? right : (onClick && <ChevronRight size={16} color={P.chevron} style={{ flexShrink: 0 }} />)}
     </>
   );
-  const frame = { padding: "15px 18px", borderBottom: last ? "none" : `1px solid ${P.fillTertiary}` };
+  const frame = { padding: "12px 16px", minHeight: 56, borderBottom: last ? "none" : `1px solid ${P.line}` };
   if (control) {
     return (
       <div style={{ ...frame, display: "flex", flexDirection: "column", gap: 11 }}>
@@ -32194,8 +32200,8 @@ const SettingRow = ({ Icon, label, hint, onClick, right, control, last }) => {
 };
 
 const SettingGroup = ({ label, children }) => (
-  <div style={{ marginBottom: 28 }}>
-    {label && <div className="mono" style={{ margin: "0 8px 10px" }}>{label}</div>}
+  <div style={{ marginBottom: 24 }}>
+    {label && <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>{label}</div>}
     <Card style={{ overflow: "hidden" }}>{children}</Card>
   </div>
 );
