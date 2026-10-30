@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v443";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v444";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -81,7 +81,7 @@ const LIGHT_THEME = {
   P: {
     // Tokens del prototipo de rediseño: fondo blanco plano, tarjetas gris
     // muy claro con borde fino, tinta negra pura.
-    bg: "#FFFFFF", s1: "#F5F5F5", s2: "#F5F5F5", s3: "#E9E9E9", s4: "#DEDEDE",
+    bg: "#FFFFFF", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#F3F3F3", s4: "#E8E8E8",
     line: "#E2E2E2", text: "#000000", dim: "#2E2E2E",
     // Secundario y terciario, un punto más oscuros que el gris de sistema
     // original (#5A5A63/#6B6B75): a pedido explícito, para que la
@@ -114,7 +114,7 @@ const LIGHT_THEME = {
     // del spec (botón secundario, − +, chip) y s4 ya cubre
     // "fill-quaternary" (pista del segmentado) — estos cuatro son los
     // que faltaban y no tenían dónde vivir en la paleta existente.
-    fillTertiary: "#EDEDED",   // separador dentro de tarjeta, pista de barra, placeholder de video
+    fillTertiary: "#F0F0F0",   // separador dentro de tarjeta, pista de barra, placeholder de video
     separatorStrong: "#D6D6D6", // borde de campo, segmento de progreso vacío
     textQuaternary: "#9A9A9A",  // pestaña inactiva, acción deshabilitada, placeholder
     chevron: "#B5B5B5",         // chevron de fila
@@ -201,7 +201,7 @@ let PLATE_BORDER = LIGHT_THEME.plateBorder;
 // aunque quien elija un acento de color desde Configuración sigue
 // viéndolo acá también (applyAccent lo pisa encima cuando hay override).
 const teColors = (isLight) => (isLight ? {
-  bg: "#FFFFFF", card: "#FFFFFF", campo: "#F5F5F5", line: "#E2E2E2",
+  bg: "#FFFFFF", card: "#FFFFFF", campo: "#F3F3F3", line: "#E2E2E2",
   ink: "#000000", dim: "#4A4A4A", faint: "#8E8E8E",
   acc: "#000000", accInk: "#FFFFFF",
   accLine: "rgba(0,0,0,.30)", accSoft: "#EDEDED",
