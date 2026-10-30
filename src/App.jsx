@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v442";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v443";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5877,6 +5877,16 @@ const GlobalStyle = () => {
     .fj p, .fj [style*="line-height: 1.4"], .fj [style*="line-height: 1.5"] { text-wrap: pretty; }
     .fj .mono[style*="margin"]:not([style*="font-size"]) { font-family: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0 !important; text-transform: none; color: ${P.faint2}; margin-left: 4px; }
     .fj .num, .fj [class*="num"] { font-variant-numeric: tabular-nums; }
+    /* Fluidez (v443): todo cambio de estado se interpola en vez de saltar. */
+    .fj { overflow-wrap: break-word; }
+    .fj button:not(:disabled) { transition: transform 320ms cubic-bezier(.34,1.45,.5,1), opacity .18s ease, background-color .22s ease, color .22s ease, border-color .22s ease, box-shadow .22s ease; }
+    .fj button:not(:disabled):active { transition: transform 70ms ease-out, opacity 70ms ease-out, background-color .1s ease; }
+    .fj .fj-card, .fj [role="button"] { transition: transform 280ms cubic-bezier(.34,1.45,.5,1), opacity .18s ease, background-color .22s ease, border-color .22s ease; }
+    .fj [role="button"]:active, .fj .fj-card[role="button"]:active { transform: scale(.985); opacity: .9; transition-duration: 70ms; }
+    .fj input, .fj textarea, .fj select { transition: border-color .22s ease, background-color .22s ease, box-shadow .22s ease; }
+    .fj svg circle, .fj svg rect, .fj svg path { transition: stroke-dasharray .6s cubic-bezier(.22,1,.36,1), stroke-dashoffset .6s cubic-bezier(.22,1,.36,1), opacity .25s ease, fill .25s ease, stroke .25s ease; }
+    .fj [style*="overflow-y: auto"], .fj [style*="overflow: auto"] { scroll-behavior: smooth; }
+    .fj { -webkit-font-smoothing: antialiased; }
     /* Capa "pro" (v439): nitidez, respuesta inmediata y scroll de sistema. */
     html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     .fj { font-synthesis: none; -moz-osx-font-smoothing: grayscale; font-feature-settings: "tnum" 1, "cv11" 1; }
@@ -21839,9 +21849,9 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
     return (
       <button key={r.id} onClick={onOpenAtletas} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", textAlign: "left", borderTop: i ? `0.5px solid ${P.separatorStrong || P.line}` : "none" }}>
         <span style={{ width: 36, height: 36, borderRadius: 18, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, color: P.dim, flexShrink: 0 }}>{initialsOf(r.name)}</span>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: "block", fontSize: 15.5, fontWeight: 600 }}>{r.name}</span>
-          <span style={{ display: "block", fontSize: 12.5, color: P.faint2 }}>{dd == null ? "Sin sesiones" : dd === 0 ? "Entrenó hoy" : `Entrenó hace ${dd} ${dd === 1 ? "día" : "días"}`}</span>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+          <span style={{ display: "block", fontSize: 15.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+          <span style={{ display: "block", fontSize: 12.5, color: P.faint2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dd == null ? "Sin sesiones" : dd === 0 ? "Entrenó hoy" : `Entrenó hace ${dd} ${dd === 1 ? "día" : "días"}`}</span>
         </span>
         <span style={{ width: 70, flexShrink: 0 }}><Spark kind="bar" height={22} values={sesionesSemanales(r.sessions, 6).map((x) => x.v)} /></span>
         <ChevronRight size={15} color={P.chevron || P.faint} />
@@ -21932,7 +21942,7 @@ const DashboardTabMono = ({ roster, toast, coachName, onNewRoutine, onAddStudent
           <Card key={s.id} style={{ padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 11 }}>
             <span className="disp" style={{ width: 34, height: 34, borderRadius: 10, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: P.faint2, flexShrink: 0 }}>{initialsOf(s.name)}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{s.name}</div>
+              <div style={{ fontSize: 15, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
               <div style={{ fontSize: 12.5, color: P.faint, marginTop: 1 }}>{s.lastDays == null ? "Sin sesiones registradas" : `Entrenó hace ${s.lastDays} días`}</div>
             </div>
           </Card>
