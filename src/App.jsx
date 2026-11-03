@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v444";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v445";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5715,6 +5715,8 @@ const GlobalStyle = () => {
     .fj .modalOut { animation: fjModalOut ${DUR_ROW}ms ${EASE_OUT} forwards; pointer-events: none; }
     /* Pantalla dentro de una hoja (las fichas del check-in): entra desde
        la derecha, como un push, y vuelve igual. */
+    @keyframes fjDiaSig { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
+    @keyframes fjDiaAnt { from { transform: translateX(-28px); opacity: 0; } to { transform: none; opacity: 1; } }
     @keyframes fjPaneIn { from { transform: translateX(12px); opacity: 0; } to { transform: none; opacity: 1; } }
     .fj .paneIn { animation: fjPaneIn ${DUR_PUSH}ms ${EASE_STD}; }
     /* Cambio de pestaña (6 · Movimiento): "sin deslizamiento, opacidad
@@ -14230,6 +14232,10 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   useExitEditOnOutside(!!modoOrden, () => setModoOrden(null));
   const claveHome = role === "coach" ? "home-coach" : "home-alumno";
   const [dayDetail, setDayDetail] = useState(null);   // día de la franja semanal tocado (variante panel)
+  // Día que se está mirando en la página principal (ISO). null = hoy.
+  const [fechaVista, setFechaVista] = useState(null);
+  const dirDia = useRef(1);
+  const swDia = useRef(null);
   const [statDetail, setStatDetail] = useState(null);  // "adherencia" | "racha" | "peso" | "volumen" | "pasos" | "agua" | "sueno"
   const [checkinOpen, setCheckinOpen] = useState(false);
   // Qué ficha del check-in está abierta (null = la grilla).
@@ -14523,24 +14529,24 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
           que se miran a diario. Todo lo demás (comidas, mensajes, Coach IA,
           check-in, racha, volumen…) ya tiene su pestaña o su botón de arriba;
           repetirlo acá era lo que volvía la pantalla un enredo. */}
-      {workout ? (
+      {!fechaVista && (workout ? (
         <HeroCard Icon={active ? Play : Zap} eyebrow={workout.eyebrow} title={workout.title}
           label={active ? "Continuar sesión" : "Entrenar ahora"}
           meta={workout.exs ? `${workout.exs.length} ej · ${workout.sets} series · ${estimateSessionMin(workout.sets)} min` : ""}
           onClick={() => goTrain(active ? undefined : d.suggested && d.suggested.id)} />
-      ) : emptyCard}
+      ) : emptyCard)}
 
       {/* Semana: un círculo por día. Lleno = entrenado, aro negro = hoy, aro gris = programado. */}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
         {computeWeekStrip(plan, history, 0).map((dd) => {
           const programado = !!dd.day;
           return (
-            <button key={dd.dateIso} onClick={() => setDayDetail(dd)} aria-label={`${fmtDateFull(dd.dateIso)}${dd.done ? " — entrenado" : programado ? ` — ${dd.day.name}` : " — descanso"}`}
+            <button key={dd.dateIso} onClick={() => { dirDia.current = dd.dateIso < (fechaVista || todayKey) ? -1 : 1; setFechaVista(dd.isToday ? null : dd.dateIso); }} aria-label={`${fmtDateFull(dd.dateIso)}${dd.done ? " — entrenado" : programado ? ` — ${dd.day.name}` : " — descanso"}`}
               style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: 0 }}>
               <span className="mono" style={{ fontSize: 11, letterSpacing: ".04em", color: dd.isToday ? P.text : P.faint }}>{dd.letter}</span>
               <span style={{ width: 38, height: 38, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600,
                 background: dd.done ? P.text : "transparent", color: dd.done ? P.bg : P.text,
-                border: `1.5px solid ${dd.done || dd.isToday ? P.text : (programado ? P.separatorStrong || P.line : P.line)}` }}>
+                border: `${dd.dateIso === (fechaVista || todayKey) ? 2.5 : 1.5}px solid ${dd.done || dd.isToday || dd.dateIso === fechaVista ? P.text : (programado ? P.separatorStrong || P.line : P.line)}` }}>
                 {dd.done ? <Check size={16} strokeWidth={3} /> : new Date(dd.dateIso + "T12:00:00").getDate()}
               </span>
             </button>
@@ -14548,7 +14554,54 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         })}
       </div>
 
-      {(() => {
+      {fechaVista && (() => {
+        const moverDia = (delta) => {
+          const dt = new Date(fechaVista + "T12:00:00"); dt.setDate(dt.getDate() + delta);
+          const iso = isoDate(dt); dirDia.current = delta; setFechaVista(iso === todayKey ? null : iso);
+        };
+        const ini = (dt) => { const x = new Date(dt); x.setHours(12, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+        const off = Math.round((ini(new Date(fechaVista + "T12:00:00")) - ini(new Date())) / (7 * 86400000));
+        const info = computeWeekStrip(plan, history, off).find((x) => x.dateIso === fechaVista) || {};
+        const delDia = (arr) => (arr || []).find((x) => (x.date || "").slice(0, 10) === fechaVista);
+        const bwD = delDia(history.bodyweight), slD = delDia(history.sleep), stD = delDia(history.steps);
+        const mc = (history.mealChecks && history.mealChecks[fechaVista]) || {};
+        const comidasD = (n.meals || []).filter((m) => mc[m.id]).length;
+        const pasado = fechaVista < todayKey;
+        const estado = info.done ? "Entrenado" : !info.day ? "Descanso" : pasado ? "No se registró sesión" : "Programado";
+        const filas = [
+          { label: "Entreno", value: info.day ? info.day.name : "Descanso" },
+          { label: "Estado", value: estado },
+          info.done && info.session && { label: "Sesión", value: `${info.session.durationMin} min · ${Math.round(info.session.volume).toLocaleString("es-CL")} kg` },
+          info.day && { label: "Ejercicios", value: `${info.day.exs.length} · ${info.day.exs.reduce((a, e) => a + e.sets.length, 0)} series` },
+          { label: "Peso", value: bwD ? `${kg(bwD.kg)} kg` : "—" },
+          { label: "Sueño", value: slD ? `${kg(slD.hours)} h` : "—" },
+          { label: "Pasos", value: stD ? Math.round(stD.count).toLocaleString("es-CL") : "—" },
+          mealsTotal > 0 && { label: "Comidas", value: `${comidasD}/${mealsTotal}` },
+        ].filter(Boolean);
+        const flecha = { width: 40, height: 40, borderRadius: "50%", background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, touchAction: "pan-y" }}
+            onTouchStart={(e) => { const t = e.touches[0]; swDia.current = { x: t.clientX, y: t.clientY, t: Date.now() }; }}
+            onTouchEnd={(e) => {
+              const g = swDia.current; swDia.current = null; if (!g) return;
+              const t = e.changedTouches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+              if (Math.abs(dx) > 60 && Math.abs(dy) < 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - g.t < 900) moverDia(dx < 0 ? 1 : -1);
+            }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={() => moverDia(-1)} aria-label="Día anterior" style={flecha}><ChevronLeft size={18} /></button>
+              <div style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 16, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtDateFull(fechaVista)}</div>
+              <button onClick={() => moverDia(1)} aria-label="Día siguiente" style={flecha}><ChevronRight size={18} /></button>
+            </div>
+            <div key={fechaVista} style={{ animation: `${dirDia.current < 0 ? "fjDiaAnt" : "fjDiaSig"} .3s cubic-bezier(.32,.72,0,1)` }}>
+              <RowGroup rows={filas} />
+            </div>
+            <button onClick={() => { dirDia.current = 1; setFechaVista(null); }}
+              style={{ height: 48, borderRadius: 14, background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 600 }}>Volver a hoy</button>
+          </div>
+        );
+      })()}
+
+      {!fechaVista && (() => {
         const rec = serieDe(history.physio, "recovery").filter((x) => x.v > 0);
         const last = (a) => (a && a.length ? a[a.length - 1] : null);
         const bw = serieDe(history.bodyweight, "kg"), sl = serieDe(history.sleep, "hours"), st = serieDe(history.steps, "count");
@@ -14572,7 +14625,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
       })()}
 
       {/* Solo cuando hay algo que atender: el check-in del día y la nota del coach. */}
-      {ciDoneCount === 0 && (
+      {!fechaVista && ciDoneCount === 0 && (
         <TodayRow Icon={Flame} title="Check-in de hoy" detail="Pendiente" dot onClick={() => setCheckinOpen(true)} />
       )}
       {instrCount > 0 && (
@@ -16679,7 +16732,7 @@ const RegistrosSheet = ({ open, onClose, history, saveHistory, toast }) => {
   );
 };
 
-const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, onOpenCheckin, toast }) => {
+const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, onOpenCheckin, toast, sinFotos }) => {
   const [sub, setSub] = useState("fuerza");
   const [exId, setExId] = useState("");
   const [measureOpen, setMeasureOpen] = useState(false);
@@ -16801,7 +16854,7 @@ const ProgressTabMono = ({ plan, history, jumpSub, onJumpConsumed, saveHistory, 
 
           <RowGroup label="Cuerpo" rows={[
             { label: "Medidas", value: lastMeasure ? daysAgoLabel(lastMeasure.date) : "—", onClick: () => setMeasureOpen(true) },
-            { label: "Fotos", value: photos.length ? String(photos.length) : "—", onClick: () => setCompareOpen(true) },
+            !sinFotos && { label: "Fotos", value: photos.length ? String(photos.length) : "—", onClick: () => setCompareOpen(true) },
             { label: "Análisis de físico", value: (() => { const u = (history?.physiqueScans || []).slice(-1)[0]; return u && u.general != null ? `${u.general}/10` : "IA 1–10"; })(), onClick: () => setFisicoOpen(true) },
             { label: "Registros", value: "Ver y eliminar", onClick: () => setRegOpen(true) },
             // Mismo criterio que la lista de Atletas del coach (v201):
@@ -31947,11 +32000,11 @@ const MasTab = ({ toast, sid, isDelegate, coach, onOpenUtility, onOpenDevices, o
   const groups = [
     { label: "Seguimiento", Icon: Camera, rows: [
       { key: "checkin", Icon: Camera, label: "Check-in", onClick: onOpenCheckin },
-      { key: "fotos", Icon: Camera, label: "Comparar fotos", onClick: onOpenPhotos },
+      onOpenPhotos && { key: "fotos", Icon: Camera, label: "Comparar fotos", onClick: onOpenPhotos },
       { key: "supp", Icon: Droplet, label: "Suplementación", onClick: onOpenSupplements },
       { key: "labs", Icon: Ruler, label: "Analítica", onClick: onOpenLabs },
       { key: "examenes", Icon: FileText, label: "Exámenes con IA", onClick: onOpenExams },
-    ] },
+    ].filter(Boolean) },
     { label: "Culturismo", Icon: Trophy, rows: [
       { key: "posing", Icon: PersonStanding, label: "Posing", onClick: onOpenPosing },
       { key: "prep", Icon: Trophy, label: "Competition Prep", onClick: onOpenCompPrep },
@@ -33668,6 +33721,10 @@ const App = () => {
   })();
   // Un perfil con acceso es un espacio de una sola persona: nunca gestiona
   // equipo (eso vive en datos compartidos del dueño). Se le fuerza off.
+  // Privacidad: la Ficha (fotos de progreso, nutrición, comentarios) la ve
+  // solo el dueño. Los perfiles con acceso ven únicamente lo suyo y los
+  // miembros del equipo no abren fichas ni fotos de los atletas.
+  const esDueno = !delegate && !myTeamId;
   const myRoleMeta = { ...(ROLE_META[myRole] || ROLE_META.head_coach), manageTeam: (ROLE_META[myRole] || ROLE_META.head_coach).manageTeam && !delegate };
   const roleTabAccess = coachTabsForRole(myRole);
   const [plan, setPlan] = useState(null);
@@ -34900,7 +34957,7 @@ const App = () => {
       tool("Suplementos", Pill, () => setSupplementsOpen(true), "suplementos");
       tool("Laboratorio", HeartPulse, () => setLabsOpen(true), "laboratorio analitica examenes de sangre marcadores");
       tool("Exámenes", FileText, () => setExamsOpen(true), "examenes documentos estudios");
-      tool("Fotos de progreso", Camera, () => setPhotosOpen(true), "fotos progreso comparar cuerpo");
+      if (!myTeamId) tool("Fotos de progreso", Camera, () => setPhotosOpen(true), "fotos progreso comparar cuerpo");
       tool("Dispositivos", Watch, () => setDevicesOpen(true), "dispositivos reloj bascula whoop garmin salud");
       tool("Check-in", ClipboardList, () => { setTab("hoy"); setAutoOpenCheckin(true); }, "checkin peso sueno animo pasos");
       tool("Coach IA", Sparkles, () => setAiChatOpenSignal((n) => n + 1), "ia inteligencia artificial asistente coach");
@@ -34909,7 +34966,7 @@ const App = () => {
       tool("Agenda del coach", Calendar, () => setUtility("agenda-coach"), "agenda turnos disponibilidad reservas coach");
       tool("Comparar rutinas", Columns2, () => setCompareOpen(true), "comparar rutinas diferencias");
       tool("Creador de rutinas", Layers, () => irA("rutina", "creador"), "crear rutina constructor comparar radar duplicar");
-      tool("Ficha del atleta", ClipboardList, () => setFichaOpen(true), "ficha historial checkin datos atleta");
+      if (esDueno) tool("Ficha del atleta", ClipboardList, () => setFichaOpen(true), "ficha historial checkin datos atleta");
       if (myRoleMeta.manageTeam) tool("Equipo", Award, () => setEquipoOpen(true), "equipo coaches nutricionistas permisos");
       tool("IA del preparador", Sparkles, () => irA("rutina", "ia"), "ia inteligencia artificial preparador plan");
       roster.students.forEach((s) => out.push({ id: `al-${s.id}`, group: "Atletas", Icon: Users, label: s.name,
@@ -35012,7 +35069,7 @@ const App = () => {
             onLeave={() => setTab("hoy")} onOpenDevices={() => setDevicesOpen(true)} sid={sid} library={library} />
         )}
         {tab === "progreso" && (
-          <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory} toast={toast}
+          <ProgressTabRouter plan={plan} history={history} saveHistory={saveHistory} toast={toast} sinFotos={!!myTeamId}
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
             jumpSub={progressJumpSub} onJumpConsumed={() => setProgressJumpSub(null)} />
         )}
@@ -35036,7 +35093,7 @@ const App = () => {
             onOpenCompPrep={() => setCompPrepOpen(true)} onOpenScience={() => setScienceOpen(true)} onOpenAtlas={() => { setAtlasInitialQuery(""); setAtlasOpen(true); }}
             onOpenSupplements={() => setSupplementsOpen(true)} onOpenLabs={() => setLabsOpen(true)}
             onOpenNutrition={() => irPlan()} onOpenExams={() => setExamsOpen(true)}
-            onOpenPhotos={() => setPhotosOpen(true)}
+            onOpenPhotos={myTeamId ? undefined : () => setPhotosOpen(true)}
             coach={canCoach ? { access: roleTabAccess, canManageTeam: myRoleMeta.manageTeam, onGo: irA, onOpenTeam: () => setEquipoOpen(true),
               onOpenCompare: () => setCompareOpen(true), onOpenAgendaCoach: () => setUtility("agenda-coach"),
               onResetPlan: roleTabAccess.rutina === "edit" ? () => setConfirmReset(true) : null } : null} />
@@ -35200,9 +35257,9 @@ const App = () => {
         onOpenTeam={() => { setMoreOpen(false); setEquipoOpen(true); }}
         onOpenDevices={() => { setMoreOpen(false); setDevicesOpen(true); }}
         faceIdWho={delegate ? delegate.id : myTeamId ? `team:${myTeamId}` : "owner"}
-        onOpenFicha={() => { setMoreOpen(false); setFichaOpen(true); }}
+        onOpenFicha={esDueno ? () => { setMoreOpen(false); setFichaOpen(true); } : undefined}
         sid={sid} plan={plan} savePlan={savePlan} />
-      <FichaSheet open={fichaOpen} onClose={() => setFichaOpen(false)} plan={plan} savePlan={savePlan}
+      <FichaSheet open={fichaOpen && esDueno} onClose={() => setFichaOpen(false)} plan={plan} savePlan={savePlan}
         history={history} currentStudent={currentStudent} toast={toast} />
       <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast}
         history={history} saveHistory={saveHistory} sid={sid} onPublishWatch={() => publicarReloj(true)} onSyncWhoop={() => traerWhoop(true)} />
