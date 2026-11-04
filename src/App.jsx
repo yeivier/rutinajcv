@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v445";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v446";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -14234,6 +14234,7 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
   const [dayDetail, setDayDetail] = useState(null);   // día de la franja semanal tocado (variante panel)
   // Día que se está mirando en la página principal (ISO). null = hoy.
   const [fechaVista, setFechaVista] = useState(null);
+  const [diaSheet, setDiaSheet] = useState(null);   // "plan" | "sesion" | null
   const dirDia = useRef(1);
   const swDia = useRef(null);
   const [statDetail, setStatDetail] = useState(null);  // "adherencia" | "racha" | "peso" | "volumen" | "pasos" | "agua" | "sueno"
@@ -14569,14 +14570,14 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
         const pasado = fechaVista < todayKey;
         const estado = info.done ? "Entrenado" : !info.day ? "Descanso" : pasado ? "No se registró sesión" : "Programado";
         const filas = [
-          { label: "Entreno", value: info.day ? info.day.name : "Descanso" },
+          { label: "Entreno", value: info.day ? info.day.name : "Descanso", onClick: info.day ? () => setDiaSheet("plan") : undefined },
           { label: "Estado", value: estado },
-          info.done && info.session && { label: "Sesión", value: `${info.session.durationMin} min · ${Math.round(info.session.volume).toLocaleString("es-CL")} kg` },
-          info.day && { label: "Ejercicios", value: `${info.day.exs.length} · ${info.day.exs.reduce((a, e) => a + e.sets.length, 0)} series` },
-          { label: "Peso", value: bwD ? `${kg(bwD.kg)} kg` : "—" },
-          { label: "Sueño", value: slD ? `${kg(slD.hours)} h` : "—" },
-          { label: "Pasos", value: stD ? Math.round(stD.count).toLocaleString("es-CL") : "—" },
-          mealsTotal > 0 && { label: "Comidas", value: `${comidasD}/${mealsTotal}` },
+          info.done && info.session && { label: "Sesión", value: `${info.session.durationMin} min · ${Math.round(info.session.volume).toLocaleString("es-CL")} kg`, onClick: () => setDiaSheet("sesion") },
+          info.day && { label: "Ejercicios", value: `${info.day.exs.length} · ${info.day.exs.reduce((a, e) => a + e.sets.length, 0)} series`, onClick: () => setDiaSheet("plan") },
+          { label: "Peso", value: bwD ? `${kg(bwD.kg)} kg` : "—", onClick: () => setStatDetail("peso") },
+          { label: "Sueño", value: slD ? `${kg(slD.hours)} h` : "—", onClick: () => setStatDetail("sueno") },
+          { label: "Pasos", value: stD ? Math.round(stD.count).toLocaleString("es-CL") : "—", onClick: () => setStatDetail("pasos") },
+          mealsTotal > 0 && { label: "Comidas", value: `${comidasD}/${mealsTotal}`, onClick: onOpenNutrition },
         ].filter(Boolean);
         const flecha = { width: 40, height: 40, borderRadius: "50%", background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
         return (
@@ -14597,6 +14598,20 @@ const TodayTabMono = ({ plan, history, active, goTrain, role, allowedRoutines, b
             </div>
             <button onClick={() => { dirDia.current = 1; setFechaVista(null); }}
               style={{ height: 48, borderRadius: 14, background: PLATE_GRAD, color: PLATE_FG, fontSize: 16, fontWeight: 600 }}>Volver a hoy</button>
+            <div onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+            <Sheet open={diaSheet === "plan" && !!info.day} onClose={() => setDiaSheet(null)} title={info.day ? info.day.name : ""} tall>
+              {info.day && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div style={{ fontSize: 13.5, color: P.faint2 }}>{routineLabel(routineOf(info.day), plan.routineNames)} · {fmtDateFull(fechaVista)}</div>
+                  <RowGroup rows={info.day.exs.map((e) => ({
+                    label: e.name,
+                    value: `${e.sets.length} × ${(e.sets[0] && e.sets[0].reps) || e.reps || "—"}`,
+                  }))} />
+                </div>
+              )}
+            </Sheet>
+            <SessionDetailSheet session={diaSheet === "sesion" ? info.session : null} onClose={() => setDiaSheet(null)} history={history} />
+            </div>
           </div>
         );
       })()}
