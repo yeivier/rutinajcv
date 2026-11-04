@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v447";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v448";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -17874,8 +17874,14 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
 /* ============================================================
    MODO COACH — constructor de rutina
    ============================================================ */
+// Nombre corto del tipo de serie para el selector (el largo no cabe en 88 px
+// y se veía cortado y encimado).
+const SET_TYPE_SHORT = { warmup: "Calent.", normal: "Trabajo", top: "Top set", backoff: "Back-off", drop: "Drop", restpause: "Rest-pause",
+  amrap: "AMRAP", cluster: "Cluster", vma: "VMA", midiso: "Iso media", pfi: "Pre-fatiga", density: "Densidad", fst: "FST-7" };
 const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
   const [easy] = useEasyMode();
+  // Clave propia de esta lista: mantener pulsada una serie y arrastrarla la reordena.
+  const ordClave = useRef("sets-" + uid()).current;
   const [expanded, setExpanded] = useState(null);
   const [attachErr, setAttachErr] = useState("");
   const [preview, setPreview] = useState(null);
@@ -17901,13 +17907,14 @@ const SetsEditor = ({ sets, onChange, onInfo, exRest }) => {
       {sets.map((s, i) => {
         const hasExtras = (s.coachNote || "").length > 0 || (s.coachAttachIds || []).length > 0;
         return (
-          <div key={s.id} style={{ marginBottom: easy ? 8 : 6 }}>
+          <div key={s.id} className="ord-wrap" data-ord-clave={ordClave} style={{ marginBottom: easy ? 8 : 6 }}
+            {...arrastrable(ordClave, sets.map((x) => x.id), i, (nuevo) => onChange(nuevo.map((id) => sets.find((x) => x.id === id)).filter(Boolean)), { delay: 380 })}>
             <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
               {easy
                 ? <span className="disp" style={{ width: 34, textAlign: "center", fontWeight: 700, fontSize: 17, color: P.dim }}>{i + 1}</span>
                 : (
-                  <select value={s.type} onChange={(e) => upd(i, { type: e.target.value })} style={{ width: 88, padding: "8px 4px", fontSize: 13.5 }}>
-                    {Object.entries(SET_TYPES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}
+                  <select value={s.type} onChange={(e) => upd(i, { type: e.target.value })} style={{ width: 88, padding: "8px 4px", fontSize: 13.5, letterSpacing: 0, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {Object.entries(SET_TYPES).map(([k, t]) => <option key={k} value={k}>{SET_TYPE_SHORT[k] || t.label}</option>)}
                   </select>
                 )}
               <input placeholder="8-10" value={s.repsT} onChange={(e) => upd(i, { repsT: e.target.value })} style={{ flex: 1, minWidth: 60, padding: "8px 6px", fontSize: easy ? 17 : 15 }} />
