@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v446";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v447";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -5908,6 +5908,15 @@ const GlobalStyle = () => {
     .fj input[type="number"]::-webkit-outer-spin-button, .fj input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     @keyframes fjShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
     .fj .fj-skel { background: linear-gradient(90deg, ${P.s3} 25%, ${P.s4} 50%, ${P.s3} 75%); background-size: 200% 100%; animation: fjShimmer 1.4s linear infinite; border-radius: 12px; color: transparent; }
+    /* Toque suave (v447): las filas anchas se iluminan en vez de achicarse
+       (como en iOS); los botones chicos se hunden apenas y vuelven con una
+       curva larga y blanda. Entrada rápida, salida lenta: eso es lo que se
+       siente "fluido" y no "tosco". */
+    .fj button:not(:disabled) { transition: transform 460ms cubic-bezier(.22,1.15,.36,1), opacity .3s ease, background-color .38s ease, color .3s ease, border-color .3s ease; }
+    .fj button:not(:disabled):active { transform: scale(.975); opacity: .88; transition: transform 140ms cubic-bezier(.32,.72,0,1), opacity 120ms ease-out, background-color 90ms ease-out; }
+    .fj button[style*="width: 100%"]:not(:disabled):active, .fj button[style*="flex: 1"]:not(:disabled):active { transform: none; opacity: 1; background-color: ${P.fillTertiary}; }
+    .fj .fj-card[role="button"]:active, .fj [role="button"]:active { transform: none; opacity: 1; background-color: ${P.fillTertiary}; transition: background-color 90ms ease-out; }
+    .fj .fj-card, .fj [role="button"] { transition: background-color .38s ease, opacity .3s ease, border-color .3s ease; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
     /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
        inferior fija (TabBar) queda "transparente" al puntero: si no, al
