@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v448";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v449";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6849,6 +6849,31 @@ const SheetPortal = ({ children }) => createPortal(
 const Sheet = ({ open, onClose, title, children, tall }) => {
   const { rendered, closing } = useMountedWhileOpen(open, DUR_SHEET);
   const swipe = useSwipeBack(onClose);
+  const hojaRef = useRef(null);
+  const arr = useRef(null);
+  // Arrastre vertical desde el asa y la cabecera: la hoja sigue al dedo y,
+  // pasado el umbral (o con un flick), baja y se cierra; si no, vuelve con resorte.
+  const dragHandlers = {
+    onTouchStart: (e) => { const t = e.touches[0]; arr.current = { y: t.clientY, t: Date.now(), dy: 0 }; },
+    onTouchMove: (e) => {
+      const a = arr.current, el = hojaRef.current; if (!a || !el) return;
+      const dy = Math.max(0, e.touches[0].clientY - a.y); a.dy = dy;
+      el.style.animation = "none"; el.style.transition = "none"; el.style.transform = `translate3d(0,${dy}px,0)`;
+    },
+    onTouchEnd: () => {
+      const a = arr.current, el = hojaRef.current; arr.current = null; if (!a || !el || !a.dy) return;
+      const v = a.dy / Math.max(1, Date.now() - a.t);
+      if (a.dy > 110 || (v > 0.6 && a.dy > 40)) {
+        el.style.transition = "transform .26s cubic-bezier(.32,.72,0,1)"; el.style.transform = "translate3d(0,100%,0)";
+        try { navigator.vibrate && navigator.vibrate(8); } catch {}
+        setTimeout(onClose, 200);
+      } else {
+        el.style.transition = "transform .32s cubic-bezier(.34,1.3,.5,1)"; el.style.transform = "translate3d(0,0,0)";
+        setTimeout(() => { if (el) { el.style.transform = ""; el.style.transition = ""; } }, 340);
+      }
+    },
+    onTouchCancel: () => { const el = hojaRef.current; arr.current = null; if (el) { el.style.transform = ""; el.style.transition = ""; } },
+  };
   if (!rendered) return null;
   // Se monta en la raíz de la app, no dentro de quien la abre: una hoja dentro
   // de otra hoja (Tema → selector de color) quedaba atrapada en la caja de la
@@ -6857,15 +6882,15 @@ const Sheet = ({ open, onClose, title, children, tall }) => {
   return (
     <SheetPortal>
     <div className={closing ? "scrimOut" : "scrimIn"} onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
-      <div className={closing ? "sheetOut" : "sheetIn"} onClick={(e) => e.stopPropagation()} {...swipe}
+      <div ref={hojaRef} className={closing ? "sheetOut" : "sheetIn"} onClick={(e) => e.stopPropagation()} {...swipe}
         style={{ background: P.bg, borderRadius: "34px 34px 0 0", width: "100%", maxWidth: "var(--fj-w)",
           maxHeight: tall ? "calc(100dvh - env(safe-area-inset-top) - 8px)" : "82dvh", minHeight: "60dvh",
           display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Asa de arrastre, como las hojas de sistema de iOS */}
-        <div style={{ display: "flex", justifyContent: "center", paddingTop: 8, flexShrink: 0 }}>
+        <div {...dragHandlers} style={{ display: "flex", justifyContent: "center", padding: "8px 0 4px", flexShrink: 0, touchAction: "none" }}>
           <span style={{ width: 44, height: 5, borderRadius: 3, background: P.separatorStrong }} />
         </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 22px 14px", flexShrink: 0 }}>
+        <div {...dragHandlers} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 22px 14px", flexShrink: 0, touchAction: "none" }}>
           <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.1 }}>{title}</h2>
           <button onClick={onClose} aria-label="Cerrar"
             style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 18, background: P.s3, color: P.faint, flexShrink: 0 }}>
@@ -32392,8 +32417,20 @@ const MiniSesion = ({ active, onOpen, onClose }) => {
   );
 };
 
+// Cada pestaña recuerda dónde quedó (como las apps de sistema); tocar la
+// pestaña activa sube suavemente al principio.
+const _tabScroll = {};
 const TabBar = ({ tabs, tab, setTab }) => {
   const n = tabs.length;
+  const irPestana = (id) => {
+    try {
+      if (id === tab) { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+      _tabScroll[tab] = window.scrollY;
+      setTab(id);
+      const y = _tabScroll[id] || 0;
+      [40, 160].forEach((ms) => setTimeout(() => { try { window.scrollTo({ top: y }); } catch {} }, ms));
+    } catch { setTab(id); }
+  };
   return (
     <div data-tabbar style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center",
       background: P.bg, borderTop: `1px solid ${P.line}`, paddingBottom: "env(safe-area-inset-bottom)" }}>
@@ -32401,7 +32438,7 @@ const TabBar = ({ tabs, tab, setTab }) => {
         {tabs.map(({ id, label, Icon }) => {
           const on = tab === id;
           return (
-            <button key={id} onClick={() => setTab(id)} aria-current={on ? "page" : undefined} aria-label={label} title={label}
+            <button key={id} onClick={() => irPestana(id)} aria-current={on ? "page" : undefined} aria-label={label} title={label}
               style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, padding: "6px 2px", minWidth: 0, minHeight: 54,
                 color: on ? P.text : P.textQuaternary, transition: `color ${DUR_ROW}ms ${EASE_STD}` }}>
               <Icon size={23} strokeWidth={on ? 2.2 : 1.7} />
