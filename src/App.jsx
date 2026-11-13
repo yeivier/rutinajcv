@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v449";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v450";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -11079,11 +11079,17 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     setUndoStack((s) => [...s.slice(-40), { ei, si, before, after }]);
     setRedoStack([]);
   };
+  // Todo lo anotado en una serie: peso, reps, RIR, comentario, adjuntos,
+  // partes extra (drop/rest-pause) y la marca de hecha.
+  const tieneDatos = (st) => !!st && ((st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null)
+    || !!st.comment || (st.attachIds || []).length > 0 || (st.drops || []).length > 0 || !!st.done);
   const clearSet = (ei, si) => {
     const s = exs[ei].sets[si];
-    if (s.weight === "" && s.reps === "" && s.rir === "") return;
-    record(ei, si, { weight: s.weight, reps: s.reps, rir: s.rir }, { weight: "", reps: "", rir: "" });
-    patchSet(ei, si, { weight: "", reps: "", rir: "" });
+    if (!tieneDatos(s)) return;
+    const vacio = { weight: "", reps: "", rir: "", comment: "", attachIds: [], drops: [], done: false };
+    record(ei, si, { weight: s.weight, reps: s.reps, rir: s.rir, comment: s.comment || "", attachIds: s.attachIds || [], drops: s.drops || [], done: !!s.done }, vacio);
+    patchSet(ei, si, vacio);
+    setCmtKey(null);
   };
   const undo = () => {
     const a = undoStack[undoStack.length - 1];
@@ -11708,7 +11714,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                   title={unitDeSerie(st, r.ei)} style={{ height: 36, padding: "0 8px", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 13, fontWeight: 700, color: SES.faint, flexShrink: 0 }}>
                   <ArrowUpDown size={15} />{unitDeSerie(st, r.ei)}
                 </button>
-                {((st.weight !== "" && st.weight != null) || (st.reps !== "" && st.reps != null) || (st.rir !== "" && st.rir != null)) && (
+                {tieneDatos(st) && (
                   <button onClick={() => clearSet(r.ei, r.si)} aria-label={`Borrar los datos de la ${dónde}`} title="Borrar datos"
                     style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: SES.faint, flexShrink: 0 }}>
                     <Trash2 size={16} />
@@ -12133,9 +12139,13 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                 <button onClick={() => setAttachKey(llave)}
                   aria-label={`Adjuntar foto, video o archivo a la serie${(st.attachIds || []).length ? ` (${st.attachIds.length} adjunto${st.attachIds.length === 1 ? "" : "s"})` : ""}`}
                   style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: (st.attachIds || []).length ? SES.ink : SES.faint }}><Paperclip size={17} /></button>
-                {puedeEditar && !b.group && exs[r.ei].sets.length > 1 && (
-                  <button onClick={() => onRemoveSetAt(r.ei, r.si)} aria-label="Eliminar esta serie" title="Eliminar esta serie"
+                {tieneDatos(st) && (
+                  <button onClick={() => clearSet(r.ei, r.si)} aria-label="Borrar todo lo anotado en esta serie" title="Borrar todo lo anotado"
                     style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><Trash2 size={17} /></button>
+                )}
+                {puedeEditar && !b.group && exs[r.ei].sets.length > 1 && (
+                  <button onClick={() => onRemoveSetAt(r.ei, r.si)} aria-label="Quitar esta serie de la lista" title="Quitar esta serie"
+                    style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: SES.faint }}><Minus size={17} /></button>
                 )}
               </div>
               {renderCommentBlock(r.ei, r.si)}
