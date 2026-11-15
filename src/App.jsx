@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v451";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v452";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -11688,6 +11688,11 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                 style={{ width: 26, height: 50, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: st.comment ? SES.ink : SES.faint }}>
                 <MessageSquare size={19} strokeWidth={1.8} fill={st.comment ? "currentColor" : "none"} />
               </button>
+              <button onClick={() => clearSet(r.ei, r.si)} disabled={!tieneDatos(st)}
+                aria-label={`Borrar todo lo anotado en la ${dónde}`} title="Borrar todo lo anotado en esta serie"
+                style={{ width: 26, height: 50, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.faint, opacity: tieneDatos(st) ? 1 : .28 }}>
+                <Trash2 size={18} strokeWidth={1.8} />
+              </button>
             </div>
             </div>
               );
@@ -11759,12 +11764,6 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                   title={unitDeSerie(st, r.ei)} style={{ height: 36, padding: "0 8px", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 13, fontWeight: 700, color: SES.faint, flexShrink: 0 }}>
                   <ArrowUpDown size={15} />{unitDeSerie(st, r.ei)}
                 </button>
-                {tieneDatos(st) && (
-                  <button onClick={() => clearSet(r.ei, r.si)} aria-label={`Borrar los datos de la ${dónde}`} title="Borrar datos"
-                    style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", color: SES.faint, flexShrink: 0 }}>
-                    <Trash2 size={16} />
-                  </button>
-                )}
                 {puedeEditar && !block.group && exs[r.ei].sets.length > 1 && (
                   <button onClick={() => { setFilaAbierta(null); setCmtKey(null); setAttachKey(null); onRemoveSetAt(r.ei, r.si); }} aria-label={`Eliminar la ${dónde}`} title="Eliminar esta serie"
                     style={{ height: 36, padding: "0 8px", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 650, color: SES.faint, flexShrink: 0 }}>
