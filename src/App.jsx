@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v450";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v451";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10828,7 +10828,8 @@ const CardioCard = ({ ex, st, iconos, comentario, indicaciones, onPatch, onToggl
   );
 };
 
-const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, saveHistory, active, history, plan, patch, patchSet, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRemoveSetAt, onReplaceEx, library, onRenameEx, onRemoveEx }) => {
+const _ultRec = { k: "", t: 0 };   // último cambio registrado (para juntar tecleos seguidos)
+const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, saveHistory, active, history, plan, patch, patchSet: patchSetRaw, patchEx, onError, onFinish, onDiscard, onBrowseRoutine, onLeave, onOpenDevices, storageOK, savedAt, timer, finDescanso, onGuardarRutina, onAdjustRest, onDismissRest, onStartRest, onToggleDone, onOpenAIChat, onAddExercise, onAddSet, onRemoveSet, onRemoveSetAt, onReplaceEx, library, onRenameEx, onRemoveEx }) => {
   const [weightUnit, setWeightUnit] = useWeightUnit();
   const [themeMode, setThemeMode] = useTheme();
   const pendingWrites = usePendingWrites();
@@ -11076,8 +11077,45 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
   };
 
   const record = (ei, si, before, after) => {
-    setUndoStack((s) => [...s.slice(-40), { ei, si, before, after }]);
+    setUndoStack((s) => [...s.slice(-60), { ei, si, before, after }]);
     setRedoStack([]);
+  };
+  // Marcar/desmarcar una serie como hecha también se puede deshacer.
+  const toggleHecha = (ei, si) => {
+    const st = active.exs[ei] && active.exs[ei].sets[si];
+    if (st) {
+      const hace = !st.done;
+      const before = { done: !!st.done, reps: st.reps, rir: st.rir, doneAt: st.doneAt };
+      const after = { done: hace, reps: st.reps, rir: st.rir, doneAt: hace ? new Date().toISOString() : undefined };
+      if (hace) {
+        if (st.reps === "" || st.reps == null) { const n = st.sugReps != null ? st.sugReps : repsTargetNum(st.repsT); if (n != null) after.reps = String(n); }
+        if ((st.rir === "" || st.rir == null) && st.rirT !== "" && st.rirT != null) after.rir = String(st.rirT);
+      }
+      record(ei, si, before, after);
+      _ultRec.k = "";
+    }
+    onToggleDone(ei, si);
+  };
+  // Cada cambio en una serie queda en el historial de deshacer/rehacer. Los
+  // cambios seguidos al mismo campo (teclear "8", "80", "80.5") se juntan en
+  // uno solo mientras pasen menos de 1,5 s entre ellos.
+  const patchSet = (ei, si, p) => {
+    const st = active.exs[ei] && active.exs[ei].sets[si];
+    if (st) {
+      const keys = Object.keys(p).filter((k) => k !== "prefilled");
+      const before = {}, after = {};
+      keys.forEach((k) => { before[k] = st[k]; after[k] = p[k]; });
+      if (keys.length && JSON.stringify(before) !== JSON.stringify(after)) {
+        const sig = ei + "|" + si + "|" + keys.join(",");
+        const ahora = Date.now();
+        if (_ultRec.k === sig && ahora - _ultRec.t < 1500) {
+          setUndoStack((u) => (u.length ? [...u.slice(0, -1), { ...u[u.length - 1], after }] : u));
+          setRedoStack([]);
+        } else record(ei, si, before, after);
+        _ultRec.k = sig; _ultRec.t = ahora;
+      }
+    }
+    patchSetRaw(ei, si, p);
   };
   // Todo lo anotado en una serie: peso, reps, RIR, comentario, adjuntos,
   // partes extra (drop/rest-pause) y la marca de hecha.
@@ -11088,20 +11126,27 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     if (!tieneDatos(s)) return;
     const vacio = { weight: "", reps: "", rir: "", comment: "", attachIds: [], drops: [], done: false };
     record(ei, si, { weight: s.weight, reps: s.reps, rir: s.rir, comment: s.comment || "", attachIds: s.attachIds || [], drops: s.drops || [], done: !!s.done }, vacio);
-    patchSet(ei, si, vacio);
+    patchSetRaw(ei, si, vacio);
+    _ultRec.k = "";
     setCmtKey(null);
   };
   const undo = () => {
     const a = undoStack[undoStack.length - 1];
     if (!a) return;
-    patchSet(a.ei, a.si, a.before);
+    if (!(active.exs[a.ei] && active.exs[a.ei].sets[a.si])) { setUndoStack((s) => s.slice(0, -1)); return; }
+    patchSetRaw(a.ei, a.si, a.before);
+    _ultRec.k = "";
+    try { navigator.vibrate && navigator.vibrate(6); } catch {}
     setUndoStack((s) => s.slice(0, -1));
     setRedoStack((s) => [...s, a]);
   };
   const redo = () => {
     const a = redoStack[redoStack.length - 1];
     if (!a) return;
-    patchSet(a.ei, a.si, a.after);
+    if (!(active.exs[a.ei] && active.exs[a.ei].sets[a.si])) { setRedoStack((s) => s.slice(0, -1)); return; }
+    patchSetRaw(a.ei, a.si, a.after);
+    _ultRec.k = "";
+    try { navigator.vibrate && navigator.vibrate(6); } catch {}
     setRedoStack((s) => s.slice(0, -1));
     setUndoStack((s) => [...s, a]);
   };
@@ -11630,7 +11675,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                 valor={st.rir == null ? "" : String(st.rir)}
                 onCommit={(v) => setVal(r.ei, r.si, "rir", v)}
                 onTap={() => setWheelEn({ key: restKey(r.ei, r.si), field: "rir" })} />
-              <button onClick={() => onToggleDone(r.ei, r.si)}
+              <button onClick={() => toggleHecha(r.ei, r.si)}
                 aria-label={st.done ? `Desmarcar la ${dónde}` : `Marcar la ${dónde} como hecha`}
                 aria-pressed={st.done}
                 style={{ width: 42, height: 50, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
@@ -11885,6 +11930,14 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
             <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><HeartPulse size={14} /> {hr.bpm}</span>
           )}
         </div>
+        <button onClick={() => { if (undoStack.length) undo(); }} disabled={!undoStack.length} aria-label="Deshacer el último cambio" title="Deshacer"
+          style={{ width: 38, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink, opacity: undoStack.length ? 1 : .3 }}>
+          <Undo2 size={20} strokeWidth={1.8} />
+        </button>
+        <button onClick={() => { if (redoStack.length) redo(); }} disabled={!redoStack.length} aria-label="Rehacer el cambio deshecho" title="Rehacer"
+          style={{ width: 38, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink, opacity: redoStack.length ? 1 : .3 }}>
+          <Redo2 size={20} strokeWidth={1.8} />
+        </button>
         {onOpenAIChat && (
           <button onClick={() => onOpenAIChat()} aria-label="Preguntarle a la IA durante la sesión" title="Preguntar a la IA"
             style={{ width: 44, height: 44, borderRadius: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink }}>
@@ -12024,7 +12077,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
         const last = idx === flatSets.length - 1;
         const irA = (j) => { setCurFlat(Math.min(Math.max(0, j), flatSets.length - 1)); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {} };
         const hecha = () => {
-          if (st && !st.done) onToggleDone(r.ei, r.si);
+          if (st && !st.done) toggleHecha(r.ei, r.si);
           if (last) setSalida(true); else irA(idx + 1);
         };
         const u = unitDeSerie(st, r.ei);
