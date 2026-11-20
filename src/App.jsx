@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v453";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v454";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -130,7 +130,7 @@ const LIGHT_THEME = {
 const DARK_THEME = {
   P: {
     bg: "#000000", s1: "#0F0F0F", s2: "#141414", s3: "#1C1C1C", s4: "#262626",
-    line: "#262626", text: "#FFFFFF", dim: "#D4D4D4", faint: "#A3A3A3", faint2: "#8C8C8C",
+    line: "#383838", text: "#FFFFFF", dim: "#EDEDED", faint: "#D2D2D2", faint2: "#BEBEBE",
     // Acento de vuelta a monocromo (blanco sobre oscuro) — el verde que
     // había acá antes se sacó a pedido: el color por defecto de la
     // plataforma es fondo claro y tinta (blanco/negro), no verde. El
@@ -140,11 +140,11 @@ const DARK_THEME = {
     green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
     prog: "#FFFFFF",
     accent2: "#5B9CFF",
-    frame: "#262626", bgGrad: "#000000",
+    frame: "#383838", bgGrad: "#000000",
     // Mismos 5 tokens nuevos, invertidos para el tema oscuro siguiendo el
     // mismo criterio que el resto de la paleta (s3/s4/line de arriba).
-    fillTertiary: "#1C1C1C", separatorStrong: "#333333",
-    textQuaternary: "#6B6B6B", chevron: "#5A5A5A", dotInactive: "#2A2A2A",
+    fillTertiary: "#1C1C1C", separatorStrong: "#4A4A4A",
+    textQuaternary: "#A8A8A8", chevron: "#9A9A9A", dotInactive: "#3A3A3A",
   },
   // Placas monocromas, igual criterio que LIGHT_THEME pero invertido:
   // tinta blanca (la del tema oscuro) con texto negro encima.
@@ -206,8 +206,8 @@ const teColors = (isLight) => (isLight ? {
   acc: "#000000", accInk: "#FFFFFF",
   accLine: "rgba(0,0,0,.30)", accSoft: "#EDEDED",
 } : {
-  bg: "#000000", card: "#0F0F0F", campo: "#1C1C1C", line: "#262626",
-  ink: "#FFFFFF", dim: "#A3A3A3", faint: "#6B6B6B",
+  bg: "#000000", card: "#0F0F0F", campo: "#1C1C1C", line: "#383838",
+  ink: "#FFFFFF", dim: "#E0E0E0", faint: "#B4B4B4",
   acc: "#FFFFFF", accInk: "#000000",
   accLine: "rgba(255,255,255,.34)", accSoft: "rgba(255,255,255,.12)",
 });
@@ -33150,9 +33150,11 @@ const TabBar = ({ tabs, tab, setTab }) => {
           return (
             <button key={id} onClick={() => irPestana(id)} aria-current={on ? "page" : undefined} aria-label={label} title={label}
               style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, padding: "6px 2px", minWidth: 0, minHeight: 54,
-                color: on ? P.text : P.textQuaternary, transition: `color ${DUR_ROW}ms ${EASE_STD}` }}>
-              <Icon size={23} strokeWidth={on ? 2.2 : 1.7} />
-              <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1, whiteSpace: "nowrap" }}>{label}</span>
+                // En oscuro, todos los iconos van en blanco (la pestaña activa se
+                // distingue por el trazo y el peso, no por un gris apagado).
+                color: on || P.text === "#FFFFFF" ? P.text : P.textQuaternary, transition: `color ${DUR_ROW}ms ${EASE_STD}` }}>
+              <Icon size={23} strokeWidth={on ? 2.4 : 1.6} />
+              <span style={{ fontSize: 11, fontWeight: on ? 700 : 500, lineHeight: 1, whiteSpace: "nowrap" }}>{label}</span>
             </button>
           );
         })}
