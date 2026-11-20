@@ -94,3 +94,11 @@ Ya no existe el «modo coach» y «modo atleta»: una sola barra (Hoy · Progres
 - **Más**: seguimiento, culturismo, *Gestión* (indicaciones, borradores, creador, comparar, IA del preparador, agenda del coach, equipo, vaciar plan) y herramientas.
 - Las secciones de gestión se muestran según el rol (dueño / equipo); un perfil con acceso (atleta) solo ve las suyas.
 - Se eliminó el selector «Editor de rutina: Completo/Compacto» (queda un único editor).
+
+## Comunidad (v453)
+Más › Comunidad: inicio (publicaciones de quienes sigues y de tus desafíos), desafíos grupales
+(crear, unirse con código, invitar, tabla de líderes, métricas: entrenamientos, minutos, calorías,
+pasos, distancia, volumen o puntos propios), personas (buscar, seguir, solicitudes, perfil público o
+privado) y perfil con publicaciones (foto + título + sesión). Datos en `forja_kv` con claves `soc-*`.
+La privacidad del perfil se respeta en la interfaz; para que sea inviolable hace falta pasar la base
+a cuentas reales con reglas por usuario (hoy la base permite leer todo con la clave pública).

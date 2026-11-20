@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v452";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v453";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -28251,6 +28251,651 @@ const GlobalSearchSheet = ({ open, onClose, items }) => {
   );
 };
 
+/* ============================================================
+   COMUNIDAD — perfiles, seguir, desafíos grupales y publicaciones
+   Todo vive en forja_kv con claves "soc-*", una por documento, para que dos
+   personas escribiendo a la vez casi nunca pisen el mismo registro:
+     soc-p:<uid>              perfil (nombre, @usuario, bio, público/privado)
+     soc-f:<de>:<a>           seguimiento (st: "ok" | "pend")
+     soc-c:<cid>              desafío (reglas de puntuación, fechas, código)
+     soc-m:<cid>:<uid>        membresía (st: "ok" | "inv")
+     soc-x:<pid>              publicación (título, foto, métricas, destinos)
+     soc-l:<pid>:<uid>        me gusta
+     soc-img:<id>             foto (data URL, ya reducida)
+   ============================================================ */
+const SOC_METRICAS = {
+  entrenos: { l: "Entrenamientos", u: "entrenos" },
+  min: { l: "Minutos", u: "min" },
+  kcal: { l: "Calorías", u: "kcal" },
+  pasos: { l: "Pasos", u: "pasos" },
+  km: { l: "Distancia", u: "km" },
+  vol: { l: "Volumen", u: "kg" },
+  puntos: { l: "Puntos propios", u: "pts" },
+};
+const socId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const socCodigo = () => Array.from({ length: 6 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
+const socSlug = (s) => String(s || "atleta").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "").slice(0, 16) || "atleta";
+const socDia = (p) => (p.fecha || p.ts || "").slice(0, 10);
+async function socFilas(patron, limite = 400) {
+  try {
+    const r = await fetchWithTimeout(`${SB_URL}?key=like.${encodeURIComponent(patron)}&select=key,value&order=key.desc&limit=${limite}`, { headers: SB_H });
+    if (!r.ok) throw new Error(r.statusText);
+    const rows = await r.json();
+    return rows.map((x) => ({ ...(x.value || {}), _k: x.key }));
+  } catch { return []; }
+}
+// Puntaje de cada integrante de un desafío, según su regla. Con `maxDia`
+// solo cuenta la primera publicación de cada día por persona.
+function socTabla(ch, miembros, posts) {
+  const desde = ch.start || "0000", hasta = ch.end || "9999";
+  const validos = posts.filter((p) => (p.cids || []).includes(ch.id) && socDia(p) >= desde && socDia(p) <= hasta)
+    .sort((a, b) => (a.ts || "").localeCompare(b.ts || ""));
+  const vistos = new Set();
+  const cuentan = validos.filter((p) => {
+    if (!ch.maxDia) return true;
+    const k = p.uid + "|" + socDia(p);
+    if (vistos.has(k)) return false;
+    vistos.add(k); return true;
+  });
+  const filas = miembros.map((m) => {
+    const mis = cuentan.filter((p) => p.uid === m.uid);
+    const sum = (f) => mis.reduce((a, p) => a + (+((p.met || {})[f]) || 0), 0);
+    const r = ch.regla || {};
+    let score = 0;
+    if (ch.metric === "entrenos") score = mis.length;
+    else if (ch.metric === "puntos") score = (+r.w || 0) * mis.length + (+r.h || 0) * sum("min") / 60 + (+r.k || 0) * sum("km") + (+r.c || 0) * sum("kcal") / 100;
+    else score = sum(ch.metric === "pasos" ? "steps" : ch.metric);
+    return { uid: m.uid, name: m.name, score: Math.round(score * 10) / 10, n: mis.length };
+  });
+  return filas.sort((a, b) => b.score - a.score || b.n - a.n || String(a.name).localeCompare(String(b.name)));
+}
+const socNum = (n) => Number(n).toLocaleString("es-CL", { maximumFractionDigits: 1 });
+const socCuando = (iso) => {
+  const d = new Date(iso); if (isNaN(d)) return "";
+  const dif = (Date.now() - d.getTime()) / 60000;
+  if (dif < 1) return "ahora";
+  if (dif < 60) return `${Math.floor(dif)} min`;
+  if (dif < 1440) return `${Math.floor(dif / 60)} h`;
+  if (dif < 10080) return `${Math.floor(dif / 1440)} d`;
+  return fmtDate(iso);
+};
+
+const SocImg = ({ id, style, ratio }) => {
+  const [src, setSrc] = useState(null);
+  useEffect(() => { let on = true; if (!id) return; sGet(`soc-img:${id}`).then((v) => on && setSrc((v && v.dataUrl) || null)).catch(() => {}); return () => { on = false; }; }, [id]);
+  return (
+    <div style={{ background: P.s3, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", aspectRatio: ratio || "1 / 1", ...style }}>
+      {src ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <Camera size={22} color={P.faint2} />}
+    </div>
+  );
+};
+const SocAvatar = ({ perfil, nombre, size = 40 }) => (
+  <span style={{ width: size, height: size, borderRadius: "50%", overflow: "hidden", background: P.s3, color: P.dim, display: "inline-flex", alignItems: "center", justifyContent: "center",
+    fontWeight: 700, fontSize: size * 0.38, flexShrink: 0 }}>
+    {perfil && perfil.avatar ? <SocImg id={perfil.avatar} ratio="1 / 1" style={{ width: size, height: size }} />
+      : String(nombre || (perfil && perfil.name) || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}
+  </span>
+);
+// Selector de foto: reduce a 900 px y la guarda como soc-img:<id>.
+const SocFotoBtn = ({ onId, onError, children, style }) => {
+  const ref = useRef(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <>
+      <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={async (e) => {
+        const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+        setBusy(true);
+        try {
+          const dataUrl = await compressImage(f, 900, 0.78);
+          const id = socId();
+          const ok = await sSet(`soc-img:${id}`, { dataUrl, ts: todayISO() });
+          if (!ok) throw new Error("No se pudo guardar la foto.");
+          onId(id);
+        } catch (err) { onError && onError(err.message || "No se pudo procesar la foto."); }
+        finally { setBusy(false); }
+      }} />
+      <button type="button" disabled={busy} onClick={() => ref.current && ref.current.click()} style={style}>{busy ? <Loader2 size={18} className="fj-spin" /> : children}</button>
+    </>
+  );
+};
+const SocVacio = ({ Icon, texto }) => (
+  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "34px 12px", color: P.faint2, textAlign: "center" }}>
+    <Icon size={30} strokeWidth={1.5} /><div style={{ fontSize: 14.5, maxWidth: 260 }}>{texto}</div>
+  </div>
+);
+const SocIcono = ({ Icon, onClick, label, activo, badge, size = 40 }) => (
+  <button onClick={onClick} aria-label={label} title={label}
+    style={{ position: "relative", width: size, height: size, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+      background: activo ? PLATE_GRAD : P.s3, color: activo ? PLATE_FG : P.text }}>
+    <Icon size={19} strokeWidth={1.8} />
+    {badge > 0 && <span style={{ position: "absolute", top: -2, right: -2, minWidth: 17, height: 17, borderRadius: 9, background: P.red, color: "#fff", fontSize: 10.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{badge}</span>}
+  </button>
+);
+
+const ComunidadSheet = ({ open, onClose, sid, nombre, history, toast }) => {
+  const [tab, setTab] = useState("inicio");
+  const [vista, setVista] = useState(null);          // { t: "desafio", id } | { t: "perfil", uid }
+  const [D, setD] = useState({ cargado: false, perfiles: {}, desafios: [], miembros: [], follows: [], posts: [], likes: [] });
+  const [crear, setCrear] = useState(false);
+  const [publicar, setPublicar] = useState(false);
+  const [postAbierto, setPostAbierto] = useState(null);
+  const [busqueda, setBusqueda] = useState("");
+  const [codigo, setCodigo] = useState("");
+  const [confirmar, setConfirmar] = useState(null);  // { titulo, cuerpo, ok }
+
+  const cargar = useCallback(async () => {
+    const [pf, ds, ms, fs, ps, ls] = await Promise.all([
+      socFilas("soc-p:*"), socFilas("soc-c:*"), socFilas("soc-m:*", 1000), socFilas("soc-f:*", 1000), socFilas("soc-x:*", 300), socFilas("soc-l:*", 2000),
+    ]);
+    const perfiles = {}; pf.forEach((p) => { perfiles[p.id] = p; });
+    setD({ cargado: true, perfiles, desafios: ds, miembros: ms, follows: fs, posts: ps, likes: ls });
+    return perfiles;
+  }, []);
+  // Al abrir: carga y crea mi perfil la primera vez.
+  useEffect(() => {
+    if (!open || !sid) return;
+    let on = true;
+    (async () => {
+      const perfiles = await cargar();
+      if (!on) return;
+      if (!perfiles[sid]) {
+        const usados = new Set(Object.values(perfiles).map((p) => p.handle));
+        let h = socSlug(nombre), n = h, i = 1;
+        while (usados.has(n)) n = h + (++i);
+        await sSet(`soc-p:${sid}`, { id: sid, name: nombre || "Atleta", handle: n, bio: "", vis: "publico", since: todayISO() });
+        if (on) cargar();
+      }
+    })();
+    return () => { on = false; };
+  }, [open, sid, nombre, cargar]);
+  useEffect(() => { if (!open) { setVista(null); setTab("inicio"); } }, [open]);
+
+  const yo = D.perfiles[sid] || { id: sid, name: nombre, handle: socSlug(nombre), vis: "publico" };
+  const perfilDe = (u) => D.perfiles[u] || { id: u, name: "Atleta", handle: "", vis: "publico" };
+  const sigo = (u) => D.follows.find((f) => f.from === sid && f.to === u);
+  const siguiendo = D.follows.filter((f) => f.from === sid && f.st === "ok");
+  const seguidores = D.follows.filter((f) => f.to === sid && f.st === "ok");
+  const solicitudes = D.follows.filter((f) => f.to === sid && f.st === "pend");
+  const puedeVer = (u) => u === sid || perfilDe(u).vis === "publico" || (sigo(u) && sigo(u).st === "ok");
+  const misMembresias = D.miembros.filter((m) => m.uid === sid);
+  const invitaciones = misMembresias.filter((m) => m.st === "inv" && D.desafios.some((c) => c.id === m.cid));
+  const misDesafios = misMembresias.filter((m) => m.st === "ok").map((m) => D.desafios.find((c) => c.id === m.cid)).filter(Boolean);
+  const gustaDe = (pid) => D.likes.filter((l) => l.pid === pid);
+  const yoGusto = (pid) => D.likes.some((l) => l.pid === pid && l.uid === sid);
+
+  const accion = async (fn, ok) => { try { await fn(); await cargar(); if (ok) toast && toast(ok); } catch { toast && toast("No se pudo completar. Revisa la conexión."); } };
+  const seguir = (u) => accion(() => sSet(`soc-f:${sid}:${u}`, { from: sid, to: u, st: perfilDe(u).vis === "publico" ? "ok" : "pend", ts: todayISO() }),
+    perfilDe(u).vis === "publico" ? "Siguiendo" : "Solicitud enviada");
+  const dejar = (u) => accion(() => sDel(`soc-f:${sid}:${u}`), "Listo");
+  const responder = (f, aceptar) => accion(() => (aceptar ? sSet(`soc-f:${f.from}:${f.to}`, { ...f, _k: undefined, st: "ok" }) : sDel(`soc-f:${f.from}:${f.to}`)), aceptar ? "Solicitud aceptada" : "Solicitud rechazada");
+  const quitarSeguidor = (f) => accion(() => sDel(`soc-f:${f.from}:${f.to}`), "Listo");
+  const meGusta = (pid) => accion(() => (yoGusto(pid) ? sDel(`soc-l:${pid}:${sid}`) : sSet(`soc-l:${pid}:${sid}`, { pid, uid: sid, ts: todayISO() })));
+  const borrarPost = (p) => accion(async () => { await sDel(`soc-x:${p.id}`); if (p.img) await sDel(`soc-img:${p.img}`); setPostAbierto(null); }, "Publicación eliminada");
+  const unirse = async () => {
+    const c = codigo.trim().toUpperCase(); if (!c) return;
+    const ch = D.desafios.find((x) => x.code === c);
+    if (!ch) { toast && toast("No hay ningún desafío con ese código"); return; }
+    await accion(() => sSet(`soc-m:${ch.id}:${sid}`, { cid: ch.id, uid: sid, name: yo.name, st: "ok", ts: todayISO() }), `Te uniste a ${ch.name}`);
+    setCodigo(""); setVista({ t: "desafio", id: ch.id });
+  };
+  const resolverInv = (m, aceptar) => accion(() => (aceptar ? sSet(`soc-m:${m.cid}:${sid}`, { ...m, _k: undefined, st: "ok" }) : sDel(`soc-m:${m.cid}:${sid}`)), aceptar ? "Te uniste al desafío" : "Invitación rechazada");
+
+  // ---- piezas de UI
+  const filaPersona = (u, extra) => {
+    const p = perfilDe(u);
+    return (
+      <div key={u} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", minHeight: 62 }}>
+        <button onClick={() => setVista({ t: "perfil", uid: u })} style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0, textAlign: "left" }}>
+          <SocAvatar perfil={p} size={40} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 16, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+            <span style={{ display: "block", fontSize: 13, color: P.faint2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.handle ? "@" + p.handle : ""}{p.vis === "privado" ? " · privado" : ""}</span>
+          </span>
+        </button>
+        {extra}
+      </div>
+    );
+  };
+  const botonSeguir = (u) => {
+    if (u === sid) return null;
+    const f = sigo(u);
+    if (f && f.st === "ok") return <Btn small kind="line" onClick={() => dejar(u)}>Siguiendo</Btn>;
+    if (f && f.st === "pend") return <Btn small kind="line" onClick={() => dejar(u)}>Pendiente</Btn>;
+    return <Btn small kind="ember" onClick={() => seguir(u)}><UserPlus size={14} /> Seguir</Btn>;
+  };
+  const tarjetaPost = (p, conAutor = true) => {
+    const likes = gustaDe(p.id);
+    const met = p.met || {};
+    const chips = [met.min ? `${socNum(met.min)} min` : null, met.km ? `${socNum(met.km)} km` : null, met.kcal ? `${socNum(met.kcal)} kcal` : null, met.steps ? `${socNum(met.steps)} pasos` : null, met.vol ? `${socNum(met.vol)} kg` : null].filter(Boolean);
+    return (
+      <Card key={p.id} style={{ overflow: "hidden" }}>
+        {conAutor && (
+          <button onClick={() => setVista({ t: "perfil", uid: p.uid })} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", width: "100%", textAlign: "left" }}>
+            <SocAvatar perfil={perfilDe(p.uid)} nombre={p.name} size={34} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+            <span style={{ fontSize: 12.5, color: P.faint2 }}>{socCuando(p.ts)}</span>
+          </button>
+        )}
+        <button onClick={() => setPostAbierto(p)} style={{ display: "block", width: "100%" }}>
+          <SocImg id={p.img} ratio="4 / 3" style={{ width: "100%" }} />
+        </button>
+        <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>{p.title}</div>
+          {chips.length > 0 && <div style={{ fontSize: 13, color: P.faint2 }}>{chips.join(" · ")}</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => meGusta(p.id)} aria-label={yoGusto(p.id) ? "Quitar me gusta" : "Me gusta"} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 34, padding: "0 4px", color: yoGusto(p.id) ? P.red : P.faint2 }}>
+              <Heart size={19} fill={yoGusto(p.id) ? "currentColor" : "none"} /> <span style={{ fontSize: 14, fontWeight: 600 }}>{likes.length || ""}</span>
+            </button>
+            {!conAutor && <span style={{ marginLeft: "auto", fontSize: 12.5, color: P.faint2 }}>{socCuando(p.ts)}</span>}
+          </div>
+        </div>
+      </Card>
+    );
+  };
+
+  // ---- vistas
+  const vInicio = () => {
+    const sigue = new Set(siguiendo.map((f) => f.to));
+    const mis = new Set(misDesafios.map((c) => c.id));
+    const feed = D.posts.filter((p) => p.uid === sid || (sigue.has(p.uid) && p.perfil && puedeVer(p.uid)) || (p.cids || []).some((c) => mis.has(c)))
+      .sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {feed.length === 0 ? <SocVacio Icon={Camera} texto="Aquí aparecen las publicaciones de las personas que sigues y de tus desafíos." /> : feed.map((p) => tarjetaPost(p))}
+      </div>
+    );
+  };
+  const vDesafios = () => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {invitaciones.length > 0 && (
+        <Card style={{ overflow: "hidden" }}>
+          {invitaciones.map((m, i) => {
+            const c = D.desafios.find((x) => x.id === m.cid);
+            return (
+              <div key={m.cid} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: i < invitaciones.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                <SocIcono Icon={Check} label="Aceptar invitación" onClick={() => resolverInv(m, true)} activo size={36} />
+                <SocIcono Icon={X} label="Rechazar invitación" onClick={() => resolverInv(m, false)} size={36} />
+              </div>
+            );
+          })}
+        </Card>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={codigo} onChange={(e) => setCodigo(e.target.value.toUpperCase())} placeholder="Código de desafío" maxLength={8} onKeyDown={(e) => e.key === "Enter" && unirse()}
+          style={{ flex: 1, minWidth: 0, padding: "13px 16px", letterSpacing: ".12em", textTransform: "uppercase" }} />
+        <Btn kind="line" small onClick={unirse} disabled={!codigo.trim()}>Unirme</Btn>
+        <Btn kind="ember" small onClick={() => setCrear(true)} aria-label="Crear desafío"><Plus size={16} /></Btn>
+      </div>
+      {misDesafios.length === 0 ? <SocVacio Icon={Trophy} texto="Crea un desafío grupal o únete con un código." /> : (
+        <Card style={{ overflow: "hidden" }}>
+          {misDesafios.map((c, i) => {
+            const mi = D.miembros.filter((m) => m.cid === c.id && m.st === "ok");
+            const tabla = socTabla(c, mi, D.posts);
+            const pos = tabla.findIndex((f) => f.uid === sid) + 1;
+            const m = SOC_METRICAS[c.metric] || SOC_METRICAS.entrenos;
+            const fin = c.end && c.end < isoDate(new Date());
+            return (
+              <button key={c.id} onClick={() => setVista({ t: "desafio", id: c.id })} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "13px 16px", minHeight: 64, borderBottom: i < misDesafios.length - 1 ? `1px solid ${P.line}` : "none" }}>
+                <span style={{ width: 38, height: 38, borderRadius: 12, background: P.s3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Trophy size={18} strokeWidth={1.7} /></span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 16, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                  <span style={{ display: "block", fontSize: 13, color: P.faint2 }}>{mi.length} {mi.length === 1 ? "persona" : "personas"} · {m.l}{fin ? " · terminado" : ""}</span>
+                </span>
+                {pos > 0 && <span style={{ fontSize: 15, fontWeight: 700 }}>#{pos}</span>}
+                <ChevronRight size={16} color={P.chevron} />
+              </button>
+            );
+          })}
+        </Card>
+      )}
+    </div>
+  );
+  const vPersonas = () => {
+    const q = busqueda.trim().toLowerCase().replace(/^@/, "");
+    const resultados = q ? Object.values(D.perfiles).filter((p) => p.id !== sid && ((p.name || "").toLowerCase().includes(q) || (p.handle || "").includes(q))) : [];
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ position: "relative" }}>
+          <Search size={17} color={P.faint2} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)" }} />
+          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar por nombre o @usuario" style={{ width: "100%", padding: "13px 16px 13px 40px" }} />
+        </div>
+        {q ? (
+          resultados.length === 0 ? <SocVacio Icon={Search} texto="Nadie coincide con esa búsqueda." /> : <Card style={{ overflow: "hidden" }}>{resultados.map((p) => filaPersona(p.id, botonSeguir(p.id)))}</Card>
+        ) : (
+          <>
+            {solicitudes.length > 0 && (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Solicitudes</div>
+                <Card style={{ overflow: "hidden" }}>
+                  {solicitudes.map((f) => filaPersona(f.from, <>
+                    <SocIcono Icon={Check} label="Aceptar" onClick={() => responder(f, true)} activo size={36} />
+                    <SocIcono Icon={X} label="Rechazar" onClick={() => responder(f, false)} size={36} />
+                  </>))}
+                </Card>
+              </div>
+            )}
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Siguiendo · {siguiendo.length}</div>
+              {siguiendo.length === 0 ? <SocVacio Icon={Users} texto="Busca a otras personas y empieza a seguirlas." /> : <Card style={{ overflow: "hidden" }}>{siguiendo.map((f) => filaPersona(f.to, botonSeguir(f.to)))}</Card>}
+            </div>
+            {seguidores.length > 0 && (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Seguidores · {seguidores.length}</div>
+                <Card style={{ overflow: "hidden" }}>{seguidores.map((f) => filaPersona(f.from, botonSeguir(f.from)))}</Card>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+  const cabeceraPerfil = (u) => {
+    const p = perfilDe(u); const esMio = u === sid;
+    const nPosts = D.posts.filter((x) => x.uid === u && x.perfil).length;
+    const nSeg = D.follows.filter((f) => f.to === u && f.st === "ok").length;
+    const nSig = D.follows.filter((f) => f.from === u && f.st === "ok").length;
+    const guardar = (cambios) => accion(() => sSet(`soc-p:${sid}`, { ...yo, ...cambios, _k: undefined }));
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {esMio ? (
+            <SocFotoBtn onId={(id) => guardar({ avatar: id })} onError={(m) => toast && toast(m)} style={{ borderRadius: "50%" }}>
+              <SocAvatar perfil={p} nombre={p.name} size={72} />
+            </SocFotoBtn>
+          ) : <SocAvatar perfil={p} nombre={p.name} size={72} />}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+            <div style={{ fontSize: 14, color: P.faint2 }}>@{p.handle}</div>
+          </div>
+          {!esMio && botonSeguir(u)}
+        </div>
+        {p.bio && <div style={{ fontSize: 15, color: P.dim, lineHeight: 1.45 }}>{p.bio}</div>}
+        <div style={{ display: "flex", gap: 8 }}>
+          {[[nPosts, "publicaciones"], [nSeg, "seguidores"], [nSig, "siguiendo"]].map(([n, l]) => (
+            <div key={l} style={{ flex: 1, textAlign: "center", padding: "10px 4px", borderRadius: 16, background: P.s3 }}>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>{n}</div><div style={{ fontSize: 12, color: P.faint2 }}>{l}</div>
+            </div>
+          ))}
+        </div>
+        {esMio && (
+          <>
+            <RowGroup rows={[
+              { label: "Perfil", value: yo.vis === "privado" ? "Privado" : "Público", onClick: () => guardar({ vis: yo.vis === "privado" ? "publico" : "privado" }) },
+            ]} />
+            <div style={{ fontSize: 12.5, color: P.faint2, lineHeight: 1.4, marginTop: -6, display: "flex", gap: 6, alignItems: "flex-start" }}>
+              {yo.vis === "privado" ? <Lock size={14} style={{ flexShrink: 0, marginTop: 2 }} /> : <Eye size={14} style={{ flexShrink: 0, marginTop: 2 }} />}
+              <span>{yo.vis === "privado" ? "Solo tus seguidores aprobados ven tus publicaciones. Quien quiera seguirte te envía una solicitud." : "Cualquiera puede ver tus publicaciones y seguirte al instante."}</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <Inp placeholder="Nombre" defaultValue={yo.name} onBlur={(e) => e.target.value.trim() && e.target.value !== yo.name && guardar({ name: e.target.value.trim() })} />
+              <Inp placeholder="@usuario" defaultValue={yo.handle} onBlur={(e) => {
+                const h = socSlug(e.target.value);
+                if (h === yo.handle) return;
+                if (Object.values(D.perfiles).some((x) => x.id !== sid && x.handle === h)) { toast && toast("Ese @usuario ya existe"); e.target.value = yo.handle; return; }
+                guardar({ handle: h });
+              }} />
+              <Txt rows={2} placeholder="Cuéntales algo sobre ti" defaultValue={yo.bio} onBlur={(e) => e.target.value !== (yo.bio || "") && guardar({ bio: e.target.value.slice(0, 160) })} />
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+  const vPerfil = (u) => {
+    const visible = puedeVer(u);
+    const mios = D.posts.filter((x) => x.uid === u && x.perfil).sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {cabeceraPerfil(u)}
+        {u === sid && <Btn kind="ember" onClick={() => setPublicar(true)}><Camera size={18} /> Publicar entrenamiento</Btn>}
+        {!visible ? <SocVacio Icon={Lock} texto="Este perfil es privado. Envía una solicitud para ver sus publicaciones." />
+          : mios.length === 0 ? <SocVacio Icon={Camera} texto="Todavía no hay publicaciones." />
+          : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
+              {mios.map((p) => (
+                <button key={p.id} onClick={() => setPostAbierto(p)} aria-label={p.title}><SocImg id={p.img} ratio="1 / 1" style={{ width: "100%", borderRadius: 10 }} /></button>
+              ))}
+            </div>
+          )}
+      </div>
+    );
+  };
+  const vDesafio = (id) => {
+    const c = D.desafios.find((x) => x.id === id);
+    if (!c) return <SocVacio Icon={Trophy} texto="Este desafío ya no existe." />;
+    const mi = D.miembros.filter((m) => m.cid === id && m.st === "ok");
+    const tabla = socTabla(c, mi, D.posts);
+    const m = SOC_METRICAS[c.metric] || SOC_METRICAS.entrenos;
+    const esDueno = c.owner === sid;
+    const posts = D.posts.filter((p) => (p.cids || []).includes(id)).sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+    const invitables = siguiendo.map((f) => f.to).filter((u) => !D.miembros.some((x) => x.cid === id && x.uid === u));
+    const compartir = async () => {
+      const texto = `Únete a mi desafío "${c.name}" en FORJA con el código ${c.code}`;
+      try { if (navigator.share) { await navigator.share({ text: texto }); return; } } catch {}
+      try { await navigator.clipboard.writeText(texto); toast && toast("Código copiado"); } catch { toast && toast(texto); }
+    };
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, color: P.faint2 }}>{m.l}{c.metric === "puntos" ? ` · ${[c.regla && c.regla.w ? `${c.regla.w} por entreno` : null, c.regla && c.regla.h ? `${c.regla.h} por hora` : null, c.regla && c.regla.k ? `${c.regla.k} por km` : null, c.regla && c.regla.c ? `${c.regla.c} por 100 kcal` : null].filter(Boolean).join(", ")}` : ""}</div>
+            <div style={{ fontSize: 13.5, color: P.faint2 }}>{fmtDate(c.start)} → {fmtDate(c.end)}{c.maxDia ? " · 1 entreno por día" : ""}</div>
+          </div>
+          <SocIcono Icon={Share2} label="Compartir código" onClick={compartir} />
+          <SocIcono Icon={Camera} label="Publicar en este desafío" onClick={() => setPublicar(c.id)} activo />
+        </div>
+        <button onClick={compartir} style={{ padding: "12px 16px", borderRadius: 16, background: P.s3, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 13.5, color: P.faint2 }}>Código</span><span style={{ fontSize: 20, fontWeight: 700, letterSpacing: ".18em" }}>{c.code}</span>
+        </button>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Tabla de líderes</div>
+          <Card style={{ overflow: "hidden" }}>
+            {tabla.map((f, i) => (
+              <div key={f.uid} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", minHeight: 58, borderBottom: i < tabla.length - 1 ? `1px solid ${P.line}` : "none", background: f.uid === sid ? P.s3 : "transparent" }}>
+                <span style={{ width: 24, textAlign: "center", fontSize: 16, fontWeight: 700, color: i < 3 ? P.text : P.faint2 }}>{i + 1}</span>
+                <button onClick={() => setVista({ t: "perfil", uid: f.uid })} style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0, textAlign: "left" }}>
+                  <SocAvatar perfil={perfilDe(f.uid)} nombre={f.name} size={34} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 15.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{perfilDe(f.uid).name || f.name}</span>
+                </button>
+                <span style={{ textAlign: "right" }}>
+                  <span style={{ display: "block", fontSize: 17, fontWeight: 700 }}>{socNum(f.score)}</span>
+                  <span style={{ display: "block", fontSize: 11.5, color: P.faint2 }}>{m.u}</span>
+                </span>
+              </div>
+            ))}
+          </Card>
+        </div>
+        {invitables.length > 0 && (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Invitar a quienes sigues</div>
+            <Card style={{ overflow: "hidden" }}>
+              {invitables.map((u) => filaPersona(u, <Btn small kind="line" onClick={() => accion(() => sSet(`soc-m:${id}:${u}`, { cid: id, uid: u, name: perfilDe(u).name, st: "inv", by: sid, ts: todayISO() }), "Invitación enviada")}>Invitar</Btn>))}
+            </Card>
+          </div>
+        )}
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Actividad</div>
+          {posts.length === 0 ? <SocVacio Icon={Camera} texto="Nadie ha publicado todavía. Sé la primera persona." /> : <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{posts.map((p) => tarjetaPost(p))}</div>}
+        </div>
+        <Btn kind="red" onClick={() => setConfirmar(esDueno
+          ? { titulo: "Eliminar desafío", cuerpo: "Se elimina para todas las personas que participan.", ok: () => accion(async () => { await sDel(`soc-c:${id}`); setVista(null); }, "Desafío eliminado") }
+          : { titulo: "Salir del desafío", cuerpo: "Dejas de aparecer en la tabla.", ok: () => accion(async () => { await sDel(`soc-m:${id}:${sid}`); setVista(null); }, "Saliste del desafío") })}>
+          {esDueno ? <><Trash2 size={16} /> Eliminar desafío</> : "Salir del desafío"}
+        </Btn>
+      </div>
+    );
+  };
+
+  // ---- cabecera y pestañas
+  const titulo = vista ? (vista.t === "desafio" ? ((D.desafios.find((x) => x.id === vista.id) || {}).name || "Desafío") : (vista.uid === sid ? "Mi perfil" : perfilDe(vista.uid).name)) : "Comunidad";
+  const TABS = [["inicio", Home, "Inicio"], ["desafios", Trophy, "Desafíos"], ["personas", Users, "Personas"], ["perfil", PersonStanding, "Mi perfil"]];
+  return (
+    <>
+      <Sheet open={open} onClose={onClose} title={titulo} tall>
+        {vista && (
+          <button onClick={() => setVista(null)} aria-label="Volver" style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 15, fontWeight: 600, marginBottom: 12, color: P.text }}>
+            <ChevronLeft size={19} strokeWidth={2.4} /> Volver
+          </button>
+        )}
+        {!vista && (
+          <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginBottom: 16 }}>
+            {TABS.map(([k, Icon, l]) => (
+              <button key={k} onClick={() => setTab(k)} aria-label={l} aria-pressed={tab === k} title={l}
+                style={{ position: "relative", flex: 1, height: 44, borderRadius: 22, display: "flex", alignItems: "center", justifyContent: "center", background: tab === k ? PLATE_GRAD : P.s3, color: tab === k ? PLATE_FG : P.text }}>
+                <Icon size={20} strokeWidth={1.8} />
+                {k === "personas" && solicitudes.length > 0 && <span style={{ position: "absolute", top: 5, right: "28%", width: 9, height: 9, borderRadius: "50%", background: P.red }} />}
+                {k === "desafios" && invitaciones.length > 0 && <span style={{ position: "absolute", top: 5, right: "28%", width: 9, height: 9, borderRadius: "50%", background: P.red }} />}
+              </button>
+            ))}
+          </div>
+        )}
+        {!D.cargado ? <div style={{ display: "flex", justifyContent: "center", padding: 40 }}><Loader2 size={24} className="fj-spin" color={P.faint2} /></div>
+          : vista ? (vista.t === "desafio" ? vDesafio(vista.id) : vPerfil(vista.uid))
+          : tab === "inicio" ? vInicio() : tab === "desafios" ? vDesafios() : tab === "personas" ? vPersonas() : vPerfil(sid)}
+      </Sheet>
+      <SocCrearDesafio open={crear} onClose={() => setCrear(false)} onCrear={async (c) => {
+        const id = socId();
+        await sSet(`soc-c:${id}`, { id, owner: sid, ownerName: yo.name, code: socCodigo(), ts: todayISO(), ...c });
+        await sSet(`soc-m:${id}:${sid}`, { cid: id, uid: sid, name: yo.name, st: "ok", ts: todayISO() });
+        await cargar(); setCrear(false); setTab("desafios"); setVista({ t: "desafio", id });
+      }} />
+      <SocPublicar open={!!publicar} onClose={() => setPublicar(false)} destinoInicial={typeof publicar === "string" ? publicar : null}
+        sid={sid} nombre={yo.name} history={history} desafios={misDesafios} toast={toast}
+        onPublicar={async (post) => { const id = socId(); await sSet(`soc-x:${id}`, { id, uid: sid, name: yo.name, ts: todayISO(), ...post }); await cargar(); setPublicar(false); toast && toast("Publicado"); }} />
+      <Sheet open={!!postAbierto} onClose={() => setPostAbierto(null)} title={postAbierto ? postAbierto.title : ""} tall>
+        {postAbierto && (() => {
+          const p = D.posts.find((x) => x.id === postAbierto.id) || postAbierto;
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {tarjetaPost(p)}
+              {p.uid === sid && <Btn kind="red" onClick={() => setConfirmar({ titulo: "Eliminar publicación", cuerpo: "Se borra la foto y la publicación.", ok: () => borrarPost(p) })}><Trash2 size={16} /> Eliminar publicación</Btn>}
+            </div>
+          );
+        })()}
+      </Sheet>
+      <Confirm open={!!confirmar} title={confirmar ? confirmar.titulo : ""} body={confirmar ? confirmar.cuerpo : ""} okLabel="Confirmar" danger
+        onCancel={() => setConfirmar(null)} onOk={() => { const c = confirmar; setConfirmar(null); c && c.ok(); }} />
+    </>
+  );
+};
+
+const SocCrearDesafio = ({ open, onClose, onCrear }) => {
+  const hoy = isoDate(new Date());
+  const en30 = (() => { const d = new Date(); d.setDate(d.getDate() + 30); return isoDate(d); })();
+  const [f, setF] = useState({ name: "", start: hoy, end: en30, metric: "entrenos", maxDia: true, w: 10, h: 0, k: 0, c: 0 });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open) setF({ name: "", start: hoy, end: en30, metric: "entrenos", maxDia: true, w: 10, h: 0, k: 0, c: 0 }); }, [open]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const set = (p) => setF((x) => ({ ...x, ...p }));
+  const valido = f.name.trim() && f.start && f.end && f.end >= f.start;
+  return (
+    <Sheet open={open} onClose={onClose} title="Nuevo desafío" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <Inp placeholder="Nombre del desafío" value={f.name} maxLength={40} onChange={(e) => set({ name: e.target.value })} />
+        <div style={{ display: "flex", gap: 10 }}>
+          <label style={{ flex: 1, fontSize: 12.5, color: P.faint2 }}>Inicio<input type="date" value={f.start} onChange={(e) => set({ start: e.target.value })} style={{ width: "100%", padding: "12px 12px", marginTop: 4 }} /></label>
+          <label style={{ flex: 1, fontSize: 12.5, color: P.faint2 }}>Fin<input type="date" value={f.end} min={f.start} onChange={(e) => set({ end: e.target.value })} style={{ width: "100%", padding: "12px 12px", marginTop: 4 }} /></label>
+        </div>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Cómo se puntúa</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {Object.entries(SOC_METRICAS).map(([k, m]) => (
+              <button key={k} onClick={() => set({ metric: k })} aria-pressed={f.metric === k}
+                style={{ padding: "9px 14px", borderRadius: 18, fontSize: 14, fontWeight: 600, background: f.metric === k ? PLATE_GRAD : P.s3, color: f.metric === k ? PLATE_FG : P.text }}>{m.l}</button>
+            ))}
+          </div>
+        </div>
+        {f.metric === "puntos" && (
+          <Card style={{ padding: "6px 16px" }}>
+            {[["w", "Por entrenamiento"], ["h", "Por hora de entreno"], ["k", "Por kilómetro"], ["c", "Por cada 100 kcal"]].map(([k, l], i) => (
+              <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: i < 3 ? `1px solid ${P.line}` : "none" }}>
+                <span style={{ flex: 1, fontSize: 15.5 }}>{l}</span>
+                <input inputMode="decimal" value={f[k]} onChange={(e) => set({ [k]: e.target.value.replace(",", ".").replace(/[^0-9.]/g, "") })} style={{ width: 80, padding: "9px 10px", textAlign: "center" }} />
+                <span style={{ fontSize: 12.5, color: P.faint2, width: 22 }}>pts</span>
+              </div>
+            ))}
+          </Card>
+        )}
+        <RowGroup rows={[{ label: "Máximo 1 entreno por día", value: f.maxDia ? "Sí" : "No", onClick: () => set({ maxDia: !f.maxDia }) }]} />
+        <Btn kind="ember" disabled={!valido || busy} onClick={async () => {
+          setBusy(true);
+          try { await onCrear({ name: f.name.trim(), start: f.start, end: f.end, metric: f.metric, maxDia: f.maxDia, regla: { w: +f.w || 0, h: +f.h || 0, k: +f.k || 0, c: +f.c || 0 } }); } finally { setBusy(false); }
+        }}>{busy ? "Creando…" : "Crear desafío"}</Btn>
+      </div>
+    </Sheet>
+  );
+};
+
+const SocPublicar = ({ open, onClose, destinoInicial, sid, nombre, history, desafios, onPublicar, toast }) => {
+  const sesiones = ((history && history.sessions) || []).slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 8);
+  const [f, setF] = useState({ ses: "", title: "", img: null, min: "", kcal: "", km: "", perfil: true, cids: [] });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const s = sesiones[0];
+    setF({ ses: s ? String(s.id || s.date) : "", title: s ? (s.dayName || "") : "", img: null, min: s && s.durationMin ? String(s.durationMin) : "", kcal: s && s.kcal ? String(Math.round(s.kcal)) : "", km: "",
+      perfil: !destinoInicial, cids: destinoInicial ? [destinoInicial] : [] });
+  }, [open]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const set = (p) => setF((x) => ({ ...x, ...p }));
+  const elegirSesion = (s) => set({ ses: s ? String(s.id || s.date) : "", title: s ? (s.dayName || f.title) : f.title, min: s && s.durationMin ? String(s.durationMin) : "", kcal: s && s.kcal ? String(Math.round(s.kcal)) : "" });
+  const sesion = sesiones.find((s) => String(s.id || s.date) === f.ses) || null;
+  const fecha = sesion ? isoDate(new Date(sesion.date)) : isoDate(new Date());
+  const pasos = ((history && history.steps) || []).find((x) => (x.date || "").slice(0, 10) === fecha);
+  const valido = f.title.trim() && f.img && (f.perfil || f.cids.length > 0);
+  return (
+    <Sheet open={open} onClose={onClose} title="Publicar entrenamiento" tall>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <SocFotoBtn onId={(id) => set({ img: id })} onError={(m) => toast && toast(m)} style={{ width: "100%", borderRadius: 20, overflow: "hidden", display: "block", background: P.s3 }}>
+          {f.img ? <SocImg id={f.img} ratio="4 / 3" style={{ width: "100%" }} /> : (
+            <div style={{ aspectRatio: "4 / 3", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint2 }}>
+              <Camera size={30} strokeWidth={1.5} /><span style={{ fontSize: 14.5 }}>Añade una foto</span>
+            </div>
+          )}
+        </SocFotoBtn>
+        <Inp placeholder="Título" value={f.title} maxLength={60} onChange={(e) => set({ title: e.target.value })} />
+        {sesiones.length > 0 && (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Sesión</div>
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
+              {[null, ...sesiones].map((s, i) => {
+                const on = (s ? String(s.id || s.date) : "") === f.ses;
+                return (
+                  <button key={i} onClick={() => elegirSesion(s)} aria-pressed={on}
+                    style={{ flexShrink: 0, padding: "9px 14px", borderRadius: 18, fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", background: on ? PLATE_GRAD : P.s3, color: on ? PLATE_FG : P.text }}>
+                    {s ? `${fmtDate(s.date)} · ${s.dayName || "Sesión"}` : "Otra actividad"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          {[["min", "Minutos"], ["kcal", "Calorías"], ["km", "Distancia (km)"]].map(([k, l]) => (
+            <label key={k} style={{ flex: 1, fontSize: 12, color: P.faint2 }}>{l}
+              <input inputMode="decimal" value={f[k]} onChange={(e) => set({ [k]: e.target.value.replace(",", ".").replace(/[^0-9.]/g, "") })} style={{ width: "100%", padding: "12px 10px", marginTop: 4, textAlign: "center" }} />
+            </label>
+          ))}
+        </div>
+        {pasos && <div style={{ fontSize: 13, color: P.faint2 }}>Se suman tus {socNum(pasos.count)} pasos de ese día.</div>}
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, margin: "0 4px 8px" }}>Dónde publicar</div>
+          <RowGroup rows={[
+            { label: "Mi perfil", value: f.perfil ? "Sí" : "No", onClick: () => set({ perfil: !f.perfil }) },
+            ...desafios.map((c) => ({ label: c.name, value: f.cids.includes(c.id) ? "Sí" : "No", onClick: () => set({ cids: f.cids.includes(c.id) ? f.cids.filter((x) => x !== c.id) : [...f.cids, c.id] }) })),
+          ]} />
+        </div>
+        <Btn kind="ember" disabled={!valido || busy} onClick={async () => {
+          setBusy(true);
+          try {
+            await onPublicar({ title: f.title.trim(), img: f.img, fecha, perfil: f.perfil, cids: f.cids,
+              met: { min: +f.min || 0, kcal: +f.kcal || 0, km: +f.km || 0, steps: pasos ? Math.round(+pasos.count) || 0 : 0, vol: sesion ? Math.round(+sesion.volume || 0) : 0 } });
+          } catch { toast && toast("No se pudo publicar"); } finally { setBusy(false); }
+        }}>{busy ? "Publicando…" : "Publicar"}</Btn>
+      </div>
+    </Sheet>
+  );
+};
+
 const MoreSheet = ({ open, onClose, studentName, managedStudentName, onSwitchIdentity, onSwitchAccount, canManageTeam, isDelegate, onManageAccess, onOpenUtility, onOpenRoster, onOpenTeam, onOpenDevices, onRecoverStudents, faceIdWho, onOpenFicha, sid, plan, savePlan, onDeleteAccount }) => {
   const [theme, setTheme] = useTheme();
   const [accent, setAccent] = useAccent();
@@ -32112,10 +32757,13 @@ const MasAcordeon = ({ groups, onOpenSearch }) => {
   );
 };
 
-const MasTab = ({ toast, sid, isDelegate, coach, onOpenUtility, onOpenDevices, onOpenSettings, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenScience, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams, onOpenSearch, onOpenControlCenter }) => {
+const MasTab = ({ toast, sid, isDelegate, coach, onOpenComunidad, onOpenUtility, onOpenDevices, onOpenSettings, onOpenCheckin, onOpenPosing, onOpenAIChat, onOpenCompPrep, onOpenScience, onOpenAtlas, onOpenSupplements, onOpenLabs, onOpenPhotos, onOpenNutrition, onOpenExams, onOpenSearch, onOpenControlCenter }) => {
   // Cuatro grupos plegados. Mensajes, Nutrición y Coach IA ya tienen su sitio
   // (barra de pestañas y cabecera), así que no se repiten acá.
   const groups = [
+    { label: "Comunidad", Icon: Users, rows: [
+      { key: "comunidad", Icon: Users, label: "Desafíos, personas y publicaciones", onClick: onOpenComunidad },
+    ] },
     { label: "Seguimiento", Icon: Camera, rows: [
       { key: "checkin", Icon: Camera, label: "Check-in", onClick: onOpenCheckin },
       onOpenPhotos && { key: "fotos", Icon: Camera, label: "Comparar fotos", onClick: onOpenPhotos },
@@ -33897,6 +34545,7 @@ const App = () => {
   const [atlasInitialQuery, setAtlasInitialQuery] = useState("");
   const [accessOpen, setAccessOpen] = useState(false);
   const [fichaOpen, setFichaOpen] = useState(false);
+  const [comunidadOpen, setComunidadOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [compPrepOpen, setCompPrepOpen] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
@@ -35087,6 +35736,7 @@ const App = () => {
       tool("Suplementos", Pill, () => setSupplementsOpen(true), "suplementos");
       tool("Laboratorio", HeartPulse, () => setLabsOpen(true), "laboratorio analitica examenes de sangre marcadores");
       tool("Exámenes", FileText, () => setExamsOpen(true), "examenes documentos estudios");
+      tool("Comunidad", Users, () => setComunidadOpen(true), "comunidad desafio desafios seguir amigos perfil publicar ranking tabla lideres social");
       if (!myTeamId) tool("Fotos de progreso", Camera, () => setPhotosOpen(true), "fotos progreso comparar cuerpo");
       tool("Dispositivos", Watch, () => setDevicesOpen(true), "dispositivos reloj bascula whoop garmin salud");
       tool("Check-in", ClipboardList, () => { setTab("hoy"); setAutoOpenCheckin(true); }, "checkin peso sueno animo pasos");
@@ -35214,7 +35864,7 @@ const App = () => {
             onOpenSupplements={() => setSupplementsOpen(true)} />
         )}
         {tab === "mas" && (
-          <MasTab toast={toast} sid={sid} isDelegate={!!delegate} onOpenUtility={(id) => setUtility(id)} onOpenDevices={() => setDevicesOpen(true)}
+          <MasTab toast={toast} sid={sid} isDelegate={!!delegate} onOpenComunidad={() => setComunidadOpen(true)} onOpenUtility={(id) => setUtility(id)} onOpenDevices={() => setDevicesOpen(true)}
             onOpenSearch={() => setSearchOpen(true)} onOpenControlCenter={() => setControlCenterOpen(true)}
             onOpenSettings={() => setMoreOpen(true)}
             onOpenCheckin={() => { setTab("hoy"); setAutoOpenCheckin(true); }}
@@ -35389,6 +36039,7 @@ const App = () => {
         faceIdWho={delegate ? delegate.id : myTeamId ? `team:${myTeamId}` : "owner"}
         onOpenFicha={esDueno ? () => { setMoreOpen(false); setFichaOpen(true); } : undefined}
         sid={sid} plan={plan} savePlan={savePlan} />
+      <ComunidadSheet open={comunidadOpen} onClose={() => setComunidadOpen(false)} sid={sid} nombre={(currentStudent && currentStudent.name) || ""} history={history} toast={toast} />
       <FichaSheet open={fichaOpen && esDueno} onClose={() => setFichaOpen(false)} plan={plan} savePlan={savePlan}
         history={history} currentStudent={currentStudent} toast={toast} />
       <DevicesSheet open={devicesOpen} onClose={() => setDevicesOpen(false)} toast={toast}
