@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v454";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v455";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -34872,7 +34872,11 @@ const App = () => {
   const onLogin = async (user, clave) => {
     const u = String(user).trim().toLowerCase();
     const h = await hashClave(clave);
-    const a = await loadAccess();
+    // Siempre se lee lo último del servidor: si la clave se cambió desde otro
+    // teléfono, una copia guardada en este dispositivo/pestaña quedaba vieja
+    // y rechazaba la clave nueva. Solo sin señal se usa la copia local.
+    const fa = await sGetFresh(ACCESS_KEY);
+    const a = (fa && Array.isArray(fa.profiles)) ? fa : await loadAccess();
     // Dueño: si cambió su clave desde la app hay un perfil role "owner" en
     // forja-access que MANDA sobre la constante del código; si no, se usa la
     // constante integrada (funciona sin conexión desde el primer arranque).
@@ -34883,7 +34887,7 @@ const App = () => {
     // Equipo: coach con acceso a todo el roster real, según su rol — se
     // lee `forja-team` fresco acá (no del estado, que puede no estar
     // cargado todavía si este es el primer login en este dispositivo).
-    const t = await sGet("forja-team");
+    const t = await sGetFresh("forja-team");
     const teamMember = t && Array.isArray(t.members) ? t.members.find((m) => m.user && m.user === u) : null;
     if (teamMember) {
       if (h !== teamMember.passHash) return "Usuario o clave incorrectos.";
