@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v455";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v456";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -10651,6 +10651,13 @@ function sugerirProgresion({ entries, sets, deload, muscle, now }) {
         const ls = ref.drops.filter((l) => repsOk(l) || num(l.weight) > 0);
         if (ls.length) legs = ls.map((l) => ({ w: wRef > 0 && num(l.weight) > 0 ? r2(w * (num(l.weight) / wRef)) : "", reps: repsOk(l) ? +l.reps : "" }));
       }
+      // Peso en saltos que existen de verdad en el gimnasio (0,5 / 1 / 2,5 kg) y
+      // que, al subir, siempre sea mayor que el de la vez anterior.
+      if (w > 0) {
+        const paso = (x) => (x < 20 ? 0.5 : x < 60 ? 1 : 2.5);
+        w = Math.round(w / paso(w)) * paso(w);
+        if (d.modo === "subir" && wRef > 0 && w <= wRef) w = wRef + paso(wRef);
+      }
       out[i] = { w: w > 0 ? r2(w) : "", reps, legs, tipo };
     });
   });
@@ -11714,7 +11721,17 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
               const pesoSug = st.sugW !== "" && st.sugW != null ? `${String(pesoMostrado(st.sugW, u)).replace(".", ",")} ${u}` : "";
               const rirTxt = st.rirT !== "" && st.rirT != null ? `RIR ${st.rirT}` : "";
               // Qué hacer en ESTA serie: cuántas reps y con qué peso.
-              const hacer = isWarm ? "" : st.sugReps != null
+              const hacerCalent = (() => {
+                if (!isWarm) return "";
+                const ws = exs[r.ei].sets.find((x) => x.type !== "warmup");
+                const base = ws ? (ws.sugW !== "" && ws.sugW != null ? +ws.sugW : (ws.weight !== "" && ws.weight != null ? +ws.weight : 0)) : 0;
+                const pct = +((String(st.pctT || "").match(/(\d+)\s*%/) || [])[1] || 0);
+                if (!(base > 0 && pct > 0)) return "";
+                const paso = u === "lb" ? 5 : 2.5;
+                const w = Math.round(+pesoMostrado(base * pct / 100, u) / paso) * paso;
+                return `Hacer ${String(w).replace(".", ",")} ${u}${st.repsT ? ` × ${String(st.repsT).replace(/-/g, "–")}` : ""} (${pct} % del peso de trabajo)`;
+              })();
+              const hacer = isWarm ? hacerCalent : st.sugReps != null
                 ? [`Hacer ${st.sugReps} reps`, pesoSug, rirTxt].filter(Boolean).join(" · ")
                 : (consigna ? "" : detalle);
               if (!tl && !hacer && !antes && !(pv && pv.comment)) return null;
@@ -12097,9 +12114,39 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           const pv = le ? seriesDeTrabajo(le.sets)[workN - 1] : null;
           if (pv && pv.weight !== "" && pv.weight != null) ant = `${kg(pesoMostrado(pv.weight, u))} ${u} × ${pv.reps ?? "—"}`;
         }
+        // OBJETIVO de esta serie con sobrecarga progresiva: peso y reps a buscar.
+        // Trabajo: sale de sugerirProgresion (la última sesión + el rango de reps
+        // + el RIR). Aproximación: el % del peso de trabajo de ese ejercicio.
+        const pasoW = u === "lb" ? 5 : 2.5;
+        let objetivo = null;
+        {
+          const rirT = st.rirT !== "" && st.rirT != null ? ` · RIR ${st.rirT}` : "";
+          const wTxt = (kgv) => `${String(pesoMostrado(kgv, u)).replace(".", ",")} ${u}`;
+          if (isWarm) {
+            const ws = exSets.find((x) => x.type !== "warmup");
+            const base = ws ? (ws.sugW !== "" && ws.sugW != null ? +ws.sugW : (ws.weight !== "" && ws.weight != null ? +ws.weight : 0)) : 0;
+            const pct = +((String(st.pctT || "").match(/(\d+)\s*%/) || [])[1] || 0);
+            const rg = parseRangoReps(st.repsT);
+            const repsTxt = st.repsT ? String(st.repsT).replace(/-/g, "–") : "";
+            if (base > 0 && pct > 0) {
+              const wShow = Math.round(+pesoMostrado(base * pct / 100, u) / pasoW) * pasoW;
+              objetivo = { principal: `${String(wShow).replace(".", ",")} ${u}${repsTxt ? ` × ${repsTxt}` : ""}`, detalle: `${pct} % de ${wTxt(base)}, sin llegar a la fatiga`, w: wShow, reps: rg ? rg.hi : null };
+            } else if (repsTxt) objetivo = { principal: `${repsTxt} reps`, detalle: st.pctT || "", w: null, reps: rg ? rg.hi : null };
+          } else if (st.sugReps != null) {
+            const hasW = st.sugW !== "" && st.sugW != null;
+            const nota = (exs[r.ei].sug && exs[r.ei].sug.porTipo && exs[r.ei].sug.porTipo[st.type || "normal"] && exs[r.ei].sug.porTipo[st.type || "normal"].nota) || "";
+            objetivo = { principal: `${hasW ? wTxt(st.sugW) + " × " : ""}${st.sugReps} reps${rirT}`, detalle: [ant ? `Antes ${ant}` : "", nota].filter(Boolean).join(" · "), w: hasW ? +pesoMostrado(st.sugW, u) : null, reps: st.sugReps };
+          } else if (st.repsT) {
+            objetivo = { principal: `${String(st.repsT).replace(/-/g, "–")} reps${rirT}`, detalle: "Primera vez con este ejercicio: elige un peso con el que llegues a ese esfuerzo. La próxima sesión se calcula sola.", w: null, reps: null };
+          }
+        }
+        const aplicarObjetivo = () => {
+          if (!objetivo) return;
+          if (objetivo.w != null && objetivo.w > 0) setVal(r.ei, r.si, "weight", String(pesoAKg(objetivo.w, u)));
+          if (objetivo.reps != null) setVal(r.ei, r.si, "reps", String(objetivo.reps));
+        };
         const wNum = st.weight === "" || st.weight == null ? 0 : +pesoMostrado(st.weight, u);
         const rNum = st.reps === "" || st.reps == null ? 0 : +st.reps;
-        const pasoW = u === "lb" ? 5 : 2.5;
         const setW = (v) => setVal(r.ei, r.si, "weight", String(pesoAKg(Math.max(0, Math.round(v * 100) / 100), u)));
         const setR = (v) => setVal(r.ei, r.si, "reps", String(Math.max(0, Math.round(v))));
         const llave = restKey(r.ei, r.si);
@@ -12152,7 +12199,9 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                     style={{ flex: 1, minWidth: 0, height: 52, borderRadius: 14, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
                       background: hecho ? SES.ink : "transparent", color: hecho ? SES.card : SES.ink, border: `1.5px solid ${cur ? SES.ink : (hecho ? SES.ink : SES.line)}` }}>
                     <span className="mono" style={{ fontSize: 10, color: "inherit", opacity: .75 }}>{rot}</span>
-                    <span style={{ fontSize: 14, fontWeight: 700 }}>{hecho ? `${s2.weight !== "" && s2.weight != null ? kg(pesoMostrado(s2.weight, unitDeSerie(s2, rr.ei))) : "—"}×${s2.reps ?? ""}` : String(s2.repsT || "—").replace(/-/g, "–")}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>{hecho ? `${s2.weight !== "" && s2.weight != null ? kg(pesoMostrado(s2.weight, unitDeSerie(s2, rr.ei))) : "—"}×${s2.reps ?? ""}`
+                      : s2.type !== "warmup" && s2.sugReps != null ? `${s2.sugW !== "" && s2.sugW != null ? kg(pesoMostrado(s2.sugW, unitDeSerie(s2, rr.ei))) + "×" : ""}${s2.sugReps}`
+                      : String(s2.repsT || "—").replace(/-/g, "–")}</span>
                   </button>
                 );
               })}
@@ -12164,6 +12213,14 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                   style={{ fontSize: 15, fontWeight: 700, color: SES.ink, textAlign: "left", padding: 0 }}>{label} · {tipoLargo}</button>
                 <span style={{ ...mono, fontSize: 12, color: SES.faint, textAlign: "right" }}>{meta}</span>
               </div>
+              {objetivo && (
+                <button onClick={aplicarObjetivo} aria-label={`Objetivo: ${objetivo.principal}. Tocar para usarlo`}
+                  style={{ width: "100%", textAlign: "left", background: SES.campo, borderRadius: 16, padding: "11px 14px", display: "flex", flexDirection: "column", gap: 3 }}>
+                  <span className="mono" style={{ fontSize: 10, color: SES.faint }}>OBJETIVO{objetivo.w != null || objetivo.reps != null ? " · TOCA PARA USAR" : ""}</span>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: SES.ink, letterSpacing: "-.01em" }}>{objetivo.principal}</span>
+                  {objetivo.detalle && <span style={{ fontSize: 12.5, color: SES.dim, lineHeight: 1.35 }}>{objetivo.detalle}</span>}
+                </button>
+              )}
               <div style={{ display: "flex", gap: 8 }}>
                 {caja(`Peso · ${u}`, wNum > 0 ? String(kg(wNum)) : "", () => setW(wNum - pasoW), () => setW(wNum + pasoW),
                   (v) => setVal(r.ei, r.si, "weight", v === "" ? "" : (isNaN(+v) ? st.weight : String(pesoAKg(+v, u)))))}
