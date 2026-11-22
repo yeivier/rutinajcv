@@ -67,6 +67,7 @@ Al iniciar una sesión, cada ejercicio con historial recibe el peso y las reps a
 
 ## Sistema visual
 Paletas mutables `P` (claro / oscuro / rosa) con acento seleccionable; sesión usa la paleta `SES`. Tarjetas con borde fino (sin sombra), etiquetas mono en mayúscula (`.mono`), tab bar plana. Radios: `R_CARD`, `R_TILE`, `R_ROW`.
+**Tarjetas modulares (v461)**: sin bordes, relleno suave (`cardFill()` / `sesCardFill()`), casillas de dato de la sesión en blanco sobre la tarjeta; los números clave (`.num`, 27–38 px, peso 800) dominan y los rótulos son pequeños (12 px, peso 500).
 
 ## Cómo compilar y probar
 ```bash
