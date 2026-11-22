@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v458";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v459";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -436,8 +436,18 @@ function applyAccent(resolved) {
 // de verdad se aplica ("light" | "dark") se resuelve aparte cuando la
 // preferencia es "auto", siguiendo prefers-color-scheme del sistema. Antes
 // solo existían "light"/"dark" — S4 del handoff pide un tercer valor real.
-let THEME_MODE = "light";
-try { THEME_MODE = window.localStorage.getItem("forja-theme") || "light"; } catch {}
+// Por defecto sigue al sistema (Auto): claro de día, oscuro de noche, sin que
+// nadie tenga que tocar nada. Solo una elección explícita lo fija. Antes se
+// guardaba "light" por omisión, así que un "light" sin marca de elección
+// pasa a Auto; un "dark"/"pink" guardado sí fue una decisión y se respeta.
+let THEME_MODE = "auto";
+try {
+  const g = window.localStorage.getItem("forja-theme");
+  const elegido = window.localStorage.getItem("forja-theme-set") === "1";
+  const fondoAMedida = !!window.localStorage.getItem("forja-bg");
+  THEME_MODE = elegido ? (g || "auto") : (fondoAMedida ? "light" : (g && g !== "light" ? g : "auto"));
+} catch {}
+const marcarTemaElegido = () => { try { window.localStorage.setItem("forja-theme-set", "1"); } catch {} };
 // Fondo personalizado elegido (hex) o "" = ninguno (usa el fondo del tema).
 // Cuando hay uno, la Apariencia es "Personalizado": base clara con ese fondo.
 let BG = "";
@@ -507,7 +517,7 @@ function useTheme() {
     themeListeners.add(fn);
     return () => themeListeners.delete(fn);
   }, []);
-  return [THEME_MODE, (m) => applyTheme(m)];
+  return [THEME_MODE, (m) => { marcarTemaElegido(); applyTheme(m); }];
 }
 // Cambiar el acento de color: se guarda y se re-aplica el tema actual (que
 // vuelve a llamar applyAccent). Comparte los mismos listeners que useTheme,
@@ -585,6 +595,7 @@ function applyBgPref(hex) {
   applyTheme("light"); // un fondo a medida siempre va sobre el tema claro
 }
 function setAppearance(kind) {
+  marcarTemaElegido();
   if (kind === "custom") { if (!BG) BG = DEFAULT_BG; _persistBg(); applyTheme("light"); }
   else { BG = ""; _persistBg(); applyTheme(kind); }
 }
@@ -29075,8 +29086,8 @@ const MoreSheet = ({ open, onClose, studentName, managedStudentName, onSwitchIde
           tocarla — nada de lo que ya había se perdió, solo quedó un nivel
           más adentro para que esta pantalla se pueda leer de un vistazo. */}
       <SettingGroup label="Interfaz">
-        <SettingRow Icon={theme === "dark" ? Moon : bg ? Palette : Sun} label="Tema"
-          hint={theme === "dark" ? "Oscuro" : bg ? "Personalizado" : "Claro"} onClick={() => setTemaOpen(true)} />
+        <SettingRow Icon={bg ? Palette : theme === "dark" ? Moon : theme === "auto" ? Smartphone : Sun} label="Tema"
+          hint={bg ? "Personalizado" : theme === "auto" ? "Automático (según tu teléfono)" : theme === "dark" ? "Oscuro" : "Claro"} onClick={() => setTemaOpen(true)} />
         <SettingRow Icon={Ruler} label="Unidades" hint={`${weightUnit} · ${measureUnit}`} onClick={() => setUnidadesOpen(true)} />
         <SettingRow Icon={Zap} label="Botón de IA" hint={aiFab ? "Círculo flotante, siempre a mano" : "Oculto — el asistente sigue disponible desde acá"} last
           right={<Toggle on={aiFab} onChange={setAiFab} label="Botón de IA" />} />
@@ -29155,10 +29166,10 @@ const MoreSheet = ({ open, onClose, studentName, managedStudentName, onSwitchIde
           mismo, ahora quedan atrás de esta hoja. */}
       <Sheet open={temaOpen} onClose={() => setTemaOpen(false)} title="Tema">
         <SettingGroup>
-          <SettingRow Icon={theme === "dark" ? Moon : bg ? Palette : Sun} label="Apariencia"
-            hint={theme === "dark" ? "Oscuro — gris oscuro, sin negro puro" : bg ? "Personalizado — fondo a tu gusto" : "Claro"}
-            control={<SectionSwitch items={[{ id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }, { id: "custom", label: "Personalizado" }]}
-              value={theme === "dark" ? "dark" : bg ? "custom" : "light"} onChange={setAppearance} />} />
+          <SettingRow Icon={bg ? Palette : theme === "dark" ? Moon : theme === "auto" ? Smartphone : Sun} label="Apariencia"
+            hint={bg ? "Personalizado — fondo a tu gusto" : theme === "auto" ? "Automático — claro de día y oscuro de noche, como tu teléfono" : theme === "dark" ? "Oscuro" : "Claro"}
+            control={<SectionSwitch items={[{ id: "auto", label: "Auto" }, { id: "light", label: "Claro" }, { id: "dark", label: "Oscuro" }, { id: "custom", label: "A medida" }]}
+              value={bg ? "custom" : (theme === "auto" || theme === "dark" || theme === "light" ? theme : "light")} onChange={setAppearance} />} />
           {theme !== "dark" && bg && (
             <div style={{ padding: "12px 16px", borderTop: `1px solid ${P.line}` }}>
               <div style={{ fontSize: 12.5, color: P.faint, marginBottom: 12 }}>Color de fondo — elige un tono; se aplica a toda la app y a la sesión.</div>
@@ -33160,11 +33171,28 @@ const TAB_INACTIVE = "#A0A0AA";
 // Coach IA, mensajes (en modo alumno; el coach los tiene en su barra de abajo)
 // y el perfil. Reemplaza al texto de identidad, a los botones de buscar y de
 // centro de control y al botón flotante, que se repetían en cada pantalla.
+// Tema en la barra superior, discreto: un icono pequeño y apagado que rota
+// Auto → Claro → Oscuro (Auto = sigue al teléfono).
+const ThemeCycle = () => {
+  const [mode, setMode] = useTheme();
+  const orden = ["auto", "light", "dark"];
+  const actual = orden.includes(mode) ? mode : "light";
+  const sig = orden[(orden.indexOf(actual) + 1) % orden.length];
+  const nombre = { auto: "Automático", light: "Claro", dark: "Oscuro" };
+  const Icono = actual === "auto" ? Smartphone : actual === "dark" ? Moon : Sun;
+  return (
+    <button onClick={() => setMode(sig)} aria-label={`Tema: ${nombre[actual]}. Cambiar a ${nombre[sig]}`} title={`Tema: ${nombre[actual]}`}
+      style={{ width: 36, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint2, flexShrink: 0, opacity: .8 }}>
+      <Icono size={18} strokeWidth={1.7} />
+    </button>
+  );
+};
 const HeaderActions = ({ sid, initial, onAI, onChat, onProfile }) => {
   const unread = useUnreadChatCount(sid, "alumno");
   const btn = { position: "relative", width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", color: P.text, flexShrink: 0 };
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, padding: "calc(2px + env(safe-area-inset-top)) 12px 0" }}>
+      <ThemeCycle />
       <button onClick={onAI} aria-label="Coach IA" title="Coach IA" style={btn}><Sparkles size={22} strokeWidth={1.8} /></button>
       {(
         <button onClick={onChat} aria-label="Mensajes" title="Mensajes" style={btn}>
