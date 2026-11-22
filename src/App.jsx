@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v457";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v458";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -82,7 +82,7 @@ const LIGHT_THEME = {
     // Tokens del prototipo de rediseño: fondo blanco plano, tarjetas gris
     // muy claro con borde fino, tinta negra pura.
     bg: "#FFFFFF", s1: "#FFFFFF", s2: "#FFFFFF", s3: "#F3F3F3", s4: "#E8E8E8",
-    line: "#E2E2E2", text: "#000000", dim: "#2E2E2E",
+    line: "#E8E8E8", text: "#1C1C1E", dim: "#3A3A3C",
     // Secundario y terciario, un punto más oscuros que el gris de sistema
     // original (#5A5A63/#6B6B75): a pedido explícito, para que la
     // descripción de cada pantalla y los metadatos no se sientan
@@ -91,14 +91,14 @@ const LIGHT_THEME = {
     faint: "#4A4A4A", faint2: "#5C5C5C",
     // Acento = tinta. ember2 es la variante para texto chico e iconografía
     // secundaria; en claro coincide con la tinta porque ya pasa AA de sobra.
-    ember: "#000000", ember2: "#000000", glow: "#000000",
+    ember: "#1C1C1E", ember2: "#1C1C1E", glow: "#1C1C1E",
     // Neutros, no colores: "óptimo"/"informativo" se leen por la palabra y
     // por la forma del indicador, no porque el bloque sea verde o azul.
     // El rojo del sistema iOS se conserva SOLO para lo destructivo.
-    green: "#000000", blue: "#5C5C5C", red: "#B94A43",
+    green: "#1C1C1E", blue: "#5C5C5C", red: "#B94A43",
     // Color de anillos y barras de progreso (neutro en claro, como hasta
     // ahora; en el tema Rosa es un rosa vivo, no negro).
-    prog: "#000000",
+    prog: "#1C1C1E",
     // Segundo acento — SOLO para cuando un gráfico necesita distinguir dos
     // series a la vez (p. ej. "Rutina A" vs "Rutina B" en el comparador):
     // el resto de la interfaz sigue monocromática a propósito, pero un
@@ -107,7 +107,7 @@ const LIGHT_THEME = {
     accent2: "#2E6FF2",
     // Borde de tarjeta: hairline, no marco. Las tarjetas se separan del
     // fondo gris por el blanco y la línea de 1px, no por elevación.
-    frame: "#E2E2E2",
+    frame: "#E8E8E8",
     // Fondo plano, blanco y negro: el color lo pone el acento que elija cada uno.
     bgGrad: "#FFFFFF",
     // Tokens del handoff de rediseño (MVP): s3 ya cubre "fill-secondary"
@@ -122,10 +122,10 @@ const LIGHT_THEME = {
   },
   // Las "placas" (botón primario, pestaña activa, chip de estado) son tinta
   // plena con texto blanco.
-  plateGrad: "#000000",
+  plateGrad: "#1C1C1E",
   plateFg: "#FFFFFF",
   plateDim: "#A8A8A8",
-  plateBorder: "#000000",
+  plateBorder: "#1C1C1E",
 };
 const DARK_THEME = {
   P: {
@@ -201,9 +201,9 @@ let PLATE_BORDER = LIGHT_THEME.plateBorder;
 // aunque quien elija un acento de color desde Configuración sigue
 // viéndolo acá también (applyAccent lo pisa encima cuando hay override).
 const teColors = (isLight) => (isLight ? {
-  bg: "#FFFFFF", card: "#FFFFFF", campo: "#F3F3F3", line: "#E2E2E2",
-  ink: "#000000", dim: "#4A4A4A", faint: "#8E8E8E",
-  acc: "#000000", accInk: "#FFFFFF",
+  bg: "#FFFFFF", card: "#FFFFFF", campo: "#F3F3F3", line: "#E8E8E8",
+  ink: "#1C1C1E", dim: "#4A4A4C", faint: "#8E8E93",
+  acc: "#1C1C1E", accInk: "#FFFFFF",
   accLine: "rgba(0,0,0,.30)", accSoft: "#EDEDED",
 } : {
   bg: "#000000", card: "#0F0F0F", campo: "#1C1C1C", line: "#383838",
@@ -5932,6 +5932,20 @@ const GlobalStyle = () => {
     .fj button:not(:disabled):active { transform: scale(.985); opacity: .9; transition: transform 160ms ease-out, opacity 140ms ease-out, background-color 100ms ease-out; }
     .fj input:focus, .fj textarea:focus, .fj select:focus { box-shadow: 0 0 0 3px ${P.line}; border-color: ${P.faint2}; }
     .fj .fj-card { border-color: ${P.line}; }
+    /* Calm (v458, 2.ª pasada): nada llama la atención solo. Se apagan las
+       animaciones en bucle que "piden mirar", el arranque es un fundido
+       simple y los títulos relajan su tracking. */
+    .fj .pulse, .fj .fj-float, .fj .fj-shine, .fj .fj-ping { animation: none !important; }
+    .fj .fj-dot { animation-duration: 1.6s; }
+    .fj .splashSpark, .fj .splashRing, .fj .splashSweep, .fj .splashGlow { display: none !important; }
+    .fj .splashIcon { animation: splashFadeIn 1s ease both !important; }
+    .fj .splashLetter { animation: splashFadeIn 1.1s ease both !important; filter: none; }
+    .fj .splashTag, .fj .splashRule { animation: splashFadeIn 1.2s ease 0.4s both !important; }
+    .fj [style*="letter-spacing: -.03"], .fj [style*="letter-spacing: -.04"], .fj [style*="letter-spacing: -.05"] { letter-spacing: -.012em !important; }
+    .fj .fj-stat-grid { gap: 14px; }
+    .fj .acuse { animation: none; }
+    @media (max-width: 420px) { .fj .fj-hdr-ai { display: none !important; } }
+    .fj [style*="text-transform: uppercase"], .fj .uppercase { text-transform: none !important; letter-spacing: .005em !important; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
     /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
        inferior fija (TabBar) queda "transparente" al puntero: si no, al
@@ -11950,45 +11964,45 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
       {/* Cabecera: cuánto llevas, cuánto falta y la salida. Ya no dice
           "ejercicio 2 de 7" porque no hay una página actual: están todos
           abajo, en orden. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0 6px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 2, padding: "4px 0 6px" }}>
         <button onClick={() => onLeave && onLeave()} aria-label="Volver (la sesión sigue en curso)"
-          style={{ width: 40, height: 44, flexShrink: 0, color: SES.ink, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
+          style={{ width: 30, height: 44, flexShrink: 0, color: SES.ink, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
           <ChevronLeft size={26} strokeWidth={2} />
         </button>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, fontSize: 17, fontWeight: 500, color: SES.ink, fontVariantNumeric: "tabular-nums" }}>
+        <div style={{ flex: "1 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 5, fontSize: 16, whiteSpace: "nowrap", fontWeight: 500, color: SES.ink, fontVariantNumeric: "tabular-nums" }}>
           <span>{sessionClock(elapsed)}</span><span style={{ color: SES.faint }}>·</span><span style={{ whiteSpace: "nowrap" }}>{doneSets}/{totalSets}</span>
           {hr.connected && hr.bpm != null && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><HeartPulse size={14} /> {hr.bpm}</span>
           )}
         </div>
         <button onClick={() => { if (undoStack.length) undo(); }} disabled={!undoStack.length} aria-label="Deshacer el último cambio" title="Deshacer"
-          style={{ width: 38, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink, opacity: undoStack.length ? 1 : .3 }}>
-          <Undo2 size={20} strokeWidth={1.8} />
+          style={{ width: 32, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink, opacity: undoStack.length ? 1 : .3 }}>
+          <Undo2 size={19} strokeWidth={1.8} />
         </button>
         <button onClick={() => { if (redoStack.length) redo(); }} disabled={!redoStack.length} aria-label="Rehacer el cambio deshecho" title="Rehacer"
-          style={{ width: 38, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink, opacity: redoStack.length ? 1 : .3 }}>
-          <Redo2 size={20} strokeWidth={1.8} />
+          style={{ width: 32, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink, opacity: redoStack.length ? 1 : .3 }}>
+          <Redo2 size={19} strokeWidth={1.8} />
         </button>
         {onOpenAIChat && (
-          <button onClick={() => onOpenAIChat()} aria-label="Preguntarle a la IA durante la sesión" title="Preguntar a la IA"
-            style={{ width: 44, height: 44, borderRadius: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink }}>
+          <button className="fj-hdr-ai" onClick={() => onOpenAIChat()} aria-label="Preguntarle a la IA durante la sesión" title="Preguntar a la IA"
+            style={{ width: 36, height: 44, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink }}>
             <Sparkles size={22} strokeWidth={1.8} />
           </button>
         )}
         <button onClick={() => setHerrOpen(true)} aria-label="Herramientas de la sesión" title="Herramientas"
-          style={{ width: 44, height: 44, borderRadius: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink }}>
+          style={{ width: 36, height: 44, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: SES.ink }}>
           <SlidersHorizontal size={22} strokeWidth={1.8} />
         </button>
         {flatSets.length > 1 && (
           <button onClick={() => setFocusUno(!focusUno)} aria-pressed={focusUno}
             aria-label={focusUno ? "Ver todo en tabla" : "Modo Focus: una serie a la vez"} title={focusUno ? "Ver todo en tabla" : "Modo Focus"}
-            style={{ width: 44, height: 44, borderRadius: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            style={{ width: 36, height: 44, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
               color: SES.ink, background: focusUno ? SES.campo : "transparent" }}>
             {focusUno ? <List size={22} strokeWidth={1.8} /> : <Crosshair size={22} strokeWidth={1.8} />}
           </button>
         )}
         <button onClick={() => setSalida(true)} aria-label="Finalizar la sesión"
-          style={{ height: 44, padding: "0 22px", borderRadius: 22, flexShrink: 0, background: SES.ink, color: SES.card, fontSize: 17, fontWeight: 500 }}>
+          style={{ height: 40, padding: "0 16px", borderRadius: 20, flexShrink: 0, background: SES.ink, color: SES.card, fontSize: 16, fontWeight: 500 }}>
           Finalizar
         </button>
       </div>
