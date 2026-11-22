@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v461";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v462";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -35736,7 +35736,11 @@ const App = () => {
     const t = setTimeout(() => traerWhoop(false), 5000);
     const onVis = () => { if (document.visibilityState === "visible") traerWhoop(false); };
     document.addEventListener("visibilitychange", onVis);
-    return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
+    // En vivo (v462): con la app abierta se relee cada minuto lo que el servidor
+    // ya sincronizó solo (webhook de WHOOP + sincronización cada 10 min). Es una
+    // lectura barata de `forja-whoop:<id>`; no llama a la API de WHOOP.
+    const vivo = setInterval(() => { if (document.visibilityState === "visible") traerWhoop(false); }, 60000);
+    return () => { clearTimeout(t); clearInterval(vivo); document.removeEventListener("visibilitychange", onVis); };
   }, [sid, traerWhoop, whoopTick]);
   // Pull-to-refresh: tirar hacia abajo desde el tope de la página vuelve a traer plan e historial
   // (no pisa una sesión en curso) y los datos del reloj / WHOOP.
