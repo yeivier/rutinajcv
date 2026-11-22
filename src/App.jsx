@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v459";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v460";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -1899,7 +1899,7 @@ function toggleLink(exs, i) {
 }
 
 /* ---------------- Glosario ---------------- */
-const GLOSSARY = [
+const GLOSSARY_BASE = [
   { id:"rir", term:"RIR (Reps In Reserve)", def:"Repeticiones que te quedan «en reserva» al terminar la serie. RIR 2 significa que paraste pudiendo hacer 2 repeticiones más con técnica correcta. Es la forma más práctica de regular el esfuerzo sin llegar siempre al fallo.", ej:"Objetivo: 8–10 reps @ RIR 2 → eliges un peso con el que llegarías al fallo alrededor de las 10–12 reps y paras en 8–10." },
   { id:"rpe", term:"RPE (esfuerzo percibido)", def:"Escala de 1 a 10 que mide qué tan dura fue la serie. Es el espejo del RIR: RPE 8 = RIR 2, RPE 9 = RIR 1, RPE 10 = fallo (RIR 0).", ej:"Si tu coach pide RPE 8, es lo mismo que dejar 2 repeticiones en reserva." },
   { id:"abreviaturas", term:"Abreviaturas de la app (A1, A2, SS, TOP…)", def:"Cómo se leen las etiquetas cortas que aparecen en la rutina y al entrenar:\n\n• A1, A2, A3 · B1, B2…: ejercicios encadenados de un bloque. La LETRA identifica el bloque (superserie, triserie o serie gigante) y el NÚMERO el orden dentro de él. A1 → A2 → A3 se hacen seguidos, sin descanso entre ellos.\n• Ronda: una vuelta completa al bloque (hacer A1, A2 y A3 una vez). El bloque se repite tantas rondas como diga el plan; el descanso llega recién al terminar cada ronda.\n• SS = superserie (2 ejercicios) · TRI = triserie (3) · GIG = serie gigante (4 o más).\n• Tipos de serie: APR = aproximación · EF = efectiva · TOP = top set · B-O = back-off · DROP = drop set · R-P = rest-pause · AMR = AMRAP · CLU = cluster · VMA = iso final · ISO = iso media + reps · PFI = pre-fatiga iso · DNS = serie de densidad · FST = FST-7 (fascia stretch).\n• RIR = repeticiones en reserva · RPE = esfuerzo percibido · −% = porcentaje de bajada de carga de esa serie.", ej:"«B2 · Ronda 2/3 · DROP» = segundo ejercicio del bloque B, vas en la segunda de tres rondas, y esa serie es un drop set." },
@@ -1928,6 +1928,230 @@ const GLOSSARY = [
   { id:"density", term:"Serie de densidad (Density set, DNS)", def:"Una sola serie con un objetivo alto de repeticiones totales (por ejemplo 100) usando una carga moderada (20-30RM). Al llegar al fallo, descansas el menor tiempo posible y sigues sumando repeticiones hasta completar el total. Es una sola serie en el registro, aunque en la práctica se hagan varios «tramos» cortos dentro de ella.", ej:"100 reps objetivo con una carga 20RM: 22 reps al fallo → pausa breve → 15 reps → pausa breve → … hasta sumar 100. Se suele usar como ejercicio finisher, al cierre de la sesión." },
   { id:"fst", term:"FST-7 (Fascia Stretch Training)", def:"Después de terminar las series de trabajo normales del ejercicio marcado, se agregan 7 series más del mismo movimiento (FST1 a FST7) con descansos muy cortos: el objetivo es un estiramiento sostenido de la fascia, no fuerza máxima. Carga inicial: la que te permita ~12-15 reps en la FST1 y todavía ≥8 reps en la FST7 — como referencia, ~55-65 % de tu carga convencional de 8-12 reps. Reps 8-15, descanso 30-45 s entre cada una; registra peso, reps, RIR y descanso real de cada serie.\n\nProgresión: si FST1 ≥15 y FST7 ≥10 con el RIR correcto, sube 2.5-5 % la próxima vez. Si FST7 se queda en 8-10, mantén la carga. Si caes debajo de 8 reps antes de la FST6, baja 5-10 %.\n\nTempos de referencia según la zona: laterales 2/0/1/2 · curls/extensiones 3/0-1/1/1-2 · pulldown/pullover 3/0-1/1/1 · cuádriceps 2/0/1/2 · isquios 3/1/1/1 · gemelos 3/2/1/1.", ej:"Aperturas en polea baja a alta: terminas tus series de trabajo normales (WRK) y agregas FST1…FST7 del mismo ejercicio, 30-45 s de descanso entre cada una, anotando peso/reps/RIR de cada una." },
   { id:"deload", term:"Deload (descarga)", def:"Semana de trabajo reducido (menos series y/o menos peso, RIR alto) para disipar fatiga acumulada y llegar fresco al siguiente bloque. No es perder el tiempo: es parte del plan.", ej:"Deload: mitad de las series, 10–20 % menos de peso, todo @ RIR 4–5." },
+];
+
+/* Guía práctica por término (v460): para qué sirve (uso), cuándo sí (cuando),
+   cuándo no (evitar) y cuánto/cada cuánto (frec). Se fusiona con GLOSSARY_BASE. */
+const GLOSSARY_GUIA = {
+  rir: {
+    uso: "Dosificar la cercanía al fallo sin depender de porcentajes: te dice cuánto esfuerzo real puso cada serie y permite ajustar el peso según cómo amaneciste.",
+    cuando: "Casi siempre. Básicos: RIR 1–3. Aislamientos y máquinas: RIR 0–2. Al empezar un bloque, RIR 3–4 y vas acercándote semana a semana.",
+    evitar: "Cuando aprendes un ejercicio nuevo (la estimación falla 2–3 reps) o en movimientos técnicos y riesgosos (sentadilla o peso muerto pesados): ahí manda la técnica, no llegar cerca del fallo.",
+    frec: "En cada serie de trabajo. Referencia de un bloque de 5 semanas: RIR 3 → 2 → 2 → 1 → 0–1, y descarga.",
+  },
+  rpe: {
+    uso: "Lo mismo que el RIR pero en escala de esfuerzo: sirve para pactar con tu coach qué tan dura debe ser cada serie y para registrar cómo te sentiste.",
+    cuando: "Cuando prefieres pensar en «qué tan duro fue» en vez de «cuántas me quedaban». Útil en series pesadas (3–8 reps), donde el RIR se estima mejor.",
+    evitar: "En series de muchas repeticiones (más de 15–20): el esfuerzo percibido se mezcla con el ardor y la falta de aire, y la escala deja de ser fiable.",
+    frec: "En cada serie de trabajo; objetivo habitual de hipertrofia: RPE 7–9 (RIR 1–3), con la última serie de cada ejercicio en RPE 9–10.",
+  },
+  abreviaturas: {
+    uso: "Leer la rutina de un vistazo sin parar a pensar: la etiqueta te dice qué ejercicio sigue, en qué ronda vas y qué tipo de serie toca.",
+    cuando: "Siempre que entrenes con bloques (A1/A2…) o con series especiales; ante la duda, toca la etiqueta para ver su explicación.",
+    evitar: "No hay contraindicación: es solo notación. Lo importante es respetar el orden A1 → A2 → A3 y descansar al final de la ronda, no entre ejercicios.",
+    frec: "No aplica: es una guía de lectura.",
+  },
+  topset: {
+    uso: "Medir y empujar tu progresión: es la serie donde pruebas el mejor peso del día y que luego sirve de referencia para calcular las series de descarga.",
+    cuando: "En el primer ejercicio compuesto del día (press, sentadilla, remo, prensa), con el músculo fresco y ya calentado.",
+    evitar: "En ejercicios de aislamiento, máquinas inestables, si estás lesionado o con mucha fatiga acumulada, y en ejercicios que no dominas técnicamente.",
+    frec: "1 top set por ejercicio principal, 1–3 ejercicios por sesión. Cada músculo puede hacerlo 1–2 veces por semana; cambia el ejercicio cada 4–8 semanas.",
+  },
+  backoff: {
+    uso: "Sumar volumen de buena calidad después del top set: con 10–20 % menos peso mantienes la técnica y estimulas el músculo con menos fatiga.",
+    cuando: "Justo después de un top set, para completar las series efectivas del ejercicio. Muy útil cuando el volumen total es alto.",
+    evitar: "Si el top set ya te dejó sin técnica o muy fatigado, o si saltarte el peso hace que no llegues al rango de repeticiones del objetivo.",
+    frec: "2–4 back-off por cada top set. Es la forma más sencilla de llegar a 10–20 series semanales por músculo sin machacarte.",
+  },
+  dropset: {
+    uso: "Sacar más estímulo de un músculo cuando ya no puedes más: sigues trabajando fibras fatigadas con menos peso y alargas el tiempo bajo tensión.",
+    cuando: "Al final del último ejercicio de un músculo, en máquinas y poleas (seguras, de cambio rápido de peso). Ideal para aislamientos: laterales, curl, extensión de tríceps, aperturas.",
+    evitar: "En básicos pesados con barra libre, al principio de la sesión, cuando estás en descarga o si recuperas mal. Tampoco en todas las series: no es una técnica para el trabajo base.",
+    frec: "1–2 caídas por serie, 1–2 drop sets por sesión y no más de 2–3 veces por semana en total. Pausa al menos 1–2 semanas de uso cada 4–6 semanas.",
+  },
+  restpause: {
+    uso: "Acumular más repeticiones cerca del fallo con el mismo peso y ahorrar tiempo: es útil cuando tienes poco tiempo y quieres mucho estímulo.",
+    cuando: "En el último ejercicio de un grupo, en máquinas o ejercicios estables, o cuando quieres compensar una serie de calidad baja.",
+    evitar: "En ejercicios técnicos o con carga axial alta, si ya vienes muy fatigado, si recuperas mal o en las semanas de descarga.",
+    frec: "1 serie rest-pause por ejercicio, máximo 2–3 ejercicios por sesión y 1–2 veces por semana por músculo. Cuenta como ~2 series efectivas.",
+  },
+  amrap: {
+    uso: "Medir progreso real y calibrar cargas: el número de repeticiones que sacas te dice si el peso está bien o hay que subirlo.",
+    cuando: "En la última serie de un ejercicio con RIR 1–2, o al terminar un bloque para comprobar si ya puedes subir peso.",
+    evitar: "En ejercicios peligrosos para llegar al fallo (sentadilla, press plano sin ayuda) o cuando vas solo y sin seguros.",
+    frec: "1 AMRAP por ejercicio, no en todos los ejercicios del día. Se usa 1 vez cada 1–2 semanas por ejercicio.",
+  },
+  warmup: {
+    uso: "Preparar articulaciones y sistema nervioso, practicar el patrón de movimiento y llegar a la primera serie de trabajo con ganas de dar el máximo.",
+    cuando: "Antes del primer ejercicio de cada músculo y siempre antes de ejercicios pesados. En los siguientes ejercicios del mismo músculo, 1 serie suave basta.",
+    evitar: "Evita calentamientos tan duros que te dejen fatigado: no llegues a más de RIR 5 ni uses más del 70–80 % del peso de trabajo.",
+    frec: "2–4 series en el primer ejercicio pesado (por ejemplo 50 % × 8, 70 % × 5, 85 % × 2) y 0–1 en los siguientes. No cuentan como series efectivas.",
+  },
+  efectiva: {
+    uso: "Es la unidad de medida del entrenamiento: el volumen se cuenta en series efectivas por músculo. Si no son efectivas, no cuentan para el crecimiento.",
+    cuando: "Todas las series de trabajo que hagas cerca del fallo (RIR 0–4) con técnica correcta y en rangos de 5–30 repeticiones.",
+    evitar: "No cuentes series demasiado fáciles (RIR 5 o más), series de calentamiento ni repeticiones tramposas: inflan el volumen sin darte músculo.",
+    frec: "Para la mayoría: 10–20 series efectivas semanales por músculo, repartidas en 2 sesiones; máximo 6–10 por músculo en una sola sesión.",
+  },
+  superset: {
+    uso: "Ahorrar tiempo o subir la densidad: haces dos ejercicios seguidos y descansas una vez. Con músculos antagonistas apenas pierdes rendimiento.",
+    cuando: "Cuando falta tiempo o la sesión es larga; con músculos opuestos (pecho/espalda, bíceps/tríceps, cuádriceps/isquios) o con aislamientos de accesorios.",
+    evitar: "En los ejercicios principales pesados (top sets) y cuando buscas máxima fuerza: la fatiga cruzada baja el peso que mueves en el segundo ejercicio.",
+    frec: "Úsala en accesorios, 1–3 bloques por sesión. Descansa 90–120 s al terminar el par y no la uses en la semana de test de fuerza.",
+  },
+  tempo: {
+    uso: "Controlar la ejecución: una bajada lenta mantiene la tensión, reduce el balanceo y hace que el músculo trabaje en vez de la inercia.",
+    cuando: "En aislamientos y máquinas (excéntrica 2–4 s), en ejercicios nuevos para aprender la técnica y en semanas de descarga para mantener estímulo con menos carga.",
+    evitar: "En ejercicios explosivos o pesados donde necesitas fuerza máxima, y cuando una bajada muy lenta te obliga a bajar tanto el peso que pierdes estímulo.",
+    frec: "Excéntrica de 2–3 s como estándar en todos los ejercicios; tempos más extremos (4–5 s o con pausas) 1–2 ejercicios por sesión.",
+  },
+  fallo: {
+    uso: "Fijar el techo de esfuerzo: la hipertrofia necesita series cerca del fallo, pero no necesariamente en el fallo absoluto.",
+    cuando: "En la última serie de aislamientos y máquinas, que son seguros y rápidos de recuperar. El fallo técnico es el límite razonable en casi todo.",
+    evitar: "En básicos pesados con barra libre, en la mayoría de las series de un bloque y en semanas con poco sueño o mucha fatiga: el fallo repetido deteriora la recuperación.",
+    frec: "Fallo en 1 serie por ejercicio como máximo, solo en el último ejercicio del músculo o en aislamientos. El resto de las series deja 1–3 repeticiones en reserva.",
+  },
+  volumen: {
+    uso: "Es el motor principal de la hipertrofia: más series efectivas generan más crecimiento, hasta un techo que depende de lo que recuperes.",
+    cuando: "Súbelo de forma gradual cuando el progreso se estanca y todavía recuperas bien (sueño, ánimo, ganas de entrenar).",
+    evitar: "No subas volumen si ya no recuperas, si el rendimiento cae semana tras semana o si duermes poco: añadir series no sustituye a descansar.",
+    frec: "Por músculo: mínimo ~6–8 series/semana para mantener, 10–20 para crecer, más de 20 solo en especialización y por pocas semanas.",
+  },
+  mev: {
+    uso: "Saber cuánto es lo mínimo para que el músculo crezca, por ejemplo al empezar un bloque o en una fase donde no puedes entrenar a tope.",
+    cuando: "Al iniciar un mesociclo (semana 1) y en fases de poco tiempo, estrés o déficit calórico.",
+    evitar: "No te quedes en el MEV de forma indefinida si buscas progreso máximo: sirve de punto de partida, no de meta.",
+    frec: "Suele estar en ~4–8 series semanales por músculo (varía según genética, edad y experiencia). Subes 1–2 series por semana desde ahí.",
+  },
+  mav: {
+    uso: "Marca la zona donde el músculo crece más rápido por unidad de fatiga: es donde conviene pasar la mayor parte del bloque.",
+    cuando: "En las semanas centrales del mesociclo, cuando ya calentaste el cuerpo al volumen y todavía recuperas.",
+    evitar: "Evita subir de golpe del MEV al límite del rango: aumenta de a poco y revisa la recuperación antes de pasar a la siguiente semana.",
+    frec: "Típicamente 10–20 series semanales por músculo, repartidas en 2–3 sesiones por semana.",
+  },
+  mrv: {
+    uso: "Marca el techo: más allá de ese volumen no ganas más músculo y acumulas fatiga, riesgo de lesión y bajón de rendimiento.",
+    cuando: "Solo se toca en la última semana del bloque, de forma planificada y breve, justo antes de una descarga.",
+    evitar: "No te quedes en el MRV por semanas seguidas, ni lo uses si duermes mal, estás en déficit calórico fuerte o tienes un periodo de mucho estrés.",
+    frec: "1 semana por mesociclo como máximo (la última), seguida siempre de una descarga. Por músculo suele ser ~20–25 series semanales o más según tolerancia.",
+  },
+  landmarks: {
+    uso: "Es el mapa del volumen: te dice dónde empezar (MEV), dónde pasar la mayor parte del tiempo (MAV) y dónde parar (MRV).",
+    cuando: "Para planear el bloque: empiezas cerca del MEV, subes 1–2 series por semana hasta cerca del MRV y descargas.",
+    evitar: "No lo uses como regla fija: cambia con el sueño, la nutrición, el estrés y la experiencia. Si la recuperación empeora, retrocede.",
+    frec: "Revisa los números al comenzar cada mesociclo y ajústalos según lo que recuperaste en el anterior.",
+  },
+  sobrecarga: {
+    uso: "Es la señal que obliga al músculo a seguir adaptándose: si la exigencia no sube con el tiempo, el cuerpo deja de crecer.",
+    cuando: "Siempre, pero solo mientras mantienes la técnica y el rango completo; sube peso cuando llegas al tope de repeticiones con el RIR objetivo.",
+    evitar: "No la persigas sacrificando técnica ni subiendo peso cada sesión a toda costa: a nivel intermedio el progreso es lento y está bien.",
+    frec: "Principiante: casi cada semana. Intermedio: cada 2–4 semanas por ejercicio. Avanzado: cada 1–3 meses; usa más reps, más series o mejor técnica como alternativa.",
+  },
+  mesociclo: {
+    uso: "Ordenar el progreso en bloques con principio y fin: subes la exigencia de forma controlada y luego descargas, en vez de entrenar siempre igual.",
+    cuando: "Cuando entrenas varios meses seguidos y quieres un plan claro de subida de volumen o intensidad.",
+    evitar: "Si estás empezando (primeros 3–6 meses), progresar semana a semana sin tanta planificación ya funciona. Tampoco cambies de rutina a mitad del bloque.",
+    frec: "4–8 semanas por bloque (lo más común: 5–6) y una descarga al final. 2–4 mesociclos al año con cambio de ejercicios entre ellos.",
+  },
+  cluster: {
+    uso: "Mantener repeticiones de calidad con cargas altas: las pausas cortas dentro de la serie permiten sostener la potencia que en continuo perderías.",
+    cuando: "En básicos pesados (sentadilla, press, remo, peso muerto rumano) cuando buscas fuerza y masa a la vez, o para superar un estancamiento de carga.",
+    evitar: "En aislamientos, en máquinas y cuando buscas bombeo o fatiga metabólica: ahí no aporta nada especial.",
+    frec: "1–2 ejercicios por sesión, 2–4 series cada uno, 1 vez por semana por músculo y por bloques de 3–4 semanas.",
+  },
+  vma: {
+    uso: "Aumentar el tiempo bajo tensión en el punto de mayor estiramiento o contracción y trabajar el rango donde el músculo está más activo.",
+    cuando: "Al final del último ejercicio del músculo, en máquinas o poleas. Útil para romper estancamientos y sumar variedad.",
+    evitar: "En ejercicios con riesgo articular (hombro en press, rodillas en sentadilla), al inicio de la sesión y en semanas de mucha fatiga.",
+    frec: "1–2 series por sesión en 1–2 ejercicios, máximo 1–2 veces por semana por músculo y en bloques de 3–4 semanas.",
+  },
+  midiso: {
+    uso: "Atacar el punto de estancamiento del movimiento (rango medio) con tensión máxima y luego completar repeticiones: sube el tiempo bajo tensión.",
+    cuando: "En ejercicios de empuje y tracción con máquina o poleas, al final de la sesión, cuando el músculo ya está activado.",
+    evitar: "En ejercicios con riesgo (press con barra sin seguros), si tienes hipertensión sin control o articulaciones sensibles: la isometría sostenida sube la presión.",
+    frec: "2–3 series en 1 ejercicio por músculo, 1 vez por semana y en bloques cortos de 3–4 semanas.",
+  },
+  pfi: {
+    uso: "Llevar el músculo a un nivel de fatiga local muy alto con poca carga y poco daño articular: eficiente cuando hay poco tiempo.",
+    cuando: "Como cierre de la sesión, en aislamientos de máquina (extensión de cuádriceps, aperturas, curl) donde puedes soltar el peso con seguridad.",
+    evitar: "Con lesiones, hipertensión, en ejercicios multiarticulares pesados, o si ya acumulas fatiga alta. No es técnica para principiantes.",
+    frec: "1 ejercicio por sesión, 1–2 series, 1 vez por semana por músculo como máximo y en bloques de 2–4 semanas con descanso entre bloques.",
+  },
+  superserie2: {
+    uso: "Condensar trabajo en menos tiempo y subir la densidad de la sesión: ideal para cerrar músculos accesorios con muchas series.",
+    cuando: "En sesiones largas o cuando falta tiempo; con músculos distintos o antagonistas (triserie de hombro, serie gigante de brazos).",
+    evitar: "En ejercicios pesados donde necesitas fuerza máxima y en semanas de test. Con músculos que comparten fatiga, baja 10–20 % la carga.",
+    frec: "1–2 bloques por sesión, 2–4 rondas cada uno. Una serie gigante de 4+ ejercicios, solo 1 vez por semana.",
+  },
+  density: {
+    uso: "Acumular volumen y fatiga metabólica en poco tiempo con carga liviana: sirve para estimular crecimiento en sesiones cortas y como finisher.",
+    cuando: "Al cierre de la sesión, en un solo ejercicio de aislamiento o máquina por músculo, cuando ya hiciste el trabajo pesado.",
+    evitar: "Como trabajo principal, en articulaciones sensibles (el volumen repetitivo carga tendones) o en semanas de descarga.",
+    frec: "1 serie de densidad por músculo, 1 vez por semana y en bloques de 3–4 semanas. Cuenta como ~3–4 series efectivas.",
+  },
+  fst: {
+    uso: "Buscar bombeo extremo y estiramiento de la fascia al final del trabajo de un músculo, para sumar volumen de bajo daño y mucho estímulo metabólico.",
+    cuando: "Al final del último ejercicio del músculo, en poleas o máquinas, en fases de volumen alto y con buena recuperación.",
+    evitar: "En semanas de descarga, déficit calórico severo, si duermes mal, con articulaciones doloridas o en ejercicios pesados con barra libre.",
+    frec: "1 ejercicio FST-7 por músculo, máximo 1–2 veces por semana por músculo y en bloques de 3–4 semanas seguidos de 1–2 semanas sin hacerlo.",
+  },
+  deload: {
+    uso: "Soltar la fatiga acumulada para que el cuerpo vuelva a responder: muchas veces el siguiente bloque rinde más que el anterior.",
+    cuando: "Al terminar un mesociclo; si tu rendimiento baja varias sesiones seguidas, duermes peor, te duelen las articulaciones o te falta motivación.",
+    evitar: "No descargues porque sí en los primeros meses si te sientes bien: entrenar con moderación y progresar despacio ya cumple esa función.",
+    frec: "1 semana cada 4–8 semanas de entrenamiento duro (más seguido si eres avanzado o estás en déficit). Reduce el volumen a ~50 % y mantén o baja un poco el peso, con RIR 3–4.",
+  },
+};
+
+/* Entradas nuevas: guía de hipertrofia (cómo, cuándo y cada cuánto). */
+const GLOSSARY_HIPERTROFIA = [
+  { id:"hipertrofia", term:"Hipertrofia: cómo se gana músculo",
+    def:"El músculo crece cuando recibe suficiente tensión mecánica (peso moviéndose con buen rango), series cerca del fallo y tiempo para recuperarse. Los tres factores que más pesan son: volumen semanal, cercanía al fallo y progresión constante; la técnica y el recorrido completo hacen que la tensión llegue al músculo que quieres trabajar.",
+    ej:"Press inclinado 3 × 8–12 con 1–2 RIR, bajando en 2–3 s y subiendo el peso o las repeticiones cada semana, 2 veces por semana: eso es hipertrofia bien planteada.",
+    uso:"Entender qué hace realmente crecer al músculo para no perder tiempo en lo secundario (técnicas raras, cambiar de rutina cada semana, sufrir sin necesidad).",
+    cuando:"Funciona en cualquier fase en que comas suficiente (superávit o mantenimiento) y duermas bien. En déficit calórico solo mantienes o ganas poco.",
+    evitar:"No esperes ganar músculo con muy pocas series, con peso demasiado fácil (RIR 5+), durmiendo poco (<6 h) ni comiendo muy por debajo de tu gasto o con muy poca proteína.",
+    frec:"Cada músculo: 2 veces por semana, 10–20 series efectivas semanales, 5–30 repeticiones cerca del fallo y proteína de ~1.6–2.2 g por kg de peso al día." },
+  { id:"frecuencia", term:"Frecuencia semanal por músculo",
+    def:"Cuántas veces por semana entrenas el mismo músculo. A igual volumen total, repartirlo en 2–3 sesiones suele rendir un poco mejor que concentrarlo en una sola, porque cada sesión es de mejor calidad y recuperas mejor entre sesiones.",
+    ej:"Pecho con 12 series semanales: 6 el lunes + 6 el jueves, mejor que 12 de golpe un solo día.",
+    uso:"Repartir las series para que cada sesión sea de calidad y el músculo reciba el estímulo varias veces a la semana.",
+    cuando:"Con 10 series semanales por músculo o más, divídelas en 2 sesiones. Con 20 o más, en 3. Deja 48–72 h entre sesiones del mismo músculo.",
+    evitar:"No entrenes el mismo músculo con mucho daño en días seguidos, ni metas más de 6–10 series efectivas del mismo músculo en una sola sesión: las últimas rinden poco.",
+    frec:"Por músculo: 2 veces por semana es el estándar; 3 es útil para grupos rezagados o con volumen alto; 1 vez solo en mantenimiento o semanas de poco tiempo." },
+  { id:"reps", term:"Rango de repeticiones para hipertrofia",
+    def:"El músculo crece con cargas pesadas y livianas siempre que las series estén cerca del fallo. El rango de 6–15 repeticiones es el más práctico; los rangos de 5–30 también funcionan si llegas cerca del fallo.",
+    ej:"Sentadilla en 6–10, prensa en 10–15, elevaciones laterales y curl en 12–20.",
+    uso:"Elegir cuántas repeticiones hacer en cada ejercicio para que el peso sea manejable, seguro y la serie realmente se acerque al fallo.",
+    cuando:"Básicos y multiarticulares: 5–10 reps. Máquinas y aislamientos: 10–20 reps. Músculos pequeños o con articulaciones sensibles: 12–25 reps.",
+    evitar:"Evita pasarte de 30 repeticiones (la fatiga general corta la serie antes que el músculo) y quedarte siempre en 1–5 reps si buscas masa (poco volumen útil por serie).",
+    frec:"Mezcla rangos en la semana: por ejemplo, un día más pesado (6–10) y otro más liviano (12–20) para el mismo músculo." },
+  { id:"descanso", term:"Descanso entre series",
+    def:"Es el tiempo entre una serie y la siguiente. Descansar poco te hace rendir menos en las series siguientes y reduce el volumen real; descansar lo suficiente lo mantiene.",
+    ej:"Press de banca: 2–3 min. Curl con mancuernas: 60–90 s.",
+    uso:"Recuperar fuerza entre series para mantener las repeticiones y el peso, y que todas las series sean efectivas.",
+    cuando:"Compuestos pesados: 2–3 min (hasta 4–5 en top sets). Accesorios: 1.5–2 min. Aislamientos y máquinas: 60–90 s. Superseries: descanso al terminar el par.",
+    evitar:"Evita descansos de menos de 60 s en ejercicios pesados (cae el rendimiento) y de más de 5 min (alarga la sesión sin mejorar el estímulo).",
+    frec:"Es una decisión por serie. Si la sesión se alarga, no recortes el descanso de los compuestos: recorta ejercicios accesorios o usa superseries." },
+  { id:"tecnicas", term:"Técnicas avanzadas: cuánto y cuándo",
+    def:"Las técnicas de intensidad (drop set, rest-pause, cluster, FST-7, isometrías…) son un complemento, no la base. Suman estímulo cuando ya cubres bien el volumen, la progresión y la recuperación, pero cada una añade fatiga extra. Si las usas en todo, dejan de funcionar y empeoran la recuperación.",
+    ej:"Sesión de pecho: 3 series normales de press inclinado, 2 de aperturas y, solo en la última serie de aperturas, un drop set.",
+    uso:"Tener un límite claro: cuántas técnicas usar para que ayuden en vez de agotarte.",
+    cuando:"Cuando te estancas con el trabajo estándar, cuando el tiempo es limitado, en músculos rezagados o cerca del final del bloque.",
+    evitar:"Si estás empezando (primeros 6–12 meses), si recuperas mal, si estás en déficit calórico o en semanas de descarga. Tampoco en el primer ejercicio del día.",
+    frec:"Por sesión: 1–3 series con técnica avanzada (el resto, normales). Por semana: máximo 1–2 por músculo. Por mes: usa cada técnica 2–3 semanas y rótala; toda la sesión con técnicas avanzadas, nunca." },
+  { id:"progreso", term:"Cuándo subir peso, series o repeticiones",
+    def:"Regla simple de doble progresión: mantén el peso hasta que consigas el tope de repeticiones del rango en todas las series con el RIR objetivo; entonces sube el peso de 2–5 % y vuelves al piso del rango. Si no puedes, suma una serie o mejora la técnica.",
+    ej:"Rango 8–12 con RIR 2: 8-8-7 → 9-9-8 → 10-10-9 → 12-12-12 → sube 2.5 kg y empieza de nuevo en 8-8-8.",
+    uso:"Convertir la sobrecarga progresiva en una regla automática que no depende del estado de ánimo.",
+    cuando:"Sube peso cuando completas el tope del rango en todas las series con el RIR objetivo. Suma una serie por músculo si estás estancado 2–3 semanas y recuperas bien.",
+    evitar:"No subas peso si perdiste técnica o si el RIR real fue menor al objetivo; no añadas series si ya duermes poco, estás cansado o no recuperas.",
+    frec:"Intenta mejorar algo (peso, repeticiones o series) cada 1–2 semanas en cada ejercicio. Si pasan 3–4 semanas sin progreso, revisa sueño, calorías o descarga." },
+];
+
+const GLOSSARY = [
+  ...GLOSSARY_HIPERTROFIA,
+  ...GLOSSARY_BASE.map((g) => ({ ...g, ...(GLOSSARY_GUIA[g.id] || {}) })),
 ];
 
 /* ============================================================
@@ -7080,7 +7304,7 @@ const GlossaryBody = ({ focusId, showTopButton }) => {
     }
   }, [focusId]);
   const nq = searchNorm(q.trim());
-  const items = nq ? GLOSSARY.filter((g) => searchNorm(g.term).includes(nq) || searchNorm(g.def).includes(nq) || searchNorm(g.ej).includes(nq)) : GLOSSARY;
+  const items = nq ? GLOSSARY.filter((g) => searchNorm(g.term).includes(nq) || searchNorm(g.def).includes(nq) || searchNorm(g.ej).includes(nq) || searchNorm([g.uso, g.cuando, g.evitar, g.frec].join(" ")).includes(nq)) : GLOSSARY;
   // Al buscar, los resultados se abren solos: si ya escribiste el término
   // exacto, ver la respuesta de inmediato ahorra un toque extra.
   const isOpen = (id) => (nq ? true : openIds.has(id));
@@ -7126,6 +7350,12 @@ const GlossaryBody = ({ focusId, showTopButton }) => {
               <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.5, marginTop: 7, paddingLeft: 10, borderLeft: `2px solid ${P.line}` }}>
                 <span style={{ color: P.ember2, fontWeight: 600 }}>Ejemplo · </span>{g.ej}
               </div>
+              {[["uso", "Para qué sirve"], ["cuando", "Cuándo sí"], ["evitar", "Cuándo no"], ["frec", "Cuánto y cada cuánto"]].map(([k, lab]) => g[k] ? (
+                <div key={k} style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: k === "evitar" ? P.faint : P.ember2, marginBottom: 3 }}>{lab}</div>
+                  <div style={{ fontSize: 14.5, color: P.dim, lineHeight: 1.5 }}>{g[k]}</div>
+                </div>
+              ) : null)}
             </div>
           )}
         </div>
@@ -23398,7 +23628,7 @@ ${ctx}`;
 // plano: se lo pasamos al asistente del alumno para que explique términos
 // de la app (RIR, tempo, MEV/MAV/MRV, tipos de serie…) con la MISMA
 // definición que ya ve en la Guía de la app, en vez de inventar la suya.
-const GLOSSARY_KNOWLEDGE = GLOSSARY.map((g) => `- ${g.term}: ${g.def}`).join("\n");
+const GLOSSARY_KNOWLEDGE = GLOSSARY.map((g) => `- ${g.term}: ${g.def}${g.uso ? ` Para qué sirve: ${g.uso}` : ""}${g.cuando ? ` Cuándo sí: ${g.cuando}` : ""}${g.evitar ? ` Cuándo no: ${g.evitar}` : ""}${g.frec ? ` Frecuencia: ${g.frec}` : ""}`).join("\n");
 
 // Resumen breve de la sesión que el alumno tiene abierta en este momento
 // (si hay una en curso): qué ejercicio/serie ya marcó y cuáles le faltan,
