@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v456";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v457";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -95,7 +95,7 @@ const LIGHT_THEME = {
     // Neutros, no colores: "óptimo"/"informativo" se leen por la palabra y
     // por la forma del indicador, no porque el bloque sea verde o azul.
     // El rojo del sistema iOS se conserva SOLO para lo destructivo.
-    green: "#000000", blue: "#5C5C5C", red: "#D70015",
+    green: "#000000", blue: "#5C5C5C", red: "#B94A43",
     // Color de anillos y barras de progreso (neutro en claro, como hasta
     // ahora; en el tema Rosa es un rosa vivo, no negro).
     prog: "#000000",
@@ -137,7 +137,7 @@ const DARK_THEME = {
     // verde de la pantalla de sesión (`teColors`, más abajo) es aparte y
     // no se toca: ahí sigue siendo la única marca de color, a propósito.
     ember: "#FFFFFF", ember2: "#FFFFFF", glow: "#FFFFFF",
-    green: "#FFFFFF", blue: "#A1A1AA", red: "#FF453A",
+    green: "#FFFFFF", blue: "#A1A1AA", red: "#E27D75",
     prog: "#FFFFFF",
     accent2: "#5B9CFF",
     frame: "#383838", bgGrad: "#000000",
@@ -168,7 +168,7 @@ const PINK_THEME = {
     line: "#EE9DC8", text: "#101012", dim: "#2B2B30",
     faint: "#984E73", faint2: "#A85A82",
     ember: "#DB2777", ember2: "#DB2777", glow: "#DB2777",
-    green: "#101012", blue: "#5A5A63", red: "#D70015",
+    green: "#101012", blue: "#5A5A63", red: "#B94A43",
     prog: "#DB2777",
     accent2: "#0EA5A5",
     frame: "#EE9DC8",
@@ -5684,7 +5684,7 @@ const GlobalStyle = () => {
     .fj .pulse { animation: fjPulse 1.6s ease-in-out infinite; }
     @keyframes fjDot { 0%,60%,100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-4px); opacity: 1; } }
     .fj .fj-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: ${P.faint}; animation: fjDot 1s ease-in-out infinite; }
-    @keyframes fjUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+    @keyframes fjUp { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
     /* Al desplegar una rutina en Coach → Rutinas, los días aparecían de
        golpe, sin transición: quien tocaba el acordeón no tenía forma de
        saber si había pasado algo. Reusa fjUp (definida arriba) para que
@@ -5725,12 +5725,12 @@ const GlobalStyle = () => {
        esto es solo para el contenido de la pestaña activa. */
     @keyframes fjBackIn { from { transform: translate3d(-24%,0,0); opacity: .55; } to { transform: none; opacity: 1; } }
     @keyframes fjTabFade { from { opacity: 0; } to { opacity: 1; } }
-    .fj .tabIn { animation: fjTabFade 200ms ${EASE_STD}; }
+    .fj .tabIn { animation: fjTabFade 280ms ${EASE_STD}; }
     /* Movimiento "de sistema": fichas que suben al entrar, título que
        asoma, botones que responden con un rebote corto al soltar. */
-    @keyframes fjRise { from { opacity: 0; transform: translateY(26px) scale(.985); } to { opacity: 1; transform: none; } }
-    .fj .fj-rev { animation: fjRise .46s ${EASE_IN} backwards; animation-delay: calc(min(var(--i, 0), 6) * 36ms); }
-    .fj .fj-pre { opacity: 0; transform: translateY(26px) scale(.985); }
+    @keyframes fjRise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .fj .fj-rev { animation: fjRise .6s ${EASE_IN} backwards; animation-delay: calc(min(var(--i, 0), 5) * 45ms); }
+    .fj .fj-pre { opacity: 0; transform: translateY(8px); }
     @keyframes fjTitleIn { from { opacity: 0; transform: translateY(10px); letter-spacing: -.01em; } to { opacity: 1; transform: none; } }
     .fj h1 { animation: fjTitleIn .42s ${EASE_IN} backwards; }
     .fj .fj-hero { animation: fjRise .9s ${EASE_IN} .05s backwards; }
@@ -5917,6 +5917,21 @@ const GlobalStyle = () => {
     .fj button[style*="width: 100%"]:not(:disabled):active, .fj button[style*="flex: 1"]:not(:disabled):active { transform: none; opacity: 1; background-color: ${P.fillTertiary}; }
     .fj .fj-card[role="button"]:active, .fj [role="button"]:active { transform: none; opacity: 1; background-color: ${P.fillTertiary}; transition: background-color 90ms ease-out; }
     .fj .fj-card, .fj [role="button"] { transition: background-color .38s ease, opacity .3s ease, border-color .3s ease; }
+    /* CALM UI (v457): menos ruido, más aire, movimiento sereno. Pesos de letra
+       suaves, rótulos en minúscula sin tracking, rojos apagados, respuesta al
+       toque sin rebotes y espacios un poco más generosos. */
+    .fj { line-height: 1.5; }
+    .fj h1, .fj h2, .fj .disp, .fj .fj-display { font-weight: 650; letter-spacing: -.015em; }
+    .fj [style*="font-weight: 800"], .fj [style*="font-weight: 900"], .fj [style*="font-weight: 700"] { font-weight: 650 !important; }
+    .fj b, .fj strong { font-weight: 600; }
+    .fj .mono { text-transform: none; letter-spacing: .01em !important; }
+    .fj [style*="gap: 12px"] { gap: 14px !important; }
+    .fj [style*="gap: 14px"] { gap: 16px !important; }
+    .fj [style*="gap: 16px"] { gap: 20px !important; }
+    .fj button:not(:disabled) { transition: transform 420ms cubic-bezier(.25,.8,.25,1), opacity .35s ease, background-color .4s ease, color .35s ease, border-color .35s ease; }
+    .fj button:not(:disabled):active { transform: scale(.985); opacity: .9; transition: transform 160ms ease-out, opacity 140ms ease-out, background-color 100ms ease-out; }
+    .fj input:focus, .fj textarea:focus, .fj select:focus { box-shadow: 0 0 0 3px ${P.line}; border-color: ${P.faint2}; }
+    .fj .fj-card { border-color: ${P.line}; }
     @media (prefers-reduced-motion: reduce) { .fj * { animation: none !important; transition: none !important; } }
     /* Mientras se arrastra un día/ejercicio/rutina para reordenar, la barra
        inferior fija (TabBar) queda "transparente" al puntero: si no, al
@@ -6000,8 +6015,8 @@ const EASE_IN = "cubic-bezier(.16,1,.3,1)";    // algo que aparece
 const EASE_OUT = "cubic-bezier(.4,0,1,1)";     // algo que se va
 const DUR_MICRO = 140; // check, interruptor
 const DUR_ROW = 200;   // fila, tarjeta, chip — también el cross-fade de pestaña
-const DUR_PUSH = 320;  // push de pantalla (fila → detalle)
-const DUR_SHEET = 420; // hoja modal
+const DUR_PUSH = 360;  // push de pantalla (fila → detalle)
+const DUR_SHEET = 480; // hoja modal
 // Paso de serie/ejercicio dentro de la sesión. Va aparte —y bastante más
 // corto— que DUR_PUSH: entrenando se toca "Siguiente" o "Atrás" varias
 // veces seguidas y 320 ms se sienten lentos, además de encadenarse unos
@@ -6613,7 +6628,7 @@ const RowGroup = ({ label, rows }) => {
       <Card style={{ overflow: "hidden" }}>
         {list.map((r, i) => {
           const frame = { width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
-            padding: "12px 16px", minHeight: 52, borderBottom: i < list.length - 1 ? `1px solid ${P.line}` : "none" };
+            padding: "14px 18px", minHeight: 58, borderBottom: i < list.length - 1 ? `1px solid ${P.line}` : "none" };
           const inner = (
             <>
               <span style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 500, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
@@ -33070,7 +33085,7 @@ const SettingRow = ({ Icon, label, hint, onClick, right, control, last }) => {
       {right !== undefined ? right : (onClick && <ChevronRight size={16} color={P.chevron} style={{ flexShrink: 0 }} />)}
     </>
   );
-  const frame = { padding: "12px 16px", minHeight: 56, borderBottom: last ? "none" : `1px solid ${P.line}` };
+  const frame = { padding: "14px 18px", minHeight: 60, borderBottom: last ? "none" : `1px solid ${P.line}` };
   if (control) {
     return (
       <div style={{ ...frame, display: "flex", flexDirection: "column", gap: 11 }}>
