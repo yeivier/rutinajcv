@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v462";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v463";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -18113,10 +18113,22 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
 
   const comidaLinea = (m, done) => (mealKcal(m) > 0 ? `${mealKcal(m).toLocaleString("es-CL")} kcal` : (m.time || ""));
   const pctKcal = hasMealKcal && kcalGoal > 0 ? Math.max(0, Math.min(100, (kcalEaten / kcalGoal) * 100)) : 0;
+  const nextMealId = (n.meals.find((m) => !mealChecks[m.id]) || {}).id;
+  const [notasAbiertas, setNotasAbiertas] = useState({});
+  // Cumplimiento de los últimos 7 días: % de comidas marcadas por día.
+  const semana = [6, 5, 4, 3, 2, 1, 0].map((i) => {
+    const d = new Date(Date.now() - i * 864e5), key = d.toISOString().slice(0, 10);
+    const hechas = Object.keys((history && history.mealChecks && history.mealChecks[key]) || {}).filter((id) => n.meals.some((m) => m.id === id)).length;
+    return { key, dia: ["D", "L", "M", "X", "J", "V", "S"][d.getUTCDay()], pct: n.meals.length ? (hechas / n.meals.length) * 100 : 0 };
+  });
   return (
-    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 26 }}>
+    <div style={{ padding: `4px 20px ${TAB_BOTTOM_PAD}`, display: "flex", flexDirection: "column", gap: 14 }}>
       <ScreenTitle title="Nutrición" right={
         <>
+          <button onClick={() => setFoodOpen(true)} aria-label="Buscar alimento o escanear código de barras" title="Alimentos"
+            style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <ScanLine size={20} />
+          </button>
           {n.notes && (
             <button onClick={() => setNotasOpen(true)} aria-label="Ver notas del plan de nutrición" title="Notas del plan"
               style={{ width: 44, height: 44, borderRadius: 22, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -18127,128 +18139,194 @@ const NutritionView = ({ plan, n, history, saveHistory, savePlan, toast, onOpenS
         </>
       } />
 
-      {/* Lo primero: cuánto llevas hoy y contra cuánto. Un número grande y una
-          barra fina; los macros, en una sola línea de tres cifras. */}
-      <div>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 60, fontWeight: 800, letterSpacing: "-.05em", lineHeight: 1 }}>
-            {hasMealKcal ? kcalEaten.toLocaleString("es-CL") : (v.kcal ? Number(v.kcal).toLocaleString("es-CL") : "—")}
-          </span>
-          <span style={{ fontSize: 17, fontWeight: 600, color: P.faint }}>
-            {hasMealKcal ? `/ ${kcalGoal.toLocaleString("es-CL")} kcal` : "kcal"}
-          </span>
-          {cyc && <span aria-label={isTrainDay ? "Hoy: día de entreno" : "Hoy: día de descanso"} style={{ marginLeft: "auto", color: P.faint }}>{isTrainDay ? <Dumbbell size={20} /> : <Moon size={20} />}</span>}
+      {/* Resumen del día (v463): anillo de kcal, reparto por comida y, si el
+          plan trae macros, su proporción. Todo en tarjetas modulares. */}
+      <Card style={{ padding: 20, display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          <Anillo pct={pctKcal} size={116} stroke={11} color={P.prog}>
+            <span style={{ textAlign: "center", lineHeight: 1.05 }}>
+              <span className="num" style={{ display: "block", fontSize: 28, fontWeight: 800, letterSpacing: "-.04em" }}>{hasMealKcal ? kcalEaten.toLocaleString("es-CL") : "—"}</span>
+              <span style={{ display: "block", fontSize: 12, fontWeight: 500, color: P.faint, marginTop: 3 }}>kcal hoy</span>
+            </span>
+          </Anillo>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: P.faint, display: "flex", alignItems: "center", gap: 6 }}>
+              Meta del día {cyc && (isTrainDay ? <Dumbbell size={14} aria-label="Día de entreno" /> : <Moon size={14} aria-label="Día de descanso" />)}
+            </span>
+            <span className="num" style={{ fontSize: 38, fontWeight: 800, letterSpacing: "-.04em", lineHeight: 1 }}>
+              {kcalGoal ? kcalGoal.toLocaleString("es-CL") : "—"}<span style={{ fontSize: 14, fontWeight: 500, color: P.faint, marginLeft: 4 }}>kcal</span>
+            </span>
+            <span style={{ fontSize: 13, color: P.faint }}>
+              {hasMealKcal ? (kcalGoal - kcalEaten > 0 ? `Faltan ${(kcalGoal - kcalEaten).toLocaleString("es-CL")} kcal` : "Meta cumplida") : ""}
+            </span>
+          </div>
         </div>
-        {hasMealKcal && (
-          <div style={{ height: 4, borderRadius: 2, background: P.fillTertiary, marginTop: 14, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${pctKcal}%`, background: P.prog, borderRadius: 2, transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
+
+        {hasMealKcal && n.meals.length > 1 && (
+          <div>
+            <div style={{ display: "flex", gap: 3, height: 10 }} role="img" aria-label="Reparto de calorías por comida">
+              {n.meals.filter((m) => mealKcal(m) > 0).map((m) => (
+                <button key={m.id} onClick={() => { const el = document.querySelector(`[data-meal="${m.id}"]`); el && el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                  aria-label={`${m.name}: ${mealKcal(m)} kcal`}
+                  style={{ flex: mealKcal(m), minWidth: 6, borderRadius: 5, background: mealChecks[m.id] ? P.prog : P.s4, transition: `background ${DUR_ROW}ms ${EASE_STD}` }} />
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12, color: P.faint }}>
+              <span>{mealsDone} de {n.meals.length} comidas</span><span>{Math.round(pctKcal)} %</span>
+            </div>
           </div>
         )}
-        {hasMacros && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 22 }}>
-            {[["P", "Proteína", v.p], ["C", "Carbos", v.c], ["G", "Grasas", v.f]].map(([k, l, val]) => (
-              <div key={k} aria-label={`${l}: ${val ? val + " gramos" : "sin dato"}`}>
-                <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.03em", color: val ? P.text : P.textQuaternary }}>
-                  {val || "—"}{val ? <span style={{ fontSize: 14, fontWeight: 600, color: P.faint, marginLeft: 2 }}>g</span> : null}
-                </div>
-                <div style={{ fontSize: 13, color: P.faint, fontWeight: 600, marginTop: 1 }}>{k}</div>
+
+        {((+v.p || 0) > 0 || (+v.c || 0) > 0 || (+v.f || 0) > 0) && (() => {
+          const kP = (+v.p || 0) * 4, kC = (+v.c || 0) * 4, kF = (+v.f || 0) * 9, tot = kP + kC + kF || 1;
+          return (
+            <div>
+              <div style={{ display: "flex", gap: 3, height: 10 }} role="img" aria-label="Proporción de macronutrientes">
+                {[[kP, P.prog], [kC, P.faint2], [kF, P.s4]].map(([kk, col], i) => <span key={i} style={{ flex: Math.max(kk, 1), borderRadius: 5, background: col }} />)}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 14 }}>
+                {[["Proteína", v.p, kP], ["Carbos", v.c, kC], ["Grasas", v.f, kF]].map(([l, val, kk]) => (
+                  <div key={l} aria-label={`${l}: ${val ? val + " gramos" : "sin dato"}`}>
+                    <div className="num" style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1.05, color: val ? P.text : P.textQuaternary }}>
+                      {val || "—"}{val ? <span style={{ fontSize: 13, fontWeight: 500, color: P.faint, marginLeft: 2 }}>g</span> : null}
+                    </div>
+                    <div style={{ fontSize: 12, color: P.faint, fontWeight: 500, marginTop: 3 }}>{l}{val ? ` · ${Math.round((kk / tot) * 100)} %` : ""}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+      </Card>
+
+      {/* Atajos con número: suplementos, compras y adherencia de la semana. */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <button onClick={onOpenSupplements} disabled={!onOpenSupplements} aria-label={`Suplementos: ${supplements.length ? `${suppDone} de ${supplements.length}` : "sin cargar"}`}
+          style={{ textAlign: "left", padding: "16px 16px 14px", borderRadius: R_CARD, background: cardFill(), display: "flex", flexDirection: "column", gap: 8, color: P.text }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 500, color: P.faint }}><Pill size={15} /> Suplementos</span>
+          <span className="num" style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-.04em", lineHeight: 1 }}>{supplements.length ? suppDone : "—"}<span style={{ fontSize: 15, fontWeight: 500, color: P.faint }}>{supplements.length ? ` / ${supplements.length}` : ""}</span></span>
+          <span style={{ display: "block", height: 5, borderRadius: 3, background: P.s4, overflow: "hidden" }}>
+            <i style={{ display: "block", height: "100%", width: `${supplements.length ? (suppDone / supplements.length) * 100 : 0}%`, background: P.prog, borderRadius: 3, transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
+          </span>
+        </button>
+        <button onClick={() => setShopOpen(true)} aria-label={`Lista de compras: ${shopping.length ? `${shopPending} pendientes` : "vacía"}`}
+          style={{ textAlign: "left", padding: "16px 16px 14px", borderRadius: R_CARD, background: cardFill(), display: "flex", flexDirection: "column", gap: 8, color: P.text }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 500, color: P.faint }}><ShoppingCart size={15} /> Compras</span>
+          <span className="num" style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-.04em", lineHeight: 1 }}>{shopping.length ? shopPending : "—"}<span style={{ fontSize: 15, fontWeight: 500, color: P.faint }}>{shopping.length ? " por comprar" : ""}</span></span>
+          <span style={{ display: "block", height: 5, borderRadius: 3, background: P.s4, overflow: "hidden" }}>
+            <i style={{ display: "block", height: "100%", width: `${shopping.length ? ((shopping.length - shopPending) / shopping.length) * 100 : 0}%`, background: P.prog, borderRadius: 3, transition: `width ${DUR_ROW}ms ${EASE_STD}` }} />
+          </span>
+        </button>
+      </div>
+
+      {n.meals.length > 0 && (
+        <Card style={{ padding: "16px 18px 14px" }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: P.faint }}>Cumplimiento · 7 días</span>
+            <span className="num" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.03em" }}>{semana.some((d) => d.pct > 0) ? Math.round(semana.reduce((a, d) => a + d.pct, 0) / semana.length) : 0}<span style={{ fontSize: 12, fontWeight: 500, color: P.faint }}> %</span></span>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 64 }}>
+            {semana.map((d, i) => (
+              <div key={d.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, height: "100%", justifyContent: "flex-end" }}
+                aria-label={`${d.dia}: ${Math.round(d.pct)} % de las comidas`}>
+                <span style={{ width: "100%", height: `${Math.max(6, d.pct * 0.46)}px`, borderRadius: 6, background: i === semana.length - 1 ? P.prog : P.s4, opacity: d.pct > 0 ? 1 : .6, transition: `height ${DUR_ROW}ms ${EASE_STD}` }} />
+                <span style={{ fontSize: 11, fontWeight: i === semana.length - 1 ? 700 : 500, color: i === semana.length - 1 ? P.text : P.faint }}>{d.dia}</span>
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </Card>
+      )}
 
-      <div style={n.meals.length ? { background: P.s1, borderRadius: 14, padding: "0 16px" } : undefined}>
-        {n.meals.length === 0 ? (
-          <div style={{ padding: "18px 0" }}>
-            <Empty icon={Utensils} title="Sin plan de comidas" body="Tu coach aún no carga las comidas del plan." />
-            {savePlan && (
-              <div style={{ display: "flex", justifyContent: "center", marginTop: 6 }}>
-                <button onClick={() => setMfpOpen(true)} aria-label="Importar tu diario de MyFitnessPal" title="Importar de MyFitnessPal"
-                  style={{ width: 52, height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Upload size={22} />
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div>
-            {n.meals.map((m, i) => {
-              const done = !!mealChecks[m.id];
-              const items = (m.items || []).filter((it) => (it.food || "").trim());
-              const note = (m.notes || "").trim();
-              const opts = parseMealOptions(note);
-              const choice = mealChoices[m.id];
-              const hasDetail = items.length > 0 || !!note;
-              return (
-                <div key={m.id} style={{ borderTop: i ? `0.5px solid ${P.separatorStrong}` : "none", padding: "14px 0" }}>
-                  <button onClick={() => toggleMeal(m.id)} aria-pressed={done}
-                    aria-label={`${done ? "Desmarcar" : "Marcar como hecha"} ${m.name}`}
-                    style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14 }}>
-                    <span style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                      background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `2px solid ${P.chevron}`,
-                      transition: `background ${DUR_MICRO}ms ${EASE_STD}` }}>
-                      {done && <Check size={17} color={PLATE_FG} strokeWidth={3} />}
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.2, color: done ? P.faint : P.text, textDecoration: done ? "line-through" : "none", overflowWrap: "anywhere" }}>
+      {n.meals.length === 0 ? (
+        <Card style={{ padding: "18px 0" }}>
+          <Empty icon={Utensils} title="Sin plan de comidas" body="Tu coach aún no carga las comidas del plan." />
+          {savePlan && (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 6 }}>
+              <button onClick={() => setMfpOpen(true)} aria-label="Importar tu diario de MyFitnessPal" title="Importar de MyFitnessPal"
+                style={{ width: 52, height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Upload size={22} />
+              </button>
+            </div>
+          )}
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {n.meals.map((m) => {
+            const done = !!mealChecks[m.id];
+            const items = (m.items || []).filter((it) => (it.food || "").trim());
+            const note = (m.notes || "").trim();
+            const opts = parseMealOptions(note);
+            const choice = mealChoices[m.id];
+            const siguiente = m.id === nextMealId;
+            const share = kcalPlanned > 0 ? Math.round((mealKcal(m) / kcalPlanned) * 100) : 0;
+            const verNota = !!notasAbiertas[m.id];
+            return (
+              <Card key={m.id} data-meal={m.id} style={{ padding: "16px 18px", boxShadow: siguiente && !done ? `inset 0 0 0 1.5px ${P.text}` : "none", opacity: done ? .62 : 1, transition: `opacity ${DUR_ROW}ms ${EASE_STD}` }}>
+                <button onClick={() => toggleMeal(m.id)} aria-pressed={done} aria-label={`${done ? "Desmarcar" : "Marcar como hecha"} ${m.name}`}
+                  style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 14 }}>
+                  <span style={{ width: 32, height: 32, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: done ? PLATE_GRAD : "transparent", border: done ? "none" : `2px solid ${P.chevron}`, transition: `background ${DUR_MICRO}ms ${EASE_STD}` }}>
+                    {done && <Check size={18} color={PLATE_FG} strokeWidth={3} />}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                    <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.2, textDecoration: done ? "line-through" : "none", overflowWrap: "anywhere" }}>
                       {m.name}{opts && choice ? <span style={{ color: P.faint, fontWeight: 500, textDecoration: "none" }}>{" · " + choice}</span> : null}
                     </span>
-                    <span style={{ fontSize: 14, color: P.faint, flexShrink: 0, fontWeight: 600 }}>{comidaLinea(m, done)}</span>
-                  </button>
-                  {hasDetail && (
-                    <div style={{ paddingLeft: 44, marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-                      {items.map((it) => (
-                        <div key={it.id} style={{ fontSize: 15, color: P.dim, lineHeight: 1.4 }}>
-                          {it.food}{(it.qty || "").trim() ? <span style={{ color: P.faint }}>{" · " + it.qty}</span> : null}
-                        </div>
-                      ))}
-                      {opts ? (
-                        <>
-                          {opts.intro && <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.45 }}>{opts.intro}</div>}
-                          {opts.options.map((o) => {
-                            const sel = choice === o.key;
-                            return (
-                              <button key={o.key} onClick={() => setMealChoice(m.id, sel ? null : o.key)} aria-pressed={sel}
-                                style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "flex-start", padding: "10px 12px", marginLeft: -12, borderRadius: 16,
-                                  background: sel ? P.s2 : "transparent", transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
-                                <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                                  background: sel ? PLATE_GRAD : "transparent", border: sel ? "none" : `1.5px solid ${P.chevron}`,
-                                  fontSize: 12, fontWeight: 800, color: sel ? PLATE_FG : P.faint }}>
-                                  {sel ? <Check size={14} color={PLATE_FG} strokeWidth={3} /> : o.key}
-                                </span>
-                                <span style={{ flex: 1, fontSize: 15, color: sel ? P.text : P.dim, lineHeight: 1.45, fontWeight: sel ? 600 : 400 }}>{o.text}</span>
-                              </button>
-                            );
-                          })}
-                        </>
-                      ) : (
-                        note && <div style={{ fontSize: 15, color: P.dim, lineHeight: 1.5, whiteSpace: "pre-line" }}>{note}</div>
-                      )}
-                    </div>
+                    {(siguiente && !done) || m.time ? <span style={{ fontSize: 12, color: P.faint }}>{siguiente && !done ? "Siguiente" : ""}{siguiente && !done && m.time ? " · " : ""}{m.time || ""}</span> : null}
+                  </span>
+                  {mealKcal(m) > 0 && (
+                    <span style={{ textAlign: "right", flexShrink: 0 }}>
+                      <span className="num" style={{ display: "block", fontSize: 26, fontWeight: 800, letterSpacing: "-.04em", lineHeight: 1 }}>{mealKcal(m).toLocaleString("es-CL")}</span>
+                      <span style={{ display: "block", fontSize: 11.5, color: P.faint, marginTop: 3 }}>kcal · {share} %</span>
+                    </span>
                   )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Suplementos y lista de compras: dos botones redondos, solo ícono y
-          el número que importa. */}
-      <div style={{ display: "flex", gap: 10 }}>
-        <button onClick={() => setFoodOpen(true)} aria-label="Buscar alimento o escanear código de barras" title="Alimentos"
-          style={{ flex: 1, height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ScanLine size={22} />
-        </button>
-        <button onClick={onOpenSupplements} disabled={!onOpenSupplements} aria-label={`Suplementos: ${supplements.length ? `${suppDone} de ${supplements.length}` : "sin cargar"}`} title="Suplementos"
-          style={{ flex: 1, height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 17, fontWeight: 700 }}>
-          <Pill size={22} /> {supplements.length ? `${suppDone}/${supplements.length}` : ""}
-        </button>
-        <button onClick={() => setShopOpen(true)} aria-label={`Lista de compras: ${shopping.length ? `${shopPending} pendientes` : "vacía"}`} title="Lista de compras"
-          style={{ flex: 1, height: 52, borderRadius: 26, background: P.s2, color: P.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 17, fontWeight: 700 }}>
-          <ShoppingCart size={22} /> {shopping.length ? shopPending : ""}
-        </button>
-      </div>
+                </button>
+                {items.length > 0 && (
+                  <div style={{ marginTop: 12, display: "flex", flexDirection: "column" }}>
+                    {items.map((it, ii) => (
+                      <div key={it.id} style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "9px 0", borderTop: ii ? `1px solid ${P.line}` : "none" }}>
+                        <span style={{ fontSize: 15, color: P.dim, lineHeight: 1.35, minWidth: 0, overflowWrap: "anywhere" }}>{it.food}</span>
+                        {(it.qty || "").trim() ? <span className="num" style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-.02em", flexShrink: 0 }}>{it.qty}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {opts ? (
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {opts.intro && <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.45 }}>{opts.intro}</div>}
+                    {opts.options.map((o) => {
+                      const sel = choice === o.key;
+                      return (
+                        <button key={o.key} onClick={() => setMealChoice(m.id, sel ? null : o.key)} aria-pressed={sel}
+                          style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "flex-start", padding: "10px 12px", borderRadius: 16,
+                            background: sel ? P.s3 : "transparent", transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
+                          <span style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                            background: sel ? PLATE_GRAD : "transparent", border: sel ? "none" : `1.5px solid ${P.chevron}`, fontSize: 12, fontWeight: 800, color: sel ? PLATE_FG : P.faint }}>
+                            {sel ? <Check size={14} color={PLATE_FG} strokeWidth={3} /> : o.key}
+                          </span>
+                          <span style={{ flex: 1, fontSize: 15, color: sel ? P.text : P.dim, lineHeight: 1.45, fontWeight: sel ? 600 : 400 }}>{o.text}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : note ? (
+                  items.length === 0 ? (
+                    <div style={{ marginTop: 10, fontSize: 15, color: P.dim, lineHeight: 1.5, whiteSpace: "pre-line" }}>{note}</div>
+                  ) : (
+                    <>
+                      <button onClick={() => setNotasAbiertas((o) => ({ ...o, [m.id]: !o[m.id] }))} aria-expanded={verNota} aria-label="Ver la nota de esta comida"
+                        style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6, color: P.faint, fontSize: 12, fontWeight: 500, padding: "4px 0" }}>
+                        <FileText size={14} /> Nota {verNota ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                      {verNota && <div style={{ fontSize: 14, color: P.faint, lineHeight: 1.5, whiteSpace: "pre-line" }}>{note}</div>}
+                    </>
+                  )
+                ) : null}
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <FoodLookupSheet open={foodOpen} onClose={() => setFoodOpen(false)} toast={toast}
         meals={savePlan ? n.meals : null}
@@ -20997,29 +21075,52 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
 
       {/* Macros del plan: cuatro cifras grandes editables. Tocar el nombre
           de una cifra la marca como la que la app calcula sola. */}
-      <div style={{ display: "flex", gap: 10 }}>
-        {macroCol("kcal", "kcal", "2500")}
-        {macroCol("P", "p", "180")}
-        {macroCol("C", "c", "280")}
-        {macroCol("G", "f", "70")}
-      </div>
-      <div style={{ display: "flex", height: 5, borderRadius: 3, overflow: "hidden", margin: "14px 0 6px", background: P.s3 }}>
-        <div style={{ width: `${v.pctP}%`, background: P.green }} />
-        <div style={{ width: `${v.pctC}%`, background: P.blue }} />
-        <div style={{ width: `${v.pctF}%`, background: P.line }} />
-      </div>
-      <div style={{ fontSize: 13, color: P.faint, fontWeight: 600 }}>{v.tot} kcal · P {v.pctP}% · C {v.pctC}% · G {v.pctF}%</div>
-      {weightTrend && (
-        <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13.5, color: P.dim, lineHeight: 1.45 }}>
-          <TrendingUp size={16} color={weightTrend.tone} style={{ flexShrink: 0, marginTop: 2 }} />
-          <span>{weightTrend.msg}</span>
+      <Card style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          {macroCol("kcal", "kcal", "2500")}
+          {macroCol("P", "p", "180")}
+          {macroCol("C", "c", "280")}
+          {macroCol("G", "f", "70")}
         </div>
-      )}
+        <div>
+          <div style={{ display: "flex", height: 10, gap: 3 }} role="img" aria-label="Proporción de macronutrientes">
+            <div style={{ flex: Math.max(v.pctP, 1), borderRadius: 5, background: P.prog }} />
+            <div style={{ flex: Math.max(v.pctC, 1), borderRadius: 5, background: P.faint2 }} />
+            <div style={{ flex: Math.max(v.pctF, 1), borderRadius: 5, background: P.s4 }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12, color: P.faint }}>
+            <span>Proteína {v.pctP} %</span><span>Carbos {v.pctC} %</span><span>Grasas {v.pctF} %</span>
+          </div>
+        </div>
+        {(() => {
+          const suma = n.meals.reduce((a, m) => a + (+m.kcal || 0), 0);
+          const meta = +v.tot || +n.kcal || 0;
+          if (!suma) return null;
+          const dif = meta ? suma - meta : 0;
+          return (
+            <div>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 500, color: P.faint }}>Suma de las comidas</span>
+                <span className="num" style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em" }}>{suma.toLocaleString("es-CL")}<span style={{ fontSize: 12, fontWeight: 500, color: P.faint }}> kcal{meta ? ` · ${dif >= 0 ? "+" : "−"}${Math.abs(dif).toLocaleString("es-CL")} vs meta` : ""}</span></span>
+              </div>
+              <div style={{ display: "flex", gap: 3, height: 10 }} role="img" aria-label="Reparto de calorías por comida">
+                {n.meals.filter((m) => +m.kcal > 0).map((m) => <span key={m.id} title={`${m.name}: ${m.kcal} kcal`} style={{ flex: +m.kcal, minWidth: 6, borderRadius: 5, background: P.prog, opacity: .85 }} />)}
+              </div>
+            </div>
+          );
+        })()}
+        {weightTrend && (
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13.5, color: P.dim, lineHeight: 1.45 }}>
+            <TrendingUp size={16} color={weightTrend.tone} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>{weightTrend.msg}</span>
+          </div>
+        )}
+      </Card>
 
-      {/* Comidas: lista plana, cada una con sus alimentos en filas. */}
-      <div style={{ marginTop: 22 }}>
+      {/* Comidas: una tarjeta por comida, con sus alimentos en filas. */}
+      <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
         {n.meals.map((m, mi) => (
-          <div key={m.id} style={{ borderTop: mi ? `1px solid ${P.fillTertiary}` : "none", padding: "16px 0" }}>
+          <Card key={m.id} style={{ padding: "16px 18px" }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <Inp value={m.name} placeholder="Comida" aria-label="Nombre de la comida" onChange={(e) => mut((x) => (x.meals[mi].name = e.target.value))}
                 style={{ ...bare, fontSize: 19, fontWeight: 700, letterSpacing: "-.02em", flex: 1, minWidth: 0 }} />
@@ -21040,7 +21141,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
                 onChange={(e) => mut((x) => (x.meals[mi].kcal = e.target.value === "" ? "" : (+e.target.value || 0)))} style={{ ...bare, width: 64, fontSize: 14, fontWeight: 600 }} />
               <Inp value={m.notes} placeholder="Nota" aria-label="Nota de esta comida" onChange={(e) => mut((x) => (x.meals[mi].notes = e.target.value))} style={{ ...bare, flex: 1, minWidth: 0, fontSize: 14, color: P.dim }} />
             </div>
-          </div>
+          </Card>
         ))}
       </div>
       <FoodLookupSheet open={!!foodFor} onClose={() => setFoodFor(null)} meals={n.meals.filter((x) => x.id === foodFor)}
@@ -21059,7 +21160,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
       <div style={{ marginTop: 30 }}>
         <div className="mono" style={{ margin: "0 0 6px" }}>Suplementos</div>
         {(n.supplements || []).map((sp, si) => (
-          <div key={sp.id} style={{ borderTop: si ? `1px solid ${P.fillTertiary}` : "none", padding: "14px 0" }}>
+          <Card key={sp.id} style={{ padding: "14px 16px", marginBottom: 12 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <Inp value={sp.name} placeholder="Suplemento" aria-label="Nombre del suplemento" onChange={(e) => mut((x) => (x.supplements[si].name = e.target.value))}
                 style={{ ...bare, flex: 1, minWidth: 0, fontSize: 17, fontWeight: 700 }} />
@@ -21095,7 +21196,7 @@ const NutritionEditor = ({ plan, savePlan, onOpenNutritionAI, history }) => {
                 );
               })}
             </div>
-          </div>
+          </Card>
         ))}
         <button onClick={() => mut((x) => { x.supplements = [...(x.supplements || []), { id: uid(), name: "", dose: "", when: "", group: "diario", days: [], notifyTime: "" }]; })}
           aria-label="Añadir suplemento" title="Añadir suplemento"
