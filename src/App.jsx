@@ -9,7 +9,7 @@ import {
   Trophy, Medal, Gift, Lock, Eye, EyeOff, Wallet, CreditCard, Sun, Moon, WifiOff, LayoutDashboard, Loader2, MoreHorizontal, Calculator,
   Ruler, HeartPulse, Footprints, Watch, Bluetooth, Smartphone, PersonStanding, Heart, FileText, Volume2,
   UserPlus, DollarSign, Droplet, Smile, Columns2, LogIn, LogOut, ScanFace, ScanLine, Pill,
-  FolderOpen, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette, Crosshair, List, ShoppingCart, BellOff, RefreshCw, Link2, Unlink, Activity
+  FolderOpen, Maximize2, Share2, FileDown, ArrowUpDown, GripHorizontal, LayoutGrid, Palette, Crosshair, List, ShoppingCart, BellOff, RefreshCw, Link2, Unlink, Activity
 } from "lucide-react";
 
 /* ============================================================
@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v463";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v464";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -2292,8 +2292,70 @@ const BodyGuideSheet = ({ open, onClose, startTab = "medidas" }) => {
 };
 
 // Compara dos fotos/videos de progreso lado a lado (elige fecha A y fecha
-// B, por defecto la más antigua y la más reciente). Solo lectura: no
-// escribe nada, solo relee entradas que ya están en history.bodyPhotos.
+// B, por defecto la más antigua y la más reciente de una misma pose). Solo
+// lectura: no escribe nada, solo relee entradas de history.bodyPhotos.
+// v464: pantalla completa para ver ambas en grande, y el selector ordena y
+// filtra por tipo de pose (frontal, lateral, posterior, video) con miniatura.
+const POSES_FOTO = ["frontal", "lateral", "posterior", "video"];
+const poseDe = (e) => (e && POSES_FOTO.includes(e.angle) ? e.angle : "otra");
+const poseNombre = (k) => ({ frontal: "Frontal", lateral: "Lateral", posterior: "Posterior", video: "Video de posing", otra: "Otra foto" }[k] || "Foto");
+const mediaSrc = (m) => (m ? (m.kind === "video" ? m.poster : m.dataUrl) : null);
+const FotoMini = ({ id, w = 54, h = 72 }) => {
+  const [m, setM] = useState(null);
+  useEffect(() => { let on = true; sGet(`attach:${id}`).then((v) => on && setM(v || null)); return () => { on = false; }; }, [id]);
+  const src = mediaSrc(m);
+  return (
+    <span style={{ width: w, height: h, borderRadius: 12, background: P.s3, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {src ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Camera size={16} color={P.faint} />}
+    </span>
+  );
+};
+// Las dos fotos a pantalla completa. Tocar una la deja sola, a todo el
+// tamaño; tocarla otra vez vuelve a las dos. El botón del centro alterna
+// lado a lado / una arriba y otra abajo.
+const CompararPantalla = ({ a, b, onClose }) => {
+  const [solo, setSolo] = useState(null);
+  const [vertical, setVertical] = useState(false);
+  const panel = (x) => (
+    <button key={x.tag} onClick={() => setSolo(solo === x.tag ? null : x.tag)} aria-label={solo === x.tag ? "Volver a ver las dos fotos" : `Ver la foto ${x.tag} a pantalla completa`}
+      style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+      {x.src ? <img src={x.src} alt={`Foto ${x.tag}`} style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : <Camera size={32} color="#888" />}
+      <span style={{ position: "absolute", left: 8, bottom: `calc(8px + env(safe-area-inset-bottom))`, right: 8, display: "flex", alignItems: "center", gap: 8,
+        padding: "7px 10px", borderRadius: 14, background: "rgba(0,0,0,.55)", color: "#fff", fontSize: 13, textAlign: "left", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)" }}>
+        <span style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0, background: "#fff", color: "#000", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{x.tag}</span>
+        <span style={{ minWidth: 0, lineHeight: 1.25 }}>
+          <span style={{ display: "block", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.fecha}</span>
+          <span style={{ display: "block", opacity: .8, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[x.pose, x.kg != null ? `${kg(x.kg)} kg` : null].filter(Boolean).join(" · ")}</span>
+        </span>
+      </span>
+    </button>
+  );
+  const visibles = solo ? [solo === "A" ? a : b] : [a, b];
+  const btn = { width: 44, height: 44, borderRadius: 22, background: "rgba(0,0,0,.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)" };
+  return createPortal(
+    <div className="fj" style={{ minHeight: 0, padding: 0, background: "none" }}>
+      <div role="dialog" aria-label="Comparar fotos a pantalla completa" style={{ position: "fixed", inset: 0, zIndex: 100000, background: "#000", display: "flex", flexDirection: vertical && !solo ? "column" : "row", gap: 2 }}>
+        {visibles.map(panel)}
+        <button onClick={onClose} aria-label="Cerrar pantalla completa" style={{ ...btn, position: "absolute", top: "calc(10px + env(safe-area-inset-top))", left: 10 }}><X size={22} /></button>
+        {solo && (
+          <div role="tablist" aria-label="Alternar entre foto A y B" style={{ position: "absolute", top: "calc(10px + env(safe-area-inset-top))", left: "50%", transform: "translateX(-50%)", display: "flex", gap: 4, padding: 4, borderRadius: 24, background: "rgba(0,0,0,.55)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)" }}>
+            {["A", "B"].map((t) => (
+              <button key={t} role="tab" aria-selected={solo === t} onClick={() => setSolo(t)}
+                style={{ width: 52, height: 36, borderRadius: 18, fontSize: 15, fontWeight: 800, background: solo === t ? "#fff" : "transparent", color: solo === t ? "#000" : "#fff" }}>{t}</button>
+            ))}
+          </div>
+        )}
+        {!solo && (
+          <button onClick={() => setVertical((v) => !v)} aria-label={vertical ? "Ver una al lado de la otra" : "Ver una arriba y otra abajo"}
+            style={{ ...btn, position: "absolute", top: "calc(10px + env(safe-area-inset-top))", right: 10 }}>
+            {vertical ? <Columns2 size={20} /> : <Layers size={20} />}
+          </button>
+        )}
+      </div>
+    </div>,
+    portalHost()
+  );
+};
 const PhotoCompareSheet = ({ open, onClose, photos, bodyweight }) => {
   const sorted = useMemo(() => [...(photos || [])].sort((x, y) => (x.date < y.date ? -1 : 1)), [photos]);
   const [aId, setAId] = useState(null);
@@ -2303,8 +2365,16 @@ const PhotoCompareSheet = ({ open, onClose, photos, bodyweight }) => {
   // nativos, que en el teléfono abren la rueda del sistema y tapan justo
   // las fotos que uno quiere comparar.
   const [slot, setSlot] = useState("B");
+  const [filtro, setFiltro] = useState("todas");
+  const [grande, setGrande] = useState(false);
   useEffect(() => {
-    if (open && sorted.length >= 2) { setAId(sorted[0].id); setBId(sorted[sorted.length - 1].id); setSlot("B"); }
+    if (open && sorted.length >= 2) {
+      // Por defecto, la más antigua y la más reciente de la MISMA pose (la
+      // primera pose con al menos 2 fotos); si ninguna repite, de todas.
+      const pose = [...POSES_FOTO, "otra"].find((k) => sorted.filter((x) => poseDe(x) === k).length >= 2);
+      const base = pose ? sorted.filter((x) => poseDe(x) === pose) : sorted;
+      setAId(base[0].id); setBId(base[base.length - 1].id); setSlot("B"); setFiltro(pose || "todas"); setGrande(false);
+    }
   }, [open, sorted]);
   const [aMedia, setAMedia] = useState(null);
   const [bMedia, setBMedia] = useState(null);
@@ -2313,7 +2383,14 @@ const PhotoCompareSheet = ({ open, onClose, photos, bodyweight }) => {
 
   const aEntry = sorted.find((p) => p.id === aId);
   const bEntry = sorted.find((p) => p.id === bId);
-  const slotSrc = (m) => (m ? (m.kind === "video" ? m.poster : m.dataUrl) : null);
+  const slotSrc = mediaSrc;
+  // Al cambiar de hueco, la lista parte filtrada por la pose de la OTRA
+  // foto: lo normal es comparar la misma pose en dos fechas.
+  const elegirHueco = (tag) => {
+    setSlot(tag);
+    const otra = tag === "A" ? bEntry : aEntry;
+    if (otra) setFiltro(poseDe(otra));
+  };
 
   // Peso de la foto: el registro de peso corporal más cercano a su fecha.
   // Comparar dos fotos sin el peso al lado es media comparación.
@@ -2330,11 +2407,12 @@ const PhotoCompareSheet = ({ open, onClose, photos, bodyweight }) => {
   };
   const aKg = weightAt(aEntry), bKg = weightAt(bEntry);
   const diff = aKg != null && bKg != null ? bKg - aKg : null;
+  const distintaPose = aEntry && bEntry && poseDe(aEntry) !== poseDe(bEntry);
 
   const photoSlot = (tag, entry, src, kgVal) => {
     const on = slot === tag;
     return (
-      <button onClick={() => setSlot(tag)} aria-label={`Elegir el hueco ${tag}`}
+      <button onClick={() => elegirHueco(tag)} aria-label={`Elegir el hueco ${tag}`}
         style={{ flex: 1, minWidth: 0, textAlign: "left", display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ width: "100%", aspectRatio: "3/4", borderRadius: 16, background: P.s3, overflow: "hidden",
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -2349,14 +2427,47 @@ const PhotoCompareSheet = ({ open, onClose, photos, bodyweight }) => {
             <span style={{ fontSize: 15, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {entry ? fmtDate(entry.date) : "—"}
             </span>
-            {kgVal != null && <span style={{ fontSize: 13.5, color: P.faint2 }}>{kg(kgVal)} kg</span>}
+            <span style={{ fontSize: 13, color: P.faint2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {[entry ? poseNombre(poseDe(entry)) : null, kgVal != null ? `${kg(kgVal)} kg` : null].filter(Boolean).join(" · ")}
+            </span>
           </span>
         </div>
       </button>
     );
   };
 
+  // Lista para elegir: filtrada por pose, la más reciente primero. Con
+  // "Todas" se agrupa por pose, con su título, para no mezclar frontales con
+  // laterales.
+  const conteo = (k) => sorted.filter((x) => poseDe(x) === k).length;
+  const chips = [["todas", "Todas", sorted.length], ...[...POSES_FOTO, "otra"].filter((k) => conteo(k) > 0).map((k) => [k, k === "otra" ? "Otras" : poseNombre(k).replace(" de posing", ""), conteo(k)])];
+  const grupos = (filtro === "todas" ? [...POSES_FOTO, "otra"] : [filtro]).map((k) => [k, sorted.filter((x) => poseDe(x) === k).reverse()]).filter(([, l]) => l.length);
+  const fila = (pph, last) => {
+    const isA = pph.id === aId, isB = pph.id === bId;
+    const w = weightAt(pph);
+    return (
+      <button key={pph.id} onClick={() => (slot === "A" ? setAId(pph.id) : setBId(pph.id))}
+        aria-label={`${poseNombre(poseDe(pph))}, ${fmtDateFull(pph.date)}${w != null ? `, ${kg(w)} kilos` : ""}. Usar como foto ${slot}`}
+        style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 12,
+          padding: "10px 16px", background: isA || isB ? P.s3 : "transparent",
+          borderBottom: last ? "none" : `1px solid ${P.line}`,
+          transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
+        <FotoMini id={pph.id} />
+        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 16, fontWeight: 600, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtDateFull(pph.date)}</span>
+          <span style={{ fontSize: 13, color: P.faint2 }}>{poseNombre(poseDe(pph))}</span>
+        </span>
+        {w != null && <span className="num" style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-.02em", flexShrink: 0 }}>{kg(w)}<span style={{ fontSize: 12, fontWeight: 500, color: P.faint2 }}> kg</span></span>}
+        {(isA || isB) && (
+          <span style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 11, fontWeight: 700, background: P.text, color: PLATE_FG }}>{isA ? "A" : "B"}</span>
+        )}
+      </button>
+    );
+  };
+
   return (
+    <>
     <Sheet open={open} onClose={onClose} title="Comparar fotos" tall>
       {sorted.length < 2 ? (
         <Empty icon={Camera} title="Necesitas al menos 2 fotos" body="Sube al menos 2 fotos o videos de progreso para poder compararlos lado a lado." />
@@ -2366,49 +2477,61 @@ const PhotoCompareSheet = ({ open, onClose, photos, bodyweight }) => {
             {photoSlot("A", aEntry, slotSrc(aMedia), aKg)}
             {photoSlot("B", bEntry, slotSrc(bMedia), bKg)}
           </div>
+          <button onClick={() => setGrande(true)} aria-label="Ver las dos fotos a pantalla completa"
+            style={{ height: 50, borderRadius: 25, background: PLATE_GRAD, color: PLATE_FG, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 15, fontWeight: 700 }}>
+            <Maximize2 size={20} /> Ver en grande
+          </button>
+
+          {distintaPose && (
+            <div style={{ fontSize: 13, color: P.faint, textAlign: "center" }}>Poses distintas: {poseNombre(poseDe(aEntry))} vs {poseNombre(poseDe(bEntry))}</div>
+          )}
 
           {diff != null && (
             <Card style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 16, color: P.text }}>Diferencia</div>
-                <div style={{ fontSize: 13, color: P.faint2, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: P.faint }}>Diferencia</div>
+                <div style={{ fontSize: 13, color: P.faint2, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {fmtDate(aEntry.date)} → {fmtDate(bEntry.date)}
                 </div>
               </div>
-              <span className="num" style={{ fontSize: 22, fontWeight: 700, color: P.text, flexShrink: 0 }}>
-                {diff >= 0 ? "+" : "−"}{kg(Math.abs(diff))} kg
+              <span className="num" style={{ fontSize: 30, fontWeight: 800, letterSpacing: "-.035em", color: P.text, flexShrink: 0 }}>
+                {diff >= 0 ? "+" : "−"}{kg(Math.abs(diff))}<span style={{ fontSize: 14, fontWeight: 500, color: P.faint2 }}> kg</span>
               </span>
             </Card>
           )}
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: P.faint2, paddingLeft: 4 }}>Elegir foto {slot}</div>
-            <Card style={{ overflow: "hidden" }}>
-              {sorted.map((pph, i) => {
-                const isA = pph.id === aId, isB = pph.id === bId;
-                const w = weightAt(pph);
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }} role="tablist" aria-label="Filtrar por pose">
+              {chips.map(([k, l, c]) => {
+                const on = filtro === k;
                 return (
-                  <button key={pph.id} onClick={() => (slot === "A" ? setAId(pph.id) : setBId(pph.id))}
-                    style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10,
-                      padding: "13px 16px", background: isA || isB ? P.s3 : "transparent",
-                      borderBottom: i < sorted.length - 1 ? `1px solid ${P.line}` : "none",
-                      transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 16, color: P.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {fmtDateFull(pph.date)}
-                    </span>
-                    {w != null && <span style={{ fontSize: 15, color: P.faint2, flexShrink: 0 }}>{kg(w)} kg</span>}
-                    {(isA || isB) && (
-                      <span style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 11, fontWeight: 700, background: P.text, color: PLATE_FG }}>{isA ? "A" : "B"}</span>
-                    )}
+                  <button key={k} onClick={() => setFiltro(k)} role="tab" aria-selected={on}
+                    style={{ flexShrink: 0, height: 36, padding: "0 14px", borderRadius: 18, fontSize: 14, fontWeight: 650, display: "flex", alignItems: "center", gap: 6,
+                      background: on ? P.text : P.s3, color: on ? PLATE_FG : P.dim, transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
+                    {l}<span style={{ fontSize: 12, fontWeight: 500, opacity: .7 }}>{c}</span>
                   </button>
                 );
               })}
-            </Card>
+            </div>
+            {grupos.map(([k, lista]) => (
+              <div key={k} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {filtro === "todas" && <div style={{ fontSize: 12, fontWeight: 600, color: P.faint, paddingLeft: 4, marginTop: 4 }}>{poseNombre(k)} · {lista.length}</div>}
+                <Card style={{ overflow: "hidden" }}>
+                  {lista.map((pph, i) => fila(pph, i === lista.length - 1))}
+                </Card>
+              </div>
+            ))}
           </div>
         </div>
       )}
     </Sheet>
+    {grande && aEntry && bEntry && (
+      <CompararPantalla onClose={() => setGrande(false)}
+        a={{ tag: "A", src: slotSrc(aMedia), fecha: fmtDateFull(aEntry.date), pose: poseNombre(poseDe(aEntry)), kg: aKg }}
+        b={{ tag: "B", src: slotSrc(bMedia), fecha: fmtDateFull(bEntry.date), pose: poseNombre(poseDe(bEntry)), kg: bKg }} />
+    )}
+    </>
   );
 };
 
