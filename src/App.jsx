@@ -18,7 +18,7 @@ import {
    Persistencia: Supabase (PostgreSQL, compartido coach/alumnos).
    ============================================================ */
 
-const BUILD = "v460";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
+const BUILD = "v461";   // sube al cambiar el bundle: sirve para saber qué versión está corriendo
 // ¡OJO! bundle.js se sirve con Cache-Control: immutable por 1 año (netlify.toml)
 // — el navegador SOLO pide una copia nueva si cambia el "?v=" con el que lo
 // pide index.html. Cada vez que subas este BUILD tenés que actualizar TAMBIÉN
@@ -6166,7 +6166,12 @@ const GlobalStyle = () => {
     .fj button:not(:disabled) { transition: transform 420ms cubic-bezier(.25,.8,.25,1), opacity .35s ease, background-color .4s ease, color .35s ease, border-color .35s ease; }
     .fj button:not(:disabled):active { transform: scale(.985); opacity: .9; transition: transform 160ms ease-out, opacity 140ms ease-out, background-color 100ms ease-out; }
     .fj input:focus, .fj textarea:focus, .fj select:focus { box-shadow: 0 0 0 3px ${P.line}; border-color: ${P.faint2}; }
-    .fj .fj-card { border-color: ${P.line}; }
+    .fj .fj-card { border-color: transparent; }
+    /* Tarjetas modulares (v461): los números clave conservan su grosor aunque
+       la capa Calm baje el resto de los pesos; los rótulos pasan a segundo
+       plano (más chicos, finos, sin mayúsculas). */
+    .fj .num[style], .fj .num { font-weight: 800 !important; letter-spacing: -.02em; }
+    .fj .num[style*="font-weight: 500"] { font-weight: 500 !important; }
     /* Calm (v458, 2.ª pasada): nada llama la atención solo. Se apagan las
        animaciones en bucle que "piden mirar", el arranque es un fundido
        simple y los títulos relajan su tracking. */
@@ -6286,9 +6291,12 @@ const SHIFT_TRANSITION = "transform .18s cubic-bezier(.2,.8,.3,1)";
 // explícito, cada "ficha" de sección se destaca con un borde claro en vez
 // de uno oscuro casi invisible, para que se sienta parte del mismo sistema
 // que las placas blanco pastel que suele contener.
+// Tarjeta modular (v461): sin borde, separada del fondo solo por un relleno
+// suave. En claro el fondo sigue blanco y la tarjeta es un gris casi blanco.
+const cardFill = () => (/^#f{3}(f{3})?$/i.test(P.s1) ? "#F5F5F7" : P.s1);
 const Card = ({ children, style, onClick, ...rest }) => (
   <div {...rest} onClick={onClick} className={"fj-card" + (rest.className ? " " + rest.className : "")}
-    style={{ background: P.s1, border: `1px solid ${P.line}`, borderRadius: R_CARD, boxShadow: "none", ...style }}>{children}</div>
+    style={{ background: cardFill(), border: "none", borderRadius: R_CARD, boxShadow: "none", ...style }}>{children}</div>
 );
 
 // Anillo cónico (logros de A6, cuenta atrás de Competition Prep): SVG en
@@ -6373,25 +6381,29 @@ const NumBig = ({ valor, onCommit, aria, ph }) => {
         background: "transparent", border: "none", borderRadius: 0, outline: "none", padding: 0, fontFamily: "inherit", boxSizing: "border-box" }} />
   );
 };
+// Sesión (v461): tarjeta de ejercicio con relleno suave y casillas de dato
+// en blanco encima (en oscuro, casilla un tono sobre la tarjeta).
+const sesCardFill = () => (/^#f/i.test(SES.card) ? "#F5F5F7" : SES.card);
+const sesCellFill = () => (/^#f/i.test(SES.card) ? "#FFFFFF" : SES.campo);
 const NumCell = ({ valor, onCommit, placeholder, aria, ancho = 48, onTap, fondo, flex, alto, sufijo, vacio, radio, altoMin, grande }) => {
   const [txt, setTxt] = useState(valor);
   const foco = useRef(false);
   useEffect(() => { if (!foco.current) setTxt(valor); }, [valor]);
-  const estilo = { width: flex ? "auto" : ancho, flex: flex ? 1 : undefined, padding: alto ? `${alto}px 4px` : "11px 4px", textAlign: "center", fontSize: grande ? 20 : 15, fontWeight: grande ? (txt ? 600 : 400) : 700,
-    color: txt ? SES.ink : SES.faint, background: fondo || SES.campo, border: `1px solid ${SES.line}`, borderRadius: radio != null ? radio : 999, minHeight: altoMin || 44,
+  const estilo = { width: flex ? "auto" : ancho, flex: flex ? 1 : undefined, padding: alto ? `${alto}px 4px` : "11px 4px", textAlign: "center", fontSize: grande ? (txt ? 27 : (String(vacio != null ? vacio : placeholder || "").length > 4 ? 13 : 16)) : 15, fontWeight: grande ? (txt ? 800 : 500) : 700, letterSpacing: grande && txt ? "-.02em" : undefined, whiteSpace: "nowrap",
+    color: txt ? SES.ink : SES.faint, background: fondo || (grande ? sesCellFill() : SES.campo), border: grande ? "none" : `1px solid ${SES.line}`, borderRadius: radio != null ? radio : 999, minHeight: altoMin || 44,
     fontFamily: "inherit", outline: "none", boxSizing: "border-box", minWidth: 0 };
   // Con onTap la celda es un botón, no un campo de texto: abre la rueda
   // directo al tocarla — es la forma predeterminada de cargar el dato,
   // no una alternativa escondida detrás de otro botón.
   if (onTap) {
     return (
-      <button type="button" onClick={onTap} aria-label={aria} style={estilo}>
+      <button type="button" className="num" onClick={onTap} aria-label={aria} style={estilo}>
         {txt ? <>{txt}{(sufijo != null ? sufijo : placeholder) !== "" && <span style={{ fontSize: 11.5, fontWeight: 600, color: SES.faint, marginLeft: 4 }}>{sufijo != null ? sufijo : placeholder}</span>}</> : (vacio != null ? vacio : placeholder)}
       </button>
     );
   }
   return (
-    <input type="text" inputMode="decimal" value={txt} placeholder={placeholder} aria-label={aria}
+    <input type="text" className="num" inputMode="decimal" value={txt} placeholder={placeholder} aria-label={aria}
       onFocus={() => { foco.current = true; }}
       onBlur={() => { foco.current = false; setTxt(valor); }}
       onChange={(e) => { setTxt(e.target.value); onCommit(e.target.value.replace(",", ".")); }}
@@ -11050,7 +11062,7 @@ const CardioCard = ({ ex, st, iconos, comentario, indicaciones, onPatch, onToggl
   const boton = { height: 44, minWidth: 44, borderRadius: 22, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 14px", fontSize: 14, fontWeight: 650 };
   const campo = { width: "100%", boxSizing: "border-box", padding: "12px 12px", fontSize: 16, background: "transparent", color: SES.ink, border: `1px solid ${SES.line}`, borderRadius: 16, fontFamily: "inherit", outline: "none" };
   return (
-    <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: 28, padding: "20px 14px 14px" }}>
+    <div style={{ background: sesCardFill(), border: "none", borderRadius: 28, padding: "20px 14px 14px" }}>
       <div style={{ fontSize: 21, fontWeight: 650, color: SES.ink, lineHeight: 1.2, letterSpacing: "-.045em", overflowWrap: "anywhere" }}>{ex.name || "Cardio"}</div>
       {iconos}
       {comentario}
@@ -11817,7 +11829,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
     }
 
     return (
-      <div style={{ background: SES.card, border: `1px solid ${SES.line}`, borderRadius: 28, padding: "20px 14px 8px" }}>
+      <div style={{ background: sesCardFill(), border: "none", borderRadius: 28, padding: "20px 14px 8px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* El nombre se puede editar EN VIVO (renombrar o poner nombre a un
@@ -11859,7 +11871,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           </div>
         )}
 
-        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "12px 0 6px", fontSize: 13, fontWeight: 400, color: SES.faint }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "14px 0 8px", fontSize: 11.5, fontWeight: 500, letterSpacing: ".02em", color: SES.faint }}>
           <span style={{ width: 24, flexShrink: 0, textAlign: "center" }}>#</span>
           <span style={{ width: 58, flexShrink: 0, textAlign: "center" }}>ANTES</span>
           <span style={{ flex: 1, textAlign: "center" }}>{unitFor(block.group ? block.members[0] : block.ei).toUpperCase()}</span>
@@ -11891,7 +11903,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
           // para quien navega por voz o lector de pantalla.
           const dónde = `${block.group ? `ronda ${(r.round || 0) + 1}` : isWarm ? `aproximación ${meta.no}` : `serie ${meta.no}`} de ${exx.name}`;
           const abierta2 = filaAbierta === restKey(r.ei, r.si);
-          const celda = { flex: true, alto: 10, altoMin: 50, radio: 18, fondo: "transparent", grande: true };
+          const celda = { flex: true, alto: 10, altoMin: 56, radio: 16, grande: true };
           return (
             <React.Fragment key={`${r.ei}-${r.si}`}>
             <div data-set-row data-set-ei={r.ei} data-set-si={r.si}
@@ -11933,7 +11945,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                   <Trash2 size={22} />
                 </div>
               )}
-            <div style={{ display: "flex", alignItems: "center", gap: 6, background: SES.card, transform: dx ? `translateX(${dx}px)` : "none", transition: swipe && swipe.key === k ? "none" : "transform .18s ease" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: sesCardFill(), transform: dx ? `translateX(${dx}px)` : "none", transition: swipe && swipe.key === k ? "none" : "transform .18s ease" }}>
               <button onClick={() => setFilaAbierta(abierta2 ? null : restKey(r.ei, r.si))} aria-expanded={abierta2}
                 aria-label={`Más opciones de la ${dónde}: comentar, foto, unidad, tipo`}
                 style={{ width: 24, flexShrink: 0, textAlign: "center", fontSize: 18, fontWeight: 400, color: abierta2 ? SES.ink : SES.dim, padding: 0 }}>
@@ -11956,7 +11968,7 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
                 aria-label={st.done ? `Desmarcar la ${dónde}` : `Marcar la ${dónde} como hecha`}
                 aria-pressed={st.done}
                 style={{ width: 42, height: 50, borderRadius: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: st.done ? SES.ink : "transparent", color: st.done ? SES.card : SES.faint, border: `1px solid ${st.done ? SES.ink : SES.campo}`,
+                  background: st.done ? SES.ink : sesCellFill(), color: st.done ? SES.card : SES.faint, border: "none",
                   transition: `background ${DUR_ROW}ms ${EASE_STD}` }}>
                 <Check size={22} strokeWidth={2.2} />
               </button>
@@ -13119,8 +13131,8 @@ const FocusModeMono = ({ pedirSalida, onSalidaConsumida, restSel, onPickRest, sa
 const HeroCard = ({ Icon, eyebrow, title, meta, label, onClick, play = true }) => (
   <button data-fjkeep onClick={onClick} aria-label={label} title={label} className="fj-hero"
     style={{ width: "100%", textAlign: "left", display: "flex", flexDirection: "column", gap: 16, borderRadius: 24, padding: 20,
-      background: P.s1, border: `1px solid ${P.line}`, color: P.text }}>
-    <span className="mono" style={{ display: "block", color: P.faint }}>{eyebrow}</span>
+      background: cardFill(), border: "none", color: P.text }}>
+    <span style={{ display: "block", color: P.faint, fontSize: 12.5, fontWeight: 500 }}>{eyebrow}</span>
     <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <span style={{ display: "block", fontSize: 34, fontWeight: 800, letterSpacing: "-.03em", lineHeight: 1, overflowWrap: "anywhere" }}>{title}</span>
       {meta ? <span style={{ display: "block", fontSize: 14, color: P.faint }}>{meta}</span> : null}
@@ -15539,16 +15551,16 @@ const Anillo = ({ pct, size = 44, stroke = 5, color, children }) => {
 const MetricCard = ({ Icon, label, value, unit, sub, spark, sparkKind, ring, onClick, wide }) => (
   <button onClick={onClick} aria-label={`${label}: ${value}${unit ? " " + unit : ""}. Ver detalle`}
     style={{ gridColumn: wide ? "1 / -1" : undefined, textAlign: "left", width: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 8,
-      padding: "15px 16px 13px", borderRadius: R_CARD, background: P.s1, boxShadow: CARD_SHADOW, color: P.text, minHeight: 124 }}>
-    <span className="mono" style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 10.5, color: P.faint }}>
+      padding: "18px 18px 16px", borderRadius: R_CARD, background: cardFill(), boxShadow: "none", color: P.text, minHeight: 132 }}>
+    <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 500, color: P.faint }}>
       {Icon && <Icon size={15} strokeWidth={2} />}{label}
       <span style={{ flex: 1 }} /><ChevronRight size={14} color={P.chevron || P.faint} />
     </span>
     <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
       {ring != null && <Anillo pct={ring} size={46} />}
       <span style={{ display: "flex", alignItems: "baseline", gap: 4, minWidth: 0 }}>
-        <span className="num" style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.035em", lineHeight: 1, color: value === "—" ? P.textQuaternary : P.text }}>{value}</span>
-        {unit && value !== "—" && <span style={{ fontSize: 13.5, fontWeight: 600, color: P.faint2 }}>{unit}</span>}
+        <span className="num" style={{ fontSize: 38, fontWeight: 800, letterSpacing: "-.04em", lineHeight: 1, color: value === "—" ? P.textQuaternary : P.text }}>{value}</span>
+        {unit && value !== "—" && <span style={{ fontSize: 13, fontWeight: 500, color: P.faint2 }}>{unit}</span>}
       </span>
     </span>
     <span style={{ marginTop: "auto" }}>
@@ -23055,12 +23067,12 @@ const segClock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")
 // misma forma que "Estado de hoy" y las fichas del check-in.
 const StatSquare = ({ top, value, unit, sub, onClick }) => (
   <button onClick={onClick} disabled={!onClick}
-    style={{ width: "100%", minHeight: 92, textAlign: "left", background: P.s1, border: `1px solid ${P.frame}`,
-      borderRadius: R_TILE, padding: "13px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
-    <span style={{ fontSize: 12.5, color: P.faint2 }}>{top}</span>
+    style={{ width: "100%", minHeight: 100, textAlign: "left", background: cardFill(), border: "none",
+      borderRadius: R_TILE, padding: "15px 14px", display: "flex", flexDirection: "column", gap: 5 }}>
+    <span style={{ fontSize: 12, fontWeight: 500, color: P.faint2 }}>{top}</span>
     <span style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
-      <span className="num" style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.02em", color: P.text, lineHeight: 1.1 }}>{value}</span>
-      {unit && <span style={{ fontSize: 13, fontWeight: 600, color: P.faint2 }}>{unit}</span>}
+      <span className="num" style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-.035em", color: P.text, lineHeight: 1.05 }}>{value}</span>
+      {unit && <span style={{ fontSize: 13, fontWeight: 500, color: P.faint2 }}>{unit}</span>}
     </span>
     {sub != null && <span style={{ fontSize: 12, color: P.faint2, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</span>}
   </button>
@@ -33375,12 +33387,12 @@ const SettingGroup = ({ label, children }) => (
 // un collage.
 const STAT_FOOT_H = 16;
 const StatTile = ({ label, value, unit, note, bar, onClick }) => (
-  <Card onClick={onClick} style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4,
+  <Card onClick={onClick} style={{ padding: "18px 18px 16px", display: "flex", flexDirection: "column", gap: 6,
     height: "100%", boxSizing: "border-box",
     cursor: onClick ? "pointer" : undefined, position: "relative" }}>
-    <span className="mono" style={{ letterSpacing: ".08em" }}>{label}</span>
-    <span style={{ fontSize: 28, fontWeight: 800, lineHeight: 1, letterSpacing: "-.04em", marginTop: "auto" }}>
-      {value}{unit && <span style={{ fontSize: 14 }}>{unit}</span>}
+    <span style={{ fontSize: 12, fontWeight: 500, color: P.faint }}>{label}</span>
+    <span className="num" style={{ fontSize: 38, fontWeight: 800, lineHeight: 1, letterSpacing: "-.04em", marginTop: "auto" }}>
+      {value}{unit && <span style={{ fontSize: 14, fontWeight: 500, marginLeft: 3 }}>{unit}</span>}
     </span>
     <span style={{ display: "flex", alignItems: "center", minHeight: STAT_FOOT_H }}>
       {bar != null ? (
